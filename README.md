@@ -34,7 +34,7 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Innovative UI**: Gulp's user interface includes a zoomable timeline for visualizing events, making it easier to understand and analyze incidents.
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
-- **.NET native client**: A full fledged web-ui is in the works, but in the meantime you can use most of the features using the .NET client.
+- **.NET native client**: While a full fledged web-ui is in the works, in the meantime you can use most of the features using the .NET client we use ourself to testdrive during development.
   
 
 ## Architecture
@@ -156,6 +156,10 @@ TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "
 > - resuming ingestion is supported **if the `req_id` parameter is the same across requests**.
 
 ## client
+
+> **NOTE**: the .NET client is to be considered an alpha version, this is the tool we are using internally to testdrive the backend development, and it is not feature complete.
+> 
+> **worry not: a proper modern web-ui is in the works and will be released shortly!**
 
 on Windows, just unzip the [.NET client UI](./dotnet-ui.zip) and you're good to go.
 
