@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "plugin": ["csv"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "SourceFile": {
+          "map_to": "file.path"
+        },
+        "SourceCreated": {
+          "is_timestamp": true,
+          "event_code": "source_created"
+        },
+        "SourceModified": {
+          "is_timestamp": true,
+          "event_code": "source_modified"
+        },
+        "SourceAccessed": {
+          "is_timestamp": true,
+          "event_code": "source_accessed"
+        },
+        "TargetCreated": {
+          "is_timestamp": true,
+          "event_code": "target_created"
+        },
+        "TargetModified": {
+          "is_timestamp": true,
+          "event_code": "target_modified"
+        },
+        "TargetAccessed": {
+          "is_timestamp": true,
+          "event_code": "target_accessed"
+        },
+        "FileSize": {
+          "map_to": "file.size"
+        },
+        "RelativePath": {},
+        "WorkingDirectory": {},
+        "NetworkPath": {},
+        "LocalPath": {},
+        "TargetIDAbsolutePath": {},
+        "MachineID": {
+          "map_to": "host.id"
+        },
+        "MachineMACAddress": {
+          "map_to": "host.mac"
+        },
+        "TrackerCreatedOn": {
+          "is_timestamp": true,
+          "event_code": "tracker_created"
+        }
+      },
+      "options": {
+        "default_event_code": "LECmd",
+        "agent_type": "LECmd",
+        "mapping_id": "lecmd"
+      }
+    }
+  ]
+}

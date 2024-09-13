@@ -1,0 +1,13 @@
+{
+    "metadata": {
+        "plugin": [
+            "pcap"
+        ]
+    },
+    "mappings": [
+        {
+            "fields": {},
+            "options": {}
+        }
+    ]
+}

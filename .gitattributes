@@ -1,0 +1,3 @@
+samples/mftecmd filter=lfs diff=lfs merge=lfs -text
+samples/win_evtx filter=lfs diff=lfs merge=lfs -text
+test_scripts/test_upload_with_metadata_json.zip filter=lfs diff=lfs merge=lfs -text

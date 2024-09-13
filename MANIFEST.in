@@ -1,0 +1,2 @@
+recursive-include src/gulp/api/collab/assets *
+recursive-include src/gulp/ecs *

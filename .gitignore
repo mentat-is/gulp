@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv
+pyrightconfig.json
+
+# VSCode
+.vscode/
+gulp_cfg.json
+*.egg-info
+test.py
+elastic_data1
+elastic_data2
+elastic_data3
+elastic_data
+redis_data
+postgres_data
+opensearch_data1
+opensearch_data2
+opensearch_data3
+kibana_data
+build
+.DS_Store
+test_scripts/test.json
+requirements.txt
+*log*.txt
+
+#auto generated docs
+docs/html

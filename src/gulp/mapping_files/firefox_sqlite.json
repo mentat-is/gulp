@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "plugin": ["sqlite"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "url": {
+          "map_to": ["url.full", "url.original"]
+        },
+        "last_visit_date": {
+          "is_timestamp": true
+        }
+      },
+      "options": {
+        "default_event_code": "History",
+        "agent_type": "Firefox",
+        "mapping_id": "moz_places"
+      }
+    },
+    {
+      "fields": {
+        "anno_attribute_id": {
+          "map_to": "anno_attribute_id"
+        }
+      },
+      "options": {
+        "default_event_code": "History",
+        "agent_type": "Firefox",
+        "mapping_id": "moz_annos"
+      }
+    }
+  ]
+}

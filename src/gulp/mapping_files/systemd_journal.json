@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "plugin": [
+      "systemd_journal"
+    ]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "_GID": {
+          "map_to": "user.group.id"
+        },
+        "_UID": {
+          "map_to": "user.id"
+        },
+        "_EXE": {
+          "map_to": "process.executable"
+        },
+        "_MACHINE_ID": {
+          "map_to": "host.id"
+        },
+        "_COMM": {
+          "map_to": "process.command_line"
+        },
+        "_HOST": {
+          "map_to": "host.hostname"
+        },
+        "_PID": {
+          "map_to": "process.id"
+        },
+        "_MESSAGE": {
+          "map_to": "log.message"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=60", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+
+[project]
+name = "gulp"
+dynamic = ["version"]
+authors = [{ name = "Mentat", email = "info@mentat.is" }]
+description = "gULP - (generic) Unified Log Processor."
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "aiocsv",
+    "aiosmtplib",
+    "art",
+    "asyncio-pool",
+    "certifi",
+    "charset-normalizer",
+    "dotwiz",
+    "evtx",
+    "fastapi",
+    "idna",
+    "Jinja2",
+    "MarkupSafe",
+    "muty@git+ssh://git@github.com/mentat-is/muty-python.git",
+    "opensearch-py",
+    "packaging",
+    "pip",
+    "psutil",
+    "psycopg_pool",
+    "psycopg-binary",
+    "psycopg",
+    "pycryptodome",
+    "pydantic>=2",
+    "pyparsing",
+    "pySigma-backend-elasticsearch",
+    "pySigma-backend-opensearch",
+    "pySigma",
+    "python-multipart",
+    "python-pip",
+    "PyYAML",
+    "requests_toolbelt",
+    "requests",
+    "setuptools",
+    "sigma-cli",
+    "sqlalchemy-dlock",
+    "sqlalchemy-utils",
+    "sqlalchemy[asyncio]",
+    "starlette",
+    "urllib3",
+    "uvicorn",
+    "websockets",
+    "xmltodict"
+]
+
+[project.scripts]
+gulp = "gulp.gulp:main"
+

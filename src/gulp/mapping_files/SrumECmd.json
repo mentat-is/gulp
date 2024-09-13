@@ -1,0 +1,136 @@
+{
+  "metadata": {
+    "plugin": ["csv"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "Timestamp": {
+          "is_timestamp": true
+        },
+        "ExeInfo": {
+          "map_to": "file.path"
+        },
+        "Sid": {
+          "map_to": "user.id"
+        },
+        "UserName": {
+          "map_to": "user.name"
+        }
+      },
+      "options": {
+        "default_event_code": "AppResourceUseInfo",
+        "agent_type": "SrumECmd",
+        "mapping_id": "appresourceuseinfo"
+      }
+    },
+    {
+      "fields": {
+        "Timestamp": {
+          "is_timestamp": true
+        },
+        "ExeInfo": {
+          "map_to": "process.name"
+        },
+        "Sid": {
+          "map_to": "user.id"
+        },
+        "UserName": {
+          "map_to": "user.name"
+        },
+        "DurationMs": {
+          "map_to": "event.duration",
+          "do_multiply": 1000000
+        }
+      },
+      "options": {
+        "default_event_code": "AppTimelineProvider",
+        "agent_type": "SrumECmd",
+        "mapping_id": "apptimelineprovider"
+      }
+    },
+    {
+      "fields": {
+        "Timestamp": {
+          "is_timestamp": true
+        },
+        "EventTimestamp": {
+          "is_timestamp": true,
+          "event_code": "event_timestamp"
+        }
+      },
+      "options": {
+        "default_event_code": "EnergyUsage",
+        "agent_type": "SrumECmd",
+        "mapping_id": "energyusage"
+      }
+    },
+    {
+      "fields": {
+        "Timestamp": {
+          "is_timestamp": true
+        },
+        "ConnectStartTime": {
+          "is_timestamp": true,
+          "event_code": "connect_start_time"
+        },
+        "ConnectedTime": {
+          "map_to": "event.duration",
+          "do_multiply": 1000000000
+        }
+      },
+      "options": {
+        "default_event_code": "NetworkConnections",
+        "agent_type": "SrumECmd",
+        "mapping_id": "networkconnections"
+      }
+    },
+    {
+      "fields": {
+        "Timestamp": {
+          "is_timestamp": true
+        },
+        "ExeInfo": {
+          "map_to": "file.path"
+        },
+        "Sid": {
+          "map_to": "user.id"
+        },
+        "UserName": {
+          "map_to": "user.name"
+        }
+      },
+      "options": {
+        "default_event_code": "NetworkUsages",
+        "agent_type": "SrumECmd",
+        "mapping_id": "networkusages"
+      }
+    },
+    {
+      "fields": {
+        "Timestamp": {
+          "is_timestamp": true
+        },
+        "Sid": {
+          "map_to": "user.id"
+        },
+        "UserName": {
+          "map_to": "user.name"
+        },
+        "StartTime": {
+          "is_timestamp": true,
+          "event_code": "start_time"
+        },
+        "EndTime": {
+          "is_timestamp": true,
+          "event_code": "end_time"
+        }
+      },
+      "options": {
+        "default_event_code": "vfuprov",
+        "agent_type": "SrumECmd",
+        "mapping_id": "vfuprov"
+      }
+    }
+  ]
+}

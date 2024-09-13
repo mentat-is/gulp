@@ -1,0 +1,70 @@
+{
+  // each spawned process will run this number of tasks concurrently, at max (default=16)
+  "concurrency_max_tasks": 16,
+  // only for debugging, abort ingestion of the current file on first error when indexing a document (default=true)
+  "debug_abort_on_elasticsearch_ingestion_error": true,
+  // allow any token (even non existent) to be used as admin (default=false)
+  "debug_allow_any_token_as_admin": false,
+  // enable insecure passwords for user during development
+  "debug_allow_insecure_passwords": false,
+  // enable debug for collaboration engine (prints sql queries and more, default=false)
+  "debug_collab": false,
+  // prevent token expiration for debugging purposes
+  "debug_no_token_expiration": false,
+  // client certificate password (not supported, ignored)
+  "elastic_client_cert_password": null,
+  // this is the default, set to true only if your elasticsearch cluster has multiple nodes
+  "elastic_multiple_nodes": false,
+  // elasticsearch url (may be overridden by ELASTIC_URL environment variable)
+  "elastic_url": "http://admin:Gulp1234!@localhost:9200",
+  // set to false to skip server certificate verification
+  "elastic_verify_certs": false,
+  // enforce https
+  "https_enforce": false,
+  // enforce client certificates signed by gulp-ca for https
+  "https_enforce_client_certs": false,
+  // bulk ingestion buffer size (higher=more memory usage, better ingestion performance, tune up/down if you have request timeouts during ingestion)
+  "ingestion_buffer_size": 1000,
+  // failed events in a file to consider the file ABORTED (0=disabled)
+  "ingestion_evt_failure_threshold": 0,
+  // how many seconds to wait for a connection during ingestion (default=60, tune up if you have request timeouts during ingestion)
+  "ingestion_request_timeout": 180,
+  // for multiple queries/ingestions at once, limit the batch size used (default=0=number of cpu cores)
+  "multiprocessing_batch_size": 0,
+  // maximum number of processes to be used for ingestion (default=0=number of CPU cores)
+  "parallel_processes_max": 0,
+  // respawn a process after this number of tasks, may help against leaks (default=0=never respawn)
+  "parallel_processes_respawn_after_tasks": 0,
+  // certificates directory (may be overridden by CERTS_DIRECTORY environment variable)
+  "path_certs": "~/repos/gulp/certs",
+  // if set, path to be used when loading mapping files used by plugins (may be overridden by PATH_MAPPING_FILES environment variable)
+  "path_mapping_files": null,
+  // (base) path to load plugins from. leave null to use the default "GULPDIR/plugins". can be overridden with PATH_PLUGINS environment variable
+  "path_plugins": null,
+  // enable cache for plugins (faster loading)
+  "plugin_cache_enabled": true,
+  // client certificate password (if any)
+  "postgres_client_cert_password": null,
+  // set to use SSL to connect to postgresql
+  "postgres_ssl": false,
+  // postgresql address (may be overridden by POSTGRES_URL environment variable)
+  "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
+  // set to false to skip server certificate verification
+  "postgres_verify_certs": false,
+  // maximum number of notes to be created for a single SIGMA query (default=null=all)
+  "query_sigma_max_notes": 0,
+  // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
+  "stats_ttl": 86400,
+  // how many seconds before automatically delete live-ingestion stats, default=604800=one week)
+  "stats_live_ttl": 604800,
+  // how many events to ingest before updating the ingestion stats (default=1000)
+  "stats_update_threshold": 1000,
+  // admin/impersonation token expiration seconds, default=10 min (600 seconds)
+  "token_admin_ttl": 600,
+  // login token (except admin) expiration time, default=1week (604800 seconds)
+  "token_ttl": 604800,
+  // when notes on match are created for queries, how many notes to create at once (default=1000)
+  "ws_notes_on_match_batch_size": 1000,
+  // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected clients: increment if you get clients disconnections, and also check client code if this happens too often.
+  "ws_rate_limit_delay": 0.01
+}

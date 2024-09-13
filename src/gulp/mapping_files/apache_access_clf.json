@@ -1,0 +1,44 @@
+{
+  "metadata": {
+    "plugin": ["apache_access_clf"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "datetime": {
+          "is_timestamp": true
+        },
+        "request_method": {
+          "map_to": "http.request.method"
+        },
+        "referrer": {
+          "map_to": "http.request.referrer"
+        },
+        "user": {
+          "map_to": "user.name"
+        },
+        "size": {
+          "map_to": "http.response.bytes"
+        },
+        "status": {
+          "map_to": "http.response.status_code"
+        },
+        "request_version": {
+          "map_to": "http.version"
+        },
+        "host": {
+          "map_to": "source.ip"
+        },
+        "path": {
+          "map_to": ["url.original", "url.path"]
+        },
+        "query": {
+          "map_to": "url.query"
+        },
+        "agent": {
+          "map_to": "user_agent.original"
+        }
+      }
+    }
+  ]
+}

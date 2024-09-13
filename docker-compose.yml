@@ -1,0 +1,177 @@
+services:
+  gulp:
+    profiles: ["full"]
+    image: gulp:latest
+    container_name: gulp
+    environment:
+      - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - ELASTIC_URL=http://${ELASTIC_USER}:${ELASTIC_PASSWORD}@os01:9200
+      - PATH_CERTS=/app/certs
+      - PATH_CONFIG=/app/gulp_cfg.json
+    networks:
+      - gulpnet
+    volumes:
+      - ./gulp_cfg.json:/app/gulp_cfg.json
+      - ./certs:/app/certs
+
+    depends_on:
+      - postgres
+      - adminer
+      - os01
+    ports:
+      - 8080:8080
+    command: gulp ${EXTRA_ARGS} --bind-to 0.0.0.0 8080
+
+  os01:
+    restart: always
+    image: opensearchproject/opensearch:latest
+    environment:
+      discovery.type: single-node
+      #discovery.seed_hosts: "os01,os02,os03"
+      #cluster.initial_master_nodes: "os01,os02,os03"
+      cluster.name: "opensearch"
+      network.host: "0.0.0.0"
+      node.name: "os01"
+      #index.codec: "zstd_no_dict"
+      bootstrap.memory_lock: true
+      #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
+      OPENSEARCH_USERNAME: ${ELASTIC_USER}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${ELASTIC_PASSWORD}
+      plugins.security.ssl.http.enabled: false
+      http.cors.enabled: true
+      http.cors.allow-origin: "*"
+      http.cors.allow-headers: "*"
+    #deploy:
+      #resources:
+        #limits:
+          #memory: 8000M
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+      - gulpnet
+    ports:
+      - 9200:9200
+    volumes:
+      - ${ELASTIC_DATA}1:/usr/share/opensearch/data
+      - ./certs:/usr/share/opensearch/config/certs
+
+  ############################################################
+  # Uncomment the following to create a cluster with 3 nodes.#
+  #                                                          #
+  # in all clusters, the discovery.seed_hosts and            #
+  # cluster.initial_master_nodes should be set to the same   #
+  # value and discovery.type should be commented out in os01 #
+  ############################################################
+  # os02:
+  #   restart: always
+  #   image: opensearchproject/opensearch:latest
+  #   environment:
+  #     #discovery.type: single-node
+  #     discovery.seed_hosts: "os01,os02,os03"
+  #     cluster.initial_master_nodes: "os01,os02,os03"
+  #     cluster.name: "opensearch"
+  #     network.host: "0.0.0.0"
+  #     node.name: "os02"
+  #     #index.codec: "zstd_no_dict"
+  #     bootstrap.memory_lock: true
+  #     #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
+  #     OPENSEARCH_USERNAME: ${ELASTIC_USER}
+  #     OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${ELASTIC_PASSWORD}
+  #     plugins.security.ssl.http.enabled: false
+  #     http.cors.enabled: true
+  #     http.cors.allow-origin: "*"
+  #     http.cors.allow-headers: "*"
+  #   ulimits:
+  #     memlock:
+  #       soft: -1
+  #       hard: -1
+  #   networks:
+  #     - gulpnet
+  #   volumes:
+  #     - ${ELASTIC_DATA}2:/usr/share/opensearch/data
+  #     - ./certs:/usr/share/opensearch/config/certs
+
+  # os03:
+  #   restart: always
+  #   image: opensearchproject/opensearch:latest
+  #   environment:
+  #     #discovery.type: single-node
+  #     discovery.seed_hosts: "os01,os02,os03"
+  #     cluster.initial_master_nodes: "os01,os02,os03"
+  #     cluster.name: "opensearch"
+  #     network.host: "0.0.0.0"
+  #     node.name: "os03"
+  #     #index.codec: "zstd_no_dict"
+  #     bootstrap.memory_lock: true
+  #     #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
+  #     OPENSEARCH_USERNAME: ${ELASTIC_USER}
+  #     OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${ELASTIC_PASSWORD}
+  #     plugins.security.ssl.http.enabled: false
+  #     http.cors.enabled: true
+  #     http.cors.allow-origin: "*"
+  #     http.cors.allow-headers: "*"
+  #   ulimits:
+  #     memlock:
+  #       soft: -1
+  #       hard: -1
+  #   networks:
+  #     - gulpnet
+  #   volumes:
+  #     - ${ELASTIC_DATA}3:/usr/share/opensearch/data
+  #     - ./certs:/usr/share/opensearch/config/certs
+
+  opensearch-dashboards:
+    profiles: ["full"]
+    image: opensearchproject/opensearch-dashboards:latest
+    container_name: opensearch-dashboards
+    ports:
+      - 5601:5601
+    expose:
+      - "5601"
+    environment:
+      OPENSEARCH_HOSTS: '["http://os01:9200"]'
+    depends_on:
+      - os01
+    networks:
+      - gulpnet
+
+  postgres:
+    image: postgres
+    #command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
+    restart: always
+    networks:
+      - gulpnet
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ${POSTGRES_DATA}:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+  elasticvue:
+    image: cars10/elasticvue:latest
+    container_name: elasticvue
+    networks:
+      - gulpnet
+    ports:
+      - 8082:8080
+    depends_on:
+      - os01
+
+  adminer:
+    image: adminer
+    depends_on:
+      - postgres
+    networks:
+      - gulpnet
+    restart: always
+    ports:
+      - 8002:8080
+
+networks:
+  gulpnet:
+    driver: bridge

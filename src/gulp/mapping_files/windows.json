@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "plugin": ["win_evtx", "csv"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "ProcessID": {
+          "map_to": "process.pid"
+        },
+        "ThreadID": {
+          "map_to": "process.thread.id"
+        },
+        "Computer": {
+          "map_to": "host.name"
+        },
+        "TargetUserSid": {
+          "map_to": "user.id"
+        },
+        "UserID": {
+          "map_to": "user.id"
+        },
+        "TargetUserName": {
+          "map_to": "user.name"
+        }
+      }
+    }
+  ]
+}

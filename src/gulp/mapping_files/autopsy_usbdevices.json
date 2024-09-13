@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "plugin": ["csv"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "Source Name": {
+          "map_to": "source_name"
+        },
+        "Date/Time": {
+          "is_timestamp": true
+        },
+        "Device Make": {
+          "map_to": "device_maker"
+        },
+        "Device Model": {
+          "map_to": "device_model"
+        },
+        "Device ID": {
+          "map_to": "device_id"
+        },
+        "Data Source": {}
+      },
+      "options": {
+        "default_event_code": "usb_attached",
+        "agent_type": "Autopsy USBDevice",
+        "mapping_id": "Autopsy USBDevice"
+      }
+    }
+  ]
+}

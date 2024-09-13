@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "plugin": ["apache_error_clf"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "date": {
+          "is_timestamp": true
+        },
+        "loglevel": {
+          "map_to": "gulp.log_level"
+        },
+        "pid": {
+          "map_to": "process.pid"
+        },
+        "tid": {
+          "map_to": "process.tid"
+        },
+        "client": {
+          "map_to": "source.type"
+        },
+        "ip": {
+          "map_to": "ip.source"
+        },
+        "message": {
+          "map_to": "message"
+        }
+      }
+    }
+  ]
+}

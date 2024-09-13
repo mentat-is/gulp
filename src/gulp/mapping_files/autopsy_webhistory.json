@@ -1,0 +1,39 @@
+{
+  "metadata": {
+    "plugin": ["csv"]
+  },
+  "mappings": [
+    {
+      "fields": {
+        "Source Name": {
+          "map_to": "source_name"
+        },
+        "Url": {
+          "map_to": "url"
+        },
+        "Date Accessed": {
+          "is_timestamp": true
+        },
+        "Referrer URL": {
+          "map_to": "referrer"
+        },
+        "Title": {
+          "map_to": "title"
+        },
+        "Program Name": {
+          "map_to": "programname"
+        },
+        "Domain": {
+          "map_to": "domain"
+        },
+        "Username": {},
+        "Data Source": {}
+      },
+      "options": {
+        "default_event_code": "0",
+        "agent_type": "Autopsy Web History",
+        "mapping_id": "Autopsy Web History"
+      }
+    }
+  ]
+}
