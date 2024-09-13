@@ -1,6 +1,5 @@
 
-# install from sources
-
+# Install From Sources
 [TOC]
 
 ## 1. prerequisites

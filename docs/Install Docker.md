@@ -1,7 +1,7 @@
-# docker install
+# Docker Installation
+[TOC]
 
 ## (re)build image
-
 > until we provide a docker image to be pulled :)
 
 1. clone this repository and perform [install from sources](<./Install Dev.md>)

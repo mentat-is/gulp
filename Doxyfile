@@ -122,7 +122,8 @@ EXCLUDE_PATTERNS       = test_scripts \
     elastic_data \
     *.egg-info \
     *.pyc \
-    doxygen-awesome-css
+    doxygen-awesome-css \
+    LICENSE.*.md
 
 EXCLUDE_SYMBOLS        =
 EXAMPLE_PATH           =
