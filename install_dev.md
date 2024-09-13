@@ -10,8 +10,7 @@
   - [2. dev install](#2-dev-install)
   - [3. run](#3-run)
     - [1. test](#1-test)
-  - [4. update](#4-update)
-  - [5. troubleshoot](#5-troubleshoot)
+  - [4. troubleshoot](#4-troubleshoot)
 
 ## 1. prerequisites
 
@@ -95,18 +94,6 @@ cd ./repos/gulp
 TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~
 
-## 4. update
-
-~~~bash
-cd ./repos/gulp
-
-# update all the involved repos
-./pull_all.sh
-
-# in case some dependencies are changed, just reinstall
-pip3 install -e . && pip3 install -e ../muty-python
-~~~
-
-## 5. troubleshoot
+## 4. troubleshoot
 
 [troubleshoot](./README.md#troubleshoot)
