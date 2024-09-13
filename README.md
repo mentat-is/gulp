@@ -16,7 +16,7 @@ _made with :heart: by Mentat._
 
 <div align="center">
 
-[Description](#Description) - [Architecture](#Architecture) - [API](#API) - [Installation](#Installation) - [Run & examples](#Run) - [Troubleshooting](./docs/Troubleshooting.md)
+[Description](#Description) - [Architecture](#Architecture) - [API](#API) - [Installation](#Installation) - [Run & examples](#Run) - [GUI](#client) - [Troubleshooting](./docs/Troubleshooting.md)
 
 </div>
 
@@ -34,20 +34,8 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Innovative UI**: Gulp's user interface includes a zoomable timeline for visualizing events, making it easier to understand and analyze incidents.
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
-
-### Roadmap
-
-the following features are planned:
-
-#### Soon
-
-- **Slurp**: Our proprietary modular agent to ease log collections from a variety of sources.
-
-- **Machine Learning**: Enhances Gulp's analysis capabilities using ML plugins, providing automated detection of anomalies and patterns, automated incident reports, and more.
-
-#### Then
-
-- **SIEM Integration**: integrate with popular SIEMs (*SIEM bridges*).
+- **.NET native client**: A full fledged web-ui is in the works, but in the meantime you can use most of the features using the .NET client.
+  
 
 ## Architecture
 
@@ -166,3 +154,10 @@ TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "
 >   - if TEST_WS_ID is not specified, ingestion happens anyway, but results are not broadcasted.
 >
 > - resuming ingestion is supported **if the `req_id` parameter is the same across requests**.
+
+## client
+
+on Windows, just unzip the [.NET client UI](./dotnet-ui.zip) and you're good to go.
+
+on Linux, follow [the instructions] to run it under Wine.
+
