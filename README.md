@@ -161,7 +161,9 @@ TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "
 > 
 > **worry not: a proper modern web-ui is in the works and will be released shortly!**
 
-on Windows, just unzip the [.NET client UI](./dotnet-ui.zip) and you're good to go.
+on Windows, just unzip the [.NET client UI](./binaries/dotnet-ui.zip) and you're good to go.
 
-on Linux, follow [the instructions] to run it under Wine.
+on Linux, follow [the instructions](./docs/linux-wine-client.md) to run it under Wine.
+
+[client alpha documentation](./docs/Gulp_dotnet_ui_alpha_docs.odt)
 
