@@ -25,7 +25,7 @@ a token can also be provided to avoid login via environment variable TEST_TOKEN.
 ```
 
 # Examples
-Here are a few examples on how to use the [test_ingest.sh](#TODO:githublink) script.
+Here are a few examples on how to use the [test_ingest.sh](https://github.com/mentat-is/gulp/test_scripts/test_ingest.sh) script.
 
 ## win_evtx plugin
 Source: [win_evtx.py](https://github.com/mentat-is/gulp/src/gulp/plugins/win_evtx.py)
