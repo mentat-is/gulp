@@ -163,7 +163,7 @@ It's still heavily under construction, so any contribution is highly appreciated
 This is the intended official wanna-be client for gulp.
 
 ### .NET Client
-> [!WARNING] ⚠ the .NET client is to be considered an internal-test version, this is the tool we use internally to testdrive the backend development.
+> [!IMPORTANT] ⚠ the .NET client is to be considered an internal-test version, this is the tool we use internally to testdrive the backend development.
 > It is not feature complete and far from beign production ready :).
 > Feel free to open issues, but any contribution should go towards the new in-development [web client](https://github.com/mentat-is/gulpui-web)
 
