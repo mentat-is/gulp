@@ -4,7 +4,7 @@
 
 > until we provide a docker image to be pulled :)
 
-1. clone this repository and perform [install from sources](./install_dev.md)
+1. clone this repository and perform [install from sources](<./Install Dev.md>)
 
 2. build gulp image
 
@@ -18,7 +18,7 @@ docker build --rm --tag gulp:latest --ssh default .
 
 ## run
 
-> using default [docket-compose](./docker-compose.yml), you should provide your own ...
+> using default [docket-compose](../docker-compose.yml), you should provide your own ...
 
 ```bash
 # create configuration from template, if needed

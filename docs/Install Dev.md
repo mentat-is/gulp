@@ -1,16 +1,7 @@
 
 # install from sources
 
-- [install from sources](#install-from-sources)
-  - [1. prerequisites](#1-prerequisites)
-    - [1. install OS dependencies](#1-install-os-dependencies)
-    - [2. clone repositories](#2-clone-repositories)
-    - [4. create and enter virtualenv](#4-create-and-enter-virtualenv)
-    - [5. prepare directories and configuration](#5-prepare-directories-and-configuration)
-  - [2. dev install](#2-dev-install)
-  - [3. run](#3-run)
-    - [1. test](#1-test)
-  - [4. troubleshoot](#4-troubleshoot)
+[TOC]
 
 ## 1. prerequisites
 
@@ -96,4 +87,4 @@ TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 
 ## 4. troubleshoot
 
-[troubleshoot](./README.md#troubleshoot)
+[troubleshoot](./Troubleshooting.md)
