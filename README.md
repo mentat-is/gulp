@@ -34,7 +34,7 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Innovative UI**: Gulp's user interface includes a zoomable timeline for visualizing events, making it easier to understand and analyze incidents.
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
-- **.NET native client**: While a full fledged web-ui is in the works, in the meantime you can use most of the features using the .NET client we use ourself to testdrive during development.
+- **UI clients**: While [a full fledged web-ui](https://github.com/mentat-is/gulpui-web) is in the works, in the meantime you can use most of the features using the .NET client we use ourself to testdrive during development.
 
 
 ## Architecture
@@ -157,17 +157,20 @@ TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "
 ## Clients
 
 ### Web Client
+
 If you want to use the web GUI visit it's repository [here](https://github.com/mentat-is/gulpui-web).
 It's still heavily under construction, so any contribution is highly appreciated!
 
 This is the intended official wanna-be client for gulp.
 
 ### .NET Client
-> [!IMPORTANT] ⚠ the .NET client is to be considered an internal-test version, this is the tool we use internally to testdrive the backend development.
-> It is not feature complete and far from beign production ready :).
-> Feel free to open issues, but any contribution should go towards the new in-development [web client](https://github.com/mentat-is/gulpui-web)
 
-If you want to use the .NET client refer to the guides below to get started:
+> [!IMPORTANT] ⚠ the .NET client is to be considered an internal-test version, this is the tool we use internally to testdrive the backend development.
+> It is not feature complete and far from being production ready :).
+> Feel free to open issues, but any contribution should go towards the new WIP [web client](https://github.com/mentat-is/gulpui-web)
+
+If you want to use the .NET client, refer to the guides below to get started:
+
 - on Windows, follow [these instructions]in the guilp repo [here](<https://github.com/mentat-is/gulpui-dotnet/README.md#install>).
 - on Linux, read the [compatibility section](<https://github.com/mentat-is/gulpui-dotnet/README.md#compatibility>) to run it under Wine (some limitations apply).
 
