@@ -36,6 +36,13 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
 - **UI clients**: While [a full fledged web-ui](https://github.com/mentat-is/gulpui-web) is in the works, in the meantime you can use most of the features using the .NET client we use ourself to testdrive during development.
 
+## Timeline
+
+Here's the rough timeline we put together, it is subject to change:
+
+![timeline](.images/timeline.png)
+
+soon we will release the slides we did at [MOCA2024](https://moca.camp), stay tuned!
 
 ## Architecture
 
@@ -169,9 +176,5 @@ This is the intended official wanna-be client for gulp.
 > It is not feature complete and far from being production ready :).
 > Feel free to open issues, but any contribution should go towards the new WIP [web client](https://github.com/mentat-is/gulpui-web)
 
-If you want to use the .NET client, refer to the guides below to get started:
-
-- on Windows, follow [these instructions]in the guilp repo [here](<https://github.com/mentat-is/gulpui-dotnet/README.md#install>).
-- on Linux, read the [compatibility section](<https://github.com/mentat-is/gulpui-dotnet/README.md#compatibility>) to run it under Wine (some limitations apply).
-
-A (more or less) complete documentation of the .NET GUI features can be found [here](https://github.com/mentat-is/gulpui-dotnet/DOCS.md).
+If you want to use the .NET client "as-is", you can use the Windows binary from [here](https://github.com/mentat-is/gulp/bins/gulp-dotnet.zip).
+To run the executable on Linux, install .NET 6.0 using `wine` and run `GUiLP.exe`.
