@@ -1,7 +1,6 @@
 import base64
 import json
 import os
-from importlib import metadata
 from typing import Annotated
 
 import muty.crypto
@@ -17,13 +16,13 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
-import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
 import gulp.plugin
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import UserSession
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -556,7 +555,7 @@ async def mapping_file_list_handler(
     try:
         await UserSession.check_token(await collab_api.collab(), token)
         path = config.path_mapping_files()
-        rest_api.logger().debug("listing mapping files in %s" % (path))
+        logger().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
 
         # purge paths

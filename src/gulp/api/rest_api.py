@@ -3,7 +3,6 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 import asyncio
-import logging
 import multiprocessing
 import os
 import ssl
@@ -44,12 +43,9 @@ from gulp.api.collab.base import (
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import PluginBase
+from gulp.utils import logger
 
 _process_executor: aiomultiprocess.Pool = None
-_collab: AsyncEngine = None
-_elastic: AsyncElasticsearch = None
-_logger: logging.Logger = None
-_config_path: str = None
 _log_file_path: str = None
 _reset_collab_on_start: bool = False
 _elastic_index_to_reset: str = None
@@ -65,7 +61,7 @@ def set_shutdown(*args):
     Sets the global `_shutting_down` flag to True.
     """
     global _shutting_down
-    _logger.debug("setting _shutting_down=True ...")
+    logger().debug("setting _shutting_down=True ...")
     _shutting_down = True
 
 
@@ -77,9 +73,9 @@ def is_shutdown() -> bool:
         bool: True if the server is shutting down, False otherwise.
     """
     global _shutting_down
-    # _logger.debug("is_shutdown()=%r" % (_shutting_down))
+    # logger().debug("is_shutdown()=%r" % (_shutting_down))
     if _shutting_down:
-        _logger.debug("is_shutdown()=True")
+        logger().debug("is_shutdown()=True")
 
     return _shutting_down
 
@@ -117,17 +113,6 @@ def process_executor() -> aiomultiprocess.Pool:
     return _process_executor
 
 
-def logger() -> logging.Logger:
-    """
-    Returns the global logger instance.
-
-    Returns:
-        logging.Logger: The global logger instance.
-    """
-    global _logger
-    return _logger
-
-
 def _unload_extension_plugins():
     """
     Unload extension plugins.
@@ -135,7 +120,7 @@ def _unload_extension_plugins():
     from gulp import plugin
 
     global _extension_plugins
-    _logger.debug("unloading extension plugins ...")
+    logger().debug("unloading extension plugins ...")
     for p in _extension_plugins:
         plugin.unload_plugin(p)
 
@@ -152,7 +137,7 @@ async def _load_extension_plugins() -> list[PluginBase]:
     from gulp import plugin
 
     global _app
-    _logger.debug("loading extension plugins ...")
+    logger().debug("loading extension plugins ...")
     path_plugins = config.path_plugins(GulpPluginType.EXTENSION)
     files = await muty.file.list_directory_async(path_plugins, "*.py*", recursive=True)
     l = []
@@ -177,10 +162,10 @@ async def lifespan_handler(app: FastAPI):
     Yields:
         None
     """
-    global _mpManager, _aiopool, _process_executor, _collab, _elastic, _reset_collab_on_start, _ws_q, _extension_plugins
+    global _mpManager, _aiopool, _process_executor, _reset_collab_on_start, _ws_q, _extension_plugins
 
-    _logger.info("gULP starting!")
-    _logger.warning(
+    logger().info("gULP starting!")
+    logger().warning(
         "concurrency_max_tasks=%d, parallel_processes_max=%d, parallel_processes_respawn_after_tasks=%d"
         % (
             config.concurrency_max_tasks(),
@@ -194,7 +179,7 @@ async def lifespan_handler(app: FastAPI):
 
     # and queue for websocket messages
     _ws_q = _mpManager.Queue()
-    gulp_ws.init(_logger, _ws_q, main_process=True)
+    gulp_ws.init(_ws_q, main_process=True)
 
     # aiopool is used to run tasks in THIS process (the main event loop), such as the trivial tasks (query_max_min, collabobj handling, etc...).
     # ingest and query tasks are always run in parallel processes through aiomultiprocess.
@@ -202,16 +187,18 @@ async def lifespan_handler(app: FastAPI):
 
     # setup collab and elastic
     if _reset_collab_on_start:
-        _logger.warning(
+        logger().warning(
             "--reset-collab is set, dropping and recreating the collaboration database ..."
         )
         await collab_db.drop(config.postgres_url())
-    _collab = await collab_api.collab()
-    _elastic = elastic_api.elastic()
-    _logger.debug("main process collab=%s, elastic=%s" % (_collab, _elastic))
+
+    # create main process clients
+    collab = await collab_api.collab()
+    elastic = elastic_api.elastic()
+    logger().debug("main process collab=%s, elastic=%s" % (collab, elastic))
 
     if _elastic_index_to_reset is not None:
-        _logger.warning(
+        logger().warning(
             "--reset-elastic is set, dropping and recreating the ElasticSearch index %s ..."
             % (_elastic_index_to_reset)
         )
@@ -221,10 +208,10 @@ async def lifespan_handler(app: FastAPI):
         elastic_reset_failed = 0
         while elastic_reset_ok is False:
             try:
-                await elastic_api.datastream_create(_elastic, _elastic_index_to_reset)
+                await elastic_api.datastream_create(elastic, _elastic_index_to_reset)
                 elastic_reset_ok = True
             except Exception as ex:
-                _logger.exception(
+                logger().exception(
                     "waiting elasticsearch to come up, or error in index_create() ... retrying in 1 second ..."
                 )
                 await asyncio.sleep(1)
@@ -247,7 +234,7 @@ async def lifespan_handler(app: FastAPI):
     # wait for shutdown
     yield
 
-    _logger.info("gULP shutting down!, _logger level=%d" % (_logger.level))
+    logger().info("gULP shutting down!, logger level=%d" % (logger().level))
     set_shutdown()
 
     # wait websockets close
@@ -257,24 +244,24 @@ async def lifespan_handler(app: FastAPI):
     _unload_extension_plugins()
 
     # shutdown pg_process_executor
-    await collab_db.engine_close(_collab)
+    await collab_db.engine_close(collab)
 
     # shutdown elastic
-    await elastic_api.shutdown_client(_elastic)
+    await elastic_api.shutdown_client(elastic)
 
     # close queues
-    _logger.debug("closing ws queue ...")
+    logger().debug("closing ws queue ...")
     gulp_ws.shared_queue_close(_ws_q)
 
-    _logger.debug("shutting down aiopool ...")
+    logger().debug("shutting down aiopool ...")
     await _aiopool.cancel()
     await _aiopool.join()
 
-    _logger.debug("shutting down aiomultiprocess ...")
+    logger().debug("shutting down aiomultiprocess ...")
     _process_executor.close()
     await _process_executor.join()
 
-    _logger.debug("executors shut down, we can gracefully exit.")
+    logger().debug("executors shut down, we can gracefully exit.")
 
 
 _app: FastAPI = FastAPI(
@@ -300,7 +287,7 @@ async def validation_exception_handler(
 ) -> JSendResponse:
     status_code = 400
     jsend_ex = JSendException(ex=ex, status_code=status_code)
-    _logger.debug(
+    logger().debug(
         "in request-validation exception handler, status_code=%d" % (status_code)
     )
     return muty.jsend.fastapi_jsend_exception_handler(jsend_ex, status_code)
@@ -312,7 +299,7 @@ async def bad_request_exception_handler(
 ) -> JSendResponse:
     status_code = 400
     jsend_ex = JSendException(ex=ex, status_code=status_code)
-    _logger.debug("in bad-request exception handler, status_code=%d" % (status_code))
+    logger().debug("in bad-request exception handler, status_code=%d" % (status_code))
     return muty.jsend.fastapi_jsend_exception_handler(jsend_ex, status_code)
 
 
@@ -341,7 +328,7 @@ async def gulp_exception_handler(_: Request, ex: JSendException) -> JSendRespons
             status_code = 401
         else:
             status_code = 500
-    _logger.debug("in exception handler, status_code=%d" % (status_code))
+    logger().debug("in exception handler, status_code=%d" % (status_code))
     return muty.jsend.fastapi_jsend_exception_handler(ex, status_code)
 
 
@@ -356,7 +343,7 @@ async def recreate_process_executor() -> aiomultiprocess.Pool:
         The newly created process executor pool.
 
     """
-    global _process_executor, _config_path, _logger, _log_file_path, _ws_q
+    global _process_executor, _log_file_path, _ws_q
     if _process_executor is not None:
         # close and wait
         _process_executor.close()
@@ -375,17 +362,17 @@ async def recreate_process_executor() -> aiomultiprocess.Pool:
             spawned_processes,
             lock,
             _ws_q,
-            _logger.level,
+            logger().level,
             _log_file_path,
         ),
     )
 
     # wait for all processes are spawned
     while spawned_processes.value < num_processes:
-        # _logger.debug('waiting for all processes to be spawned ...')
+        # logger().debug('waiting for all processes to be spawned ...')
         await asyncio.sleep(0.1)
 
-    _logger.debug(
+    logger().debug(
         "all processes spawned, spawned_processes=%d" % (spawned_processes.value)
     )
     return _process_executor
@@ -402,8 +389,6 @@ def aiopool_exception_handler(ex: Exception):
 def start_server(
     address: str,
     port: int,
-    l: logging.Logger,
-    config_path: str,
     log_file_path: str = None,
     reset_collab: bool = False,
     elastic_index: str = None,
@@ -414,20 +399,16 @@ def start_server(
     Args:
         address (str): The IP address to bind the server to.
         port (int): The port number to bind the server to.
-        l (logging.Logger): The logger to use for logging (will be passed to workers too).
-        config_path (str): The path to the configuration file to use.
         reset_collab (bool): If True, the collab will be reset on start.
         elastic_index (str): The name of the ElasticSearch index to create (if --reset-elastic is passed).
     """
 
     # set these globals in the main server process
-    global _app, _logger, _config_path, _log_file_path, _reset_collab_on_start, _elastic_index_to_reset
+    global _app, _log_file_path, _reset_collab_on_start, _elastic_index_to_reset
 
     # set sigint handler (no more needed)
     # signal.signal(signal.SIGINT, set_shutdown)
 
-    _logger = l
-    _config_path = config_path
     _log_file_path = log_file_path
     _reset_collab_on_start = reset_collab
     _elastic_index_to_reset = elastic_index
@@ -472,20 +453,20 @@ def start_server(
     _app.include_router(gulp.api.rest.user_data.router())
     _app.include_router(gulp_ws.router())
 
-    _logger.info(
+    logger().info(
         "starting server at %s, port=%d, logger level=%d, config path=%s, log_file_path=%s, reset_collab=%r, elastic_index to reset=%s ..."
         % (
             address,
             port,
-            l.level,
-            config_path,
+            logger().level,
+            config.config_path(),
             log_file_path,
             reset_collab,
             elastic_index,
         )
     )
     if config.enforce_https():
-        _logger.info("enforcing HTTPS ...")
+        logger().info("enforcing HTTPS ...")
 
         certs_path: str = config.certs_directory()
         cert_password: str = config.https_cert_password()
@@ -497,11 +478,11 @@ def start_server(
         ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
         if config.enforce_https_client_certs():
             ssl_cert_verify_mode = ssl.VerifyMode.CERT_REQUIRED
-            _logger.info("enforcing HTTPS client certificates ...")
+            logger().info("enforcing HTTPS client certificates ...")
 
         ssl_keyfile = muty.file.safe_path_join(certs_path, "gulp.key")
         ssl_certfile = muty.file.safe_path_join(certs_path, "gulp.pem")
-        _logger.info(
+        logger().info(
             "ssl_keyfile=%s, ssl_certfile=%s, cert_password=%s, ssl_ca_certs=%s, ssl_cert_verify_mode=%d"
             % (
                 ssl_keyfile,
@@ -523,5 +504,5 @@ def start_server(
         )
     else:
         # http
-        _logger.warning("HTTP!")
+        logger().warning("HTTP!")
         uvicorn.run(_app, host=address, port=port)

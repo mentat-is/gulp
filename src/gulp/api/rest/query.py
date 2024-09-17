@@ -27,13 +27,11 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
-import gulp.api.collab_api
-import gulp.api.elastic_api as elastic_api
-import gulp.api.rest_api as rest_api
 import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp import workers
+from gulp.api import collab_api, elastic_api, rest_api
 from gulp.api.collab.base import GulpCollabType, GulpUserPermission
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import UserSession
@@ -48,6 +46,7 @@ from gulp.api.elastic.structs import (
 )
 from gulp.defs import API_DESC_WS_ID, ObjectNotFound
 from gulp.plugin_internal import GulpPluginParams
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -206,14 +205,14 @@ async def query_multi_handler(
     if flt is None:
         flt = GulpQueryFilter()
 
-    rest_api.logger().debug(
+    logger().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
         % (q, flt, options, sigma_group_flts)
     )
     user_id = None
     try:
         user, session = await UserSession.check_token(
-            await gulp.api.collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
         user_id = session.user_id
     except Exception as ex:
@@ -236,7 +235,7 @@ async def query_multi_handler(
     # create the request stats
     try:
         await GulpStats.create(
-            await gulp.api.collab_api.collab(),
+            await collab_api.collab(),
             GulpCollabType.STATS_QUERY,
             req_id,
             ws_id,
@@ -248,8 +247,6 @@ async def query_multi_handler(
 
     # run
     coro = workers.query_multi_task(
-        await gulp.api.collab_api.collab(),
-        rest_api.process_executor(),
         username=user.name,
         user_id=user_id,
         req_id=req_id,
@@ -389,7 +386,7 @@ async def query_gulp_handler(
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
-    rest_api.logger().debug(
+    logger().debug(
         "query_gulp_handler: flt=%s, name=%s, options=%s" % (flt, name, options)
     )
     gqp = GulpQueryParameter(rule=flt.to_dict(), type=GulpQueryType.GULP_FILTER)
@@ -442,7 +439,7 @@ async def query_stored_sigma_tags_handler(
     sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
-    rest_api.logger().debug(
+    logger().debug(
         "query_sigma_tags_handler: flt=%s, options=%s, tags=%s, sigma_group_flts=%s"
         % (flt, options, tags, sigma_group_flts)
     )
@@ -452,7 +449,7 @@ async def query_stored_sigma_tags_handler(
             raise ObjectNotFound("no tags provided")
         # get stored queries by tags
         gqp = await query_utils.stored_sigma_tags_to_gulpqueryparameters(
-            await gulp.api.collab_api.collab(),
+            await collab_api.collab(),
             tags,
             all_tags_must_match=options.all_tags_must_match,
         )
@@ -612,7 +609,7 @@ async def query_sigma_files_handler(
     tags: Annotated[list[str], Body()] = None,
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
-    sigma_group_flts: Annotated[SigmaGroupFiltersParam, Form(...)] = None,
+    sigma_group_flts: Annotated[SigmaGroupFiltersParam, Body(...)] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -622,9 +619,7 @@ async def query_sigma_files_handler(
     try:
         # download files to tmp
         files_path, files = await muty.uploadfile.to_path_multi(sigma_files)
-        rest_api.logger().debug(
-            "%d files downloaded to %s ..." % (len(files), files_path)
-        )
+        logger().debug("%d files downloaded to %s ..." % (len(files), files_path))
 
         # create queries and call query_multi
         l = await query_utils.sigma_directory_to_gulpqueryparams(
@@ -696,11 +691,11 @@ async def query_sigma_zip_handler(
             description='fallback pysigma plugin name. Defaults to None (use "logsource.product" from each sigma rule, if present).'
         ),
     ] = None,
-    plugin_params: Annotated[GulpPluginParams, Form(...)] = None,
+    plugin_params: Annotated[GulpPluginParams, Body()] = None,
     tags: Annotated[list[str], Body()] = None,
-    flt: Annotated[GulpQueryFilter, Form(...)] = None,
-    options: Annotated[GulpQueryOptions, Form(...)] = None,
-    sigma_group_flts: Annotated[SigmaGroupFiltersParam, Form(...)] = None,
+    flt: Annotated[GulpQueryFilter, Body()] = None,
+    options: Annotated[GulpQueryOptions, Body()] = None,
+    sigma_group_flts: Annotated[SigmaGroupFiltersParam, Body()] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -710,7 +705,7 @@ async def query_sigma_zip_handler(
     try:
         # decompress
         files_path = await muty.uploadfile.unzip(z)
-        rest_api.logger().debug("zipfile unzipped to %s" % (files_path))
+        logger().debug("zipfile unzipped to %s" % (files_path))
         l = await query_utils.sigma_directory_to_gulpqueryparams(
             files_path,
             pysigma_plugin,
@@ -853,7 +848,7 @@ async def query_max_min_handler(
     try:
         # check token
         await UserSession.check_token(
-            await gulp.api.collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
 
         # query
@@ -861,7 +856,7 @@ async def query_max_min_handler(
             res = await elastic_api.query_max_min_per_field(
                 elastic_api.elastic(), index, group_by, flt
             )
-            # rest_api.logger().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
+            # logger().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
             return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
         except ObjectNotFound:
             # return an empty result
@@ -998,7 +993,7 @@ async def query_time_histograms_handler(
     try:
         # check token
         await UserSession.check_token(
-            await gulp.api.collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
 
         # query
@@ -1017,7 +1012,7 @@ async def query_time_histograms_handler(
         res["buckets"] = res["aggregations"]["histograms"]["buckets"]
         res["interval_msec"] = interval_msec
         del res["aggregations"]
-        rest_api.logger().debug("query_time_histograms: %s", json.dumps(res, indent=2))
+        logger().debug("query_time_histograms: %s", json.dumps(res, indent=2))
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data=_parse_time_histograms(res))
         )
@@ -1027,7 +1022,7 @@ async def query_time_histograms_handler(
 
 async def _parse_operation_aggregation(d: dict):
     # get all operation first
-    all_ops = await Operation.get(await gulp.api.collab_api.collab())
+    all_ops = await Operation.get(await collab_api.collab())
 
     # parse aggregations into a more readable format
     result = []
@@ -1141,11 +1136,11 @@ async def query_operations_handler(
     try:
         # check token
         await UserSession.check_token(
-            await gulp.api.collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
         # query
         res = await elastic_api.query_operations(elastic_api.elastic(), index)
-        rest_api.logger().debug(
+        logger().debug(
             "query_operations (before parsing): %s", json.dumps(res, indent=2)
         )
         res = await _parse_operation_aggregation(res)
@@ -1211,7 +1206,7 @@ async def query_single_event_handler(
     try:
         # check token
         await UserSession.check_token(
-            await gulp.api.collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
 
         # query

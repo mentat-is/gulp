@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
 from gulp.api.collab.base import CollabBase, GulpClientType, GulpCollabFilter
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.utils import logger
 
 
 class Client(CollabBase):
@@ -65,7 +65,7 @@ class Client(CollabBase):
         Raises:
             ObjectNotFound: If the client is not found.
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> update: client_id=%s, operation_id=%s, version=%s, glyph_id=%s"
             % (client_id, operation_id, version, glyph_id)
         )
@@ -85,7 +85,7 @@ class Client(CollabBase):
 
             sess.add(c)
             await sess.commit()
-            collab_api.logger().info("update: updated client %s" % (c))
+            logger().info("update: updated client %s" % (c))
             return c
 
     @staticmethod
@@ -111,7 +111,7 @@ class Client(CollabBase):
         Returns:
             Client: The created Client object.
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> create: name=%s, t=%s, version=%s, glyph_id=%s"
             % (name, t, version, glyph_id)
         )
@@ -124,10 +124,16 @@ class Client(CollabBase):
             if c is not None:
                 raise ObjectAlreadyExists("client %s already exists" % (name))
 
-            c = Client(name=name, type=t, operation_id=operation_id, version=version, glyph_id=glyph_id)
+            c = Client(
+                name=name,
+                type=t,
+                operation_id=operation_id,
+                version=version,
+                glyph_id=glyph_id,
+            )
             sess.add(c)
             await sess.commit()
-            collab_api.logger().info("create: created client %s" % (c))
+            logger().info("create: created client %s" % (c))
             return c
 
     @staticmethod
@@ -143,7 +149,7 @@ class Client(CollabBase):
             ObjectNotFound: If the client is not found.
         """
 
-        collab_api.logger().debug("---> delete: client_id=%s" % (client_id))
+        logger().debug("---> delete: client_id=%s" % (client_id))
 
         async with AsyncSession(engine) as sess:
             q = select(Client).where(Client.id == client_id)
@@ -154,7 +160,7 @@ class Client(CollabBase):
 
             await sess.delete(c)
             await sess.commit()
-            collab_api.logger().info("client deleted: %s ..." % (c))
+            logger().info("client deleted: %s ..." % (c))
 
     @staticmethod
     async def get(engine: AsyncEngine, flt: GulpCollabFilter = None) -> list["Client"]:
@@ -172,7 +178,7 @@ class Client(CollabBase):
             ObjectNotFound: If no clients are found.
         """
 
-        collab_api.logger().debug("---> get: flt=%s" % (flt))
+        logger().debug("---> get: flt=%s" % (flt))
         async with AsyncSession(engine) as sess:
             # build query based on filter
             query = select(Client)
@@ -198,5 +204,5 @@ class Client(CollabBase):
             if len(clients) == 0:
                 raise ObjectNotFound("no clients found")
 
-            collab_api.logger().info("get: clients=%s" % (clients))
+            logger().info("get: clients=%s" % (clients))
             return clients

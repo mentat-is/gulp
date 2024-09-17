@@ -1,7 +1,5 @@
-import json
 import os
 import re
-from copy import deepcopy
 
 import aiofiles
 import muty.dict
@@ -10,15 +8,14 @@ import muty.os
 import muty.time
 from typing_extensions import Match
 
-import gulp.api.mapping.helpers as mappings_helper
-import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
-from gulp.defs import GulpPluginType, InvalidArgument
+from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.utils import logger
 
 
 class Plugin(PluginBase):
@@ -121,7 +118,7 @@ class Plugin(PluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        self.logger().debug("custom_mapping=%s" % (custom_mapping))
+        logger().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         regex = plugin_params.extra.get("regex", None)
@@ -132,8 +129,8 @@ class Plugin(PluginBase):
 
             # make sure we have at least 1 named group
             if regex.groups == 0:
-                self.logger().error("no named groups provided, invalid regex")
-                fs = self._parser_failed(fs, source, ex)
+                logger().error("no named groups provided, invalid regex")
+                fs = self._parser_failed(fs, source, "no named groups provided")
                 return await self._finish_ingestion(
                     index, source, req_id, client_id, ws_id, fs=fs, flt=flt
                 )
@@ -145,13 +142,15 @@ class Plugin(PluginBase):
                     valid = True
 
             if not valid:
-                self.logger().error("no timestamp named group provided, invalid regex")
-                fs = self._parser_failed(fs, source, ex)
+                logger().error("no timestamp named group provided, invalid regex")
+                fs = self._parser_failed(
+                    fs, source, "no timestamp named group provided"
+                )
                 return await self._finish_ingestion(
                     index, source, req_id, client_id, ws_id, fs=fs, flt=flt
                 )
 
-        except Exception as e:
+        except Exception as ex:
             fs = self._parser_failed(fs, source, ex)
             return await self._finish_ingestion(
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt

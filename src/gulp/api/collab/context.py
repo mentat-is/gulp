@@ -1,13 +1,10 @@
-import base64
-import logging
 from typing import Union
-
-from sqlalchemy import LargeBinary, String, select
+from gulp.utils import logger
+from sqlalchemy import String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 
@@ -67,7 +64,7 @@ class Context(CollabBase):
         color = Context._validate_format(color)
 
         # only admin can create contexts
-        collab_api.logger().debug("---> create: name=%s..., color=%s" %
+        logger().debug("---> create: name=%s..., color=%s" %
                                   (name, color))
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
@@ -81,7 +78,7 @@ class Context(CollabBase):
             c = Context(name=name, color=color)
             sess.add(c)
             await sess.commit()
-            collab_api.logger().info("create: created context id=%d" % (c.id))
+            logger().info("create: created context id=%d" % (c.id))
             return c
 
     @staticmethod
@@ -100,7 +97,7 @@ class Context(CollabBase):
         """
         color = Context._validate_format(color)
 
-        collab_api.logger().debug(
+        logger().debug(
             "---> update: id=%s, name=%s, color=%s..." % (
                 context_id, name, color)
         )
@@ -116,7 +113,7 @@ class Context(CollabBase):
             c.name = name
             c.color = color
             await sess.commit()
-            collab_api.logger().info("update: updated context id=%d" % (context_id))
+            logger().info("update: updated context id=%d" % (context_id))
             return c
 
     @staticmethod
@@ -132,7 +129,7 @@ class Context(CollabBase):
             None
         """
 
-        collab_api.logger().debug("---> delete: id=%s" % (context_id))
+        logger().debug("---> delete: id=%s" % (context_id))
         async with AsyncSession(engine) as sess:
             q = select(Context).where(Context.id == context_id)
             res = await sess.execute(q)
@@ -142,7 +139,7 @@ class Context(CollabBase):
 
             await sess.delete(c)
             await sess.commit()
-            collab_api.logger().info("delete: deleted context id=%d" % (context_id))
+            logger().info("delete: deleted context id=%d" % (context_id))
 
     @staticmethod
     async def get(
@@ -161,7 +158,7 @@ class Context(CollabBase):
         Raises:
             ObjectNotFound: If no contexts are found.
         """
-        collab_api.logger().debug("---> get: flt=%s" % (flt))
+        logger().debug("---> get: flt=%s" % (flt))
 
         # check each part of flt and build the query
         q = select(Context)
@@ -196,5 +193,5 @@ class Context(CollabBase):
                     cc.append({"id": c[0], "name": c[1], "color": c[2]})
                 contexts = cc
 
-            collab_api.logger().info("contexts retrieved: %d ..." % (len(contexts)))
+            logger().info("contexts retrieved: %d ..." % (len(contexts)))
             return contexts

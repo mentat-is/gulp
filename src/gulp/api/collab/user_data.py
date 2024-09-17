@@ -4,11 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
 from gulp.api.collab.user import User
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
-
+from gulp.utils import logger
 
 class UserData(CollabBase):
     """
@@ -50,7 +49,7 @@ class UserData(CollabBase):
         Raises:
             ObjectNotFound: If no user data is found.
         """
-        collab_api.logger().debug("---> get: flt=%s" % (flt))
+        logger().debug("---> get: flt=%s" % (flt))
 
         # make a select() query depending on the filter
         q = select(UserData)
@@ -74,10 +73,10 @@ class UserData(CollabBase):
             res = await sess.execute(q)
             ud = res.scalars().all()
             if len(ud) == 0:
-                collab_api.logger().warning("no UserData found (flt=%s)" % (flt))
+                logger().warning("no UserData found (flt=%s)" % (flt))
                 return []
 
-            collab_api.logger().info("user_data retrieved: %s ..." % (ud))
+            logger().info("user_data retrieved: %s ..." % (ud))
             return ud
 
     @staticmethod
@@ -107,7 +106,7 @@ class UserData(CollabBase):
             ObjectAlreadyExists: If a user data with the same name already exists.
 
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> create: token=%s, name=%s, operation_id=%d, data=%s, user_id=%s"
             % (token, name, operation_id, data, user_id)
         )
@@ -134,7 +133,7 @@ class UserData(CollabBase):
 
             # also update user
             if ud.id not in user.user_data:
-                collab_api.logger().error(
+                logger().error(
                     "appending %d to %s" % (ud.id, user.user_data)
                 )
                 user.user_data.append(ud.id)
@@ -143,7 +142,7 @@ class UserData(CollabBase):
                 await sess.flush()
 
             await sess.commit()
-            collab_api.logger().info("user_data created: %s, user=%s ..." % (ud, user))
+            logger().info("user_data created: %s, user=%s ..." % (ud, user))
             return ud
 
     @staticmethod
@@ -165,7 +164,7 @@ class UserData(CollabBase):
         Returns:
             None
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> delete: token=%s, user_data_id=%d, user_id=%s"
             % (token, user_data_id, user_id)
         )
@@ -181,7 +180,7 @@ class UserData(CollabBase):
                 raise ObjectNotFound("user_data id %d does not exist!" % (user_data_id))
 
             await sess.delete(user_data)
-            collab_api.logger().info("user_data deleted: %s ..." % (user_data_id))
+            logger().info("user_data deleted: %s ..." % (user_data_id))
 
             if user_data_id in user.user_data:
                 # also update user_data in User
@@ -218,7 +217,7 @@ class UserData(CollabBase):
         Raises:
             ObjectNotFound: If the user data with the specified ID is not found.
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> update: token=%s, user_data_id=%d, user_id=%s"
             % (token, user_data_id, user_id)
         )
@@ -239,5 +238,5 @@ class UserData(CollabBase):
 
             sess.add(user_data)
             await sess.commit()
-            collab_api.logger().info("user_data updated: %s ..." % (user_data))
+            logger().info("user_data updated: %s ..." % (user_data))
             return user_data

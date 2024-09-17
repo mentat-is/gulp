@@ -21,8 +21,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
-
-import gulp.api.collab_api as collab_api
+from gulp.utils import logger
 from gulp.api.collab.base import (
     CollabBase,
     GulpAssociatedEvent,
@@ -42,8 +41,8 @@ class CollabEdits(CollabBase):
     __tablename__ = "edits"
     __table_args__ = (
         Index('idx_edits_collab_obj_id', 'collab_obj_id'),
-    )    
-    
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     username: Mapped[str] = mapped_column(String(32))
@@ -71,7 +70,7 @@ class CollabObj(CollabBase):
     __tablename__ = "collab_obj"
     __table_args__ = (
         Index('idx_collab_obj_operation_id', 'operation_id'),
-    )    
+    )
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
     owner_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE")
@@ -214,7 +213,7 @@ class CollabObj(CollabBase):
 
         internal_username = None
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> create: t=%s, operation_id=%s, context=%s, src_file=%s, name=%s, time_start=%s, time_end=%s, events=%s, text=%s, description=%s, data=%s, tags=%s, level=%s"
             % (
                 t,
@@ -267,7 +266,7 @@ class CollabObj(CollabBase):
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is not None:
-                collab_api.logger().warning(
+                logger().warning(
                     "collab object with hash=%s already exists !" % (h)
                 )
                 raise ObjectAlreadyExists(
@@ -425,7 +424,7 @@ class CollabObj(CollabBase):
                 raise ObjectNotFound(
                     "collab object id=%d, type=%d not found ! " % (object_id, t)
                 )
-            collab_api.logger().debug(
+            logger().debug(
                 "---> found object: %s, type=%d"
                 % (obj, t if t is not None else obj.type)
             )
@@ -478,7 +477,7 @@ class CollabObj(CollabBase):
 
             #  and finally commit
             await sess.commit()
-            collab_api.logger().info("---> update: updated collab object: %s" % (obj))
+            logger().info("---> update: updated collab object: %s" % (obj))
 
             # push to websocket queue
             ws_api.shared_queue_add_data(
@@ -518,7 +517,7 @@ class CollabObj(CollabBase):
         from gulp.api.collab.session import UserSession
         from gulp.api.rest.ws import WsQueueDataType
 
-        collab_api.logger().debug("---> delete: id=%d" % (object_id))
+        logger().debug("---> delete: id=%d" % (object_id))
 
         user, _ = await UserSession.check_token(
             engine, token, GulpUserPermission.DELETE, object_id
@@ -538,7 +537,7 @@ class CollabObj(CollabBase):
                 )
             await sess.delete(obj)
             await sess.commit()
-            collab_api.logger().debug(
+            logger().debug(
                 "---> delete: deleted object id=%d, type=%d"
                 % (object_id, t if t is not None else obj.type)
             )
@@ -594,7 +593,7 @@ class CollabObj(CollabBase):
         Raises:
             ObjectNotFound: If no edits are found
         """
-        collab_api.logger().debug("---> get: filter=%s" % (flt))
+        logger().debug("---> get: filter=%s" % (flt))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             q = select(CollabEdits)
             if flt is not None:
@@ -615,7 +614,7 @@ class CollabObj(CollabBase):
             if len(objs) == 0:
                 raise ObjectNotFound("no objects found (flt=%s)" % (flt))
 
-            collab_api.logger().debug("---> get: found %d edits" % (len(objs)))
+            logger().debug("---> get: found %d edits" % (len(objs)))
             return objs
 
     @staticmethod
@@ -635,7 +634,7 @@ class CollabObj(CollabBase):
             ObjectNotFound: If no objects are found.
 
         """
-        collab_api.logger().debug("---> get: filter=%s" % (flt))
+        logger().debug("---> get: filter=%s" % (flt))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             q = select(CollabObj)
             if flt is not None:
@@ -759,7 +758,7 @@ class CollabObj(CollabBase):
                 # full objects
                 objs = res.scalars().all()
             if len(objs) == 0:
-                collab_api.logger().warning("no CollabObj found (flt=%s)" % (flt))
+                logger().warning("no CollabObj found (flt=%s)" % (flt))
                 return []
                 # raise ObjectNotFound("no objects found (flt=%s)" % (flt))
 
@@ -780,5 +779,5 @@ class CollabObj(CollabBase):
                         }
                     )
                 objs = oo
-            collab_api.logger().debug("---> get: found %d objects" % (len(objs)))
+            logger().debug("---> get: found %d objects" % (len(objs)))
             return objs

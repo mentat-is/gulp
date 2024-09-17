@@ -7,20 +7,7 @@ from sigma.processing.pipeline import ProcessingItem, ProcessingPipeline
 from sigma.processing.transformations import FieldMappingTransformation
 
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
-
-_logger: logging.Logger = None
-
-
-def init(logger: logging.Logger):
-    """
-    Initializes the helper module
-
-    Args:
-        logger (logging.Logger): The logger instance.
-
-    """
-    global _logger
-    _logger = logger
+from gulp.utils import logger
 
 async def _get_mappings_internal(mapping_file_path: str) -> dict:
     """Check for file existance and return json file as dict
@@ -34,7 +21,7 @@ async def _get_mappings_internal(mapping_file_path: str) -> dict:
     Returns:
         dict: the loaded dictionary
     """
-    l = _logger
+    l = logger()
     if l is None:
         l = logging.getLogger()
 
@@ -67,7 +54,7 @@ async def get_mappings_from_file(mapping_file_path:str) -> list[GulpMapping]:
     """
     mappings=[]
 
-    l = _logger
+    l = logger()
     if l is None:
         l = logging.getLogger()
 
@@ -148,7 +135,7 @@ async def get_mapping_from_file(
     ]}
     ~~~
     """
-    l = _logger
+    l = logger()
     if l is None:
         l = logging.getLogger()
 
@@ -188,7 +175,7 @@ async def get_enriched_mapping_for_ingestion(
         GulpMapping: The enriched mapping, may be an empty GulpMapping if i.e. both pipeline and mapping_file_path are not provided.
 
     """
-    l = _logger
+    l = logger()
     if l is None:
         l = logging.getLogger()
 
@@ -315,7 +302,7 @@ async def get_enriched_pipeline(
         ProcessingPipeline: The enriched processing pipeline.
         if no mapping_file_path, the original pipeline (or an empty pipeline if base is None) is returned.
     """
-    l = _logger
+    l = logger()
     if l is None:
         l = logging.getLogger()
 

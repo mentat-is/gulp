@@ -1,9 +1,6 @@
 import copy
 import json
-import logging
 import os
-import sys
-from importlib import resources as impresources
 from urllib.parse import urlparse
 
 import muty.crypto
@@ -13,7 +10,6 @@ import muty.string
 import muty.time
 
 import gulp.config as config
-from gulp.api import mapping as mapping_api
 from gulp.api.elastic.structs import (
     GulpDocument,
     GulpFieldsFilterType,
@@ -23,8 +19,7 @@ from gulp.api.elastic.structs import (
     gulpqueryflt_to_dsl,
 )
 from gulp.defs import GulpEventFilterResult, ObjectNotFound
-
-_logger: logging.Logger = None
+from gulp.utils import logger
 
 # to be used in dynamic templates
 UNMAPPED_PREFIX = "gulp.unmapped"
@@ -33,24 +28,6 @@ UNMAPPED_PREFIX = "gulp.unmapped"
 from opensearchpy import AsyncOpenSearch as AsyncElasticsearch
 
 _elastic: AsyncElasticsearch = None
-
-
-def logger() -> logging.Logger:
-    """
-    Returns the logger instance used for logging in the elastic_api module.
-
-    Returns:
-        logging.Logger: The logger instance.
-    """
-    return _logger
-
-
-def init(l: logging.Logger):
-    """
-    Initializes the elastic_api module.
-    """
-    global _logger
-    _logger = l
 
 
 def _build_query_options(opt: GulpQueryOptions = None) -> dict:
@@ -63,7 +40,7 @@ def _build_query_options(opt: GulpQueryOptions = None) -> dict:
     Returns:
         dict: The built query options.
     """
-    _logger.debug(opt)
+    logger().debug(opt)
     if opt is None:
         # use default
         opt = GulpQueryOptions(fields_filter=GulpFieldsFilterType.DEFAULT)
@@ -111,7 +88,7 @@ def _build_query_options(opt: GulpQueryOptions = None) -> dict:
             # only return these fields
             n["source"] = opt.fields_filter.split(",")
 
-    # _logger.debug("query options: %s" % (json.dumps(n, indent=2)))
+    # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
 
 
@@ -150,12 +127,12 @@ async def datastream_get_mapping(el: AsyncElasticsearch, datastream_name: str) -
     try:
         res = await el.indices.get_index_template(name=idx)
     except Exception as e:
-        _logger.warning(
+        logger().warning(
             'no template for datastream/index "%s" found: %s' % (datastream_name, e)
         )
         return {}
 
-    # _logger.debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
+    # logger().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
     properties = res["index_templates"][0]["index_template"]["template"]["mappings"][
         "properties"
     ]
@@ -183,10 +160,10 @@ async def index_get_mapping(
     try:
         res = await el.indices.get_mapping(index=index_name)
     except Exception as e:
-        _logger.warning('no mapping for index "%s" found: %s' % (index_name, e))
+        logger().warning('no mapping for index "%s" found: %s' % (index_name, e))
         return {}
 
-    # _logger.debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
+    # logger().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
     if return_raw_result:
         return res
 
@@ -262,7 +239,7 @@ async def datastream_list(el: AsyncElasticsearch) -> list[str]:
     """
     headers = {"accept": "text/plain,application/json"}
     l = await el.indices.get_data_stream(headers=headers)
-    # _logger.debug(json.dumps(l, indent=2))
+    # logger().debug(json.dumps(l, indent=2))
     ll = []
     ds = l.get("data_streams", [])
     for c in ds:
@@ -289,7 +266,7 @@ async def datastream_delete(el: AsyncElasticsearch, datastream_name: str) -> Non
     """
     ds: str = datastream_name
     template_name: str = datastream_name + "-template"
-    _logger.debug(
+    logger().debug(
         'deleting datastream "%s" and template %s (if existing) ...'
         % (template_name, ds)
     )
@@ -299,12 +276,12 @@ async def datastream_delete(el: AsyncElasticsearch, datastream_name: str) -> Non
     try:
         await el.indices.delete_data_stream(ds, headers=headers)
     except Exception as e:
-        _logger.error("error deleting datastream: %s" % (e))
+        logger().error("error deleting datastream: %s" % (e))
         pass
     try:
         await el.indices.delete_index_template(name=template_name, headers=headers)
     except Exception as e:
-        _logger.error("error deleting index template: %s" % (e))
+        logger().error("error deleting index template: %s" % (e))
 
 
 async def datastream_create(
@@ -330,7 +307,7 @@ async def datastream_create(
         dict
     """
     ds: str = datastream_name
-    _logger.debug('re/creating datastream "%s" ...' % (ds))
+    logger().debug('re/creating datastream "%s" ...' % (ds))
     await datastream_delete(el, datastream_name)
 
     # minimal template
@@ -403,12 +380,12 @@ async def datastream_create(
 
     # print(mappings['dynamic_templates'])
 
-    _logger.debug("settings: %s" % (json.dumps(settings, indent=2)))
-    _logger.debug("mappings: %s" % (json.dumps(mappings, indent=2)))
+    logger().debug("settings: %s" % (json.dumps(settings, indent=2)))
+    logger().debug("mappings: %s" % (json.dumps(mappings, indent=2)))
     if not config.elastic_multiple_nodes():
         # optimize for single node
         # this also removes "yellow" node in single node mode
-        _logger.warning("setting number_of_replicas to 0")
+        logger().warning("setting number_of_replicas to 0")
         settings["index"]["number_of_replicas"] = 0
 
     ###############
@@ -427,15 +404,16 @@ async def datastream_create(
 
     # create index, template and data stream
     headers = {"accept": "application/json", "content-type": "application/json"}
-    # _logger.debug(json.dumps(m, indent=2))
+    # logger().debug(json.dumps(m, indent=2))
     template_name: str = datastream_name + "-template"
     r = await el.indices.put_index_template(name=template_name, body=t, headers=headers)
-    _logger.debug("template created: %s" % (r))
+    logger().debug("template created: %s" % (r))
     # await el.indices.create(index=idx, headers=headers)
-    # _logger.debug("index created: %s" % (r))
+    # logger().debug("index created: %s" % (r))
     r = await el.indices.create_data_stream(ds, headers=headers)
-    _logger.debug("datastream created: %s" % (r))
+    logger().debug("datastream created: %s" % (r))
     return r
+
 
 def filter_doc_for_ingestion(
     doc: GulpDocument | dict,
@@ -453,7 +431,7 @@ def filter_doc_for_ingestion(
     Returns:
         GulpEventFilterResult: The result of the filter check.
     """
-    # _logger.error(flt)
+    # logger().error(flt)
     if (
         flt is None
         or flt.store_all_documents
@@ -644,12 +622,12 @@ async def ingest_bulk(
     # filter documents first
     # len_first = len(docs)
     bulk_docs = _build_bulk_docs(docs, flt)
-    # _logger.error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
+    # logger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
     if len(bulk_docs) == 0:
-        _logger.warning("no document to ingest (flt=%s)" % (flt))
+        logger().warning("no document to ingest (flt=%s)" % (flt))
         return 0, 0, [], []
 
-    #_logger.info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
+    # logger().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
     timeout = config.ingestion_request_timeout()
 
@@ -674,7 +652,7 @@ async def ingest_bulk(
     # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
 
     if res["errors"]:
-        # _logger.error(
+        # logger().error(
         #     "to ingest=%d but errors happened, res=%s"
         #     % (len(docs) / 2, json.dumps(res["items"], indent=2))
         # )
@@ -687,10 +665,10 @@ async def ingest_bulk(
             if status == 409:
                 # document already exists !
                 skipped += 1
-                # _logger.error(r)
+                # logger().error(r)
             elif status not in [201, 200]:
                 failed += 1
-                _logger.error(
+                logger().error(
                     "failed to ingest document: %s, docs=%s"
                     % (r, muty.string.make_shorter(str(bulk_docs), max_len=1000))
                 )
@@ -708,12 +686,12 @@ async def ingest_bulk(
         ingested = _bulk_docs_result_to_ingest_chunk(bulk_docs)
 
     if skipped != 0:
-        _logger.error(
+        logger().error(
             "**NOT AN ERROR** total %d skipped, %d failed in this bulk ingestion of %d documents !"
             % (skipped, failed, len(bulk_docs) / 2)
         )
     if failed > 0:
-        _logger.critical("failed is set, ingestion format needs to be fixed!")
+        logger().critical("failed is set, ingestion format needs to be fixed!")
     return skipped, failed, failed_ar, ingested
 
 
@@ -722,15 +700,14 @@ async def rebase(
     index: str,
     dest_index: str,
     msec_offset: int,
-    flt: GulpQueryFilter = None
-
+    flt: GulpQueryFilter = None,
 ) -> dict:
-    _logger.debug(
+    logger().debug(
         "rebase index %s to %s with offset=%d, flt=%s ..."
         % (index, dest_index, msec_offset, flt)
     )
     q = gulpqueryflt_to_dsl(flt)
-    convert_script="""
+    convert_script = """
         if ( ctx._source["@timestamp"] != 0 ) {
             ctx._source["@timestamp"] = ctx._source["@timestamp"] + params.msec_offset;
             long nsec_offset = (long)params.msec_offset * params.multiplier;
@@ -740,36 +717,27 @@ async def rebase(
     """
 
     body: dict = {
-        'source': {
-            'index': index,
-            "query": q["query"]
+        "source": {"index": index, "query": q["query"]},
+        "dest": {"index": dest_index, "op_type": "create"},
+        "script": {
+            "lang": "painless",
+            "source": convert_script,
+            "params": {
+                "msec_offset": msec_offset,
+                "multiplier": muty.time.MILLISECONDS_TO_NANOSECONDS,
+            },
         },
-        'dest': {
-            'index': dest_index,
-            "op_type":"create"
-        },
-        'script': {
-            'lang': 'painless',
-            'source': convert_script,
-            'params': {
-                'msec_offset': msec_offset,
-                'multiplier': muty.time.MILLISECONDS_TO_NANOSECONDS
-            }
-        }
     }
-    params: dict= {
-        'refresh': 'true',
-        'wait_for_completion': 'true',
-        'timeout': 0
-    }
+    params: dict = {"refresh": "true", "wait_for_completion": "true", "timeout": 0}
     headers = {
         "accept": "application/json",
         "content-type": "application/x-ndjson",
     }
 
-    _logger.debug('rebase body=%s' % (body))
+    logger().debug("rebase body=%s" % (body))
     res = await el.reindex(body=body, params=params, headers=headers)
     return res
+
 
 def _parse_elastic_res(
     results: dict,
@@ -797,18 +765,18 @@ def _parse_elastic_res(
     Raises:
         ObjectNotFound: If no results are found.
     """
-    # _logger.warning(results)
+    # logger().warning(results)
     hits = results["hits"]["hits"]
-    # _logger.debug('hits #=%d, hits node=%s' % (len(hits), hits))
+    # logger().debug('hits #=%d, hits node=%s' % (len(hits), hits))
     if len(hits) == 0:
         raise ObjectNotFound("no results found!")
 
-    # _logger.debug(json.dumps(results, indent=2))
+    # logger().debug(json.dumps(results, indent=2))
     n = {}
     if include_hits:
         nres = []
         # return hits
-        # _logger.debug("hits len: %d ..." % (len(hits)))
+        # logger().debug("hits len: %d ..." % (len(hits)))
         for hit in hits:
             s = hit["_source"]
             s["_id"] = hit["_id"]
@@ -821,14 +789,14 @@ def _parse_elastic_res(
         n["aggregations"] = aggregations
 
     n["total"] = results["hits"]["total"]["value"]
-    # _logger.debug("hits.total.value: %d ..." % (n["total"]))
+    # logger().debug("hits.total.value: %d ..." % (n["total"]))
     if n.get("results", None) is not None:
         # this is the total hits
         t = n["total"]
         if options is not None and options.limit > 0 and t > options.limit:
             # add search_after to allow pagination
             n["search_after"] = results["hits"]["hits"][-1]["sort"]
-    # _logger.debug(json.dumps(n, indent=2))
+    # logger().debug(json.dumps(n, indent=2))
     return n
 
 
@@ -917,13 +885,13 @@ async def query_max_min_per_field(
             }
         }
         aggregations = d
-        _logger.debug(
+        logger().debug(
             "aggregations with group_by=%s: %s"
             % (group_by, json.dumps(aggregations, indent=2))
         )
 
     q = gulpqueryflt_to_dsl(flt)
-    _logger.debug("query_max_min_per_field: q=%s" % (json.dumps(q, indent=2)))
+    logger().debug("query_max_min_per_field: q=%s" % (json.dumps(q, indent=2)))
     body = {"track_total_hits": True, "query": q["query"], "aggregations": aggregations}
     headers = {
         "content-type": "application/json",
@@ -935,7 +903,7 @@ async def query_max_min_per_field(
         raise ObjectNotFound()
     # print(json.dumps(res, indent=2))
     if group_by is not None:
-        _logger.debug(
+        logger().debug(
             "group_by=%s, res['aggregations']=%s"
             % (group_by, json.dumps(res["aggregations"], indent=2))
         )
@@ -970,7 +938,7 @@ async def refresh_index(el: AsyncElasticsearch, index: str) -> None:
     Returns:
         None
     """
-    _logger.debug("refreshing index: %s" % (index))
+    logger().debug("refreshing index: %s" % (index))
     await el.indices.refresh(index=index)
 
 
@@ -1104,7 +1072,7 @@ async def query_operations(el: AsyncElasticsearch, index: str):
     res = await el.search(body=body, index=index, headers=headers)
     hits = res["hits"]["total"]["value"]
     if hits == 0:
-        _logger.warning(
+        logger().warning(
             "no results found, returning empty aggregations (possibly no data on elasticsearch)!"
         )
         return {
@@ -1167,7 +1135,7 @@ async def query_raw(
         ObjectNotFound: If no results are found.
     """
     opts = _build_query_options(options)
-    _logger.debug(
+    logger().debug(
         "query_raw: %s, options=%s"
         % (json.dumps(q, indent=2), json.dumps(opts, indent=2))
     )
@@ -1187,7 +1155,7 @@ async def query_raw(
     }
     res = await el.search(body=body, index=index, headers=headers)
 
-    # _logger.debug("query_raw: res=%s" % (json.dumps(res, indent=2)))
+    # logger().debug("query_raw: res=%s" % (json.dumps(res, indent=2)))
     js = _parse_elastic_res(res, options=options)
     return js
 
@@ -1209,20 +1177,22 @@ def get_client() -> AsyncElasticsearch:
     parsed = urlparse(url)
 
     # url = "%s://%s:***********@%s:%s" % (parsed.scheme, parsed.username, parsed.hostname, parsed.port)
-    # _logger.debug('%s, elastic hostname=%s, port=%d, user=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
+    # logger().debug('%s, elastic hostname=%s, port=%d, user=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
 
     host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
     ca = None
     certs_dir = config.certs_directory()
     if certs_dir is not None and parsed.scheme.lower() == "https":
         # https and certs_dir is set
-        ca: str = muty.file.abspath(muty.file.safe_path_join(certs_dir, "elastic-ca.pem"))
+        ca: str = muty.file.abspath(
+            muty.file.safe_path_join(certs_dir, "elastic-ca.pem")
+        )
 
         # check if client certificate exists. if so, it will be used
         client_cert = muty.file.safe_path_join(certs_dir, "elastic.pem")
         client_key = muty.file.safe_path_join(certs_dir, "elastic.key")
         if os.path.exists(client_cert) and os.path.exists(client_key):
-            _logger.debug(
+            logger().debug(
                 "using client certificate: %s, key=%s, ca=%s"
                 % (client_cert, client_key, ca)
             )
@@ -1236,7 +1206,7 @@ def get_client() -> AsyncElasticsearch:
                 verify_certs=verify_certs,
             )
         else:
-            _logger.debug(
+            logger().debug(
                 "no client certificate found, using CA certificate only: %s" % (ca)
             )
             return AsyncElasticsearch(
@@ -1249,7 +1219,7 @@ def get_client() -> AsyncElasticsearch:
 
     # no https
     el = AsyncElasticsearch(host, http_auth=(parsed.username, parsed.password))
-    _logger.debug("created elasticsearch client: %s" % (el))
+    logger().debug("created elasticsearch client: %s" % (el))
     return el
 
 
@@ -1265,7 +1235,7 @@ async def shutdown_client(el: AsyncElasticsearch) -> None:
     """
     if el is not None:
         await el.close()
-        _logger.debug("elasticsearch client shutdown: %s" % (el))
+        logger().debug("elasticsearch client shutdown: %s" % (el))
 
 
 def elastic(invalidate: bool = False) -> AsyncElasticsearch:

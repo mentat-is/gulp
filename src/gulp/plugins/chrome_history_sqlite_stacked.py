@@ -1,17 +1,10 @@
-import datetime
-import os
 from enum import Enum
 
-import muty.os
-import muty.string
-import muty.time
-import muty.xml
-
-import gulp.plugin as gulp_plugin
+from gulp import plugin as gulp_plugin
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
@@ -116,13 +109,14 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            await self.ingest_plugin_initialize(
-                index, source, skip_mapping=True)
-            mod = gulp_plugin.load_plugin("sqlite", **kwargs)  
+            await self.ingest_plugin_initialize(index, source, skip_mapping=True)
+            mod = gulp_plugin.load_plugin("sqlite", **kwargs)
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
-        
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
+
         plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
         plugin_params.mapping_file = "chrome_history.json"
         return await mod.ingest(

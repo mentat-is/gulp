@@ -1,15 +1,13 @@
 import asyncio
 import base64
 import os
-import ssl
-
+from gulp.utils import logger
 import muty.file
 import psycopg
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy_utils import create_database, database_exists, drop_database
 
-import gulp.api.collab_api as collab_api
 import gulp.config as config
 from gulp.api.collab.base import (
     PERMISSION_DELETE,
@@ -27,7 +25,7 @@ from gulp.api.collab.glyph import Glyph
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.user import User
 from gulp.api.elastic import query_utils
-from gulp.api.elastic.structs import GulpQueryFilter, GulpQueryParameter, GulpQueryType
+from gulp.api.elastic.structs import GulpQueryParameter, GulpQueryType
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 
 
@@ -45,7 +43,7 @@ async def _engine_get_internal(
     else:
         sslmode = "prefer"
 
-    collab_api.logger().debug("sslmode=%s" % (sslmode))
+    logger().debug("sslmode=%s" % (sslmode))
     if certs_dir is not None and postgres_ssl:
         # https and certs_dir is set
         ca: str = muty.file.abspath(muty.file.safe_path_join(certs_dir, "postgres-ca.pem"))
@@ -55,7 +53,7 @@ async def _engine_get_internal(
         client_key = muty.file.safe_path_join(certs_dir, "postgres.key")
         client_key_password = config.postgres_client_cert_password()
         if os.path.exists(client_cert) and os.path.exists(client_key):
-            collab_api.logger().debug(
+            logger().debug(
                 "using client certificate: %s, key=%s, ca=%s"
                 % (client_cert, client_key, ca)
             )
@@ -68,7 +66,7 @@ async def _engine_get_internal(
                 }
         else:
             # no client certificate
-            collab_api.logger().debug("using server CA certificate only: %s" % (ca))
+            logger().debug("using server CA certificate only: %s" % (ca))
             connect_args = {"sslrootcert": ca, "sslmode": sslmode}
     else:
         # no SSL
@@ -85,10 +83,10 @@ async def _engine_get_internal(
                 await conn.run_sync(CollabBase.metadata.create_all)
             except psycopg.ProgrammingError as ex:
                 if not isinstance(ex, psycopg.errors.DuplicateTable):
-                    collab_api.logger().exception(ex)
+                    logger().exception(ex)
                     raise ex
 
-    collab_api.logger().info(
+    logger().info(
         "engine %s created/initialized, url=%s ..." % (engine, url)
     )
     return engine
@@ -266,7 +264,7 @@ async def engine_get(
     Raises:
         Exception: If an error occurs while retrieving or creating the engine.
     """
-    collab_api.logger().debug("---> engine_get: url=%s" % (url))
+    logger().debug("---> engine_get: url=%s" % (url))
     engine = await _engine_get_internal(
         url, sql_alchemy_debug=sql_alchemy_debug, create_tables=create_tables
     )
@@ -283,7 +281,7 @@ async def exists(url: str) -> bool:
     Returns:
         bool: True if the database exists, False otherwise.
     """
-    collab_api.logger().debug("---> exists: url=%s" % (url))
+    logger().debug("---> exists: url=%s" % (url))
     return await asyncio.to_thread(database_exists, url=url)
 
 
@@ -307,7 +305,7 @@ async def drop(
         """
         if database_exists(url):
             drop_database(url)
-            collab_api.logger().info("database %s dropped ..." % (url))
+            logger().info("database %s dropped ..." % (url))
         else:
             if raise_if_not_exists:
                 raise ObjectNotFound("database %s does not exist!" % (url))
@@ -315,7 +313,7 @@ async def drop(
             # recreate database with default data
             create_database(url)
 
-    collab_api.logger().debug(
+    logger().debug(
         "---> drop: url=%s, raise_if_not_exists=%s, recreate=%s"
         % (url, raise_if_not_exists, recreate)
     )
@@ -338,7 +336,7 @@ async def engine_close(engine: AsyncEngine) -> None:
     Returns:
         None
     """
-    collab_api.logger().debug("---> engine_close: engine=%s" % (engine))
+    logger().debug("---> engine_close: engine=%s" % (engine))
     if engine is not None:
-        collab_api.logger().info("closing connection with %s ..." % (engine))
+        logger().info("closing connection with %s ..." % (engine))
         await engine.dispose()

@@ -23,6 +23,7 @@ import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpUserPermission
 from gulp.api.collab.collabobj import CollabObj
 from gulp.api.collab.session import UserSession
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -79,7 +80,7 @@ async def collabobj_list(
             flt.type = [t]
         if flt.limit is None or flt.limit == 0:
             flt.limit = 1000
-            collab_api.logger().warning(
+            logger().warning(
                 "collabobj_list: setting limit to 1000 (default)"
             )
 

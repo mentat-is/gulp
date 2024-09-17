@@ -1,36 +1,10 @@
-import logging
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.collab.db as collab_db
 import gulp.config as config
 
-_logger: logging.Logger = None
-
 _collab: AsyncEngine = None
-
-def logger() -> logging.Logger:
-    """
-    Returns the logger instance used for logging in the collab_api module.
-
-    Returns:
-        logging.Logger: The logger instance.
-    """
-    return _logger
-
-
-def init(l: logging.Logger) -> None:
-    """
-    Initializes the collab API **in the current process**.
-
-    Args:
-        l (logging.Logger): The logger object to be used for logging.
-
-    Returns:
-        None
-    """
-    global _logger
-    _logger = l
 
 async def collab(invalidate: bool = False) -> AsyncEngine:
     """

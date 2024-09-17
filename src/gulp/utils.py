@@ -12,11 +12,21 @@ import muty.string
 import muty.time
 import muty.version
 
-import gulp.api.elastic_api as elastic_api
-import gulp.config as config
 from gulp import mapping_files
 
-LOGGER: logging.Logger = None
+_logger: logging.Logger = None
+
+
+def logger() -> logging.Logger:
+    """
+    Returns the global logger.
+
+    Returns:
+        logging.Logger: The global logger.
+    """
+    global _logger
+    return _logger
+
 
 async def send_mail(
     smtp_server: str,
@@ -54,7 +64,7 @@ async def send_mail(
         cc_list = to[1:]
 
     m = EmailMessage()
-    LOGGER.info(
+    logger().info(
         "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
         % (server, port, sender, to_email, cc_list, subject)
     )
@@ -95,13 +105,13 @@ def configure_logger(
     Returns:
         logging.Logger: configured logger
     """
-    global LOGGER
+    global _logger
 
-    # if LOGGER is not None:
-    #    LOGGER.debug('using global logger')
+    # if _logger is not None:
+    # _logger.debug('using global logger')
 
-    if not force_reconfigure and LOGGER is not None:
-        return LOGGER
+    if not force_reconfigure and _logger is not None:
+        return _logger
 
     n = "gulp"
     if log_to_file is not None:
@@ -113,18 +123,18 @@ def configure_logger(
             filename = "%s-%s" % (prefix, filename)
             log_to_file = muty.file.safe_path_join(d, filename)
 
-    LOGGER = muty.log.configure_logger(name=n, log_file=log_to_file, level=level)
+    _logger = muty.log.configure_logger(name=n, log_file=log_to_file, level=level)
 
-    LOGGER.warning(
+    _logger.warning(
         "reconfigured logger %s, level=%d, file_path=%s"
-        % (LOGGER, LOGGER.level, log_to_file)
+        % (_logger, _logger.level, log_to_file)
     )
 
     # also reconfigure muty logger with the same level
     muty.log.internal_logger(
         log_to_file=log_to_file, level=level, force_reconfigure=force_reconfigure
     )
-    return LOGGER
+    return _logger
 
 
 def init_modules(
@@ -144,13 +154,13 @@ def init_modules(
     @param ws_queue: the proxy queue for websocket messages
     returns the logger (reinitialized if log_level is set)
     """
-    global LOGGER
-    import gulp.api.collab_api as collab_api
+    global _logger
     import gulp.api.rest.ws as ws_api
+    import gulp.config as config
 
     if log_level is not None:
         # recreate logger
-        LOGGER = configure_logger(
+        _logger = configure_logger(
             log_to_file=log_file_path,
             level=log_level,
             force_reconfigure=True,
@@ -158,14 +168,12 @@ def init_modules(
         )
     else:
         # use provided
-        LOGGER = l
+        _logger = l
 
     # initialize modules
-    config.init(LOGGER)
-    collab_api.init(LOGGER)
-    elastic_api.init(LOGGER)
-    ws_api.init(LOGGER, ws_queue, main_process=False)
-    return LOGGER
+    config.init()
+    ws_api.init(ws_queue, main_process=False)
+    return _logger
 
 
 def build_mapping_file_path(filename: str) -> str:
@@ -174,8 +182,11 @@ def build_mapping_file_path(filename: str) -> str:
 
     @return the full path of a file in the mapping_files directory
     """
+    import gulp.config as config
+
     if filename is None:
         return None
+
     configured_mappings_path = config.path_mapping_files()
     if configured_mappings_path is not None:
         # use provided

@@ -7,7 +7,6 @@ import muty.dict
 import muty.string
 from pydantic import BaseModel, Field, model_validator
 
-from gulp.api import elastic_api
 from gulp.api.mapping.models import FieldMappingEntry
 from gulp.defs import GulpLogLevel, SortOrder
 from gulp.plugin_internal import GulpPluginParams
@@ -118,7 +117,7 @@ class GulpBaseFilter(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def to_py_dict(cls, data: str | dict):
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
 
         if isinstance(data, dict):
@@ -377,7 +376,7 @@ class GulpDocument:
             GulpDocument.add_invalid_timestamp(self.extra)
 
 
-        #elastic_api.logger().error(f"**** DOC INIT: FME={fme}\n, DOC={self}")
+        #logger().error(f"**** DOC INIT: FME={fme}\n, DOC={self}")
 
     def __repr__(self) -> str:
         return f"GulpDocument(idx={self.idx}, \
@@ -594,7 +593,7 @@ class GulpQueryOptions(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def to_py_dict(cls, data: str | dict):
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
 
         if isinstance(data, dict):

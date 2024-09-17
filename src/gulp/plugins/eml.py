@@ -1,7 +1,5 @@
 import email
-import json
 import os
-from copy import deepcopy
 
 import aiofiles
 import muty.crypto
@@ -11,15 +9,14 @@ import muty.os
 import muty.string
 import muty.time
 
-import gulp.api.mapping.helpers as mappings_helper
-import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
-from gulp.defs import GulpPluginType, InvalidArgument
+from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.utils import logger
 
 
 class Plugin(PluginBase):
@@ -60,7 +57,7 @@ class Plugin(PluginBase):
 
         try:
             value = str(value, encoding=encoding)
-        except Exception as e:
+        except:
             # we failed to encode
             if isinstance(value, bytes):
                 value = value.hex()
@@ -163,13 +160,13 @@ class Plugin(PluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        self.logger().debug("custom_mapping=%s" % (custom_mapping))
+        logger().debug("custom_mapping=%s" % (custom_mapping))
 
         if custom_mapping.options.agent_type is None:
             plugin = self.name()
         else:
             plugin = custom_mapping.options.agent_type
-            Plugin.logger().warning("using plugin name=%s" % (plugin))
+            logger().warning("using plugin name=%s" % (plugin))
 
         # get options
         # attempt_decode = plugin_params.extra.get("decode", True)

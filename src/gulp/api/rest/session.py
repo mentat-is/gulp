@@ -12,7 +12,7 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import APIRouter, Body, Header, Query
+from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 

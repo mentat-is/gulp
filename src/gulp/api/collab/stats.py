@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
+from gulp.utils import logger
 import gulp.api.rest.ws as ws_api
 import gulp.config as config
 from gulp.api.collab.base import (
@@ -66,7 +66,7 @@ class TmpIngestStats:
         self.ingest_errors: list[str] = []
         # probably file format is wrong
         self.parser_failed: int = 0
-        
+
     def to_dict(self):
         return self.__dict__
 
@@ -344,7 +344,7 @@ class GulpStats(CollabBase):
         Returns:
             None
         """
-        collab_api.logger().debug("---> delete_expired")
+        logger().debug("---> delete_expired")
         now = muty.time.now_msec()
         async with AsyncSession(
             engine,
@@ -358,7 +358,7 @@ class GulpStats(CollabBase):
             res = await sess.execute(q)
             await sess.commit()
             if res.rowcount > 0:
-                collab_api.logger().info(
+                logger().info(
                     "---> delete_expired: deleted %d expired stats" % (res.rowcount)
                 )
 
@@ -391,7 +391,7 @@ class GulpStats(CollabBase):
         Returns:
             tuple[bool, 'GulpStats']: A tuple containing a boolean indicating if the stats were created successfully (false if it already exists) and the created/existing GulpStats object.
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> create: t=%s, req_id=%s, operation_id=%s, client_id=%s, context=%s, total_files=%s"
             % (t, req_id, operation_id, client_id, context, total_files)
         )
@@ -406,7 +406,7 @@ class GulpStats(CollabBase):
             res = await sess.execute(q)
             stats = res.scalar_one_or_none()
             if stats is not None:
-                collab_api.logger().warning("---> STATS ALREADY EXISTS: %s" % (stats))
+                logger().warning("---> STATS ALREADY EXISTS: %s" % (stats))
                 return False, stats
 
             # create stats record
@@ -419,7 +419,7 @@ class GulpStats(CollabBase):
                 ttl = test_ttl
             if ttl > 0:
                 time_expire = ttl * 1000 + now
-                collab_api.logger().warning(
+                logger().warning(
                     "this stat will expire at %d" % (time_expire)
                 )
 
@@ -438,7 +438,7 @@ class GulpStats(CollabBase):
             stats.status = GulpRequestStatus.ONGOING
             sess.add(stats)
             await sess.commit()
-            collab_api.logger().info("---> create: created stats=%s" % (stats))
+            logger().info("---> create: created stats=%s" % (stats))
 
             # add to ws queue
             ws_api.shared_queue_add_data(
@@ -472,7 +472,7 @@ class GulpStats(CollabBase):
         Returns:
             bool: True if a database update is needed
         """
-        # collab_api.logger().debug("file_done=%d, status=%s" % (file_done, status))
+        # logger().debug("file_done=%d, status=%s" % (file_done, status))
         now = muty.time.now_msec()
         finished: bool = False
 
@@ -529,18 +529,18 @@ class GulpStats(CollabBase):
 
         if finished:
             # request finished, set final status
-            collab_api.logger().debug("request finished, setting final status")
+            logger().debug("request finished, setting final status")
             self.time_end = now
             self.status = GulpRequestStatus.DONE
 
             """
             # NOTE: we prefer not to do this ... a request is done and MAY have errors, but it is not failed.
             if self.ev_failed > 0 or (len(self.ingest_errors) > 0 or (f is not None and len(f.errors) > 0)):
-                collab_api.logger().debug('finished, setting status to FAILED')
+                logger().debug('finished, setting status to FAILED')
                 self.status = GulpRequestStatus.FAILED
             """
 
-        # collab_api.logger().error(self.ingest_errors)
+        # logger().error(self.ingest_errors)
         return True
 
     @staticmethod
@@ -592,7 +592,7 @@ class GulpStats(CollabBase):
                     >= ingestion_evt_failure_threshold
                 ):
                     # too many failures, abort
-                    collab_api.logger().error(
+                    logger().error(
                         "TOO MANY FAILURES REQ_ID=%s (failed+skipped=%d, threshold=%d), aborting current file ingestion: %s!"
                         % (
                             req_id,
@@ -614,14 +614,14 @@ class GulpStats(CollabBase):
                 return status, None
 
         # update stats record
-        # collab_api.logger().debug('---> update, req_id=%s, fs=%s, qr=%s, file_done=%s force=%s' % (
+        # logger().debug('---> update, req_id=%s, fs=%s, qr=%s, file_done=%s force=%s' % (
         #    req_id, fs, qr, file_done, force))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             # get fresh stats from db
             q = select(GulpStats).where(GulpStats.req_id == req_id).with_for_update()
             res = await sess.execute(q)
             the_stats: GulpStats = res.scalar_one_or_none()
-            collab_api.logger().debug(
+            logger().debug(
                 "---> update: engine=%s, req_id=%s, got stats=%s"
                 % (engine, req_id, the_stats)
             )
@@ -651,7 +651,7 @@ class GulpStats(CollabBase):
             sess.add(the_stats)
             await sess.commit()
 
-            collab_api.logger().debug("---> update: updated stats=%s" % (the_stats))
+            logger().debug("---> update: updated stats=%s" % (the_stats))
 
             # add to ws queue
             ws_api.shared_queue_add_data(
@@ -693,7 +693,7 @@ class GulpStats(CollabBase):
         Raises:
             ObjectNotFound: If no stats are found based on the filter.
         """
-        collab_api.logger().debug("---> get: flt=%s" % (flt))
+        logger().debug("---> get: flt=%s" % (flt))
 
         # make a select() query depending on the filter
         q = select(GulpStats)
@@ -728,7 +728,7 @@ class GulpStats(CollabBase):
             stats = res.scalars().all()
             if len(stats) == 0:
                 raise ObjectNotFound("no stats found for the given filter: %s" % (flt))
-            collab_api.logger().info(
+            logger().info(
                 "---> get: found %d stats: %s" % (len(stats), stats)
             )
             return stats

@@ -142,8 +142,6 @@ def main():
             rest_api.start_server(
                 address,
                 port,
-                _logger,
-                config.config_path(),
                 log_file_path,
                 reset_collab,
                 elastic_index,

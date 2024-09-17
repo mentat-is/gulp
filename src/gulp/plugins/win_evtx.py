@@ -12,7 +12,7 @@ from lxml import etree
 from sigma.pipelines.elasticsearch.windows import ecs_windows
 
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
@@ -129,7 +129,7 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
-        # self.logger().debug(record)
+        # logger().debug(record)
         evt_str: str = record["data"].encode()
 
         data_elem = None
@@ -173,7 +173,7 @@ class Plugin(PluginBase):
         time_str = record["timestamp"]
         time_nanosec = muty.time.string_to_epoch_nsec(time_str)
         time_msec = muty.time.nanos_to_millis(time_nanosec)
-        # Plugin.logger().debug('%s -  %d' % (time_str, time_msec))
+        # logger().debug('%s -  %d' % (time_str, time_msec))
 
         #  raw event as text
         raw_text = str(record["data"])
@@ -191,7 +191,7 @@ class Plugin(PluginBase):
 
         e_tree: etree.ElementTree = etree.ElementTree(data_elem)
 
-        # self.logger().debug("e_tree: %s" % (e_tree))
+        # logger().debug("e_tree: %s" % (e_tree))
 
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
@@ -200,7 +200,7 @@ class Plugin(PluginBase):
             if e.tag in ["EventID", "EventRecordID", "Level", "Provider"]:
                 continue
 
-            # self.logger().debug(
+            # logger().debug(
             #     "found e_tag=%s, value=%s" % (e.tag, e.text)
             # )
 
@@ -232,8 +232,8 @@ class Plugin(PluginBase):
 
             # Check attributes and set extra mapping
             for attr_k, attr_v in e.attrib.items():
-                # Plugin.logger().info("name: %s value: %s" % (attr_k, attr_v))
-                # self.logger().debug("processing attr_v=%s, value=%s" % (attr_v, e.text))
+                # logger().info("name: %s value: %s" % (attr_k, attr_v))
+                # logger().debug("processing attr_v=%s, value=%s" % (attr_v, e.text))
                 entries = self._map_source_key(
                     plugin_params,
                     custom_mapping,
@@ -265,7 +265,6 @@ class Plugin(PluginBase):
                 for entry in entries:
                     fme.append(entry)
 
-
         # finally create documents
         docs = self._build_gulpdocuments(
             fme,
@@ -281,7 +280,7 @@ class Plugin(PluginBase):
             timestamp_nsec=time_nanosec,
             event_code=evt_code,
             gulp_log_level=gulp_log_level,
-            original_log_level=original_log_level
+            original_log_level=original_log_level,
         )
         return docs
 
@@ -325,18 +324,22 @@ class Plugin(PluginBase):
                 mapping_file="windows.json",
                 plugin_params=plugin_params,
             )
-            # Plugin.logger().debug("win_mappings: %s" % (win_mapping))
+            # logger().debug("win_mappings: %s" % (win_mapping))
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         # init parser
         try:
             parser = PyEvtxParser(source)
         except Exception as ex:
             # cannot parse this file at all
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         ev_idx = 0
 
@@ -368,10 +371,12 @@ class Plugin(PluginBase):
                         break
 
                 except Exception as ex:
-                    fs=self._record_failed(fs, rr, source, ex)
+                    fs = self._record_failed(fs, rr, source, ex)
 
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
+            fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+        )

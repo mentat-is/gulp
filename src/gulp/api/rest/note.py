@@ -15,7 +15,7 @@ import muty.uploadfile
 from fastapi import APIRouter, Body, Header, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-
+from gulp.utils import logger
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
 import gulp.defs
@@ -271,7 +271,7 @@ async def note_create_handler(
         if events is not None and time_pin is not None:
             raise InvalidArgument("events and time_pin cannot be both set.")
 
-        # rest_api.logger().debug('events=%s' % (events))
+        # logger().debug('events=%s' % (events))
         o = await CollabObj.create(
             await collab_api.collab(),
             token,

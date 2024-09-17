@@ -1,9 +1,7 @@
 import datetime
-import json
 import os
 import re
 from urllib.parse import parse_qs, urlparse
-import dateutil.parser
 
 import aiofiles
 import muty.dict
@@ -12,9 +10,9 @@ import muty.log
 import muty.string
 import muty.time
 import muty.xml
-
+from gulp.utils import logger
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
@@ -198,7 +196,7 @@ class Plugin(PluginBase):
             flt=flt,
             **kwargs,
         )
-        Plugin.logger().debug("ingesting file: %s" % source)
+        logger().debug("ingesting file: %s" % source)
         print("REGEX IS:", r"\s+".join(self._parts) + r".*\Z")
         fs = TmpIngestStats(source)
 
