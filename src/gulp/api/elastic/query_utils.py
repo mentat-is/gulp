@@ -907,7 +907,6 @@ async def sigma_to_stored_query(
     Converts a Sigma rule file to a stored query and creates a CollabObj.
 
     Args:
-        engine (AsyncEngine): The async engine object.
         token (str): The token for authentication.
         req_id (str): The request ID.
         files_path (str): The path to the files.
@@ -919,9 +918,8 @@ async def sigma_to_stored_query(
     Returns:
         id of the created collab object or a string error message.
     """
-    if engine is None:
-        # take it from process
-        engine = await collab_api.collab()
+    # take it from process
+    engine = await collab_api.collab()
 
     elastic_api.logger().debug("reading sigma file %s ..." % (f))
     content = await muty.file.read_file_async(f)

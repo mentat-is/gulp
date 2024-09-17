@@ -24,6 +24,8 @@ import gulp.api.mapping.helpers as mappings_helper
 import gulp.api.rest.ws as ws_api
 import gulp.config as config
 import gulp.utils as gulp_utils
+import gulp.api.collab_api as collab_api
+import gulp.api.elastic_api as elastic_api
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
@@ -37,19 +39,10 @@ from gulp.defs import (
     ObjectNotFound,
 )
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
-
-_logger: logging.Logger = None
+from gulp.utils import LOGGER
 
 # caches plugin modules for the running process
 _cache: dict = {}
-
-
-def init(logger: logging.Logger):
-    """
-    Initializes the plugin base module.
-    """
-    global _logger
-    _logger = logger
 
 
 class PluginBase(ABC):
@@ -60,8 +53,6 @@ class PluginBase(ABC):
     def __init__(
         self,
         path: str,
-        collab: AsyncEngine = None,
-        elastic: AsyncElasticsearch = None,
         **kwargs,
     ) -> None:
         """
@@ -77,24 +68,21 @@ class PluginBase(ABC):
         self.index: str = None
         self.client_id: str = None
         self.operation_id: str = None
-        self.context: str = (None,)
+        self.context: str = None
         self.ws_id: str = None
         self.path = path
-        self.collab = collab
-        self.elastic = elastic
 
         self.buffer: list[GulpDocument] = []
         for k, v in kwargs.items():
             self.__dict__[k] = v
 
         # initialize mapping helper
-        mappings_helper.init(_logger)
+        mappings_helper.init(LOGGER)
         super().__init__()
 
     @classmethod
     def logger(cls) -> logging.Logger:
-        global _logger
-        return _logger
+        return LOGGER
 
     def options(self) -> list[GulpPluginOption]:
         """
@@ -183,14 +171,14 @@ class PluginBase(ABC):
             # custom_mapping provided
             return custom_mapping, plugin_params
 
-        self.logger().warning("no custom mapping provided")
+        LOGGER.warning("no custom mapping provided")
 
         tf = plugin_params.timestamp_field
         if tf is not None:
-            self.logger().debug("using timestamp_field=%s" % (tf))
+            LOGGER.debug("using timestamp_field=%s" % (tf))
             # build a proper custom_mapping with just timestamp
             custom_mapping.fields[tf] = FieldMappingEntry(is_timestamp=True)
-        # self.logger().debug(custom_mapping)
+        # LOGGER.debug(custom_mapping)
         return custom_mapping, plugin_params
 
     async def sigma_plugin_initialize(
@@ -213,7 +201,7 @@ class PluginBase(ABC):
         Returns:
             ProcessingPipeline: The initialized processing pipeline.
         """
-        self.logger().debug("INITIALIZING SIGMA plugin=%s" % (self.name()))
+        LOGGER.debug("INITIALIZING SIGMA plugin=%s" % (self.name()))
 
         mapping_file_path = None
         if mapping_file is not None:
@@ -302,7 +290,7 @@ class PluginBase(ABC):
             fs = await self._ingest_record(index, d, fs, ws_id, req_id, flt, **kwargs)
 
         status, _ = await GulpStats.update(
-            self.collab,
+            collab_api.collab(),
             req_id,
             ws_id,
             fs=fs.update(processed=len(docs)),
@@ -338,8 +326,8 @@ class PluginBase(ABC):
             tuple[dict, GulpMapping]: A tuple containing the elasticsearch index type mappings and the enriched GulpMapping (or an empty GulpMapping is no valid pipeline and/or mapping_file are provided).
 
         """
-        # self.logger().debug("ingest_plugin_initialize: index=%s, pipeline=%s, mapping_file=%s, mapping_id=%s, plugin_params=%s" % (index, pipeline, mapping_file, mapping_id, plugin_params))
-        self.logger().debug(
+        # LOGGER.debug("ingest_plugin_initialize: index=%s, pipeline=%s, mapping_file=%s, mapping_id=%s, plugin_params=%s" % (index, pipeline, mapping_file, mapping_id, plugin_params))
+        LOGGER.debug(
             "INITIALIZING INGESTION for source=%s, plugin=%s"
             % (muty.string.make_shorter(source, 260), self.name())
         )
@@ -645,12 +633,12 @@ class PluginBase(ABC):
             index_type_mapping (dict): The elasticsearch index key->type mappings.
         """
         if k not in index_type_mapping:
-            # _logger.debug("key %s not found in index_type_mapping" % (k))
+            # LOGGER.debug("key %s not found in index_type_mapping" % (k))
             return str(v)
 
         index_type = index_type_mapping[k]
         if index_type == "long":
-            # self.logger().debug("converting %s:%s to long" % (k, v))
+            # LOGGER.debug("converting %s:%s to long" % (k, v))
             if isinstance(v, str):
                 if v.isnumeric():
                     return int(v)
@@ -663,21 +651,21 @@ class PluginBase(ABC):
             return int(v, 16)
 
         if index_type == "keyword" or index_type == "text":
-            # self.logger().debug("converting %s:%s to keyword" % (k, v))
+            # LOGGER.debug("converting %s:%s to keyword" % (k, v))
             return str(v)
 
         if index_type == "ip":
-            # self.logger().debug("converting %s:%s to ip" % (k, v))
+            # LOGGER.debug("converting %s:%s to ip" % (k, v))
             if "local" in v.lower():
                 return "127.0.0.1"
             try:
                 ipaddress.ip_address(v)
             except ValueError as ex:
-                _logger.exception(ex)
+                LOGGER.exception(ex)
                 return None
 
         # add more types here if needed ...
-        # self.logger().debug("returning %s:%s" % (k, v))
+        # LOGGER.debug("returning %s:%s" % (k, v))
         return str(v)
 
     def _map_source_key(
@@ -708,7 +696,7 @@ class PluginBase(ABC):
         # get mapping and option from custom_mapping
         if index_type_mapping is None:
             index_type_mapping = {}
-        # _logger.debug('len index type mapping=%d' % (len(index_type_mapping)))
+        # LOGGER.debug('len index type mapping=%d' % (len(index_type_mapping)))
         mapping_dict: dict = custom_mapping.fields
         mapping_options = (
             custom_mapping.options
@@ -734,7 +722,7 @@ class PluginBase(ABC):
             return [FieldMappingEntry(result={source_key: v})]
 
         if source_key not in mapping_dict:
-            # self.logger().error('key "%s" not found in custom mapping, mapping_dict=%s!' % (source_key, muty.string.make_shorter(str(mapping_dict))))
+            # LOGGER.error('key "%s" not found in custom mapping, mapping_dict=%s!' % (source_key, muty.string.make_shorter(str(mapping_dict))))
             # key not found in custom_mapping, check if we have to map it anyway
             if not mapping_options.ignore_unmapped:
                 return [
@@ -767,16 +755,16 @@ class PluginBase(ABC):
             if is_numeric:
                 v = int(v)
                 # ensure chrome timestamp is properly converted to nanos
-                # _logger.debug('***** is_numeric, v=%d' % (v))
+                # LOGGER.debug('***** is_numeric, v=%d' % (v))
                 if fm.is_timestamp_chrome:
                     v = int(muty.time.chrome_epoch_to_nanos(v))
-                    # _logger.debug('***** is_timestamp_chrome, v nsec=%d' % (v))
+                    # LOGGER.debug('***** is_timestamp_chrome, v nsec=%d' % (v))
 
                 if fm.do_multiply is not None:
                     # apply a multipler if any (must turn v to nanoseconds)
-                    # _logger.debug("***** is_numeric, multiply, v=%d" % (v))
+                    # LOGGER.debug("***** is_numeric, multiply, v=%d" % (v))
                     v = int(v * fm.do_multiply)
-                    # _logger.debug("***** is_numeric, AFTER multiply, v=%d" % (v))
+                    # LOGGER.debug("***** is_numeric, AFTER multiply, v=%d" % (v))
 
             elif isinstance(v, str) and fm.is_timestamp:
                 v = int(
@@ -787,19 +775,19 @@ class PluginBase(ABC):
                         yearfirst=mapping_options.timestamp_yearfirst,
                     )
                 )
-                # _logger.debug('***** str and is_timestamp, v nsec=%d' % (v))
+                # LOGGER.debug('***** str and is_timestamp, v nsec=%d' % (v))
             if fm.is_timestamp:
                 # it's a timestamp, another event will be generated
                 vv = muty.time.nanos_to_millis(v)
                 dest_fm.result["@timestamp"] = vv
                 dest_fm.result["@timestamp_nsec"] = v
-                # _logger.debug('***** timestamp nanos, v=%d' % (v))
-                # _logger.debug('***** timestamp to millis, v=%d' % (vv))
+                # LOGGER.debug('***** timestamp nanos, v=%d' % (v))
+                # LOGGER.debug('***** timestamp to millis, v=%d' % (vv))
 
             if fm.is_timestamp or fm.is_timestamp_chrome:
-                # _logger.debug('***** timestamp or timestamp_chrome, v=%d' % (v))
+                # LOGGER.debug('***** timestamp or timestamp_chrome, v=%d' % (v))
                 if v < 0:
-                    # _logger.debug('***** adding invalid timestamp')
+                    # LOGGER.debug('***** adding invalid timestamp')
                     v = 0
                     GulpDocument.add_invalid_timestamp(dest_fm.result)
                 if k is not None:
@@ -816,10 +804,10 @@ class PluginBase(ABC):
 
             fme_list.append(dest_fm)
             """
-            self.logger().debug('FME LIST FOR THIS RECORD:')
+            LOGGER.debug('FME LIST FOR THIS RECORD:')
             for p in fme_list:
-                self.logger().debug(p)
-            self.logger().debug('---------------------------------')
+                LOGGER.debug(p)
+            LOGGER.debug('---------------------------------')
             """
         return fme_list
 
@@ -829,7 +817,7 @@ class PluginBase(ABC):
         """
         Builds the ingestion chunk for the websocket, filtering if needed.
         """
-        # self.logger().debug("building ingestion chunk, flt=%s" % (flt))
+        # LOGGER.debug("building ingestion chunk, flt=%s" % (flt))
         if not docs:
             return []
 
@@ -872,10 +860,10 @@ class PluginBase(ABC):
             # already flushed
             return fs
 
-        # _logger.debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
+        # LOGGER.debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
 
         skipped, failed, failed_ar, ingested_docs = await elastic_api.ingest_bulk(
-            self.elastic, index, self.buffer, flt=flt, wait_for_refresh=wait_for_refresh
+            elastic_api.elastic(), index, self.buffer, flt=flt, wait_for_refresh=wait_for_refresh
         )
         # print(json.dumps(ingested_docs, indent=2))
 
@@ -935,7 +923,7 @@ class PluginBase(ABC):
         """
         whole source failed ingestion (error happened before the record parsing loop), helper to update stats
         """
-        self.logger().exception(
+        LOGGER.exception(
             "PARSER FAILED: source=%s, ex=%s"
             % (muty.string.make_shorter(str(source), 260), ex)
         )
@@ -956,7 +944,7 @@ class PluginBase(ABC):
         Returns:
             TmpIngestStats: The updated temporary ingestion statistics.
         """
-        # self.logger().exception("RECORD FAILED: source=%s, record=%s, ex=%s" % (muty.string.make_shorter(str(source),260), muty.string.make_shorter(str(entry),260), ex))
+        # LOGGER.exception("RECORD FAILED: source=%s, record=%s, ex=%s" % (muty.string.make_shorter(str(source),260), muty.string.make_shorter(str(entry),260), ex))
         fs = fs.update(failed=1, ingest_errors=[ex])
         return fs
 
@@ -976,7 +964,7 @@ class PluginBase(ABC):
         try:
             # finally flush ingestion buffer
             fs = await self._flush_buffer(index, fs, ws_id, req_id, flt)
-            self.logger().info(
+            LOGGER.info(
                 "INGESTION DONE FOR source=%s,\n\tclient_id=%d (processed=%d, failed=%d, skipped=%d, errors=%d, parser_errors=%d)"
                 % (
                     muty.string.make_shorter(str(source), 260),
@@ -990,14 +978,14 @@ class PluginBase(ABC):
             )
         except Exception as ex:
             fs = fs.update(ingest_errors=[ex])
-            self.logger().exception(
+            LOGGER.exception(
                 "FAILED finalizing ingestion for source=%s"
                 % (muty.string.make_shorter(str(source), 260))
             )
 
         finally:
             status, _ = await GulpStats.update(
-                self.collab,
+                collab_api.collab(),
                 req_id,
                 ws_id,
                 fs=fs,
@@ -1029,8 +1017,6 @@ def _get_plugin_path(plugin: str, **kwargs) -> str:
 
 def load_plugin(
     plugin: str,
-    collab: AsyncEngine = None,
-    elastic: AsyncElasticsearch = None,
     **kwargs,
 ) -> PluginBase:
     """
@@ -1039,8 +1025,6 @@ def load_plugin(
     Args:
         plugin (str): The name or path of the plugin to load.
         req_id (str, optional): The request ID to associate with the plugin loading. Defaults to None.
-        collab (AsyncEngine, optional): The SQLAlchemy engine instance. Defaults to None (not needed for pysigma plugins).
-        elastic (AsyncElasticsearch, optional): The Elasticsearch client instance. Defaults to None (not needed for pysigma plugins).
         kwargs: additional arguments:
             "plugin_type" (GulpPluginType, default=GulpPluginType.INGESTION)
     Returns:
@@ -1049,13 +1033,13 @@ def load_plugin(
     Raises:
         Exception: If the plugin could not be loaded.
     """
-    _logger.debug(
-        "load_plugin %s, collab=%s, elastic=%s ..." % (plugin, collab, elastic)
+    LOGGER.debug(
+        "load_plugin %s ..." % (plugin)
     )
 
     m = plugin_cache_get(plugin)
     if m is not None:
-        return m.Plugin(plugin, collab, elastic, **kwargs)
+        return m.Plugin(plugin, **kwargs)
 
     if "/" in plugin:
         # plugins is an absolute path
@@ -1072,8 +1056,8 @@ def load_plugin(
             % (path)
         ) from ex
 
-    mod: PluginBase = m.Plugin(path, collab, elastic, **kwargs)
-    _logger.debug("loaded plugin: %s" % (mod.name()))
+    mod: PluginBase = m.Plugin(path, **kwargs)
+    LOGGER.debug("loaded plugin: %s" % (mod.name()))
     plugin_cache_add(m, plugin)
 
     return mod
@@ -1108,8 +1092,8 @@ async def list_plugins() -> list[dict]:
                 l.append(n)
                 unload_plugin(p)
             except Exception as ex:
-                _logger.exception(ex)
-                _logger.error("could not load plugin %s" % (f))
+                LOGGER.exception(ex)
+                LOGGER.error("could not load plugin %s" % (f))
                 continue
 
     return l
@@ -1149,7 +1133,7 @@ def unload_plugin(mod: PluginBase) -> None:
         # delete from cache if any
         # plugin_cache_delete(mod)
 
-        _logger.debug("unloading plugin: %s" % (mod.name()))
+        LOGGER.debug("unloading plugin: %s" % (mod.name()))
         mod.cleanup()
         del mod
 
@@ -1183,7 +1167,7 @@ def plugin_cache_remove(plugin: str) -> None:
         return
 
     if plugin in _cache:
-        _logger.debug("removing plugin %s from cache" % (plugin))
+        LOGGER.debug("removing plugin %s from cache" % (plugin))
 
         # cleanup module and delete
         m = _cache[plugin]
@@ -1207,7 +1191,7 @@ def plugin_cache_add(m: ModuleType, name: str) -> None:
 
     mm = _cache.get(name, None)
     if mm is None:
-        _logger.debug("adding plugin %s (%s) to cache" % (name, m))
+        LOGGER.debug("adding plugin %s (%s) to cache" % (name, m))
         _cache[name] = m
 
 
@@ -1227,5 +1211,5 @@ def plugin_cache_get(plugin: str) -> ModuleType:
 
     p = _cache.get(plugin, None)
     if p is not None:
-        _logger.debug("found plugin %s in cache" % (plugin))
+        LOGGER.debug("found plugin %s in cache" % (plugin))
     return p

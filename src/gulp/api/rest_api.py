@@ -158,7 +158,7 @@ async def _load_extension_plugins() -> list[PluginBase]:
     l = []
     for f in files:
         if "__init__" not in f and "__pycache__" not in f:
-            p = plugin.load_plugin(f, _collab, _elastic)
+            p = plugin.load_plugin(f)
             l.append(p)
     return l
 
@@ -375,7 +375,6 @@ async def recreate_process_executor() -> aiomultiprocess.Pool:
             spawned_processes,
             lock,
             _ws_q,
-            _config_path,
             _logger.level,
             _log_file_path,
         ),

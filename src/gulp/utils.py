@@ -16,8 +16,7 @@ import gulp.api.elastic_api as elastic_api
 import gulp.config as config
 from gulp import mapping_files
 
-_logger: logging.Logger = None
-
+LOGGER: logging.Logger = None
 
 async def send_mail(
     smtp_server: str,
@@ -55,7 +54,7 @@ async def send_mail(
         cc_list = to[1:]
 
     m = EmailMessage()
-    _logger.info(
+    LOGGER.info(
         "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
         % (server, port, sender, to_email, cc_list, subject)
     )
@@ -96,13 +95,13 @@ def configure_logger(
     Returns:
         logging.Logger: configured logger
     """
-    global _logger
+    global LOGGER
 
-    # if _logger is not None:
-    #    _logger.debug('using global logger')
+    # if LOGGER is not None:
+    #    LOGGER.debug('using global logger')
 
-    if not force_reconfigure and _logger is not None:
-        return _logger
+    if not force_reconfigure and LOGGER is not None:
+        return LOGGER
 
     n = "gulp"
     if log_to_file is not None:
@@ -114,18 +113,18 @@ def configure_logger(
             filename = "%s-%s" % (prefix, filename)
             log_to_file = muty.file.safe_path_join(d, filename)
 
-    _logger = muty.log.configure_logger(name=n, log_file=log_to_file, level=level)
+    LOGGER = muty.log.configure_logger(name=n, log_file=log_to_file, level=level)
 
-    _logger.warning(
+    LOGGER.warning(
         "reconfigured logger %s, level=%d, file_path=%s"
-        % (_logger, _logger.level, log_to_file)
+        % (LOGGER, LOGGER.level, log_to_file)
     )
 
     # also reconfigure muty logger with the same level
     muty.log.internal_logger(
         log_to_file=log_to_file, level=level, force_reconfigure=force_reconfigure
     )
-    return _logger
+    return LOGGER
 
 
 def init_modules(
@@ -145,15 +144,13 @@ def init_modules(
     @param ws_queue: the proxy queue for websocket messages
     returns the logger (reinitialized if log_level is set)
     """
-    global _logger
+    global LOGGER
     import gulp.api.collab_api as collab_api
     import gulp.api.rest.ws as ws_api
-    import gulp.plugin as pluginbase
-    import gulp.workers as workers
 
     if log_level is not None:
         # recreate logger
-        _logger = configure_logger(
+        LOGGER = configure_logger(
             log_to_file=log_file_path,
             level=log_level,
             force_reconfigure=True,
@@ -161,16 +158,14 @@ def init_modules(
         )
     else:
         # use provided
-        _logger = l
+        LOGGER = l
 
     # initialize modules
-    config.init(_logger)
-    collab_api.init(_logger)
-    elastic_api.init(_logger)
-    pluginbase.init(_logger)
-    workers.init(_logger)
-    ws_api.init(_logger, ws_queue, main_process=False)
-    return _logger
+    config.init(LOGGER)
+    collab_api.init(LOGGER)
+    elastic_api.init(LOGGER)
+    ws_api.init(LOGGER, ws_queue, main_process=False)
+    return LOGGER
 
 
 def build_mapping_file_path(filename: str) -> str:
