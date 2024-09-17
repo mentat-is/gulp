@@ -158,7 +158,7 @@ class Plugin(PluginBase):
             plugin=plugin,
             client_id=client_id,
             raw_event=str(record),
-            #event_code=event_code,
+            event_code=event_code,
             original_id=str(record_idx),
             src_file=os.path.basename(source),
         )
