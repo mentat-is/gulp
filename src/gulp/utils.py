@@ -155,8 +155,6 @@ def init_modules(
     returns the logger (reinitialized if log_level is set)
     """
     global _logger
-    import gulp.api.rest.ws as ws_api
-    import gulp.config as config
 
     if log_level is not None:
         # recreate logger
@@ -171,6 +169,8 @@ def init_modules(
         _logger = l
 
     # initialize modules
+    from gulp import config
+    from gulp.api.rest import ws as ws_api
     config.init()
     ws_api.init(ws_queue, main_process=False)
     return _logger

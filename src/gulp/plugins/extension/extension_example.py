@@ -9,11 +9,7 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 
 - they may extend api through `rest_api.fastapi_app().add_api_route()`.
 - they may implement run_command() to handle custom commands
-- `they run in the MAIN process context`, this implies the following only works inside the MAIN process:
-    - using `rest_api.aiopool()` to schedule tasks in the background.
-    - using `collab_api.collab() to access the collaboration database and `elastic_api.elastic()` to access the elasticsearch database.
-    - using `rest_api.process_executor()` to spawn processes and gather results.
-        - operations from spawned processes will need their own in-process `collab` and `elastic` clients.
+- `their init runs in the MAIN process context`
 """
 
 from typing import Annotated, override
