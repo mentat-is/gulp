@@ -85,6 +85,7 @@ class GulpPluginType(StrEnum):
     INGESTION = "ingestion"
     SIGMA = "sigma"
     EXTENSION = "extension"
+    QUERY = "query"
 
 class GulpLogLevel(IntEnum):
     """Gulp log levels status codes"""

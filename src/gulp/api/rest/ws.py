@@ -49,7 +49,7 @@ class WsQueueDataType(IntEnum):
     QUERY_STATS_UPDATE = 11  # data: GulpStats with type=GulpCollabType.STATS_QUERY
     INGESTION_DONE=12 # data: { "src_file"": "...", "context": "..." }
     REBASE_DONE=13 # data: { "status": GulpRequestStatus, "error": str (on error only), "index": "...", "dest_index": "...", "result": { ... } }
-
+    EXTERNAL_QUERY_RESULT=14 # data: { "req_id": ..., "chunk": 1234, "last": bool, "events": [ GulpDocument, GulpDocument, ... ] }
 
 class ConnectedWs:
     """

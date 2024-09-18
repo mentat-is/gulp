@@ -1218,6 +1218,108 @@ async def query_single_event_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
+@_app.post(
+    "/query_plugin",
+    tags=["query"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701879738287,
+                        "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
+                        "data": [
+                            { "GulpDocument" }, { "GulpDocument" }, ...
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    summary="use a `query_plugin` to query an external source.",
+    description=''
+)
+
+async def query_plugin_handler(
+    bt: BackgroundTasks,
+    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    index: Annotated[
+        str,
+        Query(
+            description=gulp.defs.API_DESC_INDEX,
+            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+        ),
+    ],
+    ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
+    q: Annotated[list[GulpQueryParameter], Body()],
+    flt: Annotated[GulpQueryFilter, Body()] = None,
+    options: Annotated[GulpQueryOptions, Body()] = None,
+    sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
+    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+) -> JSendResponse:
+    req_id = gulp.utils.ensure_req_id(req_id)
+    if flt is None:
+        flt = GulpQueryFilter()
+
+    logger().debug(
+        "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
+        % (q, flt, options, sigma_group_flts)
+    )
+    user_id = None
+    try:
+        user, session = await UserSession.check_token(
+            await collab_api.collab(), token, GulpUserPermission.READ
+        )
+        user_id = session.user_id
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+    if sigma_group_flts is not None:
+        # preprocess to avoid having to access the db while querying
+        sigma_group_flts = await query_utils.preprocess_sigma_group_filters(
+            sigma_group_flts
+        )
+
+    # FIXME: this is hackish ... maybe it is better to pass operation_id and client_id also for queries, without relying on the filter
+    operation_id: int = None
+    client_id: int = None
+    if flt.operation_id is not None and len(flt.operation_id) == 1:
+        operation_id = flt.operation_id[0]
+    if flt.client_id is not None and len(flt.client_id) == 1:
+        client_id = flt.client_id[0]
+
+    # create the request stats
+    try:
+        await GulpStats.create(
+            await collab_api.collab(),
+            GulpCollabType.STATS_QUERY,
+            req_id,
+            ws_id,
+            operation_id,
+            client_id,
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+    # run
+    coro = workers.query_multi_task(
+        username=user.name,
+        user_id=user_id,
+        req_id=req_id,
+        flt=flt,
+        index=index,
+        q=q,
+        options=options,
+        sigma_group_flts=sigma_group_flts,
+        ws_id=ws_id,
+    )
+    await rest_api.aiopool().spawn(coro)
+    return muty.jsend.pending_jsend(req_id=req_id)
+
+
 def router() -> APIRouter:
     """
     Returns this module api-router, to add it to the main router

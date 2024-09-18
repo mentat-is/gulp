@@ -22,7 +22,7 @@ from gulp import config
 from gulp import utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter, GulpQueryFilter, GulpQueryOptions
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
 from gulp.api.rest.ws import WsQueueDataType
 from gulp.defs import (
@@ -114,12 +114,20 @@ class PluginBase(ABC):
         """
         return []
 
-    def run_command(self, p: GulpPluginParams) -> dict:
+    async def query(self, client_id: int, ws_id: str, params: GulpPluginParams, flt: GulpQueryFilter, options: GulpQueryOptions=None) -> int:
         """
-        Runs a custom command
+        used in query plugins to query data directly from external sources.
+        
+        Args:
+            client_id (int): client ID
+            ws_id (str): websocket ID to stream the returned data to
+            params (GulpPluginParams, optional): plugin parameters, including i.e. in GulpPluginParams.extra the login/pwd/token to connect to the external source, plugin dependent.
+            flt (GulpQueryFilter): query filter (will be converted to the external source query format)
+            options (GulpQueryOptions, optional): query options, i.e. to limit the number of returned records. Defaults to None.
+                due to the nature of query plugins, not all options may be supported (i.e. limit, offset, ...) and notes creation is always disabled.
+        Returns:
+            int: number of events returned
         """
-        return None
-
     def internal(self) -> bool:
         """
         Returns whether the plugin is for internal use only
