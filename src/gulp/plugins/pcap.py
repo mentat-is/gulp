@@ -1,4 +1,3 @@
-import binascii
 import json
 import os
 import pathlib
@@ -14,6 +13,8 @@ import muty.string
 import muty.time
 import muty.xml
 
+from gulp.utils import logger
+
 try:
     from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
     from scapy.packet import Raw
@@ -23,7 +24,7 @@ except Exception:
     from scapy.packet import Raw
 
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
@@ -81,18 +82,18 @@ class Plugin(PluginBase):
             # get field names and map attributes
             field_names = [field.name for field in p.getlayer(layer_name).fields_desc]
 
-            # self.logger().debug(f"Dissecting layer: {layer_name}")
-            # self.logger().debug(f"Field names: {field_names}")
+            # logger().debug(f"Dissecting layer: {layer_name}")
+            # logger().debug(f"Field names: {field_names}")
 
             fields = {}
             for field_name in field_names:
                 try:
                     fields[field_name] = getattr(p.getlayer(layer_name), field_name)
-                    # self.logger().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
+                    # logger().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
                 except Exception as ex:
                     # skip fields that cannot be accessed
-                    # self.logger().exception(ex)
-                    # self.logger().debug(f"Fields: {field_name} failed to access ({ex})")
+                    # logger().exception(ex)
+                    # logger().debug(f"Fields: {field_name} failed to access ({ex})")
                     pass
 
             # make sure we have a valid json serializable dict
@@ -136,22 +137,24 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
-        # self.logger().debug(record)
+        # logger().debug(record)
         evt_json = self._pkt_to_dict(record)
         # evt_str: str = record.show2(dump=True)
-        # self.logger().debug(evt_str)
+        # logger().debug(evt_str)
 
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
 
         event_code = record.lastlayer()
         last_layer = event_code.name
         if isinstance(event_code, Raw) and (len(record.layers()) > 1):
-            event_code = (record.layers()[-2])
+            event_code = record.layers()[-2]
         else:
             event_code = record.lastlayer()
 
         # add top layer name to json
-        evt_json["top_layer"]=last_layer #TODO: this sometimes is a Packet_metadata class instead of layer
+        evt_json["top_layer"] = (
+            last_layer  # TODO: this sometimes is a Packet_metadata class instead of layer
+        )
 
         event_code = str(muty.crypto.hash_crc24(last_layer))
 
@@ -163,8 +166,8 @@ class Plugin(PluginBase):
                 custom_mapping,
                 k,
                 v,
-               index_type_mapping=index_type_mapping,
-                **kwargs
+                index_type_mapping=index_type_mapping,
+                **kwargs,
             )
             if e is not None:
                 fme.extend(e)
@@ -237,8 +240,10 @@ class Plugin(PluginBase):
                 plugin_params=plugin_params,
             )
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         file_format = plugin_params.extra.get("format", None)
         if file_format is None:
@@ -254,49 +259,58 @@ class Plugin(PluginBase):
             # fallback to pcap
             file_format = "pcap"
 
-        Plugin.logger().debug(
-            "detected file format: %s for file %s" % (file_format, source)
-        )
+        logger().debug("detected file format: %s for file %s" % (file_format, source))
 
         try:
-            Plugin.logger().debug("parsing file: %s" % source)
+            logger().debug("parsing file: %s" % source)
             if file_format == "pcapng":
-                Plugin.logger().debug(
-                    "using PcapNgReader reader on file: %s" % (source)
-                )
+                logger().debug("using PcapNgReader reader on file: %s" % (source))
                 parser = PcapNgReader(source)
             else:
-                Plugin.logger().debug("using PcapReader reader on file: %s" % (source))
+                logger().debug("using PcapReader reader on file: %s" % (source))
                 parser = PcapReader(source)
             # TODO: support other scapy file readers like ERF?
         except Exception as ex:
             # cannot parse this file at all
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         ev_idx = 0
 
         try:
             for pkt in parser:
                 try:
-                    fs, must_break = await self._process_record(index, pkt, ev_idx, 
-                                                                self.record_to_gulp_document,
-                                                                ws_id, req_id, operation_id, client_id,
-                                                                context, source, fs, 
-                                                                custom_mapping=custom_mapping,
-                                                                index_type_mapping=index_type_mapping,
-                                                                plugin_params=plugin_params,
-                                                                flt=flt,
-                                                                **kwargs)
+                    fs, must_break = await self._process_record(
+                        index,
+                        pkt,
+                        ev_idx,
+                        self.record_to_gulp_document,
+                        ws_id,
+                        req_id,
+                        operation_id,
+                        client_id,
+                        context,
+                        source,
+                        fs,
+                        custom_mapping=custom_mapping,
+                        index_type_mapping=index_type_mapping,
+                        plugin_params=plugin_params,
+                        flt=flt,
+                        **kwargs,
+                    )
 
                     ev_idx += 1
                     if must_break:
                         break
                 except Exception as ex:
                     fs = self._record_failed(fs, pkt, source, ex)
-                    
+
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
+            fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+        )

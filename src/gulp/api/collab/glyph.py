@@ -1,5 +1,4 @@
 import base64
-import logging
 from typing import Union
 
 from sqlalchemy import LargeBinary, String, select
@@ -7,10 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
-
+from gulp.utils import logger
 
 class Glyph(CollabBase):
     """
@@ -49,7 +47,7 @@ class Glyph(CollabBase):
             Glyph: The created Glyph object.
         """
         # only admin can create glyph
-        collab_api.logger().debug("---> create: img=%s..., name=%s" % (img[0:4], name))
+        logger().debug("---> create: img=%s..., name=%s" % (img[0:4], name))
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             # check if it already exists
@@ -62,7 +60,7 @@ class Glyph(CollabBase):
             g = Glyph(img=img, name=name)
             sess.add(g)
             await sess.commit()
-            collab_api.logger().info("create: created glyph id=%d" % (g.id))
+            logger().info("create: created glyph id=%d" % (g.id))
             return g
 
     @staticmethod
@@ -79,7 +77,7 @@ class Glyph(CollabBase):
             Glyph: The updated Glyph object.
         """
 
-        collab_api.logger().debug(
+        logger().debug(
             "---> update: id=%s, img=%s..." % (glyph_id, img[0:4])
         )
 
@@ -92,7 +90,7 @@ class Glyph(CollabBase):
 
             g.img = img
             await sess.commit()
-            collab_api.logger().info("update: updated glyph id=%d" % (glyph_id))
+            logger().info("update: updated glyph id=%d" % (glyph_id))
             return g
 
     @staticmethod
@@ -108,7 +106,7 @@ class Glyph(CollabBase):
             None
         """
 
-        collab_api.logger().debug("---> delete: id=%s" % (glyph_id))
+        logger().debug("---> delete: id=%s" % (glyph_id))
         async with AsyncSession(engine) as sess:
             q = select(Glyph).where(Glyph.id == glyph_id)
             res = await sess.execute(q)
@@ -118,7 +116,7 @@ class Glyph(CollabBase):
 
             await sess.delete(g)
             await sess.commit()
-            collab_api.logger().info("delete: deleted glyph id=%d" % (glyph_id))
+            logger().info("delete: deleted glyph id=%d" % (glyph_id))
 
     @staticmethod
     async def get(
@@ -137,7 +135,7 @@ class Glyph(CollabBase):
         Raises:
             ObjectNotFound: If no glyphs are found.
         """
-        collab_api.logger().debug("---> get: flt=%s" % (flt))
+        logger().debug("---> get: flt=%s" % (flt))
 
         # check each part of flt and build the query
         q = select(Glyph)
@@ -172,5 +170,5 @@ class Glyph(CollabBase):
                     gg.append({"id": g[0], "name": g[1]})
                 glyphs = gg
 
-            collab_api.logger().info("glyphs retrieved: %d ..." % (len(glyphs)))
+            logger().info("glyphs retrieved: %d ..." % (len(glyphs)))
             return glyphs

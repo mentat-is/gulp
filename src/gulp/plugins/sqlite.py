@@ -5,11 +5,11 @@ import muty.dict
 import muty.os
 import muty.string
 import muty.xml
-
+from gulp.utils import logger
 import gulp.api.mapping.helpers as mappings_helper
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
 from gulp.defs import GulpPluginType, InvalidArgument
@@ -96,7 +96,7 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
 
-        # Plugin.logger().debug(custom_mapping"record: %s" % record)
+        # logger().debug(custom_mapping"record: %s" % record)
         event: dict = record
         extra = kwargs.get("extra", {})
         original_id = kwargs.get("original_id", record_idx)
@@ -128,7 +128,7 @@ class Plugin(PluginBase):
             for f in e:
                 fme.append(f)
 
-        # self.logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
+        # logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
         event_code = str(
             muty.crypto.hash_crc24(
                 f"{extra["gulp.sqlite.db.name"]}.{extra["gulp.sqlite.db.table.name"]}"
@@ -229,7 +229,7 @@ class Plugin(PluginBase):
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
 
-        self.logger().debug("custom_mapping=%s" % (custom_mapping))
+        logger().debug("custom_mapping=%s" % (custom_mapping))
 
         try:
             custom_mappings: list[GulpMapping] = (
@@ -247,15 +247,15 @@ class Plugin(PluginBase):
         for mapping in custom_mappings:
             tables_to_map.append(mapping.to_dict()["options"]["mapping_id"])
 
-        Plugin.logger().debug(plugin_params)
-        Plugin.logger().debug(plugin_params.extra)
+        logger().debug(plugin_params)
+        logger().debug(plugin_params.extra)
 
         encryption_key = plugin_params.extra.get("encryption_key", None)
         key_type = plugin_params.extra.get("key_type", "key")
 
         # check if key_type is supported
         if key_type.lower() not in ["key", "textkey", "hexkey"]:
-            Plugin.logger().warning(
+            logger().warning(
                 "unsupported key type %s, defaulting to 'key'" % (key_type,)
             )
             key_type = "key"
@@ -274,9 +274,9 @@ class Plugin(PluginBase):
                             mapping_file, mapping_id
                         )
                     )
-                    Plugin.logger().info("custom mapping for table %s found" % (table,))
+                    logger().info("custom mapping for table %s found" % (table,))
                 except ValueError:
-                    Plugin.logger().error(
+                    logger().error(
                         "custom mapping for table %s NOT found" % (table,)
                     )
 
@@ -284,7 +284,7 @@ class Plugin(PluginBase):
             plugin = self.name()
         else:
             plugin = custom_mapping.options.agent_type
-            Plugin.logger().warning("using plugin name=%s" % (plugin))
+            logger().warning("using plugin name=%s" % (plugin))
 
         ev_idx = 0
         try:
@@ -295,7 +295,7 @@ class Plugin(PluginBase):
                     async with db.execute(
                         "PRAGMA ?='?'", (key_type, encryption_key)
                     ) as cur:
-                        Plugin.logger().info(
+                        logger().info(
                             "attempting database decryption with provided key: %s"
                             % (await cur.fetchall())
                         )
@@ -347,7 +347,7 @@ class Plugin(PluginBase):
                                         original_id = v
                                         break
 
-                            # Plugin.logger().debug("Mapping: %s" % mapping)
+                            # logger().debug("Mapping: %s" % mapping)
                             try:
                                 fs, must_break = await self._process_record(
                                     index,

@@ -5,8 +5,7 @@ from sqlalchemy import ARRAY, BIGINT, ForeignKey, Integer, String, select, updat
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
-
-import gulp.api.collab_api as collab_api
+from gulp.utils import logger
 from gulp.api.collab.base import (
     CollabBase,
     GulpCollabFilter,
@@ -109,7 +108,7 @@ class User(CollabBase):
             ObjectNotFound: If no user is found.
         """
 
-        collab_api.logger().debug("---> get: flt=%s" % (flt))
+        logger().debug("---> get: flt=%s" % (flt))
 
         # make a select() query depending on the filter
         q = select(User)
@@ -131,7 +130,7 @@ class User(CollabBase):
             users = res.scalars().all()
             if len(users) == 0:
                 raise ObjectNotFound("no user found")
-            collab_api.logger().info("users retrieved: %s ..." % (users))
+            logger().info("users retrieved: %s ..." % (users))
             return users
 
     @staticmethod
@@ -156,7 +155,7 @@ class User(CollabBase):
         Returns:
             User: The newly created user object.
         """
-        collab_api.logger().debug("---> create: username=%s" % (username))
+        logger().debug("---> create: username=%s" % (username))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             # check if user already exists
             q = select(User).where(User.name == username)
@@ -176,7 +175,7 @@ class User(CollabBase):
             )
             sess.add(u)
             await sess.commit()
-            collab_api.logger().info("user created: %s ..." % (u))
+            logger().info("user created: %s ..." % (u))
             return u
 
     @staticmethod
@@ -193,7 +192,7 @@ class User(CollabBase):
             ObjectNotFound
         """
 
-        collab_api.logger().debug("---> delete: user_id=%d" % (user_id))
+        logger().debug("---> delete: user_id=%d" % (user_id))
 
         async with AsyncSession(engine) as sess:
             q = select(User).where(User.id == user_id)
@@ -203,7 +202,7 @@ class User(CollabBase):
                 raise ObjectNotFound("user id %d does not exist!" % (user_id))
             await sess.delete(user)
             await sess.commit()
-            collab_api.logger().info("user deleted: %s ..." % (user_id))
+            logger().info("user deleted: %s ..." % (user_id))
 
     async def update_user_data(self, sess: AsyncSession) -> None:
         """
@@ -254,7 +253,7 @@ class User(CollabBase):
             MissingPermission: If the user does not have permission to update the specified user or permission level.
         """
 
-        collab_api.logger().debug(
+        logger().debug(
             "---> update: token=%s, user_id=%s" % (requestor_token, user_id)
         )
 
@@ -284,7 +283,7 @@ class User(CollabBase):
 
             sess.add(user)
             await sess.commit()
-            collab_api.logger().info("user updated: %s ..." % (user))
+            logger().info("user updated: %s ..." % (user))
             return user
 
     @staticmethod
@@ -302,7 +301,7 @@ class User(CollabBase):
         Returns:
             tuple[User, UserSession]: A tuple containing the logged-in user and the user session.
         """
-        collab_api.logger().debug("---> login: username=%s" % (username))
+        logger().debug("---> login: username=%s" % (username))
         user, session = await UserSession.create(engine, username, password)
         return user, session
 
@@ -319,7 +318,7 @@ class User(CollabBase):
         raises:
             ObjectNotFound: If the token does not exist.
         """
-        collab_api.logger().debug("---> logout: token=%s" % (token))
+        logger().debug("---> logout: token=%s" % (token))
         return await UserSession.delete(engine, token)
 
     @staticmethod

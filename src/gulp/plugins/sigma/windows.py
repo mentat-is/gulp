@@ -4,6 +4,7 @@ from sigma.processing.pipeline import ProcessingPipeline
 from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
+from gulp.utils import logger
 
 
 class Plugin(PluginBase):
@@ -22,7 +23,7 @@ class Plugin(PluginBase):
     async def pipeline(
         self, plugin_params: GulpPluginParams = None, **kwargs
     ) -> ProcessingPipeline:
-        Plugin.logger().debug("params: %s" % (plugin_params))
+        logger().debug("params: %s" % (plugin_params))
         pipeline = await self.sigma_plugin_initialize(
             pipeline=ecs_windows(),
             mapping_file="windows.json",

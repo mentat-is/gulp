@@ -28,6 +28,7 @@ from gulp.api.collab.collabobj import CollabObj
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.structs import GulpQueryParameter, GulpQueryType
 from gulp.defs import InvalidArgument
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -265,11 +266,10 @@ async def stored_query_create_from_sigma_zip_handler(
     try:
         # decompress
         files_path = await muty.uploadfile.unzip(z)
-        rest_api.logger().debug("zipfile unzipped to %s" % (files_path))
+        logger().debug("zipfile unzipped to %s" % (files_path))
         try:
             # use multiprocessing to gather the rules
             s = await workers.gather_sigma_directories_to_stored_queries(
-                rest_api.process_executor(),
                 token,
                 req_id.files_path,
                 pysigma_plugin,

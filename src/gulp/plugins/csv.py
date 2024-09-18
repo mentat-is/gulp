@@ -1,5 +1,4 @@
 import os
-from copy import deepcopy
 
 import aiofiles
 import muty.dict
@@ -8,13 +7,13 @@ import muty.string
 import muty.xml
 
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
-
+from gulp.utils import logger
 try:
     from aiocsv import AsyncDictReader
 except Exception:
@@ -97,7 +96,7 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
 
-        # Plugin.logger().debug("record: %s" % record)
+        # logger().debug("record: %s" % record)
         event: dict = record
 
         # get raw csv line (then remove it)
@@ -117,14 +116,14 @@ class Plugin(PluginBase):
             )
             fme.extend(e)
 
-        # self.logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
+        # logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
 
         # this is the global event code for this mapping, but it may be overridden
         # at field level, anyway
         event_code = (
             custom_mapping.options.default_event_code if custom_mapping is not None else None
         )
-        #self.logger().error(f"**** SET FROM PLUGIN ev_code: {event_code}, custom_mapping: {custom_mapping}")
+        #logger().error(f"**** SET FROM PLUGIN ev_code: {event_code}, custom_mapping: {custom_mapping}")
         events = self._build_gulpdocuments(
             fme,
             idx=record_idx,
@@ -182,7 +181,7 @@ class Plugin(PluginBase):
             fs = self._parser_failed(fs, source, ex)
             return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
 
-        self.logger().debug("custom_mapping=%s" % (custom_mapping))
+        logger().debug("custom_mapping=%s" % (custom_mapping))
 
         delimiter = plugin_params.extra.get("delimiter", ",")
 
@@ -190,7 +189,7 @@ class Plugin(PluginBase):
             plugin = self.name()
         else:
             plugin = custom_mapping.options.agent_type
-            Plugin.logger().warning("using plugin name=%s" % (plugin))
+            logger().warning("using plugin name=%s" % (plugin))
 
         ev_idx = 0
         try:
@@ -233,7 +232,7 @@ class Plugin(PluginBase):
 
                     except Exception as ex:
                         fs = self._record_failed(fs, fixed_dict, source, ex)
-                    
+
         except Exception as ex:
             # add an error
             fs = self._parser_failed(fs, source, ex)

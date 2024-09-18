@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
+from gulp.utils import logger
 import gulp.config as config
 from gulp.api.collab.base import (
     CollabBase,
@@ -86,7 +86,7 @@ class UserSession(CollabBase):
             ObjectNotFound: If the session token is not found.
         """
 
-        collab_api.logger().debug("---> get: user_id=%s" % (user_id))
+        logger().debug("---> get: user_id=%s" % (user_id))
 
         async with AsyncSession(engine) as sess:
             q = select(UserSession).where(UserSession.user_id == user_id)
@@ -95,7 +95,7 @@ class UserSession(CollabBase):
             if user_session is None:
                 raise ObjectNotFound("session not found for user_id=%d !" % (user_id))
 
-            collab_api.logger().debug(
+            logger().debug(
                 "get: token for user_id %d=%s" % (user_id, user_session.token)
             )
 
@@ -122,7 +122,7 @@ class UserSession(CollabBase):
             ObjectNotFound: If the session token is not found.
         """
 
-        collab_api.logger().debug("---> get: token=%s" % (token))
+        logger().debug("---> get: token=%s" % (token))
 
         async with AsyncSession(engine) as sess:
             q = select(UserSession).where(UserSession.token == token)
@@ -130,7 +130,7 @@ class UserSession(CollabBase):
             user_session: UserSession = res.scalar_one_or_none()
             if user_session is None:
                 raise ObjectNotFound("session token %s not found !" % (token))
-            collab_api.logger().debug(
+            logger().debug(
                 "get: user_session for token %s=%s" % (token, user_session)
             )
 
@@ -158,7 +158,7 @@ class UserSession(CollabBase):
 
         if time_expire > 0:
             time_expire = time_expire * 1000 + muty.time.now_msec()
-            collab_api.logger().warning(
+            logger().warning(
                 "token %s created for user %s, time_expire=%s"
                 % (token, user.name, time_expire)
             )
@@ -166,7 +166,7 @@ class UserSession(CollabBase):
         # update sessions table
         if user_session is not None:
             # already exist
-            collab_api.logger().debug(
+            logger().debug(
                 "user %s session already exists, update token ..." % (user.name)
             )
             user_session.token = token
@@ -176,13 +176,13 @@ class UserSession(CollabBase):
             user_session = UserSession(
                 user_id=user.id, token=token, time_expire=time_expire
             )
-            collab_api.logger().debug("created new user session: %s" % (user_session))
+            logger().debug("created new user session: %s" % (user_session))
 
         # update user table with last login time and session id
         user.time_last_login = muty.time.now_msec()
         sess.add(user_session)
         await sess.flush()
-        # collab_api.logger().debug('session id(POST-FLUSH)=%d' % (user_session.id))
+        # logger().debug('session id(POST-FLUSH)=%d' % (user_session.id))
 
         # set session_id in user to indicate login
         user.session_id = user_session.id
@@ -190,7 +190,7 @@ class UserSession(CollabBase):
         await sess.commit()
 
         # done
-        collab_api.logger().info(
+        logger().info(
             "---> create: user %s logged in, session=%s" % (user, user_session)
         )
 
@@ -222,7 +222,7 @@ class UserSession(CollabBase):
         if not __debug__:
             allow_any_password = False
 
-        collab_api.logger().debug("---> create: username=%s" % (username))
+        logger().debug("---> create: username=%s" % (username))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             h = muty.crypto.hash_sha256(password)
 
@@ -260,7 +260,7 @@ class UserSession(CollabBase):
             ObjectNotFound: If the session with the given token is not found.
 
         """
-        collab_api.logger().debug("---> delete: token=%s" % (token))
+        logger().debug("---> delete: token=%s" % (token))
         if config.debug_allow_any_token_as_admin():
             # use admin token
             _, s = await UserSession._get_admin(engine)
@@ -275,7 +275,7 @@ class UserSession(CollabBase):
 
             await sess.delete(session)
             await sess.commit()
-            collab_api.logger().info(
+            logger().info(
                 "session deleted for token=%s, user_id=%d ..."
                 % (token, session.user_id)
             )
@@ -290,7 +290,7 @@ class UserSession(CollabBase):
         """
         from gulp.api.collab.user import User
 
-        collab_api.logger().debug("---> get_admin")
+        logger().debug("---> get_admin")
         # get user
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             q = select(User).where(User.name == "admin")
@@ -334,7 +334,7 @@ class UserSession(CollabBase):
         """
         from gulp.api.collab.user import User
 
-        collab_api.logger().debug("---> impersonate: user_id=%s" % (user_id))
+        logger().debug("---> impersonate: user_id=%s" % (user_id))
         await UserSession.check_token(engine, token, GulpUserPermission.ADMIN)
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
@@ -374,7 +374,7 @@ class UserSession(CollabBase):
         """
         from gulp.api.collab.user import User
 
-        collab_api.logger().debug("---> check_token: token=%s" % (token))
+        logger().debug("---> check_token: token=%s" % (token))
         if config.debug_allow_any_token_as_admin():
             # always return the admin user and its token (for testing purposes)
             u, s = await UserSession._get_admin(engine)

@@ -21,7 +21,6 @@ from muty.jsend import JSendException, JSendResponse
 from requests_toolbelt.multipart import decoder
 
 import gulp.api.collab_api as collab_api
-import gulp.api.elastic_api as elastic_api
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
@@ -35,13 +34,13 @@ from gulp.api.collab.session import UserSession
 from gulp.api.collab.user import User
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.plugin_internal import GulpPluginParams
-from gulp.utils import _logger
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
 
 def _handle_plugin_params(plugin_params: GulpPluginParams) -> None:
-    rest_api.logger().debug("plugin_params: %s" % (plugin_params))
+    logger().debug("plugin_params: %s" % (plugin_params))
 
     if plugin_params is None:
         return
@@ -108,7 +107,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     """
 
     # get headers and body
-    _logger.debug("request headers: %s" % (r.headers))
+    logger().debug("request headers: %s" % (r.headers))
     continue_offset: int = int(r.headers.get("continue_offset", 0))
     total_file_size: int = int(r.headers["size"])
     body = await r.body()
@@ -119,8 +118,8 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     file_content: bytes = None
     json_payload_part = data.parts[0]
     file_part = data.parts[1]
-    _logger.debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
-    _logger.debug("file_part.headers=\n%s" % (file_part.headers))
+    logger().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
+    logger().debug("file_part.headers=\n%s" % (file_part.headers))
     fsize: int = 0
 
     # ingestion filter
@@ -128,16 +127,16 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     payload_dict = None
     try:
         payload_dict = json.loads(payload)
-        _logger.debug("ingestion json payload: %s" % (payload_dict))
+        logger().debug("ingestion json payload: %s" % (payload_dict))
         if len(payload_dict) == 0:
-            _logger.warning('empty "payload" part')
+            logger().warning('empty "payload" part')
             payload_dict = None
     except:
-        _logger.exception('invalid or None "payload" part: %s' % (payload))
+        logger().exception('invalid or None "payload" part: %s' % (payload))
 
     # download file chunk (also ensure cache dir exists)
     content_disposition = file_part.headers[b"Content-Disposition"].decode("utf-8")
-    _logger.debug("Content-Disposition: %s" % (content_disposition))
+    logger().debug("Content-Disposition: %s" % (content_disposition))
     fname_start: int = content_disposition.find("filename=") + len("filename=")
     fname_end: int = content_disposition.find(";", fname_start)
     filename: str = content_disposition[fname_start:fname_end]
@@ -148,14 +147,16 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     if filename[-1] in ['"', "'"]:
         filename = filename[:-1]
 
-    _logger.debug("filename (extracted from Content-Disposition): %s" % (filename))
+    logger().debug("filename (extracted from Content-Disposition): %s" % (filename))
     cache_dir = config.upload_tmp_dir()
-    cache_file_path = muty.file.safe_path_join(cache_dir, "%s/%s" % (req_id, filename), allow_relative=True)
+    cache_file_path = muty.file.safe_path_join(
+        cache_dir, "%s/%s" % (req_id, filename), allow_relative=True
+    )
     await aiofiles.os.makedirs(os.path.dirname(cache_file_path), exist_ok=True)
     fsize = await muty.file.get_size(cache_file_path)
     if fsize == total_file_size:
         # upload is already complete
-        _logger.info("file size matches, upload is already complete!")
+        logger().info("file size matches, upload is already complete!")
         js = {"file_path": cache_file_path, "done": True}
         if payload_dict is not None:
             # valid payload
@@ -163,9 +164,9 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
         return js
 
     file_content = file_part.content
-    # _logger.debug("filename=%s, file chunk size=%d" % (filename, len(file_content)))
+    # LOGGER.debug("filename=%s, file chunk size=%d" % (filename, len(file_content)))
     async with aiofiles.open(cache_file_path, "ab+") as f:
-        _logger.debug(
+        logger().debug(
             "writing chunk of size=%d at offset=%d in %s ..."
             % (len(file_content), continue_offset, cache_file_path)
         )
@@ -175,12 +176,12 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
 
     # get written file size
     fsize = await muty.file.get_size(cache_file_path)
-    _logger.debug("current size of %s: %d" % (cache_file_path, fsize))
+    logger().debug("current size of %s: %d" % (cache_file_path, fsize))
     if fsize == total_file_size:
-        _logger.info("file size matches, upload complete!")
+        logger().info("file size matches, upload complete!")
         js = {"file_path": cache_file_path, "done": True}
     else:
-        _logger.warning(
+        logger().warning(
             "file size mismatch(total=%d, current=%d), upload incomplete!"
             % (total_file_size, fsize)
         )
@@ -192,7 +193,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     if payload_dict is not None:
         # valid payload
         js["payload"] = payload_dict
-    _logger.debug("type=%s, payload=%s" % (type(js), js))
+    logger().debug("type=%s, payload=%s" % (type(js), js))
     return js
 
 
@@ -212,7 +213,7 @@ def _get_ingest_payload(
     payload = multipart_result.get("payload", None)
     if payload is None or len(payload) == 0:
         #  no payload
-        rest_api.logger().debug("no payload found in multipart")
+        logger().debug("no payload found in multipart")
         return GulpPluginParams(), GulpIngestionFilter()
 
     # parse each part of the payload
@@ -237,7 +238,7 @@ def _get_ingest_payload(
         for k, v in plugin_params.config_override.items():
             config.override_runtime_parameter(k, v)
 
-    rest_api.logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
+    logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
     return plugin_params, flt
 
 
@@ -317,9 +318,6 @@ async def ingest_raw_handler(
 
     # process in background (may need to wait for pool space)
     coro = workers.ingest_single_file_or_events_task(
-        await collab_api.collab(),
-        elastic_api.elastic(),
-        rest_api.process_executor(),
         index=index,
         req_id=req_id,
         f=events,
@@ -429,9 +427,6 @@ async def ingest_zip_handler(
 
     # process in background (may need to wait for pool space)
     coro = workers.ingest_zip_task(
-        await collab_api.collab(),
-        elastic_api.elastic(),
-        rest_api.process_executor(),
         ws_id=ws_id,
         index=index,
         req_id=req_id,
@@ -545,9 +540,6 @@ async def ingest_zip_simple_handler(
 
     # process in background (may need to wait for pool space)
     coro = workers.ingest_zip_simple_task(
-        await collab_api.collab(),
-        elastic_api.elastic(),
-        rest_api.process_executor(),
         index=index,
         req_id=req_id,
         f=file_path,
@@ -649,7 +641,7 @@ async def ingest_file_handler(
     )
 
     # handle multipart request manually
-    rest_api.logger().debug("headers=%s" % (r.headers))
+    logger().debug("headers=%s" % (r.headers))
     multipart_result = await _request_handle_multipart(r, req_id)
     done: bool = multipart_result["done"]
     file_path: str = multipart_result["file_path"]
@@ -667,9 +659,6 @@ async def ingest_file_handler(
 
     # process in background (may need to wait for pool space)
     coro = workers.ingest_single_file_or_events_task(
-        await collab_api.collab(),
-        elastic_api.elastic(),
-        rest_api.process_executor(),
         index=index,
         req_id=req_id,
         f=file_path,
@@ -765,9 +754,6 @@ if __debug__:
 
         # process in background (may need to wait for pool space)
         coro = workers.ingest_directory_task(
-            await collab_api.collab(),
-            elastic_api.elastic(),
-            rest_api.process_executor(),
             index=index,
             req_id=req_id,
             directory=directory,

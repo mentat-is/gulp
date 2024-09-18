@@ -18,7 +18,6 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab.db as collab_db
 import gulp.api.collab_api as collab_api
-from gulp.api.elastic.structs import GulpQueryFilter
 import gulp.api.elastic_api as elastic_api
 import gulp.api.rest_api as rest_api
 import gulp.config as config
@@ -28,6 +27,8 @@ import gulp.utils
 import gulp.workers as workers
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import UserSession
+from gulp.api.elastic.structs import GulpQueryFilter
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -50,8 +51,8 @@ _app: APIRouter = APIRouter()
             }
         }
     },
-    summary="rebases index/datastream to a different time.",    
-    description="rebases `index` and creates a new `dest_index` with rebased `@timestamp` + `offset`.",    
+    summary="rebases index/datastream to a different time.",
+    description="rebases `index` and creates a new `dest_index` with rebased `@timestamp` + `offset`.",
 )
 async def rebase_handler(
     bt: BackgroundTasks,
@@ -74,10 +75,10 @@ async def rebase_handler(
         int,
         Query(
             description="offset, in milliseconds from unix epoch, to be added to the `@timestamp` field.<br>"
-                "to subtract, **use a negative offset.<br><br>"
-                "rebasing happens in background and **uses one of the worker processess**: when it is done, a REBASE_DONE event is sent to the websocket.",
-        )
-    ],        
+            "to subtract, **use a negative offset.<br><br>"
+            "rebasing happens in background and **uses one of the worker processess**: when it is done, a REBASE_DONE event is sent to the websocket.",
+        ),
+    ],
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
     flt: Annotated[GulpQueryFilter, Body()] = None,
     max_total_fields: Annotated[
@@ -92,31 +93,42 @@ async def rebase_handler(
     event_original_text_analyzer: Annotated[
         str, Query(description="The event.original text analyzer.")
     ] = "standard",
-    
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
-    rest_api.logger().debug(
-        "rebasing index=%s to dest_index=%s with offset=%d, ws_id=%s, flt=%s" % (index, dest_index, offset_msec, ws_id, flt)
+    logger().debug(
+        "rebasing index=%s to dest_index=%s with offset=%d, ws_id=%s, flt=%s"
+        % (index, dest_index, offset_msec, ws_id, flt)
     )
     req_id = gulp.utils.ensure_req_id(req_id)
     if index == dest_index:
-        raise JSendException(req_id=req_id, ex=Exception("index and dest_index should be different!"))
-        
+        raise JSendException(
+            req_id=req_id, ex=Exception("index and dest_index should be different!")
+        )
+
     try:
         await UserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.EDIT
         )
-        coro = workers.rebase_task(await collab_api.collab(), elastic_api.elastic(), rest_api.process_executor(), 
-                                index=index, dest_index=dest_index, offset=offset_msec, ws_id=ws_id, flt=flt, req_id=req_id,
-                                max_total_fields=max_total_fields, refresh_interval_msec=refresh_interval_msec,
-                                force_date_detection=force_date_detection, event_original_text_analyzer=event_original_text_analyzer)
+        coro = workers.rebase_task(
+            index=index,
+            dest_index=dest_index,
+            offset=offset_msec,
+            ws_id=ws_id,
+            flt=flt,
+            req_id=req_id,
+            max_total_fields=max_total_fields,
+            refresh_interval_msec=refresh_interval_msec,
+            force_date_detection=force_date_detection,
+            event_original_text_analyzer=event_original_text_analyzer,
+        )
         await rest_api.aiopool().spawn(coro)
-        
+
         # return pending
-        return muty.jsend.pending_jsend(req_id=req_id)          
+        return muty.jsend.pending_jsend(req_id=req_id)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
+
 
 @_app.get(
     "/elastic_list_index",
@@ -161,7 +173,7 @@ async def elastic_list_index_handler(
             await collab_api.collab(), token, GulpUserPermission.ADMIN
         )
         l: list[str] = await elastic_api.datastream_list(elastic_api.elastic())
-        # rest_api.logger().debug("datastreams=%s" % (l))
+        # logger().debug("datastreams=%s" % (l))
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -411,9 +423,9 @@ async def collab_init_handler(
         c = await collab_api.collab()
         await collab_db.drop(config.postgres_url())
         await collab_db.engine_close(c)
-        rest_api.logger().debug("previous main process collab=%s" % (c))
+        logger().debug("previous main process collab=%s" % (c))
         c = await collab_api.collab(invalidate=True)
-        rest_api.logger().debug("current main process collab=%s" % (c))
+        logger().debug("current main process collab=%s" % (c))
 
         # we need also to reinit all processes
         gulp.plugin.plugin_cache_clear()

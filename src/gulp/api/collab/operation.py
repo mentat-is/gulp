@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-import gulp.api.collab_api as collab_api
+from gulp.utils import logger
 from gulp.api.collab.base import CollabBase, GulpCollabFilter, GulpUserPermission
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 
@@ -70,7 +70,7 @@ class Operation(CollabBase):
             ObjectAlreadyExists: If the operation already exists.
         """
 
-        collab_api.logger().debug(
+        logger().debug(
             "---> create: name=%s, description=%s" % (name, description)
         )
 
@@ -91,7 +91,7 @@ class Operation(CollabBase):
             )
             sess.add(op)
             await sess.commit()
-            collab_api.logger().info("---> create: created operation %s" % (op))
+            logger().info("---> create: created operation %s" % (op))
             return op
 
     @staticmethod
@@ -106,7 +106,7 @@ class Operation(CollabBase):
         Raises:
             ObjectNotFound: If the operation is not found.
         """
-        collab_api.logger().debug("---> delete: operation_id=%s" % (operation_id))
+        logger().debug("---> delete: operation_id=%s" % (operation_id))
 
         async with AsyncSession(engine) as sess:
             # check if operation exists
@@ -117,17 +117,17 @@ class Operation(CollabBase):
                 raise ObjectNotFound("operation %s not found" % (operation_id))
 
             # delete the operation
-            collab_api.logger().debug("---> delete: operation found: %s" % (op))
+            logger().debug("---> delete: operation found: %s" % (op))
             try:
                 await sess.delete(op)
-                await sess.commit()                
+                await sess.commit()
             except Exception as e:
-                collab_api.logger().exception(
+                logger().exception(
                     "delete: failed to delete operation %d: %s" % (operation_id, e)
                 )
                 await sess.rollback()
                 raise
-            collab_api.logger().info("delete: deleted operation %d" % (operation_id))
+            logger().info("delete: deleted operation %d" % (operation_id))
 
     @staticmethod
     async def update(
@@ -154,7 +154,7 @@ class Operation(CollabBase):
             MissingPermission: If the token does not have permission to update an operation.
             ObjectNotFound: If the operation is not found.
         """
-        collab_api.logger().debug(
+        logger().debug(
             "---> update: operation_id=%s, description=%s, glyph=%s, workflow_id=%s"
             % (operation_id, description, glyph_id, workflow_id)
         )
@@ -176,7 +176,7 @@ class Operation(CollabBase):
                 op.workflow_id = workflow_id
 
             await sess.commit()
-            collab_api.logger().info("update: updated operation %s" % (op))
+            logger().info("update: updated operation %s" % (op))
             return op
 
     @staticmethod
@@ -197,7 +197,7 @@ class Operation(CollabBase):
         Raises:
             ObjectNotFound: If no operations are found.
         """
-        collab_api.logger().debug("---> get: filter=%s" % (flt))
+        logger().debug("---> get: filter=%s" % (flt))
 
         async with AsyncSession(engine) as sess:
             q = select(Operation)
@@ -216,5 +216,5 @@ class Operation(CollabBase):
             ops = res.scalars().all()
             if len(ops) == 0:
                 raise ObjectNotFound("no operations found (flt=%s)" % (flt))
-            collab_api.logger().info("get: retrieved operations %s" % (ops))
+            logger().info("get: retrieved operations %s" % (ops))
             return ops

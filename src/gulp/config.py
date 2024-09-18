@@ -1,4 +1,3 @@
-import logging
 import multiprocessing
 import os
 import pathlib
@@ -8,23 +7,18 @@ import aiofiles.ospath
 import json5
 import muty.file
 import muty.os
-
+from gulp.utils import logger
 from gulp.defs import GulpPluginType
 
-_logger: logging.Logger = None
 _config: dict = None
 _config_file_path = None
 
-
-def init(logger: logging.Logger):
+def init():
     """
     initialize the configuration module
 
-    @param logger: the logger to use
-
     """
-    global _logger, _config
-    _logger = logger
+    global _config
 
     if _config is None:
         # only if not initialized yet
@@ -63,12 +57,12 @@ async def initialize_custom_directories():
     ):
         # we will use custom_mapping_files_path so, copy the whole directory there
         if not await aiofiles.ospath.exists(custom_mapping_files_path):
-            _logger.info(
+            logger().info(
                 "copying mapping files to custom directory: %s" % (custom_mapping_files_path)
             )
             await muty.file.copy_dir_async(default_mapping_files_path, custom_mapping_files_path)
         else:
-            _logger.warning(
+            logger().warning(
                 "custom mapping files directory already exists: %s" % (custom_mapping_files_path)
             )
 
@@ -79,12 +73,12 @@ async def initialize_custom_directories():
     ):
         # we will use custom_plugins_path so, copy the whole directory there
         if not await aiofiles.ospath.exists(custom_plugins_path):
-            _logger.info(
+            logger().info(
                 "copying plugins to custom directory: %s" % (custom_plugins_path)
             )
             await muty.file.copy_dir_async(default_plugins_path, custom_plugins_path)
         else:
-            _logger.warning(
+            logger().warning(
                 "custom plugins directory already exists: %s" % (custom_plugins_path)
             )
 
@@ -102,7 +96,7 @@ def override_runtime_parameter(k: str, v: any):
     """
     global _config
     old_value = _config.get(k, None)
-    _logger.warning(
+    logger().warning(
         'overriding configuration parameter "%s": old value=%s, new value=%s'
         % (k, old_value, v)
     )
@@ -122,7 +116,7 @@ def _read_or_init_configuration(path: str = None) -> dict:
     global _config, _config_file_path
     _config_file_path = config_path()
 
-    _logger.info("configuration path: %s" % (_config_file_path))
+    logger().info("configuration path: %s" % (_config_file_path))
 
     if not os.path.exists(_config_file_path):
         # copy default configuration file
@@ -131,13 +125,13 @@ def _read_or_init_configuration(path: str = None) -> dict:
         )
         muty.file.copy_file(src, _config_file_path)
         os.chmod(_config_file_path, 0o0600)
-        _logger.warning(
+        logger().warning(
             "no configuration file found, applying defaults from %s ..." % (src)
         )
 
     cfg_perms = oct(os.stat(_config_file_path).st_mode & 0o777)
     if cfg_perms != oct(0o0600):
-        _logger.warning(
+        logger().warning(
             "careful, weak configuration file permissions %s != 0600" % cfg_perms
         )
 
@@ -217,7 +211,7 @@ def token_ttl() -> int:
     n = _config.get("token_ttl", None)
     if n is None:
         n = 604800
-        _logger.warning(
+        logger().warning(
             "using default number of seconds for token expiration=%d (%f days)"
             % (n, n / 86400)
         )
@@ -231,7 +225,7 @@ def token_admin_ttl() -> int:
     n = _config.get("token_admin_ttl", None)
     if n is None:
         n = 600
-        _logger.warning(
+        logger().warning(
             "using default number of seconds for admin token expiration=%d (%f days)"
             % (n, n / 86400)
         )
@@ -266,14 +260,14 @@ def debug_no_token_expiration() -> bool:
 
     if __debug__:
         if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-            _logger.warning(
+            logger().warning(
                 "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_no_token_expiration disabled!"
             )
             return False
 
         n = _config.get("debug_no_token_expiration", False)
         if n:
-            _logger.warning("!!!WARNING!!! debug_no_token_expiration is set to True !")
+            logger().warning("!!!WARNING!!! debug_no_token_expiration is set to True !")
     return n
 
 
@@ -284,7 +278,7 @@ def stats_ttl() -> int:
     n = _config.get("stats_ttl", None)
     if n is None:
         n = 86400
-        _logger.warning(
+        logger().warning(
             "using default number of seconds for stats expiration=%d (%d days)"
             % (n, n / 86400)
         )
@@ -332,14 +326,14 @@ def debug_allow_any_token_as_admin() -> bool:
     n = False
     if __debug__:
         if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-            _logger.warning(
+            logger().warning(
                 "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_allow_any_token_as_admin disabled!"
             )
             return False
 
         n = _config.get("debug_allow_any_token_as_admin", False)
         if n:
-            _logger.warning(
+            logger().warning(
                 "!!!WARNING!!! debug_allow_any_token_as_admin is set to True !"
             )
     return n
@@ -353,7 +347,7 @@ def debug_abort_on_elasticsearch_ingestion_error() -> bool:
     if __debug__:
         n = _config.get("debug_abort_on_elasticsearch_ingestion_error", True)
 
-    # _logger.warning('debug_abort_on_elasticsearch_ingestion_error is set to True.')
+    # logger().warning('debug_abort_on_elasticsearch_ingestion_error is set to True.')
     return n
 
 
@@ -364,7 +358,7 @@ def multiprocessing_batch_size() -> int:
     n = _config.get("multiprocessing_batch_size", 0)
     if n == 0 or n is None:
         n = multiprocessing.cpu_count()
-        _logger.warning(
+        logger().warning(
             "using default multiprocessing_batch_size(=number of cores)=%d" % (n)
         )
     return n
@@ -377,7 +371,7 @@ def concurrency_max_tasks() -> int:
     n = _config.get("concurrency_max_tasks", 0)
     if n == 0 or n is None:
         n = 16
-        _logger.warning("using default number of tasks per process=%d" % (n))
+        logger().warning("using default number of tasks per process=%d" % (n))
     return n
 
 
@@ -405,7 +399,7 @@ def parallel_processes_max() -> int:
     n = _config.get("parallel_processes_max", 0)
     if n == 0 or n is None:
         n = multiprocessing.cpu_count()
-        _logger.warning(
+        logger().warning(
             "using default number of processes for ingestion (=number of cores=%d)."
             % (n)
         )
@@ -431,7 +425,7 @@ def debug_allow_insecure_passwords() -> bool:
     if __debug__:
         n = _config.get("debug_allow_insecure_passwords", False)
 
-    _logger.warning("!!!WARNING!!! debug_allow_insecure_passwords is set to True !")
+    logger().warning("!!!WARNING!!! debug_allow_insecure_passwords is set to True !")
     return n
 
 
@@ -536,18 +530,18 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
     default_path = impresources.files("gulp.plugins")
     p = os.getenv("PATH_PLUGINS", None)
     if p is not None:
-        _logger.debug(
+        logger().debug(
             "using PATH_PLUGINS environment variable as plugins path: %s" % (p)
         )
     else:
         p = _config.get("path_plugins", None)
         if p is not None:
-            _logger.debug(
+            logger().debug(
                 "using 'path_plugins' from configuration  as plugins path: %s" % (p)
             )
             return os.path.expanduser(p)
 
-        # _logger.debug("using default plugins path: %s" % (default_path))
+        # logger().debug("using default plugins path: %s" % (default_path))
         p = default_path
 
     # check plugin type
@@ -567,7 +561,7 @@ def path_mapping_files() -> str:
         # try config
         n = _config.get("path_mapping_files", None)
         if n is not None:
-            _logger.debug('using overridden "mapping_files" directory from configuration: %s' % (n))
+            logger().debug('using overridden "mapping_files" directory from configuration: %s' % (n))
             n = os.path.expanduser(n)
         else:
             # default
@@ -583,7 +577,7 @@ def certs_directory() -> str:
     if n is None:
         n = _config.get("path_certs", None)
         if n is None:
-            _logger.warning('"path_certs" is not set !')
+            logger().warning('"path_certs" is not set !')
     return muty.file.abspath(n)
 
 

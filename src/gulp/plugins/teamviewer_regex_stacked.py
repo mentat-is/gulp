@@ -1,14 +1,9 @@
-from copy import deepcopy
-import os
-import re
-import datetime
 
 import muty.os
 import muty.string
 import muty.xml
 import muty.time
 
-from enum import Enum
 
 import gulp.plugin as gulp_plugin
 from gulp.api.collab.base import GulpRequestStatus
@@ -111,7 +106,7 @@ class Plugin(PluginBase):
         try:
             await self.ingest_plugin_initialize(
                 index, source, skip_mapping=True)
-            mod = gulp_plugin.load_plugin("regex", self.collab, self.elastic, **kwargs)
+            mod = gulp_plugin.load_plugin("regex", **kwargs)
         except Exception as ex:
             fs=self._parser_failed(fs, source, ex)
             return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)

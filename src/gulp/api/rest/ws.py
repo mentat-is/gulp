@@ -15,7 +15,7 @@ import muty.time
 import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.endpoints import WebSocketEndpoint
-
+from gulp.utils import logger
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
@@ -25,7 +25,6 @@ from gulp.api.collab.base import GulpUserPermission
 
 _app: APIRouter = APIRouter()
 _ws_q: Queue = None
-_logger: logging.Logger = None
 
 
 class WsQueueDataType(IntEnum):
@@ -161,7 +160,7 @@ class WsData:
 _connected_ws: dict[str, ConnectedWs] = {}
 
 
-def init(logger: logging.Logger, ws_queue: Queue, main_process: bool = False):
+def init(ws_queue: Queue, main_process: bool = False):
     """
     Initializes the websocket API.
 
@@ -170,14 +169,13 @@ def init(logger: logging.Logger, ws_queue: Queue, main_process: bool = False):
         ws_queue (Queue): proxy queue for websocket messages.
         main_process (bool, optional): If the current process is the main process. Defaults to False (to perform initialization in worker process, must be False).
     """
-    global _ws_q, _logger
-    _logger = logger
+    global _ws_q
     _ws_q = ws_queue
     if main_process:
         # start the asyncio queue fill task to keep the asyncio queue filled from the ws queue
         asyncio.create_task(_fill_ws_queues_from_shared_queue(logger, ws_queue))
 
-    _logger.debug("ws initialized!")
+    logger().debug("ws initialized!")
 
 
 def shared_queue_close(q: Queue) -> None:
@@ -203,14 +201,14 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
     fills each connected websocket queue from the shared ws queue
     """
     # uses an executor to run the blocking get() call in a separate thread
-    l.debug("starting asyncio queue fill task ...")
+    logger().debug("starting asyncio queue fill task ...")
     loop = asyncio.get_event_loop()
     with ThreadPoolExecutor() as pool:
         while True:
             if rest_api.is_shutdown():
                 break
 
-            # _logger.debug("running ws_q.get in executor ...")
+            # logger().debug("running ws_q.get in executor ...")
             try:
                 # get an entry from the shared multiprocessing queue
                 d: dict = await loop.run_in_executor(pool, q.get, True, 1)
@@ -224,7 +222,7 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
                     my_ws_id = cws.ws_id
                     # check if the entry type is in the types list for the found socket
                     if len(cws.types) > 0 and entry.type not in cws.types:
-                        l.debug(
+                        logger().debug(
                             "skipping data for websocket %s, not in entry.types!"
                             % (cws)
                         )
@@ -232,7 +230,7 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
 
                     # put it in the ws async queue for the selected websocket
                     await cws.q.put(d)
-                    _logger.debug("data put in %s queue, type=%s!" % (cws, entry.type))
+                    logger().debug("data put in %s queue, type=%s!" % (cws, entry.type))
 
                     # rely collab data (including sigma group results, which may be interesting to all) to all other sockets
                     for _, cws in _connected_ws.items():
@@ -251,9 +249,9 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
                                 is_private = entry.data.get("private", False)
                             if not is_private:
                                 await cws.q.put(d)
-                                _logger.debug("data put in %s queue (RELY)!" % (cws))
+                                logger().debug("data put in %s queue (RELY)!" % (cws))
                             else:
-                                _logger.debug("skipping private data for %s!" % (cws))
+                                logger().debug("skipping private data for %s!" % (cws))
             except Empty:
                 await asyncio.sleep(1)
                 continue
@@ -281,8 +279,8 @@ def shared_queue_add_data(
             username=username,
         )
 
-        global _ws_q, _logger
-        _logger.debug(
+        global _ws_q
+        logger().debug(
             "adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id)
         )
         _ws_q.put(wsd.to_dict())
@@ -332,9 +330,9 @@ async def wait_all_connected_ws_close() -> None:
     """
     global _connected_ws
     while len(_connected_ws) > 0:
-        _logger.debug("waiting for active websockets to close ...")
+        logger().debug("waiting for active websockets to close ...")
         await asyncio.sleep(1)
-    _logger.debug("all active websockets closed!")
+    logger().debug("all active websockets closed!")
 
 
 def _find_connected_ws_by_id(ws_id: str) -> ConnectedWs:
@@ -376,7 +374,7 @@ def _add_connected_ws(ws: WebSocket, params: dict) -> ConnectedWs:
 
     # _connected_ws is a dict where keys are the ws object internal python id
     _connected_ws[id_str] = cws
-    _logger.debug("added connected ws %s: %s" % (id_str, cws))
+    logger().debug("added connected ws %s: %s" % (id_str, cws))
     return cws
 
 
@@ -391,7 +389,7 @@ async def _remove_connected_ws(ws: WebSocket) -> str:
     """
     global _connected_ws
     id_str = str(id(ws))
-    _logger.debug("removing connected ws, id=%s" % (id_str))
+    logger().debug("removing connected ws, id=%s" % (id_str))
     cws = _connected_ws.get(id_str, None)
     if cws is None:
         return id_str
@@ -406,7 +404,7 @@ async def _remove_connected_ws(ws: WebSocket) -> str:
             pass
 
     await q.join()
-    _logger.debug("queue flush done for ws id=%s" % (id_str))
+    logger().debug("queue flush done for ws id=%s" % (id_str))
     del _connected_ws[id_str]
     return id_str
 
@@ -428,40 +426,40 @@ class WebSocketHandler(WebSocketEndpoint):
         super().__init__(scope, receive, send)
 
     async def on_connect(self, websocket: WebSocket) -> None:
-        _logger.debug("awaiting accept ...")
+        logger().debug("awaiting accept ...")
 
         await websocket.accept()
         try:
             ws_parameters = await _check_ws_parameters(websocket)
         except Exception as ex:
-            _logger.error("ws rejected: %s" % (ex))
+            logger().error("ws rejected: %s" % (ex))
             return
 
         # connection is ok
-        _logger.debug("ws accepted for ws_id=%s!" % (ws_parameters["ws_id"]))
+        logger().debug("ws accepted for ws_id=%s!" % (ws_parameters["ws_id"]))
         self.cws = _add_connected_ws(websocket, ws_parameters)
         self.cancel_event = asyncio.Event()
         self.consumer_task = asyncio.create_task(self.send_data())
-        _logger.debug("created consumer task for ws_id=%s!" % (ws_parameters["ws_id"]))
+        logger().debug("created consumer task for ws_id=%s!" % (ws_parameters["ws_id"]))
 
     async def on_disconnect(self, websocket: WebSocket, close_code: int) -> None:
-        _logger.debug("on_disconnect")
+        logger().debug("on_disconnect")
         if self.consumer_task is not None:
-            _logger.debug("cancelling consumer task ...")
+            logger().debug("cancelling consumer task ...")
             self.consumer_task.cancel()
 
         # remove websocket from active list and close it
         await _remove_connected_ws(websocket)
 
     async def _read_items(self, q: asyncio.Queue):
-        # _logger.debug("reading items from queue ...")
+        # logger().debug("reading items from queue ...")
         while True:
             item = await q.get()
             q.task_done()
             yield item
 
     async def send_data(self) -> None:
-        _logger.debug('starting ws "%s" loop ...' % (self.cws.ws_id))
+        logger().debug('starting ws "%s" loop ...' % (self.cws.ws_id))
         async for item in self._read_items(self.cws.q):
             try:
                 # send
@@ -472,13 +470,13 @@ class WebSocketHandler(WebSocketEndpoint):
                 await asyncio.sleep(ws_delay)
 
             except WebSocketDisconnect as ex:
-                _logger.exception("ws disconnected: %s" % (ex))
+                logger().exception("ws disconnected: %s" % (ex))
                 break
             except Exception as ex:
-                _logger.exception("ws error: %s" % (ex))
+                logger().exception("ws error: %s" % (ex))
                 break
             except asyncio.CancelledError as ex:
-                _logger.exception("ws cancelled: %s" % (ex))
+                logger().exception("ws cancelled: %s" % (ex))
                 break
 
 

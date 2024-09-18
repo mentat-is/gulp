@@ -1,4 +1,3 @@
-import json
 import os
 from typing import Union
 
@@ -8,7 +7,6 @@ import muty.string
 from dotwiz import DotWiz
 from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.exceptions import SigmaError
-from sigma.pipelines.common import windows_logsource_mapping
 from sigma.processing.pipeline import ProcessingPipeline
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -17,18 +15,35 @@ import gulp.api.collab_api as collab_api
 import gulp.api.elastic_api as elastic_api
 import gulp.config as config
 import gulp.plugin as pluginbase
-from gulp.api.collab.base import (GulpAssociatedEvent, GulpCollabFilter,
-                                  GulpCollabType, GulpRequestStatus)
+from gulp.api.collab.base import (
+    GulpAssociatedEvent,
+    GulpCollabFilter,
+    GulpCollabType,
+    GulpRequestStatus,
+)
 from gulp.api.collab.collabobj import CollabObj
 from gulp.api.collab.stats import GulpStats
-from gulp.api.elastic.query import (GulpQuery, QueryResult, SigmaGroupFilter,
-                                    gulpqueryflt_to_dsl)
-from gulp.api.elastic.structs import (GulpFieldsFilterType, GulpQueryFilter,
-                                      GulpQueryOptions, GulpQueryParameter,
-                                      GulpQueryType)
-from gulp.defs import (GulpPluginType, InvalidArgument, ObjectAlreadyExists,
-                       ObjectNotFound)
+from gulp.api.elastic.query import (
+    GulpQuery,
+    QueryResult,
+    SigmaGroupFilter,
+    gulpqueryflt_to_dsl,
+)
+from gulp.api.elastic.structs import (
+    GulpFieldsFilterType,
+    GulpQueryFilter,
+    GulpQueryOptions,
+    GulpQueryParameter,
+    GulpQueryType,
+)
+from gulp.defs import (
+    GulpPluginType,
+    InvalidArgument,
+    ObjectAlreadyExists,
+    ObjectNotFound,
+)
 from gulp.plugin_internal import GulpPluginParams
+from gulp.utils import logger
 
 
 def _parse_expression(expr: str) -> tuple:
@@ -168,7 +183,7 @@ async def preprocess_sigma_group_filters(
             shared_data = shared_data[0]
             d: dict = {"name": shared_data.name, "expr": shared_data.data["expr"]}
             flt = SigmaGroupFilter.from_dict(d)
-            elastic_api.logger().debug(
+            logger().debug(
                 "sigma group filter with id=%d retrieved from db: %s"
                 % (shared_data_id, flt)
             )
@@ -220,7 +235,7 @@ async def apply_sigma_group_filters(
 
     l = []
     for f in flts:
-        elastic_api.logger().debug("applying sigma group filter: %s ..." % (f))
+        logger().debug("applying sigma group filter: %s ..." % (f))
         if await apply_sigma_group_filter(f, qrs):
             if f.name not in l:
                 l.append(f.name)
@@ -237,7 +252,7 @@ async def _check_canceled_or_failed(req_id: str) -> bool:
         GulpRequestStatus.FAILED,
         GulpRequestStatus.CANCELED,
     ]:
-        elastic_api.logger().error("request %s failed or canceled!" % (req_id))
+        logger().error("request %s failed or canceled!" % (req_id))
         return True
 
     return False
@@ -286,7 +301,7 @@ async def _create_notes_on_match(
 
         try:
             description = gulp_query.sigma_rule_text
-            # elastic_api.logger().debug("create note for event %s, id=%s, timestamp=%d, ws_id=%s" % (e, ev_id, ev_ts, ws_id))
+            # logger().debug("create note for event %s, id=%s, timestamp=%d, ws_id=%s" % (e, ev_id, ev_ts, ws_id))
 
             # create note on db
             cs = await CollabObj.create(
@@ -324,8 +339,9 @@ async def _create_notes_on_match(
 
         if num_notes % notes_on_match_batch_size == 0:
             # send batch over ws
-            elastic_api.logger().error(
-                "**NOT AN ERROR**: creating batch of notes on ws, num notes=%d" % (num_notes)
+            logger().error(
+                "**NOT AN ERROR**: creating batch of notes on ws, num notes=%d"
+                % (num_notes)
             )
             ws_api.shared_queue_add_data(
                 WsQueueDataType.COLLAB_CREATE,
@@ -343,8 +359,9 @@ async def _create_notes_on_match(
                 break
 
     if len(cs_batch) > 0:
-        elastic_api.logger().error(
-            "**NOT AN ERROR**: creating LAST batch of notes on ws, num notes=%d" % (len(cs_batch))
+        logger().error(
+            "**NOT AN ERROR**: creating LAST batch of notes on ws, num notes=%d"
+            % (len(cs_batch))
         )
 
         # send last batch over ws
@@ -355,7 +372,7 @@ async def _create_notes_on_match(
             username=username,
             ws_id=ws_id,
         )
-    elastic_api.logger().debug(
+    logger().debug(
         "created %d notes for query_res name=%s, sigma_id=%s, num events=%d"
         % (
             num_notes,
@@ -396,7 +413,7 @@ async def query_by_gulpconvertedquery(
     if options is None:
         options = GulpQueryOptions()
 
-    elastic_api.logger().debug("gulp_query=%s" % (gulp_query))
+    logger().debug("gulp_query=%s" % (gulp_query))
     query_res = QueryResult()
     try:
         # add query name to result
@@ -424,7 +441,7 @@ async def query_by_gulpconvertedquery(
                 and options.fields_filter != GulpFieldsFilterType.DEFAULT.name
             ):
                 # those are mandatory
-                collab_api.logger().debug(
+                logger().debug(
                     "appending to options.fields_filters=%s ..."
                     % (options.fields_filter)
                 )
@@ -436,13 +453,13 @@ async def query_by_gulpconvertedquery(
                     options.fields_filter += ",gulp.source.file"
 
         # issue raw query
-        # collab_api.logger().debug("options.fields_filters=%s ..." % (options.fields_filter))
+        # logger().debug("options.fields_filters=%s ..." % (options.fields_filter))
         res = None
         create_notes: bool = False
         search_after_loop: bool = True
         if gulp_query.sigma_rule_id is None:
             # non sigma query
-            collab_api.logger().debug("non-sigma query, collect events.")
+            logger().debug("non-sigma query, collect events.")
             # options.disable_notes_on_match = True
         else:
             # sigma query
@@ -450,13 +467,11 @@ async def query_by_gulpconvertedquery(
                 # disable notes on match for sigma queries, collect events instead (but no search_after loop)
                 create_notes = False
                 # search_after_loop = False
-                collab_api.logger().debug("disable_notes_on_match set for sigma query.")
+                logger().debug("disable_notes_on_match set for sigma query.")
             else:
                 # create notes on match for sigma queries (default), do not collect events, search_after loop
                 create_notes = True
-                collab_api.logger().debug(
-                    "setting search_after_loop=True for sigma query."
-                )
+                logger().debug("setting search_after_loop=True for sigma query.")
 
         try:
             # loop until search_after allows ...
@@ -464,7 +479,7 @@ async def query_by_gulpconvertedquery(
             processed: int = 0
             chunk: int = 0
             while True:
-                # collab_api.logger().debug("calling query_raw from query_by_gulpconvertedquery ...")
+                # logger().debug("calling query_raw from query_by_gulpconvertedquery ...")
                 res: dict = None
                 try:
                     res = await elastic_api.query_raw(
@@ -472,9 +487,9 @@ async def query_by_gulpconvertedquery(
                     )
                     had_result = True
                 except Exception as ex:
-                    elastic_api.logger().exception(ex)
+                    logger().exception(ex)
                     if not had_result:
-                        elastic_api.logger().error(
+                        logger().error(
                             "NOT_FOUND sigma_rule_id=%s, ex=%s)"
                             % (gulp_query.sigma_rule_id, str(ex))
                         )
@@ -483,6 +498,7 @@ async def query_by_gulpconvertedquery(
                 # get data
                 evts = res.get("results", [])
                 aggs = res.get("aggregations", None)
+                len_evts = len(evts)
 
                 # build a QueryResult
                 query_res.req_id = req_id
@@ -491,14 +507,14 @@ async def query_by_gulpconvertedquery(
                 query_res.search_after = res.get("search_after", None)
                 query_res.query_glyph_id = gulp_query.glyph_id
                 query_res.total_hits = res.get("total", 0)
-                collab_api.logger().debug(
-                    "%d results for FOUND sigma_rule_id=%s"
-                    % (query_res.total_hits, query_res.sigma_rule_id)
+                logger().debug(
+                    "%d results (TOTAL), this chunk=%d, for FOUND sigma_rule_id=%s"
+                    % (query_res.total_hits, len_evts, query_res.sigma_rule_id)
                 )
 
                 query_res.events = evts
                 query_res.aggregations = aggs
-                if len(evts) == 0 or len(evts) < options.limit:
+                if len_evts == 0 or len_evts < options.limit:
                     query_res.last_chunk = True
 
                 # send QueryResult over websocket
@@ -511,69 +527,65 @@ async def query_by_gulpconvertedquery(
                 )
 
                 # processed an event chunk (evts)
-                processed += len(evts)
+                processed += len_evts
                 chunk += 1
-                elastic_api.logger().error(
+                logger().error(
                     "sent %d events to ws, num processed events=%d, chunk=%d ..."
                     % (len(evts), processed, chunk)
                 )
                 max_notes = config.query_sigma_max_notes()
                 max_notes_reached = False
-                if create_notes:
-                    if max_notes > 0 and processed >= max_notes:
-                        # limit the number of notes to create
-                        elastic_api.logger().debug(
-                            "max_notes=%d reached!" % (max_notes)
+                if create_notes and not max_notes_reached:
+                    logger().debug(
+                        "creating notes for %d events, total hits=%d, sigma_id=%s, max_notes=%d, max_notes_reached=%r"
+                        % (
+                            len(evts),
+                            query_res.total_hits,
+                            query_res.sigma_rule_id,
+                            max_notes,
+                            max_notes_reached,
                         )
-                        max_notes_reached = True
-                    if not max_notes_reached:
-                        elastic_api.logger().debug(
-                            "creating notes for %d events, total hits=%d, sigma_id=%s, max_notes=%d, max_notes_reached=%r"
-                            % (
-                                len(evts),
-                                query_res.total_hits,
-                                query_res.sigma_rule_id,
-                                max_notes,
-                                max_notes_reached,
-                            )
-                        )
-                        # create a note pinned on each matching event time start, with 'auto' tag
-                        req_failed = await _create_notes_on_match(
-                            user_id,
-                            req_id,
-                            ws_id,
-                            gulp_query,
-                            options,
-                            ws_api,
-                            query_res,
-                            raw_query_dict,
-                            evts,
-                            username,
-                        )
-                        if req_failed == -1:
-                            break
+                    )
+                    # create a note pinned on each matching event time start, with 'auto' tag
+                    req_failed = await _create_notes_on_match(
+                        user_id,
+                        req_id,
+                        ws_id,
+                        gulp_query,
+                        options,
+                        ws_api,
+                        query_res,
+                        raw_query_dict,
+                        evts,
+                        username,
+                    )
+                    if req_failed == -1:
+                        break
                 else:
                     # check if the request has been canceled
                     # (if create_notes is true, check is done in _create_notes_on_match)
                     if await _check_canceled_or_failed(req_id):
                         break
 
+                if create_notes and max_notes > 0 and processed >= max_notes:
+                    # limit the number of notes to create
+                    logger().debug("max_notes=%d reached!" % (max_notes))
+                    max_notes_reached = True
+
                 if query_res.last_chunk:
-                    elastic_api.logger().debug(
-                        "last chunk, no more events found, query done!"
-                    )
+                    logger().debug("last chunk, no more events found, query done!")
                     break
 
                 # next batch of events (if any, and if search_after_loop is not disabled,i.e. on non-sigma queries)
                 query_res.chunk += 1
                 if not search_after_loop or query_res.search_after is None:
-                    elastic_api.logger().debug(
+                    logger().debug(
                         "search_after=None or search_after_loop=False, query done!"
                     )
                     break
 
                 options.search_after = query_res.search_after
-                elastic_api.logger().debug(
+                logger().debug(
                     "search_after=%s, total_hits=%d, running another query to get more results ...."
                     % (query_res.search_after, query_res.total_hits)
                 )
@@ -581,7 +593,7 @@ async def query_by_gulpconvertedquery(
         except ObjectNotFound as ex:
             # objectnotfound is not considered an error here
             if not had_result:
-                elastic_api.logger().warning(
+                logger().warning(
                     "ObjectNotFound, query_by_gulpconvertedquery: %s (query=%s)"
                     % (ex, raw_query_dict)
                 )
@@ -609,7 +621,7 @@ async def query_by_gulpqueryparam(
     """
     Executes a query using the GulpQueryParameter and returns the QueryResult.
 
-    NOTE: runs in a worker process with its own _collab and _elastic clients.
+    NOTE: runs in a worker process with its own collab and elastic clients.
 
     Args:
         user_id (int): The user id who performs the query.
@@ -641,13 +653,13 @@ async def query_by_gulpqueryparam(
         )
     except Exception as ex:
         rex = muty.log.exception_to_string(ex, with_full_traceback=True)
-        elastic_api.logger().error(rex)
+        logger().error(rex)
         query_res = QueryResult()
         query_res.query_name = gqp.name
         query_res.error = rex
         return query_res
 
-    # collab_api.logger().debug('calling query_by_gulpconvertedquery ...')
+    # logger().debug('calling query_by_gulpconvertedquery ...')
     qres = await query_by_gulpconvertedquery(
         user_id, username, req_id, ws_id, index, gulp_query, options
     )
@@ -681,7 +693,7 @@ async def sigma_to_raw(
     """
 
     # load sigma
-    elastic_api.logger().debug(
+    logger().debug(
         "converting sigma rule: %s ..." % (muty.string.make_shorter(str(rule)))
     )
     if isinstance(rule, SigmaRule):
@@ -690,7 +702,7 @@ async def sigma_to_raw(
         r = SigmaRule.from_yaml(rule)
 
     if pysigma_plugin is None:
-        elastic_api.logger().warning(
+        logger().warning(
             "pysigma_plugin is None, using sigma rule logsource.product=%s instead!"
             % (r.logsource.product)
         )
@@ -706,7 +718,7 @@ async def sigma_to_raw(
     try:
         if plugin_params is not None and plugin_params.ignore_mapping_sigma_query:
             # use an empty pipeline
-            elastic_api.logger().warning(
+            logger().warning(
                 "forced use of empty pipeline during Sigma Rule conversion."
             )
             processing_pipeline = ProcessingPipeline()
@@ -722,7 +734,7 @@ async def sigma_to_raw(
 
     except:
         # revert to empty pipeline
-        elastic_api.logger().exception(
+        logger().exception(
             'cannot load pysigma plugin "%s", reverting to empty pipeline.'
             % (pysigma_plugin)
         )
@@ -730,7 +742,7 @@ async def sigma_to_raw(
 
     # transform
     q = backend.convert_rule(r, "dsl_lucene")
-    elastic_api.logger().info("converted rule: %s" % (q))
+    logger().info("converted rule: %s" % (q))
     if len(q) > 1:
         raise SigmaError(
             "Sigma rule %s generated more than one query (must fix!)" % (rule)
@@ -770,7 +782,7 @@ async def gulpqueryparam_to_gulpquery(
             raise InvalidArgument("name must be set for GulpQueryType.RAW")
 
         # already dsl
-        elastic_api.logger().debug(
+        logger().debug(
             "using existing dsl query: %s: %s, flt=%s ..." % (g.name, g.rule, flt)
         )
         r = g.rule.get("query", None)
@@ -782,7 +794,7 @@ async def gulpqueryparam_to_gulpquery(
         gq = GulpQuery(
             name=g.name, rule={"query": g.rule}, flt=flt, glyph_id=g.glyph_id
         )
-        elastic_api.logger().debug("converted RAW to GulpQuery: %s" % (gq))
+        logger().debug("converted RAW to GulpQuery: %s" % (gq))
         return gq
     if g.type == GulpQueryType.SIGMA_YAML:
         sigma, dsl = await sigma_to_raw(g.rule, g.pysigma_plugin, g.plugin_params)
@@ -907,7 +919,6 @@ async def sigma_to_stored_query(
     Converts a Sigma rule file to a stored query and creates a CollabObj.
 
     Args:
-        engine (AsyncEngine): The async engine object.
         token (str): The token for authentication.
         req_id (str): The request ID.
         files_path (str): The path to the files.
@@ -919,11 +930,10 @@ async def sigma_to_stored_query(
     Returns:
         id of the created collab object or a string error message.
     """
-    if engine is None:
-        # take it from process
-        engine = await collab_api.collab()
+    # take it from process
+    engine = await collab_api.collab()
 
-    elastic_api.logger().debug("reading sigma file %s ..." % (f))
+    logger().debug("reading sigma file %s ..." % (f))
     content = await muty.file.read_file_async(f)
 
     # convert to gulprule
@@ -1031,29 +1041,25 @@ async def sigma_directory_to_gulpqueryparams(
     if len(files) == 0:
         raise ObjectNotFound("no sigma files found in directory %s" % (directory))
 
-    elastic_api.logger().debug("sigma files in directory %s: %s" % (directory, files))
+    logger().debug("sigma files in directory %s: %s" % (directory, files))
 
     # read each file
     l = []
     for f in files:
         if os.path.basename(f).startswith("."):
-            elastic_api.logger().warning(
-                "skipping (probably invalid) file %s ..." % (f)
-            )
+            logger().warning("skipping (probably invalid) file %s ..." % (f))
             continue
 
-        elastic_api.logger().debug("reading sigma file %s ..." % (f))
+        logger().debug("reading sigma file %s ..." % (f))
 
         # convert
         content = await muty.file.read_file_async(f)
-        elastic_api.logger().debug(
-            "content: %s" % (muty.string.make_shorter(content.decode()))
-        )
+        logger().debug("content: %s" % (muty.string.make_shorter(content.decode())))
         try:
             rr = SigmaRule.from_yaml(content)
         except Exception as e:
             # cannot parse this rule
-            elastic_api.logger().exception("cannot parse sigma file %s: %s" % (f, e))
+            logger().exception("cannot parse sigma file %s: %s" % (f, e))
             continue
 
         # get rule tags
@@ -1092,7 +1098,7 @@ async def sigma_directory_to_gulpqueryparams(
                         match = True
                         break
             if not match:
-                elastic_api.logger().debug(
+                logger().debug(
                     "skipping sigma file %s, tags do not match: %s != %s ..."
                     % (f, rr.tags, tags_filter)
                 )

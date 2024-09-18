@@ -8,9 +8,9 @@ import muty.json
 import muty.os
 import muty.string
 import muty.time
-
+from gulp.utils import logger
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.defs import GulpPluginType, InvalidArgument
@@ -97,7 +97,8 @@ class Plugin(PluginBase):
         plugin_params: GulpPluginParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
-        # Plugin.logger().debug(custom_mapping"record: %s" % record)
+
+        # logger().debug(custom_mapping"record: %s" % record)
         event: Subkey = record
 
 
@@ -127,7 +128,7 @@ class Plugin(PluginBase):
 
                 values.append(json.dumps({name: data}))
             except Exception as e:
-                self.logger().error(e)
+                logger().error(e)
 
         regkey["values"] = values
 
@@ -207,8 +208,8 @@ class Plugin(PluginBase):
             fs=self._parser_failed(fs, source, ex)
             return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
 
-        self.logger().debug("custom_mapping=%s" % (custom_mapping))
-        self.logger().debug(plugin_params)
+        logger().debug("custom_mapping=%s" % (custom_mapping))
+        logger().debug(plugin_params)
 
         path = plugin_params.extra.get("path", None)
         partial_hive_type = plugin_params.extra.get("partial_hive_type", None)
@@ -220,13 +221,13 @@ class Plugin(PluginBase):
             plugin = self.name()
         else:
             plugin = custom_mapping.options.agent_type
-            self.logger().warning("using plugin name=%s" % (plugin))
+            logger().warning("using plugin name=%s" % (plugin))
 
         record_to_gulp_document_fun = plugin_params.record_to_gulp_document_fun
         if record_to_gulp_document_fun is None:
             # no record_to_gulp_document() function defined in params, use the default one
             record_to_gulp_document_fun = self.record_to_gulp_document
-            self.logger().warning("using win_reg plugin record_to_gulp_document().")
+            logger().warning("using win_reg plugin record_to_gulp_document().")
 
         ev_idx = 0
         try:

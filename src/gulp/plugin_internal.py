@@ -42,7 +42,10 @@ class GulpPluginParams(BaseModel):
         None,
         description="INTERNAL USAGE ONLY, the sigma ProcessingPipeline to get mapping from.",
     )
-    extra: Optional[dict[str, Any]] = Field({}, description="any extra custom options, i.e. the ones listed in plugin.options().")
+    extra: Optional[dict[str, Any]] = Field(
+        {},
+        description="any extra custom options, i.e. the ones listed in plugin.options().",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -86,7 +89,7 @@ class GulpPluginParams(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def to_py_dict(cls, data: str | dict):
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
 
         if isinstance(data, dict):
@@ -94,11 +97,12 @@ class GulpPluginParams(BaseModel):
         return json.loads(data)
 
 
-class GulpPluginOption():
+class GulpPluginOption:
     """
     defines plugin specific supported options, passed through GulpPluginParams.extra
     """
-    def __init__(self, name: str, t: str, desc: str, default: any=None):
+
+    def __init__(self, name: str, t: str, desc: str, default: any = None):
         self.name = name
         self.t = t
         self.default = default
@@ -109,5 +113,5 @@ class GulpPluginOption():
             "name": self.name,
             "type": self.t,
             "default": self.default,
-            "desc": self.desc
+            "desc": self.desc,
         }

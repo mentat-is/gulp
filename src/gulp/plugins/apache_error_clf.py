@@ -1,7 +1,5 @@
-import datetime
 import os
 import re
-from urllib.parse import parse_qs, urlparse
 
 import aiofiles
 import muty.dict
@@ -12,10 +10,10 @@ import muty.time
 import muty.xml
 
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
-from gulp.defs import GulpLogLevel, GulpPluginType
+from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
 

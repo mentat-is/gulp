@@ -143,7 +143,7 @@ class SigmaGroupFiltersParam(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def to_py_dict(cls, data: str | dict):
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
 
         if isinstance(data, dict):

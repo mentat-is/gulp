@@ -12,11 +12,20 @@ import muty.string
 import muty.time
 import muty.version
 
-import gulp.api.elastic_api as elastic_api
-import gulp.config as config
 from gulp import mapping_files
 
 _logger: logging.Logger = None
+
+
+def logger() -> logging.Logger:
+    """
+    Returns the global logger.
+
+    Returns:
+        logging.Logger: The global logger.
+    """
+    global _logger
+    return _logger
 
 
 async def send_mail(
@@ -55,7 +64,7 @@ async def send_mail(
         cc_list = to[1:]
 
     m = EmailMessage()
-    _logger.info(
+    logger().info(
         "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
         % (server, port, sender, to_email, cc_list, subject)
     )
@@ -99,7 +108,7 @@ def configure_logger(
     global _logger
 
     # if _logger is not None:
-    #    _logger.debug('using global logger')
+    # _logger.debug('using global logger')
 
     if not force_reconfigure and _logger is not None:
         return _logger
@@ -146,10 +155,6 @@ def init_modules(
     returns the logger (reinitialized if log_level is set)
     """
     global _logger
-    import gulp.api.collab_api as collab_api
-    import gulp.api.rest.ws as ws_api
-    import gulp.plugin as pluginbase
-    import gulp.workers as workers
 
     if log_level is not None:
         # recreate logger
@@ -164,12 +169,10 @@ def init_modules(
         _logger = l
 
     # initialize modules
-    config.init(_logger)
-    collab_api.init(_logger)
-    elastic_api.init(_logger)
-    pluginbase.init(_logger)
-    workers.init(_logger)
-    ws_api.init(_logger, ws_queue, main_process=False)
+    from gulp import config
+    from gulp.api.rest import ws as ws_api
+    config.init()
+    ws_api.init(ws_queue, main_process=False)
     return _logger
 
 
@@ -179,8 +182,11 @@ def build_mapping_file_path(filename: str) -> str:
 
     @return the full path of a file in the mapping_files directory
     """
+    import gulp.config as config
+
     if filename is None:
         return None
+
     configured_mappings_path = config.path_mapping_files()
     if configured_mappings_path is not None:
         # use provided

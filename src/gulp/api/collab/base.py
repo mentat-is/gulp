@@ -26,12 +26,14 @@ class GulpClientType(IntEnum):
     UI = 1
     OTHER = 2
 
+
 class GulpCollabLevel(IntEnum):
     """Defines the level of collaboration object, mainly used for notes."""
 
     DEFAULT = 0
     WARNING = 1
     ERROR = 2
+
 
 class GulpCollabType(IntEnum):
     """
@@ -100,8 +102,9 @@ class GulpAssociatedEvent(BaseModel):
     @classmethod
     def to_py_dict(cls, data: str | dict):
         # print('*********** events: %s, %s' % (data, type(data)))
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
+
         if isinstance(data, dict):
             ts = data.get("timestamp", None)
             ts_c = data.get("@timestamp", None)
@@ -240,7 +243,7 @@ class GulpCollabFilter(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def to_py_dict(cls, data: str | dict):
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
 
         if isinstance(data, dict):
@@ -279,7 +282,4 @@ PERMISSION_CLIENT = (
     | GulpUserPermission.EDIT
     | GulpUserPermission.DELETE
 )
-PERMISSION_MONITOR = (
-    GulpUserPermission.READ
-    | GulpUserPermission.MONITOR
-)
+PERMISSION_MONITOR = GulpUserPermission.READ | GulpUserPermission.MONITOR

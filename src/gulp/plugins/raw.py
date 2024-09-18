@@ -6,10 +6,9 @@
 import muty.crypto
 import muty.time
 import muty.xml
-
-import gulp.workers
+from gulp.utils import logger
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
@@ -63,13 +62,13 @@ class Plugin(PluginBase):
         fs = TmpIngestStats("raw")
         await self.ingest_plugin_initialize(
             index, source, skip_mapping=True)
-        
+
         events: list[dict] = source
         for evt in events:
             # ensure these are set
             if "@timestamp" not in evt:
-                self.logger().warning("no @timestamp, skipping!")
-                fs = self._record_failed(fs, source, ex)
+                logger().warning("no @timestamp, skipping!")
+                fs = self._record_failed(fs, evt, source, 'no @timestamp, skipping')
                 continue
 
             if "event.original" not in evt:

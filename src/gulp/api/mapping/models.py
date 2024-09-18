@@ -66,7 +66,7 @@ class GulpMappingOptions(BaseModel):
             "ignore_unmapped": self.ignore_unmapped,
             "timestamp_yearfirst": self.timestamp_yearfirst,
             "timestamp_dayfirst": self.timestamp_dayfirst,
-            "timestamp_utc": self.timestamp_utc
+            "timestamp_utc": self.timestamp_utc,
         }
         return d
 
@@ -109,24 +109,25 @@ class FieldMappingEntry(BaseModel):
     )
     is_timestamp_chrome: Optional[bool] = Field(
         False,
-        description='if set and if value is a number, or string representing a number, it is interpreted as a chrome/webkit timestamp (with epoch 01/01/1601) and converted to **nanoseconds from unix epoch**.<br>'
-            'NOTE: ignored if "do_multiply" is set, if set together with "is_timestamp" will generate converted chrome "@timestamp" and "@timestamp_nsec".'
+        description="if set and if value is a number, or string representing a number, it is interpreted as a chrome/webkit timestamp (with epoch 01/01/1601) and converted to **nanoseconds from unix epoch**.<br>"
+        'NOTE: ignored if "do_multiply" is set, if set together with "is_timestamp" will generate converted chrome "@timestamp" and "@timestamp_nsec".',
     )
     do_multiply: Optional[float] = Field(
         None,
-        description='if set and if value is a number, or string representing a number, multiply it by this value (to divide, i.e. multiply by 0.5 to divide by 2).<br>'
-            'NOTE: ignored if "is_timestamp_chrome" is set, result of the multiply/divide must be **nanoseconds**.'
+        description="if set and if value is a number, or string representing a number, multiply it by this value (to divide, i.e. multiply by 0.5 to divide by 2).<br>"
+        'NOTE: ignored if "is_timestamp_chrome" is set, result of the multiply/divide must be **nanoseconds**.',
     )
     event_code: Optional[str] = Field(
         None,
-        description='if set, overrides "default_event_code" in the GulpMappingOptions (ignored if "is_timestamp" is not set).'
+        description='if set, overrides "default_event_code" in the GulpMappingOptions (ignored if "is_timestamp" is not set).',
     )
     is_variable_mapping: Optional[bool] = Field(
         False,
         description='INTERNAL USAGE ONLY. if True, indicates the "map_to" field is a variable mapping.',
     )
     result: Optional[dict[str, Any]] = Field(
-        None, description='INTERNAL USAGE ONLY. the destination dict representing the field (i.e. {"@timestamp": 123456}).'
+        None,
+        description='INTERNAL USAGE ONLY. the destination dict representing the field (i.e. {"@timestamp": 123456}).',
     )
 
     def to_dict(self) -> dict:
@@ -148,7 +149,7 @@ class FieldMappingEntry(BaseModel):
             do_multiply=d.get("do_multiply", None),
             is_variable_mapping=d.get("is_variable_mapping", False),
             is_timestamp=d.get("is_timestamp", False),
-            is_timestamp_chrome=d.get("is_timestamp_chrome", False)
+            is_timestamp_chrome=d.get("is_timestamp_chrome", False),
         )
         # print('FieldMappingEntry.from_dict: fm=%s, type=%s' % (fm, type(fm)))
         return fm
@@ -182,12 +183,8 @@ class GulpMapping(BaseModel):
         "json_schema_extra": {
             "example": {
                 "fields": {
-                    "source_field1_single": {
-                        "map_to": "my_field"
-                    },
-                    "source_field2_multiple": {
-                        "map_to": ["my_field1", "myfield2"]
-                    },
+                    "source_field1_single": {"map_to": "my_field"},
+                    "source_field2_multiple": {"map_to": ["my_field1", "myfield2"]},
                     "source_field3_variable": {
                         "map_to": [
                             ["category", "process_creation", "process.pe.company"],
@@ -245,7 +242,7 @@ class GulpMapping(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def to_py_dict(cls, data: str | dict):
-        if data is None:
+        if data is None or len(data) == 0:
             return {}
 
         if isinstance(data, dict):

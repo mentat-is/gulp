@@ -16,16 +16,15 @@ from fastapi import APIRouter, Body, Header, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
-import gulp.api.collab_api as collab_api
-import gulp.api.elastic_api as elastic_api
-import gulp.api.rest_api as rest_api
 import gulp.defs
 import gulp.plugin
 import gulp.utils
+from gulp.api import collab_api, elastic_api
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import UserSession
 from gulp.defs import InvalidArgument
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -89,7 +88,7 @@ async def operation_delete_handler(
 
         if delete_data is not None:
             # we must also delete elasticsearch data
-            rest_api.logger().info(
+            logger().info(
                 "deleting data related to operation_id=%d ..." % (operation_id)
             )
             await elastic_api.delete_data_by_operation(
@@ -107,7 +106,7 @@ async def operation_delete_handler(
                 op.workflow_id,
             )
             res_data["id"] = new_op.id
-            rest_api.logger().info("recreated operation %s" % (new_op))
+            logger().info("recreated operation %s" % (new_op))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
     return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res_data))
