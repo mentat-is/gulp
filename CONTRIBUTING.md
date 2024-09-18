@@ -18,4 +18,4 @@ To submit PRs, just stick with these simple rules:
 1. `gulp --version`
    1. if [you are a developer](<./docs/Install Dev.md>), output of the above command may not be correct if you updated the repository/ies manually: so, please provide the last commit hash of your local `gulp` and `muty-python` repositories.
 2. error dump from gulp's console, `issues with "this/that does not work" missing an error dump will be rejected`.
-3. steps for reproducing.
+3. steps for reproducing, `including OS flavor (linux, WSL, macos, ...), arch and version`.
