@@ -15,12 +15,11 @@ import muty.string
 import muty.time
 from sigma.processing.pipeline import ProcessingPipeline
 
-import gulp.api.collab_api as collab_api
-import gulp.api.elastic_api as elastic_api
-import gulp.api.mapping.helpers as mappings_helper
-import gulp.api.rest.ws as ws_api
-import gulp.config as config
-import gulp.utils as gulp_utils
+from gulp.api import collab_api
+from gulp.api import elastic_api
+from gulp.api.rest import ws as ws_api
+from gulp import config
+from gulp import utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
@@ -34,6 +33,7 @@ from gulp.defs import (
 )
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
+from gulp.api.mapping import helpers as mapping_helpers
 
 # caches plugin modules for the running process
 _cache: dict = {}
@@ -70,7 +70,6 @@ class PluginBase(ABC):
         for k, v in kwargs.items():
             self.__dict__[k] = v
 
-        # initialize mapping helper
         super().__init__()
 
     def options(self) -> list[GulpPluginOption]:
@@ -206,7 +205,7 @@ class PluginBase(ABC):
             if plugin_params.mapping_id is not None:
                 mapping_id = plugin_params.mapping_id
 
-        p = await mappings_helper.get_enriched_pipeline(
+        p = await mapping_helpers.get_enriched_pipeline(
             pipeline=pipeline,
             mapping_file_path=mapping_file_path,
             mapping_id=mapping_id,

@@ -29,11 +29,11 @@ from gulp.api.elastic.structs import (
     GulpQueryOptions,
     GulpQueryParameter,
 )
-from gulp.defs import ObjectNotFound
+from gulp.defs import GulpPluginType, ObjectNotFound
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
-
+import sys
 
 def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
     """
@@ -56,6 +56,15 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
         log_file_path=log_file_path,
         ws_queue=ws_queue,
     )
+    
+    # add plugins paths
+    ext_plugins_path = config.path_plugins(GulpPluginType.EXTENSION)
+    ing_plugins_path = config.path_plugins(GulpPluginType.INGESTION)
+    if ing_plugins_path not in sys.path:
+        sys.path.append(ing_plugins_path)
+    if ext_plugins_path not in sys.path:
+        sys.path.append(ext_plugins_path)
+        
     # initialize per-process clients
     asyncio.run(collab_api.collab())
     elastic_api.elastic()
@@ -64,8 +73,8 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
     spawned_processes.value += 1
     lock.release()
     logger().warning(
-        "workerprocess initializer DONE, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
-        % (logger(), logger().level, log_file_path, spawned_processes.value, ws_queue)
+        "workerprocess initializer DONE, sys.path=%s, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
+        % (sys.path, logger(), logger().level, log_file_path, spawned_processes.value, ws_queue)
     )
 
 

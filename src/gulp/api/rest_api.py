@@ -35,14 +35,12 @@ import gulp.api.elastic_api as elastic_api
 import gulp.api.rest.ws as gulp_ws
 import gulp.config as config
 import gulp.utils as gulp_utils
-import gulp.workers as workers
 from gulp.api.collab.base import (
     MissingPermission,
     SessionExpired,
     WrongUsernameOrPassword,
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
-from gulp.plugin import PluginBase
 from gulp.utils import logger
 
 _process_executor: aiomultiprocess.Pool = None
@@ -127,7 +125,7 @@ def _unload_extension_plugins():
     _extension_plugins = []
 
 
-async def _load_extension_plugins() -> list[PluginBase]:
+async def _load_extension_plugins() -> list["PluginBase"]:
     """
     Load available extension plugins
 
@@ -136,7 +134,6 @@ async def _load_extension_plugins() -> list[PluginBase]:
     """
     from gulp import plugin
 
-    global _app
     logger().debug("loading extension plugins ...")
     path_plugins = config.path_plugins(GulpPluginType.EXTENSION)
     files = await muty.file.list_directory_async(path_plugins, "*.py*", recursive=True)
@@ -145,6 +142,7 @@ async def _load_extension_plugins() -> list[PluginBase]:
         if "__init__" not in f and "__pycache__" not in f:
             p = plugin.load_plugin(f)
             l.append(p)
+    logger().debug("loaded %d extension plugins: %s" % (len(l), l))
     return l
 
 
@@ -344,6 +342,8 @@ async def recreate_process_executor() -> aiomultiprocess.Pool:
 
     """
     global _process_executor, _log_file_path, _ws_q
+    import gulp.workers as workers
+
     if _process_executor is not None:
         # close and wait
         _process_executor.close()

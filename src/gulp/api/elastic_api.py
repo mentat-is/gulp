@@ -378,10 +378,8 @@ async def datastream_create(
     ]
     mappings["dynamic_templates"] = dt
 
-    # print(mappings['dynamic_templates'])
-
-    logger().debug("settings: %s" % (json.dumps(settings, indent=2)))
-    logger().debug("mappings: %s" % (json.dumps(mappings, indent=2)))
+    #logger().debug("settings: %s" % (json.dumps(settings, indent=2)))
+    #logger().debug("mappings: %s" % (json.dumps(mappings, indent=2)))
     if not config.elastic_multiple_nodes():
         # optimize for single node
         # this also removes "yellow" node in single node mode
