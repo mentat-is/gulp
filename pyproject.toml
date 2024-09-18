@@ -25,7 +25,7 @@ dependencies = [
     "idna",
     "Jinja2",
     "MarkupSafe",
-    "muty@git+ssh://git@github.com/mentat-is/muty-python.git",
+    "muty@git+https://github.com/mentat-is/muty-python.git",
     "opensearch-py",
     "packaging",
     "pip",
@@ -58,4 +58,3 @@ dependencies = [
 
 [project.scripts]
 gulp = "gulp.gulp:main"
-
