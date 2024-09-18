@@ -1,4 +1,5 @@
 import os
+import json
 from copy import deepcopy
 
 import muty.crypto
@@ -99,49 +100,53 @@ class Plugin(PluginBase):
 
         # logger().debug(custom_mapping"record: %s" % record)
         event: Subkey = record
-        if len(event.values) < 1:
-            return []
 
-        d = {}
+
+        regkey = {
+            "path": event.path,
+            "subkey_name": event.subkey_name,
+            "actual_path": event.actual_path,
+            "values_count": event.values_count,
+        }
+
+        values = []
         for val in event.values:
             try:
-                d = {
-                    "path": event.path,
-                    "subkey_name": event.subkey_name,
-                    "actual_path": event.actual_path,
-                    "values_count": event.values_count,
-                    "name": val.get("name", "(Default)"),
-                    "type": val.get("value_type", None),
-                    "is_corrupted": val.get("is_corrupted", None),
-                }
+                name = val.get("name", "(Default)")
+                val_type = val.get("value_type", None)
 
                 # for unknown/invalid types regipy returns an EnumInteger instead, make sure it is treatable
                 # as string
-                val_type = val.get("value_type", None)
                 if isinstance(val_type, EnumInteger):
                     val_type = str(val_type)
 
                 # if it's a REG_MULTI_SZ we are gonna flatten "value" into multiple values
                 if val_type.upper() == "REG_MULTI_SZ":
-                    d["values"] = val.get("value", [])
+                    data = val.get("value", [])
                 else:
-                    d["value"] = val.get("value", None)
+                    data = val.get("value", None)
+
+                values.append(json.dumps({name: data}))
             except Exception as e:
                 logger().error(e)
 
-        time_str = event.timestamp
-        time_nanosec = muty.time.string_to_epoch_nsec(time_str)
-        time_msec = muty.time.nanos_to_millis(time_nanosec)
-        event_code = str(muty.crypto.hash_crc24(str(d["type"])))
+        regkey["values"] = values
 
-        # apply mappings
+        # self.logger().debug("VALUES: ",values)
+        # apply mappings for each value
         fme: list[FieldMappingEntry] = []
-        for k, v in muty.json.flatten_json(d).items():
+        for k, v in muty.json.flatten_json(regkey).items():
+            # self.logger().debug(f"MAPPING: path:{d['path']} subkey_name:{d['subkey_name']} type:{d['type']} {k}={v}")
             e = self._map_source_key(plugin_params, custom_mapping, k, v, **kwargs)
             for f in e:
                 fme.append(f)
 
-        # logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
+        time_str = event.timestamp
+        time_nanosec = muty.time.string_to_epoch_nsec(time_str)
+        time_msec = muty.time.nanos_to_millis(time_nanosec)
+        event_code = str(muty.crypto.hash_crc24(str(regkey["path"])))
+
+        # self.logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
         # event_code = custom_mapping.options.event_code if custom_mapping.options.event_code is not None else str(muty.crypto.hash_crc24(d["type"]))
 
         docs = self._build_gulpdocuments(
@@ -155,7 +160,7 @@ class Plugin(PluginBase):
             client_id=client_id,
             raw_event=str(record),
             event_code=event_code,
-            original_id=record_idx,
+            original_id=str(record_idx),
             src_file=os.path.basename(source),
         )
         return docs
