@@ -453,6 +453,8 @@ class GulpStats(CollabBase):
                 req_id,
                 stats.to_dict(),
                 ws_id=ws_id,
+                operation_id=stats.operation_id,
+                client_id=stats.client_id,
             )
 
             return True, stats
@@ -674,6 +676,8 @@ class GulpStats(CollabBase):
                 req_id,
                 ss,
                 ws_id=ws_id,
+                operation_id=the_stats.operation_id,
+                client_id=the_stats.client_id,
             )
             if file_done:
                 # signal file done
@@ -685,6 +689,8 @@ class GulpStats(CollabBase):
                         "context": the_stats.context,
                     },
                     ws_id=ws_id,
+                    operation_id=the_stats.operation_id,
+                    client_id=the_stats.client_id,
                 )
 
             return status, the_stats
