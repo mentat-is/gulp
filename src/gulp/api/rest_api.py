@@ -316,7 +316,7 @@ async def gulp_exception_handler(_: Request, ex: JSendException) -> JSendRespons
         # get from exception
         if isinstance(ex.ex, ObjectNotFound) or isinstance(ex.ex, FileNotFoundError):
             status_code = 404
-        elif isinstance(ex.ex, InvalidArgument):
+        elif isinstance(ex.ex, InvalidArgument) or isinstance(ex.ex, ValueError):
             status_code = 400
         elif (
             isinstance(ex.ex, MissingPermission)

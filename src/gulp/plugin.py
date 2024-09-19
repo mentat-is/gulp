@@ -114,20 +114,26 @@ class PluginBase(ABC):
         """
         return []
 
-    async def query(self, client_id: int, ws_id: str, params: GulpPluginParams, flt: GulpQueryFilter, options: GulpQueryOptions=None) -> int:
+    async def query(self, operation_id: int, client_id: int, user_id: int, username: str, ws_id: str, req_id: str, plugin_params: GulpPluginParams, flt: GulpQueryFilter, options: GulpQueryOptions=None) -> tuple[int, GulpRequestStatus]:
         """
         used in query plugins to query data directly from external sources.
         
         Args:
+            operation_id (int): operation ID
             client_id (int): client ID
+            user_id (int): user ID performing the query
+            username (str): username performing the query
             ws_id (str): websocket ID to stream the returned data to
-            params (GulpPluginParams, optional): plugin parameters, including i.e. in GulpPluginParams.extra the login/pwd/token to connect to the external source, plugin dependent.
+            req_id (str): request ID
+            plugin_params (GulpPluginParams, optional): plugin parameters, including i.e. in GulpPluginParams.extra the login/pwd/token to connect to the external source, plugin dependent.
             flt (GulpQueryFilter): query filter (will be converted to the external source query format)
             options (GulpQueryOptions, optional): query options, i.e. to limit the number of returned records. Defaults to None.
                 due to the nature of query plugins, not all options may be supported (i.e. limit, offset, ...) and notes creation is always disabled.
         Returns:
-            int: number of events returned
+            tuple[int, GulpRequestStatus]: the number of records returned and the status of the query.
         """
+        return 0, GulpRequestStatus.FAILED
+    
     def internal(self) -> bool:
         """
         Returns whether the plugin is for internal use only

@@ -49,7 +49,7 @@ class WsQueueDataType(IntEnum):
     QUERY_STATS_UPDATE = 11  # data: GulpStats with type=GulpCollabType.STATS_QUERY
     INGESTION_DONE=12 # data: { "src_file"": "...", "context": "..." }
     REBASE_DONE=13 # data: { "status": GulpRequestStatus, "error": str (on error only), "index": "...", "dest_index": "...", "result": { ... } }
-    EXTERNAL_QUERY_RESULT=14 # data: { "req_id": ..., "chunk": 1234, "last": bool, "events": [ GulpDocument, GulpDocument, ... ] }
+    EXTERNAL_QUERY_RESULT=14 # data: { "chunk": 1234, "last": bool, "events": [ GulpDocument, GulpDocument, ... ] }
 
 class ConnectedWs:
     """
@@ -108,6 +108,8 @@ class WsData:
         req_id: str,
         data: dict = None,
         username: str = None,
+        operation_id: int = None,
+        client_id: int = None,
         timestamp: int = None,
     ):
         self.type: WsQueueDataType = t
@@ -115,6 +117,8 @@ class WsData:
         self.username: str = username
         self.req_id: str = req_id
         self.ws_id: str = ws_id
+        self.operation_id: int = operation_id
+        self.client_id: int = client_id
         if timestamp is None:
             # set
             self.timestamp: int = muty.time.now_nsec()
@@ -129,6 +133,8 @@ class WsData:
             "req_id": self.req_id,
             "username": self.username,
             "timestamp": self.timestamp,
+            "operation_id": self.operation_id,
+            "client_id": self.client_id,
             "ws_id": self.ws_id,
         }
 
@@ -139,17 +145,21 @@ class WsData:
             ws_id=d["ws_id"],
             req_id=d["req_id"],
             data=d["data"],
+            operation_id=d["operation_id"],
+            client_id=d["client_id"],
             username=d["username"],
             timestamp=d["timestamp"],
         )
 
     def __str__(self) -> str:
         return (
-            "WsData(type=%s, data=%s, username=%s, ws_id=%s, req_id=%s, timestamp=%d)"
+            "WsData(type=%s, data=%s, username=%s, operation_id=%d, client_id=%d, ws_id=%s, req_id=%s, timestamp=%d)"
             % (
                 self.type,
                 self.data,
                 self.username,
+                self.operation_id,
+                self.client_id,
                 self.ws_id,
                 self.req_id,
                 self.timestamp,
@@ -230,7 +240,7 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
 
                     # put it in the ws async queue for the selected websocket
                     await cws.q.put(d)
-                    logger().debug("data put in %s queue, type=%s!" % (cws, entry.type))
+                    logger().debug("data put in %s queue, type=%d(%s)!" % (cws, entry.type, entry.type.name))
 
                     # rely collab data (including sigma group results, which may be interesting to all) to all other sockets
                     for _, cws in _connected_ws.items():
@@ -258,7 +268,7 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
 
 
 def shared_queue_add_data(
-    t: WsQueueDataType, req_id: str, data: dict, username: str = None, ws_id: str = None
+    t: WsQueueDataType, req_id: str, data: dict, username: str = None, ws_id: str = None, operation_id: int=None, client_id: int = None
 ) -> None:
     """
     adds an entry to the ws queue
@@ -269,6 +279,8 @@ def shared_queue_add_data(
         data (dict): The data to be added to the queue.
         username (str, optional): The username. Defaults to None.
         ws_id (str, optional): The websocket id. Defaults to None.
+        operation_id (int, optional): The operation ID. Defaults to None.
+        client_id (int, optional): The client ID. Defaults to None.
     """
     if ws_id is not None and len(ws_id) > 0:
         wsd = WsData(
@@ -277,11 +289,13 @@ def shared_queue_add_data(
             req_id=req_id,
             data=data,
             username=username,
+            operation_id=operation_id,
+            client_id=client_id,
         )
 
         global _ws_q
         logger().debug(
-            "adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id)
+            "adding entry type=%d(%s) to ws_id=%s queue..." % (wsd.type, wsd.type.name, wsd.ws_id)
         )
         _ws_q.put(wsd.to_dict())
 

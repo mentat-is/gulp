@@ -44,7 +44,7 @@ from gulp.api.elastic.structs import (
     GulpQueryParameter,
     GulpQueryType,
 )
-from gulp.defs import API_DESC_WS_ID, ObjectNotFound
+from gulp.defs import API_DESC_WS_ID, InvalidArgument, ObjectNotFound
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
 
@@ -1232,64 +1232,52 @@ async def query_single_event_handler(
                         "timestamp_msec": 1701879738287,
                         "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
                         "data": [
-                            { "GulpDocument" }, { "GulpDocument" }, ...
+                            { "GulpDocument" }, { "GulpDocument" }
                         ]
                     }
                 }
             }
         }
     },
-    summary="use a `query_plugin` to query an external source.",
-    description=''
+    summary="use a `query plugin` to query an external source.",
+    description='with this API you can i.e. query a SIEM for data without it being ingested into GULP.<br><br>'
+        'for this to work, a specific `query plugin` must be available in `$PLUGIN_DIR/query`, which translates the `GulpQueryFilter` provided to a query suitable for the external source.<br>'
+        'external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e. `"extra": { "username": "...", "password": "...", "url": ... }`.<br><br>'
+        '**NOTE**: since such queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.',            
 )
 
 async def query_plugin_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    index: Annotated[
-        str,
-        Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
-        ),
-    ],
-    ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
-    q: Annotated[list[GulpQueryParameter], Body()],
-    flt: Annotated[GulpQueryFilter, Body()] = None,
+    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
+    client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],    
+    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
+    plugin_params: Annotated[GulpPluginParams, Body()],
+    flt: Annotated[GulpQueryFilter, Body()],
     options: Annotated[GulpQueryOptions, Body()] = None,
-    sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
-    if flt is None:
-        flt = GulpQueryFilter()
-
+    
+    # print the request
     logger().debug(
-        "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
-        % (q, flt, options, sigma_group_flts)
+        "query_plugin_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s" % 
+        (token, operation_id, client_id, ws_id, plugin, plugin_params, flt, options, req_id)        
     )
-    user_id = None
+    if len(flt.to_dict()) == 0:
+        raise JSendException(req_id=req_id, ex=InvalidArgument("flt is empty!"))
+    if len(plugin_params.extra) == 0:
+        raise JSendException(req_id=req_id, ex=InvalidArgument("plugin_params.extra is empty!"))
+    if options is None:
+        options = GulpQueryOptions()
+    
     try:
-        user, session = await UserSession.check_token(
+        user, _ = await UserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
-        user_id = session.user_id
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
-
-    if sigma_group_flts is not None:
-        # preprocess to avoid having to access the db while querying
-        sigma_group_flts = await query_utils.preprocess_sigma_group_filters(
-            sigma_group_flts
-        )
-
-    # FIXME: this is hackish ... maybe it is better to pass operation_id and client_id also for queries, without relying on the filter
-    operation_id: int = None
-    client_id: int = None
-    if flt.operation_id is not None and len(flt.operation_id) == 1:
-        operation_id = flt.operation_id[0]
-    if flt.client_id is not None and len(flt.client_id) == 1:
-        client_id = flt.client_id[0]
 
     # create the request stats
     try:
@@ -1305,16 +1293,17 @@ async def query_plugin_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
     # run
-    coro = workers.query_multi_task(
-        username=user.name,
-        user_id=user_id,
+    coro = workers.query_plugin_task(
         req_id=req_id,
-        flt=flt,
-        index=index,
-        q=q,
-        options=options,
-        sigma_group_flts=sigma_group_flts,
         ws_id=ws_id,
+        operation_id=operation_id,
+        client_id=client_id,
+        username=user.name,
+        user_id=user.id,
+        plugin=plugin,
+        plugin_params=plugin_params,
+        flt=flt,
+        options=options,
     )
     await rest_api.aiopool().spawn(coro)
     return muty.jsend.pending_jsend(req_id=req_id)

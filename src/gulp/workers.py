@@ -820,18 +820,175 @@ async def ingest_zip_simple_task(
     await muty.file.delete_file_or_dir_async(files_path)
     await _print_debug_ingestion_stats(await collab_api.collab(), req_id)
 
-
-async def gather_query_multi_results(
+async def _query_plugin_internal(
+    operation_id: int,
+    client_id: int,
     user_id: int,
     username: str,
-    req_id: str,
-    index: str,
-    q: list[GulpQueryParameter],
+    plugin: str,
+    plugin_params: GulpPluginParams,
     ws_id: str,
-    flt: GulpQueryFilter = None,
-    options: GulpQueryOptions = None,
-    sigma_group_flts: list[SigmaGroupFilter] = None,
-) -> GulpStats:
+    req_id: str,
+    flt: GulpQueryFilter,
+    options: GulpQueryOptions,
+) -> tuple[int, GulpRequestStatus]:
+
+    collab = await collab_api.collab()
+    qs = TmpQueryStats()
+    qs.queries_total = 1
+
+    # load plugin
+    mod = None
+    try:
+        mod: PluginBase = gulp.plugin.load_plugin(plugin)
+    except Exception as ex:
+        # can't load plugin ...
+        logger().exception(ex)
+        await GulpStats.update(
+            collab,
+            req_id,
+            ws_id,
+            qs=qs,
+            force=True,
+            new_status=GulpRequestStatus.FAILED,
+            errors=[str(ex)],
+        )
+        return 0, GulpRequestStatus.FAILED
+
+    # query
+    try:
+        start_time = timeit.default_timer()
+        num_results, status = await mod.query(
+            operation_id,
+            client_id, 
+            user_id,
+            username,
+            ws_id,
+            req_id,
+            plugin_params, 
+            flt,
+            options)
+        
+        end_time = timeit.default_timer()
+        execution_time = end_time - start_time
+        logger().debug(
+            "execution time for querying plugin %s: %f sec." % (plugin, execution_time)
+        )
+    except Exception as ex:
+        # can't query external source ...
+        logger().exception(ex)
+        await GulpStats.update(
+            collab,
+            req_id,
+            ws_id,
+            qs=qs,
+            force=True,
+            new_status=GulpRequestStatus.FAILED,
+            errors=[str(ex)],
+        )
+        return 0, GulpRequestStatus.FAILED
+    
+    # unload plugin
+    gulp.plugin.unload_plugin(mod)
+    return num_results, status
+
+async def query_plugin_task(**kwargs):    
+    """
+    Asynchronously handles a query plugin task by offloading the work to a worker process and 
+    then processing the results.
+    
+    Keyword Arguments:
+    req_id (str): The request ID.
+    ws_id (str): The workspace ID.
+    plugin (str): The plugin to be queried.
+    user_id (str): The user ID.
+    username (str): The username of the user.
+    plugin_params (GulpPluginParams): Parameters for the plugin (external source parameters in "extra" dict).
+    operation_id (str): The operation ID.
+    client_id (str): The client ID.
+    flt (str): Filter criteria.
+    options (GulpQueryOptions, optional): Additional options for the query. Defaults to None.
+    Returns:
+    None
+    """
+    
+    req_id = kwargs["req_id"]
+    ws_id = kwargs["ws_id"]
+    plugin = kwargs["plugin"]
+    user_id = kwargs["user_id"]
+    username = kwargs["username"]
+    plugin_params = kwargs["plugin_params"]
+    operation_id = kwargs["operation_id"]
+    client_id = kwargs["client_id"]
+    flt = kwargs["flt"]
+    options = kwargs.get("options", None)
+
+    # offload to a worker process
+    executor = rest_api.process_executor()
+    coro = executor.apply(
+            _query_plugin_internal,
+            (
+                operation_id,
+                client_id,
+                user_id,
+                username,
+                plugin,
+                plugin_params,
+                ws_id,
+                req_id,
+                flt,
+                options,
+            )
+        )
+    
+    num_results, status = await coro
+    
+    # done
+    ws_api.shared_queue_add_data(
+        ws_api.WsQueueDataType.QUERY_DONE,
+        req_id,
+        {
+            "status": status,
+            # all queries combined total hits
+            "combined_total_hits": num_results,
+        },
+        ws_id=ws_id,
+    )
+            
+async def query_multi_task(**kwargs):
+    """
+    Executes one or more queries, using multiple worker processes and a task per query.
+
+    Args:
+        **kwargs: Additional keyword arguments.
+
+    Keyword Args:
+        index (str): The elasticsearch index name.
+        user_id (int): The user id who performs the query.
+        username (str): The user name who performs the query.
+        req_id (str): The request ID.
+        q (list[GulpQueryParameter]): The list of GulpQueryParameter objects.
+        ws_id (str): The websocket id.
+        flt (GulpQueryFilter, optional): to further filter query result. Defaults to None.
+        options (GulpQueryOptions): Additional query options (sort, limit, ...).
+    Returns:
+        None
+    """
+
+    # logger().debug("query_multi_task: %s" % (kwargs))
+    index = kwargs["index"]
+    user_id = kwargs["user_id"]
+    username = kwargs["username"]
+    req_id = kwargs["req_id"]
+    ws_id = kwargs["ws_id"]
+    q = kwargs["q"]
+    flt = kwargs.get("flt", None)
+    options = kwargs.get("options", None)
+    sigma_group_flts = kwargs.get("sigma_group_flts", None)
+
+    if flt is None:
+        flt = GulpQueryFilter()
+
     from gulp.api.rest.ws import WsQueueDataType
 
     collab = await collab_api.collab()
@@ -942,54 +1099,6 @@ async def gather_query_multi_results(
                 username=username,
                 ws_id=ws_id,
             )
-
-
-async def query_multi_task(**kwargs):
-    """
-    Executes a multi-query(luceneDSL, sigma or gulp) task asynchronously.
-
-    Args:
-        **kwargs: Additional keyword arguments.
-
-    Keyword Args:
-        index (str): The elasticsearch index name.
-        user_id (int): The user id who performs the query.
-        username (str): The user name who performs the query.
-        req_id (str): The request ID.
-        q (list[GulpQueryParameter]): The list of GulpQueryParameter objects.
-        ws_id (str): The websocket id.
-        flt (GulpQueryFilter, optional): to further filter query result. Defaults to None.
-        options (GulpQueryOptions): Additional query options (sort, limit, ...).
-    Returns:
-        None
-    """
-
-    # logger().debug("query_multi_task: %s" % (kwargs))
-    index = kwargs["index"]
-    user_id = kwargs["user_id"]
-    username = kwargs["username"]
-    req_id = kwargs["req_id"]
-    ws_id = kwargs["ws_id"]
-    q = kwargs["q"]
-    flt = kwargs.get("flt", None)
-    options = kwargs.get("options", None)
-    sigma_group_flts = kwargs.get("sigma_group_flts", None)
-
-    if flt is None:
-        flt = GulpQueryFilter()
-
-    await gather_query_multi_results(
-        user_id,
-        username,
-        req_id,
-        index,
-        q,
-        ws_id,
-        flt,
-        options,
-        sigma_group_flts,
-    )
-
 
 async def gather_sigma_directories_to_stored_queries(
     token: str,

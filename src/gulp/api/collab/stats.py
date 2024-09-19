@@ -195,6 +195,7 @@ class GulpStats(CollabBase):
     queries_total: Mapped[int] = mapped_column(Integer, default=0)
     queries_processed: Mapped[int] = mapped_column(Integer, default=0)
     matches_total: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[list[str]] = mapped_column(JSON, default=None, nullable=True)
     ingest_errors: Mapped[dict] = mapped_column(JSON, default=None, nullable=True)
     current_src_file: Mapped[str] = mapped_column(String, default=None, nullable=True)
 
@@ -226,6 +227,7 @@ class GulpStats(CollabBase):
             "queries_processed": self.queries_processed,
             "matches_total": self.matches_total,
             "ingest_errors": self.ingest_errors,
+            "errors": self.errors,
             "current_src_file": self.current_src_file,
             "parser_failed": self.parser_failed,
         }
@@ -238,7 +240,7 @@ class GulpStats(CollabBase):
             ev_failed={self.ev_failed}, ev_skipped={self.ev_skipped}, ev_processed={self.ev_processed}, parser_failed={self.parser_failed}, \
             files_processed={self.files_processed}, files_total={self.files_total}, \
             queries_total={self.queries_total}, queries_processed={self.queries_processed}, matches_total={self.matches_total}, \
-            ingest_errors={self.ingest_errors}, \
+            ingest_errors={self.ingest_errors}, errors={self.errors}, \
             current_src_file={self.current_src_file})"
 
     @staticmethod
@@ -435,6 +437,7 @@ class GulpStats(CollabBase):
             )
 
             stats.ingest_errors = {}
+            stats.errors = []
             stats.status = GulpRequestStatus.ONGOING
             sess.add(stats)
             await sess.commit()
@@ -553,6 +556,7 @@ class GulpStats(CollabBase):
         file_done: bool = False,
         force: bool = False,
         new_status: GulpRequestStatus = None,
+        errors: list[str] = None,
     ) -> tuple[GulpRequestStatus, "GulpStats"]:
         """
         Update the GulpStats object identified by "req_id" with new file and/or query stats
@@ -566,6 +570,7 @@ class GulpStats(CollabBase):
             file_done (bool, optional): Indicates if the file processing is done. Defaults to False.
             force (bool, optional): Indicates if the update should be forced (ignore threshold check). Defaults to False.
             new_status (GulpRequestStatus, optional): The new status to set. Defaults to None.
+            errors (list[str], optional): A list of errors to add to the stats. Defaults to None.
         Returns:
             tuple[GulpRequestStatus, GulpStats]: A tuple containing the updated status and the updated GulpStats object (or None if it is not yet time to update/force not set).
         """
@@ -574,7 +579,7 @@ class GulpStats(CollabBase):
         else:
             status = GulpRequestStatus.ONGOING
 
-        if qs is None and fs is None:
+        if qs is None and fs is None and errors is None:
             # nothing to update
             return status, None
 
@@ -606,7 +611,7 @@ class GulpStats(CollabBase):
             else:
                 # not yet time to update db
                 return status, None
-        else:
+        elif qs is not None:
             # query stats
             stats_update_threshold = 100
             if qs.queries_processed % stats_update_threshold != 0 and not force:
@@ -625,6 +630,12 @@ class GulpStats(CollabBase):
                 "---> update: engine=%s, req_id=%s, got stats=%s"
                 % (engine, req_id, the_stats)
             )
+
+            if errors is not None:
+                # add any generic error
+                for e in errors:
+                    if e not in the_stats.errors:
+                        the_stats.errors.append(e)
 
             # update stats totals
             do_update = the_stats.update_internal(

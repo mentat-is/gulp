@@ -55,6 +55,14 @@ class Plugin(PluginBase):
             GulpPluginOption("date_format", "str", "server date log format", default="%d/%b/%Y:%H:%M:%S %z")
         ]
 
-    async def query(self, client_id: int, ws_id: str, params: GulpPluginParams, flt: GulpQueryFilter, options: GulpQueryOptions=None) -> int:
-        return 0
+    async def query(self, operation_id: int, client_id: int, user_id: int, username: str, ws_id: str, req_id: str, plugin_params: GulpPluginParams, flt: GulpQueryFilter, options: GulpQueryOptions=None) -> tuple[int, GulpRequestStatus]:
+        logger().debug(f"Querying Wazuh with filter: {flt}")
+        
+        # loop until there's data, in chunks of 1000 events, or until we reach the limit
+        # - update stats
+        # - check request canceled
+        # - write results on the websocket
+        status = GulpRequestStatus.FAILED
+        num_results = 0
+        return num_results, status
     
