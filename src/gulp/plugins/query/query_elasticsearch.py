@@ -11,6 +11,7 @@ import muty.string
 import muty.time
 import muty.xml
 
+from gulp.api import elastic_api
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import (
@@ -50,10 +51,10 @@ class Plugin(PluginBase):
         return GulpPluginType.QUERY
 
     def desc(self) -> str:
-        return "Query data from Wazuh."
+        return "Query data from elasticsearch."
 
     def name(self) -> str:
-        return "query_wazuh"
+        return "query_elasticsearch"
 
     def version(self) -> str:
         return "1.0"
@@ -101,7 +102,9 @@ class Plugin(PluginBase):
         flt: GulpQueryFilter,
         options: GulpQueryOptions = None,
     ) -> tuple[int, GulpRequestStatus]:
-        logger().debug("querying Wazuh, params=%s, filter: %s" % (plugin_params, flt))
+        logger().debug(
+            "querying elasticsearch, params=%s, filter: %s" % (plugin_params, flt)
+        )
 
         status = GulpRequestStatus.FAILED
         num_results = 0
@@ -117,6 +120,7 @@ class Plugin(PluginBase):
             raise InvalidArgument("missing required parameters (url, index)")
 
         # connect to elastic
+
         # loop until there's data, in chunks of 1000 events, or until we reach the limit
         # - update stats
         # - check request canceled
