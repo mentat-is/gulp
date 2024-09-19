@@ -1,4 +1,5 @@
 import os
+import string
 from copy import deepcopy
 
 import muty.dict
@@ -75,9 +76,7 @@ class Plugin(PluginBase):
                 "encryption_key", "str", "DB encryption key", default=None
             ),
             GulpPluginOption("key_type", "str", "DB encryption key type", default=None),
-            GulpPluginOption(
-                "tables", "list[str]", "specific tables to map", default=None
-            ),
+            GulpPluginOption("queries", "dict", "query to run for each table", default={})
         ]
 
     async def record_to_gulp_document(
@@ -183,6 +182,15 @@ class Plugin(PluginBase):
         query = "SELECT 1 FROM sqlite_master WHERE type='table' and name = ?"
         return db.execute(query, (name,)).fetchone() is not None
 
+    def sanitize_value(self, value:str) -> str:
+        # allowed charset: A-Za-z0-9_-
+        charset = string.ascii_lowercase+string.ascii_uppercase+string.digits+"_-"
+        for c in value:
+            if c not in charset:
+                value = value.replace(c, "")
+
+        return value.strip()
+
     async def ingest(
         self,
         index: str,
@@ -252,6 +260,7 @@ class Plugin(PluginBase):
 
         encryption_key = plugin_params.extra.get("encryption_key", None)
         key_type = plugin_params.extra.get("key_type", "key")
+        queries = plugin_params.extra.get("queries", {})
 
         # check if key_type is supported
         if key_type.lower() not in ["key", "textkey", "hexkey"]:
@@ -324,12 +333,18 @@ class Plugin(PluginBase):
                         # table is not marked for mapping, skip
                         continue
 
-                    # TODO: fix SQLi, find a way to sanitize `table`, as we can't use parametrized queries with table names,
-                    # as per SQLITE specification, read more here: https://www.sqlite.org/cintro.html#binding_parameters_and_reusing_prepared_statements.
-                    # A solution might be to only allow "A-Za-z0-9_-" charset and trim any spaces.
+                    # Parametrized queries are not supported for "FROM {}",
+                    table=self.sanitize_value(table)
 
-                    data_query = f"SELECT * FROM {table}"
-                    metadata_query = f'SELECT name FROM pragma_table_info("{table}") WHERE pk=1'  # TODO: which metadata to get and what to map it to
+                    data_query:str = queries.get(table, None)
+                    metadata_query = None # TODO: which metadata to get and what to map it to
+
+                    if data_query is None:
+                        data_query = f"SELECT * FROM {table}"
+                    if metadata_query is None:
+                        metadata_query = f'SELECT name FROM pragma_table_info("{table}") WHERE pk=1'
+
+                    data_query = str(data_query).format(table=table)
 
                     async with db.execute(data_query) as cur:
                         for row in await cur.fetchall():

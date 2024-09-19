@@ -66,7 +66,6 @@ class Plugin(PluginBase):
 
         for r in record:
             event: GulpDocument = r
-
             # if we are handling a download, we can calculate event.duration with start_time and end_time
             if "download_end_time" in event.extra.keys():
                 end_time = event.extra.get("download_end_time", 0)
@@ -119,6 +118,7 @@ class Plugin(PluginBase):
 
         plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
         plugin_params.mapping_file = "chrome_history.json"
+        plugin_params.extra = { "queries": {"visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"} }
         return await mod.ingest(
             index,
             req_id,
