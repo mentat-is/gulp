@@ -20,7 +20,7 @@ from gulp.api.elastic.structs import (
     GulpQueryOptions,
 )
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
-from gulp.defs import GulpLogLevel, GulpPluginType
+from gulp.defs import GulpLogLevel, GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
@@ -61,13 +61,31 @@ class Plugin(PluginBase):
     def options(self) -> list[GulpPluginOption]:
         return [
             GulpPluginOption(
-                "locale", "str", "original server's locale", default=None
+                "url", "str", "opensearch/elasticsearch server URL.", default=None
             ),  # TODO
             GulpPluginOption(
-                "date_format",
+                "is_opensearch",
+                "bool",
+                "True if the server is an OpenSearch server, False if it's an Elasticsearch server.",
+                default=True,
+            ),
+            GulpPluginOption(
+                "username",
                 "str",
-                "server date log format",
-                default="%d/%b/%Y:%H:%M:%S %z",
+                "Username.",
+                default=None,
+            ),
+            GulpPluginOption(
+                "password",
+                "str",
+                "Password.",
+                default=None,
+            ),
+            GulpPluginOption(
+                "index",
+                "str",
+                "Index name.",
+                default=None,
             ),
         ]
 
@@ -85,10 +103,22 @@ class Plugin(PluginBase):
     ) -> tuple[int, GulpRequestStatus]:
         logger().debug("querying Wazuh, params=%s, filter: %s" % (plugin_params, flt))
 
+        status = GulpRequestStatus.FAILED
+        num_results = 0
+
+        # get options
+        url = plugin_params.extra.get("url")
+        is_opensearch = plugin_params.extra.get("is_opensearch")
+        username = plugin_params.extra.get("username")
+        password = plugin_params.extra.get("password")
+        index = plugin_params.extra.get("index")
+
+        if not url or not index:
+            raise InvalidArgument("missing required parameters (url, index)")
+
+        # connect to elastic
         # loop until there's data, in chunks of 1000 events, or until we reach the limit
         # - update stats
         # - check request canceled
         # - write results on the websocket
-        status = GulpRequestStatus.FAILED
-        num_results = 0
         return num_results, status

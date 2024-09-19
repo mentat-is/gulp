@@ -99,10 +99,16 @@ class GulpPluginParams(BaseModel):
 
 class GulpPluginOption:
     """
-    defines plugin specific supported options, passed through GulpPluginParams.extra
+    this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
     """
 
     def __init__(self, name: str, t: str, desc: str, default: any = None):
+        """
+        :param name: option name
+        :param t: option type (use "bool", "str", "int", "float", "dict", "list" for the types.)
+        :param desc: option description
+        :param default: default value
+        """
         self.name = name
         self.t = t
         self.default = default
