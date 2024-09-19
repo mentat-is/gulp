@@ -10,12 +10,12 @@
         },
         "last_visit_time": {
           "is_timestamp": true,
-         "is_timestamp_chrome": true,
-         "event_code": "url"
+          "is_timestamp_chrome": true,
+          "event_code": "url"
         }
       },
       "options": {
-        "default_event_code": "History",
+        "default_event_code": "History URLs",
         "agent_type": "Chromium",
         "mapping_id": "urls"
       }
@@ -58,9 +58,31 @@
         }
       },
       "options": {
-        "default_event_code": "History",
+        "default_event_code": "History Downloads",
         "agent_type": "Chromium",
         "mapping_id": "downloads"
+      }
+    },
+    {
+      "fields": {
+        "visit_time": {
+          "is_timestamp": true,
+          "is_timestamp_chrome": true
+        },
+        "url": {
+          "map_to": "url.full"
+        },
+        "title": {
+          "map_to": "title"
+        },
+        "external_referrer_url": {
+          "map_to": "http.request.referrer"
+        }
+      },
+      "options": {
+        "default_event_code": "History Visits",
+        "agent_type": "Chromium",
+        "mapping_id": "visits"
       }
     }
   ]
