@@ -356,7 +356,7 @@ class PluginBase(ABC):
             elastic_api.elastic(), index, False
         )
         # index_type_mappings = await elastic_api.datastream_get_mapping(self.elastic, index + '-template')
-        m: GulpMapping = await mappings_helper.get_enriched_mapping_for_ingestion(
+        m: GulpMapping = await mapping_helpers.get_enriched_mapping_for_ingestion(
             pipeline=pipeline,
             mapping_file_path=mapping_file_path,
             mapping_id=mapping_id,

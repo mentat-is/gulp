@@ -1,2 +1,2 @@
 recursive-include src/gulp/api/collab/assets *
-recursive-include src/gulp/ecs *
+recursive-include src/gulp/mapping_files *

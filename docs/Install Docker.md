@@ -6,7 +6,7 @@
 
 1. clone this repository and perform [install from sources](<./Install Dev.md>)
 
-2. build gulp image
+2. build gulp image using the [buildx](https://github.com/docker/buildx) docker plugin
 
 ~~~bash
 ./update_requirements_txt.sh
@@ -24,7 +24,7 @@ docker build --rm --tag gulp:latest --ssh default .
 # create configuration from template, if needed
 #
 # NOTE: elastic_url, postgres_url, path_certs will be overridden by environment variables set in the docker-compose.yml file
-copy ./template_cfg.json ./gulp_cfg.json
+cp ./template_cfg.json ./gulp_cfg.json
 
 # bring up the full stack of services
 docker compose --profile full up -d
