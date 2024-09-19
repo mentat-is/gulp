@@ -346,7 +346,7 @@ class GulpDocument:
         self.client_id = str(client_id)
         self.original_id = str(original_id)
         self.src_file = src_file
-        self.event_code = event_code or '0'
+        self.event_code = event_code or "0"
         self.cat = cat
         self.duration_nsec = duration_nsec
         self.original_event = raw_event
@@ -357,7 +357,7 @@ class GulpDocument:
         self.hash = muty.crypto.hash_blake2b(f"{raw_event}{event_code}{self.idx}")
 
         # build extras (may override values set in self when turning to dict)
-        #self.extra = {**kwargs}
+        # self.extra = {**kwargs}
         self.extra = {}
         self.extra.update(
             {k: v for ff in fme if ff.result for k, v in ff.result.items()}
@@ -366,17 +366,19 @@ class GulpDocument:
             # it's a timestamp and there is an event code set, override
             self.event_code = f.event_code
 
-
         # event code must also be set as a number
-        gulp_event_code =  int(self.event_code) if self.event_code.isnumeric() else muty.crypto.hash_crc24(self.event_code)
+        gulp_event_code = (
+            int(self.event_code)
+            if self.event_code.isnumeric()
+            else muty.crypto.hash_crc24(self.event_code)
+        )
         self.gulp_event_code = gulp_event_code
 
         # handle invalid timestamp
         if self.timestamp is None and "@timestamp" not in self.extra:
             GulpDocument.add_invalid_timestamp(self.extra)
 
-
-        #logger().error(f"**** DOC INIT: FME={fme}\n, DOC={self}")
+        # logger().error(f"**** DOC INIT: FME={fme}\n, DOC={self}")
 
     def __repr__(self) -> str:
         return f"GulpDocument(idx={self.idx}, \
@@ -412,7 +414,9 @@ class GulpDocument:
             "gulp.source.file": self.src_file,
             "event.code": self.event_code,
             "gulp.event.code": self.gulp_event_code,
-            "event.duration": self.duration_nsec if self.duration_nsec not in (None, 0) else 1,
+            "event.duration": (
+                self.duration_nsec if self.duration_nsec not in (None, 0) else 1
+            ),
             "event.hash": self.hash,
             "event.original": self.original_event,
             "event.category": self.cat,
@@ -754,3 +758,71 @@ def gulpqueryflt_to_dsl(flt: GulpQueryFilter = None) -> dict:
 
     # print('flt=%s, resulting query=%s' % (flt, json.dumps(n, indent=2)))
     return n
+
+
+class GulpAPIContext(BaseModel):
+    """
+    Gulp API context.
+    """
+
+    operation_id: int = Field(
+        None,
+        description="The operation ID in the collab database to which the request belongs to.",
+    )
+    client_id: int = Field(
+        None,
+        description="ID of the client in the collab database who is issuing the request.",
+    )
+    user_id: int = Field(
+        None,
+        description="The user ID in the collab database of the user issuing the request.",
+    )
+    username: str = Field(
+        None,
+        description="The username of the user issuing the request.",
+    )
+    ws_id: str = Field(
+        None,
+        description="The websocket ID to stream data to",
+    )
+    req_id: str = Field(
+        None,
+        description="The request ID to identify the request",
+    )
+
+    @staticmethod
+    def from_dict(d: dict) -> "GulpAPIContext":
+        """
+        Create a GulpAPIContext object from a dictionary.
+
+        Args:
+            d (dict): The dictionary containing the context attributes.
+
+        Returns:
+            GulpAPIContext: The created GulpAPIContext object.
+        """
+        return GulpAPIContext(**d)
+
+    def to_dict(self) -> dict:
+        """
+        returns a dictionary representation of the context.
+        """
+        d = {
+            "operation_id": self.operation_id,
+            "client_id": self.client_id,
+            "user_id": self.user_id,
+            "username": self.username,
+            "ws_id": self.ws_id,
+            "req_id": self.req_id,
+        }
+        return d
+
+    @model_validator(mode="before")
+    @classmethod
+    def to_py_dict(cls, data: str | dict):
+        if data is None or len(data) == 0:
+            return GulpAPIContext().to_dict()
+
+        if isinstance(data, dict):
+            return data
+        return json.loads(data)
