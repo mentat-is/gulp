@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sys
 import timeit
 from multiprocessing import Lock, Queue, Value
 
@@ -33,7 +34,7 @@ from gulp.defs import GulpPluginType, ObjectNotFound
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
-import sys
+
 
 def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
     """
@@ -56,7 +57,7 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
         log_file_path=log_file_path,
         ws_queue=ws_queue,
     )
-    
+
     # add plugins paths
     ext_plugins_path = config.path_plugins(GulpPluginType.EXTENSION)
     ing_plugins_path = config.path_plugins(GulpPluginType.INGESTION)
@@ -64,7 +65,7 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
         sys.path.append(ing_plugins_path)
     if ext_plugins_path not in sys.path:
         sys.path.append(ext_plugins_path)
-        
+
     # initialize per-process clients
     asyncio.run(collab_api.collab())
     elastic_api.elastic()
@@ -74,7 +75,14 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
     lock.release()
     logger().warning(
         "workerprocess initializer DONE, sys.path=%s, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
-        % (sys.path, logger(), logger().level, log_file_path, spawned_processes.value, ws_queue)
+        % (
+            sys.path,
+            logger(),
+            logger().level,
+            log_file_path,
+            spawned_processes.value,
+            ws_queue,
+        )
     )
 
 
@@ -170,8 +178,6 @@ async def _ingest_file_task_internal(
         )
 
     # load plugin
-    # use the global collab and elastic clients here, since this function is called from a worker process
-
     try:
         mod: PluginBase = gulp.plugin.load_plugin(plugin)
     except Exception as ex:
@@ -820,6 +826,7 @@ async def ingest_zip_simple_task(
     await muty.file.delete_file_or_dir_async(files_path)
     await _print_debug_ingestion_stats(await collab_api.collab(), req_id)
 
+
 async def _query_plugin_internal(
     operation_id: int,
     client_id: int,
@@ -840,7 +847,9 @@ async def _query_plugin_internal(
     # load plugin
     mod = None
     try:
-        mod: PluginBase = gulp.plugin.load_plugin(plugin)
+        mod: PluginBase = gulp.plugin.load_plugin(
+            plugin, plugin_type=GulpPluginType.QUERY
+        )
     except Exception as ex:
         # can't load plugin ...
         logger().exception(ex)
@@ -860,15 +869,16 @@ async def _query_plugin_internal(
         start_time = timeit.default_timer()
         num_results, status = await mod.query(
             operation_id,
-            client_id, 
+            client_id,
             user_id,
             username,
             ws_id,
             req_id,
-            plugin_params, 
+            plugin_params,
             flt,
-            options)
-        
+            options,
+        )
+
         end_time = timeit.default_timer()
         execution_time = end_time - start_time
         logger().debug(
@@ -887,16 +897,17 @@ async def _query_plugin_internal(
             errors=[str(ex)],
         )
         return 0, GulpRequestStatus.FAILED
-    
+
     # unload plugin
     gulp.plugin.unload_plugin(mod)
     return num_results, status
 
-async def query_plugin_task(**kwargs):    
+
+async def query_plugin_task(**kwargs):
     """
-    Asynchronously handles a query plugin task by offloading the work to a worker process and 
+    Asynchronously handles a query plugin task by offloading the work to a worker process and
     then processing the results.
-    
+
     Keyword Arguments:
     req_id (str): The request ID.
     ws_id (str): The workspace ID.
@@ -911,7 +922,7 @@ async def query_plugin_task(**kwargs):
     Returns:
     None
     """
-    
+
     req_id = kwargs["req_id"]
     ws_id = kwargs["ws_id"]
     plugin = kwargs["plugin"]
@@ -926,23 +937,23 @@ async def query_plugin_task(**kwargs):
     # offload to a worker process
     executor = rest_api.process_executor()
     coro = executor.apply(
-            _query_plugin_internal,
-            (
-                operation_id,
-                client_id,
-                user_id,
-                username,
-                plugin,
-                plugin_params,
-                ws_id,
-                req_id,
-                flt,
-                options,
-            )
-        )
-    
+        _query_plugin_internal,
+        (
+            operation_id,
+            client_id,
+            user_id,
+            username,
+            plugin,
+            plugin_params,
+            ws_id,
+            req_id,
+            flt,
+            options,
+        ),
+    )
+
     num_results, status = await coro
-    
+
     # done
     ws_api.shared_queue_add_data(
         ws_api.WsQueueDataType.QUERY_DONE,
@@ -954,7 +965,8 @@ async def query_plugin_task(**kwargs):
         },
         ws_id=ws_id,
     )
-            
+
+
 async def query_multi_task(**kwargs):
     """
     Executes one or more queries, using multiple worker processes and a task per query.
@@ -1099,6 +1111,7 @@ async def query_multi_task(**kwargs):
                 username=username,
                 ws_id=ws_id,
             )
+
 
 async def gather_sigma_directories_to_stored_queries(
     token: str,

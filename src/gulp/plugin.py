@@ -15,15 +15,20 @@ import muty.string
 import muty.time
 from sigma.processing.pipeline import ProcessingPipeline
 
-from gulp.api import collab_api
-from gulp.api import elastic_api
-from gulp.api.rest import ws as ws_api
 from gulp import config
 from gulp import utils as gulp_utils
+from gulp.api import collab_api, elastic_api
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter, GulpQueryFilter, GulpQueryOptions
+from gulp.api.elastic.structs import (
+    GulpDocument,
+    GulpIngestionFilter,
+    GulpQueryFilter,
+    GulpQueryOptions,
+)
+from gulp.api.mapping import helpers as mapping_helpers
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
+from gulp.api.rest import ws as ws_api
 from gulp.api.rest.ws import WsQueueDataType
 from gulp.defs import (
     GulpEventFilterResult,
@@ -33,7 +38,6 @@ from gulp.defs import (
 )
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
-from gulp.api.mapping import helpers as mapping_helpers
 
 # caches plugin modules for the running process
 _cache: dict = {}
@@ -114,10 +118,21 @@ class PluginBase(ABC):
         """
         return []
 
-    async def query(self, operation_id: int, client_id: int, user_id: int, username: str, ws_id: str, req_id: str, plugin_params: GulpPluginParams, flt: GulpQueryFilter, options: GulpQueryOptions=None) -> tuple[int, GulpRequestStatus]:
+    async def query(
+        self,
+        operation_id: int,
+        client_id: int,
+        user_id: int,
+        username: str,
+        ws_id: str,
+        req_id: str,
+        plugin_params: GulpPluginParams,
+        flt: GulpQueryFilter,
+        options: GulpQueryOptions = None,
+    ) -> tuple[int, GulpRequestStatus]:
         """
         used in query plugins to query data directly from external sources.
-        
+
         Args:
             operation_id (int): operation ID
             client_id (int): client ID
@@ -133,7 +148,7 @@ class PluginBase(ABC):
             tuple[int, GulpRequestStatus]: the number of records returned and the status of the query.
         """
         return 0, GulpRequestStatus.FAILED
-    
+
     def internal(self) -> bool:
         """
         Returns whether the plugin is for internal use only
@@ -1001,12 +1016,13 @@ class PluginBase(ABC):
         return status
 
 
-def _get_plugin_path(plugin: str, **kwargs) -> str:
+def _get_plugin_path(
+    plugin: str, plugin_type: GulpPluginType = GulpPluginType.INGESTION
+) -> str:
 
     # try plain .py first
     # TODO: on license manager, disable plain .py load (only encrypted pyc)
     # get path according to plugin type
-    plugin_type = kwargs.get("plugin_type", GulpPluginType.INGESTION)
     path_plugins = config.path_plugins(plugin_type)
 
     ppy = muty.file.safe_path_join(path_plugins, plugin + ".py")
@@ -1023,6 +1039,8 @@ def _get_plugin_path(plugin: str, **kwargs) -> str:
 
 def load_plugin(
     plugin: str,
+    plugin_type: GulpPluginType = GulpPluginType.INGESTION,
+    ignore_cache: bool = False,
     **kwargs,
 ) -> PluginBase:
     """
@@ -1030,9 +1048,10 @@ def load_plugin(
 
     Args:
         plugin (str): The name or path of the plugin to load.
-        req_id (str, optional): The request ID to associate with the plugin loading. Defaults to None.
-        kwargs: additional arguments:
-            "plugin_type" (GulpPluginType, default=GulpPluginType.INGESTION)
+        plugin_type (GulpPluginType, optional): The type of the plugin to load. Defaults to GulpPluginType.INGESTION.
+            this is ignored if the plugin is an absolute path or if "plugin_cache" is enabled and the plugin is already cached.
+        ignore_cache (bool, optional): Whether to ignore the plugin cache. Defaults to False.
+        **kwargs (dict, optional): Additional keyword arguments.
     Returns:
         PluginBase: The loaded plugin.
 
@@ -1042,6 +1061,10 @@ def load_plugin(
     logger().debug("load_plugin %s ..." % (plugin))
 
     m = plugin_cache_get(plugin)
+    if ignore_cache:
+        logger().debug("ignoring cache for plugin %s" % (plugin))
+        m = None
+
     if m is not None:
         return m.Plugin(plugin, **kwargs)
 
@@ -1049,8 +1072,8 @@ def load_plugin(
         # plugins is an absolute path
         path = muty.file.abspath(plugin)
     else:
-        # uses "plugin_type" to load from the correct subfolder
-        path = _get_plugin_path(plugin, **kwargs)
+        # uses plugin_type to load from the correct subfolder
+        path = _get_plugin_path(plugin, plugin_type=plugin_type)
 
     try:
         m: PluginBase = muty.dynload.load_dynamic_module_from_file(path)
