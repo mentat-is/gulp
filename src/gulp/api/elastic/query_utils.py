@@ -723,7 +723,7 @@ async def sigma_to_raw(
             )
             processing_pipeline = ProcessingPipeline()
         else:
-            # use plugin's provided
+            # use provided
             mod: pluginbase.PluginBase = pluginbase.load_plugin(
                 pysigma_plugin, plugin_type=GulpPluginType.SIGMA
             )
