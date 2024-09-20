@@ -991,8 +991,7 @@ def _get_plugin_path(plugin: str, **kwargs) -> str:
     # TODO: on license manager, disable plain .py load (only encrypted pyc)
     # get path according to plugin type
     plugin_type = kwargs.get("plugin_type", GulpPluginType.INGESTION)
-    path_plugins = config.path_plugins(plugin_type)
-
+    path_plugins = config.path_plugins(plugin_type)        
     ppy = muty.file.safe_path_join(path_plugins, plugin + ".py")
     if not muty.file.exists(ppy):
         # try pyc
@@ -1024,6 +1023,10 @@ def load_plugin(
         Exception: If the plugin could not be loaded.
     """
     logger().debug("load_plugin %s ..." % (plugin))
+
+    if not '/' in plugin and (plugin.lower().endswith(".py") or plugin.lower().endswith(".pyc")):
+        # remove extension
+        plugin = plugin.rsplit(".", 1)[0]
 
     m = plugin_cache_get(plugin)
     if m is not None:
@@ -1200,4 +1203,6 @@ def plugin_cache_get(plugin: str) -> ModuleType:
     p = _cache.get(plugin, None)
     if p is not None:
         logger().debug("found plugin %s in cache" % (plugin))
+    else:
+        logger().warning("plugin %s not found in cache" % (plugin))
     return p
