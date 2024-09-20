@@ -17,7 +17,7 @@ from gulp.api.elastic.structs import (
     GulpQueryOptions,
     gulpqueryflt_to_dsl,
 )
-from gulp.defs import GulpPluginType, InvalidArgument
+from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
@@ -146,12 +146,15 @@ class Plugin(PluginBase):
             query_res.query_raw = raw_query_dict
         processed: int=0
         chunk: int=0
+        status = GulpRequestStatus.DONE
         while True:            
             logger().debug("querying, query=%s, options=%s" % (q, o))
             try:
                 r = await api(cl,index, raw_query_dict, o)
+            except ObjectNotFound as ex:
+                logger().error('no more data found!')
+                break
             except Exception as ex:
-                # logger().exception(ex)
                 raise ex
 
             # get data

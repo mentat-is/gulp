@@ -886,7 +886,7 @@ async def _query_plugin_internal(
         )
     except Exception as ex:
         # can't query external source ...
-        # logger().exception(ex)
+        logger().exception(ex)
         await GulpStats.update(
             collab,
             req_id,
@@ -957,6 +957,8 @@ async def query_plugin_task(**kwargs):
     # done   
     qs = TmpQueryStats() 
     qs.matches_total = num_results
+    qs.queries_total = 1
+    qs.queries_processed = 1
     await GulpStats.update(
         await collab_api.collab(),
         req_id,
