@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "plugin": ["sqlite"]
+    "plugin": ["gi_sqlite"]
   },
   "mappings": [
     {

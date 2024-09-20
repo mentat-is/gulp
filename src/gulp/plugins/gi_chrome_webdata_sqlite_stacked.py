@@ -148,7 +148,7 @@ class Plugin(PluginBase):
         # initialize mapping
         try:
             await self.ingest_plugin_initialize(index, source, skip_mapping=True)
-            mod = gulp_plugin.load_plugin("sqlite", **kwargs)
+            mod = gulp_plugin.load_plugin("gi_sqlite", **kwargs)
         except Exception as ex:
             fs = self._parser_failed(fs, source, ex)
             return await self._finish_ingestion(

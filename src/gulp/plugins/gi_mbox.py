@@ -1,6 +1,6 @@
 import mailbox
 
-import gulp.plugins.eml as eml
+from gulp import plugin
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpIngestionFilter
@@ -11,6 +11,13 @@ from gulp.utils import logger
 
 
 class Plugin(PluginBase):
+    def __init__(self, path: str):
+        super().__init__(path)
+
+        # load eml plugin
+        p = plugin.load_plugin("gi_eml")
+        self._eml_parser = p
+
     def desc(self) -> str:
         return """generic MBOX file processor"""
 
@@ -57,7 +64,7 @@ class Plugin(PluginBase):
 
         # reuse the eml.py plugin record_to_gulp_document to parse the object
         # (this can be done because mailbox.Message is a subclass of email.Message)
-        eml_parser = eml.Plugin(self.path)
+        # _eml_parser = eml.Plugin(self.path)
 
         ev_idx = 0
         try:
@@ -68,7 +75,7 @@ class Plugin(PluginBase):
                         index,
                         message,
                         ev_idx,
-                        eml_parser.record_to_gulp_document,
+                        self._eml_parser.record_to_gulp_document,
                         ws_id,
                         req_id,
                         operation_id,

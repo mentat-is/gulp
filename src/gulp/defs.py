@@ -45,7 +45,7 @@ EXAMPLE_CONTEXT = {"example": {"value": "testcontext"}}
 
 EXAMPLE_CLIENT_ID = {"example": {"value": 1}}
 
-EXAMPLE_PLUGIN = {"example": {"value": "win_evtx"}}
+EXAMPLE_PLUGIN = {"example": {"value": "gi_win_evtx"}}
 
 """
 5-16 characters length

@@ -73,19 +73,24 @@ all plugins conforms to the [PluginBase](https://github.com/mentat-is/gulp/src/g
 > [doxygen](https://github.com/mentat-is/gulp/Doxyfile) documentation may be generated in the `./docs` directory, to ease browsing of plugin-related source code.
 > To generate simply run `git submodule update --init --recursive && doxygen` from inside the root of the cloned repository
 
-
 - _ingestion plugins_ ingests events from different sources, i.e. _windows evtx, apache CLF_, ... creating documents on OpenSearch.
+
+  - **they must be in `$PLUGINDIR` and named `gi_name.py/c`**.
   - documents are created mapping each event field to the [ECS standard](https://www.elastic.c/guide/en/ecs/current/index.html) as close as possible, resulting in ECS-compliant data stored in the OpenSearch index.
+  > ingestion plugins may be stacked in a chain, as in the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/chrome_history_sqlite_stacked.py) plugin.
+
 
 - _sigma plugins_ leverages [pysigma pipelines](https://sigmahq-pysigma.readthedocs.io/en/latest/index.html) to convert
   [sigma rules](https://github.com/SigmaHQ/sigma) to [Lucene DSL queries](https://www.opensearch.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html) mapping the original rule fields to _ECS_.
-
+  - **they must be in `$PLUGINDIR/sigma` and named `gs_name.py/c`**.
   - to implement sigma plugins, look at the [windows sigma plugin](https://github.com/mentat-is/gulp/src/gulp/plugins/sigma/windows.py).
 
 - _extension plugins_ are loaded at startup and may extend API and add functionality.
+  - **they must be in `$PLUGINDIR/extension` and named  `ge_name.py/c`**.
   > look at the [extension_example](https://github.com/mentat-is/gulp/src/gulp/plugins/extension/extension_example.py) to see how they work (documentation inside).
 
-> plugins may be stacked in a chain, as in the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/chrome_history_sqlite_stacked.py) plugin.
+- _query plugins_ are used by the `query_plugin` API to support querying external sources (i.e. *SIEM*, ...)
+  - **they must be in `$PLUGINDIR/query` and named `gq_name.py/c`**.
 
 #### Mapping files
 
