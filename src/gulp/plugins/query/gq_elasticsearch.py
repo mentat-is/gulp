@@ -22,13 +22,8 @@ from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
 from gulp.api.rest import ws as ws_api
-
-
-try:
-    from elasticsearch import AsyncElasticsearch
-except ImportError:
-    muty.os.install_package("elasticsearch[async]")
-    from elasticsearch import AsyncElasticsearch
+from elasticsearch import AsyncElasticsearch
+from opensearchpy import AsyncOpenSearch
 
 """
 Query plugins
@@ -69,9 +64,9 @@ class Plugin(PluginBase):
                 "url", "str", "opensearch/elasticsearch server URL, i.e. http://localhost:9200.", default=None
             ),  # TODO
             GulpPluginOption(
-                "is_opensearch",
+                "is_elasticsearch",
                 "bool",
-                "True if the server is an OpenSearch server, False if it's an Elasticsearch server.",
+                "True if the server is an ElasticSearch server, False if is an OpenSearch server.",
                 default=True,
             ),
             GulpPluginOption(
@@ -112,9 +107,9 @@ class Plugin(PluginBase):
 
         # get options
         url: str = plugin_params.extra.get("url")
-        is_opensearch: bool = plugin_params.extra.get("is_opensearch")
-        username: str = plugin_params.extra.get("username")
-        password:str = plugin_params.extra.get("password")
+        is_elasticsearch: bool = plugin_params.extra.get("is_elasticsearch")
+        elastic_user: str = plugin_params.extra.get("username")
+        password: str = plugin_params.extra.get("password")
         index:str = plugin_params.extra.get("index")
 
         # TODO: add support for client and CA certificates, i.e. dumping the certificates to temporary files and using them
@@ -123,29 +118,40 @@ class Plugin(PluginBase):
 
         # convert basic filter and options to a raw query, ensure only start_msec, end_msec, extra is present
         q, o = build_elasticsearch_generic_query(flt, options)
-
-        # connect to elastic
-        cl: AsyncElasticsearch = AsyncElasticsearch(
-            url,
-            basic_auth=(username, password),
-            verify_certs=False,
-        )
-        logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
-
+        raw_query_dict = q['query']
+        if is_elasticsearch:
+            # connect to elastic
+            cl: AsyncElasticsearch = AsyncElasticsearch(
+                url,
+                basic_auth=(elastic_user, password),
+                verify_certs=False,
+            )
+            api = elastic_api.query_raw_elastic
+            logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
+        else:
+            # opensearch
+            cl: AsyncOpenSearch = AsyncOpenSearch(
+                url,
+                http_auth=(elastic_user, password),
+                verify_certs=False,
+            )
+            api = elastic_api.query_raw
+            logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
+            
+        # initialize result
         query_res = QueryResult()
         query_res.query_name = "%s_%s" % (req_id, muty.string.generate_unique())
         query_res.req_id = req_id
         if o.include_query_in_result:
-            query_res.query_raw = q
-        
+            query_res.query_raw = raw_query_dict
+        processed: int=0
+        chunk: int=0
         while True:            
-            logger().debug("querying elasticsearch, query=%s, options=%s" % (q, o))
+            logger().debug("querying, query=%s, options=%s" % (q, o))
             try:
-                r = await elastic_api.query_raw(
-                        cl, index, q, options
-                    ) 
+                r = await api(cl,index, raw_query_dict, o)
             except Exception as ex:
-                logger().exception(ex)
+                # logger().exception(ex)
                 raise ex
 
             # get data
@@ -195,7 +201,7 @@ class Plugin(PluginBase):
                 )
                 break
 
-            options.search_after = query_res.search_after
+            o.search_after = query_res.search_after
             logger().debug(
                 "search_after=%s, total_hits=%d, running another query to get more results ...."
                 % (query_res.search_after, query_res.total_hits)

@@ -20,6 +20,7 @@ dependencies = [
     "certifi",
     "charset-normalizer",
     "dotwiz",
+    "elasticsearch[async]",
     "evtx",
     "fastapi",
     "idna",

@@ -886,7 +886,7 @@ async def _query_plugin_internal(
         )
     except Exception as ex:
         # can't query external source ...
-        logger().exception(ex)
+        # logger().exception(ex)
         await GulpStats.update(
             collab,
             req_id,

@@ -26,7 +26,9 @@ from gulp.utils import logger
 UNMAPPED_PREFIX = "gulp.unmapped"
 
 # NOTE: this was originally written for Elasticsearch, then ported to OpenSearch. maybe it should be refactored to remove this "as" alias.
-from opensearchpy import AsyncOpenSearch as AsyncElasticsearch
+# TODO: one day this should be properly renamed
+from opensearchpy import AsyncOpenSearch as AsyncElasticsearch # use AsyncElasticSearch for OpenSearch
+from elasticsearch import AsyncElasticsearch as AElasticSearch # use AElasticSearch for Elasticsearch
 
 _elastic: AsyncElasticsearch = None
 
@@ -1059,7 +1061,7 @@ async def query_raw(
     el: AsyncElasticsearch, index: str, q: dict, options: GulpQueryOptions = None
 ) -> dict:
     """
-    Executes a raw DSL query on Elasticsearch.
+    Executes a raw DSL query on OpenSearch
 
     Args:
         el (AsyncElasticsearch): The Elasticsearch client.
@@ -1098,6 +1100,40 @@ async def query_raw(
     js = _parse_elastic_res(res, options=options)
     return js
 
+async def query_raw_elastic(
+    el: AElasticSearch, index: str, q: dict, options: GulpQueryOptions = None
+) -> dict:
+    """
+    Executes a raw DSL query on Elasticsearch.
+
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client.
+        index (str): Name of the index (or datastream) to query
+        q (dict): The DSL query to execute (will be run as "query": q }
+        options (GulpQueryOptions, optional): Additional query options. Defaults to None.
+
+    Returns:
+        dict: The query result.
+    Raises:
+        ObjectNotFound: If no results are found.
+    """
+    from gulp.api.elastic.query_utils import build_elastic_query_options
+    opts = build_elastic_query_options(options)
+    logger().debug(
+        "query_raw: %s, options=%s"
+        % (json.dumps(q, indent=2), json.dumps(opts, indent=2))
+    )
+    
+    res = await el.search(
+        index=index,
+        track_total_hits=True,
+        query=q,
+        sort=opts["sort"],
+        size=opts["size"],
+        search_after=opts["search_after"],
+        source=opts["source"],
+    )
+    return _parse_elastic_res(res, options=options)
 
 def get_client() -> AsyncElasticsearch:
     """
