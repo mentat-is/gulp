@@ -1080,7 +1080,7 @@ async def _parse_operation_aggregation(d: dict):
                             "doc_count": 98630,
                             "plugins": [
                                 {
-                                    "name": "win_evtx",
+                                    "name": "gi_win_evtx",
                                     "src_file": [
                                         {
                                             "name": "security_big_sample.evtx",
@@ -1167,7 +1167,7 @@ async def query_operations_handler(
                             "@timestamp": 1573258569309,
                             "@timestamp_nsec": 1573258569309000000,
                             "gulp.context": "testcontext2",
-                            "agent.type": "win_evtx",
+                            "agent.type": "gi_win_evtx",
                             "agent.id": "client:test_test_1.0",
                             "event.id": "1447406958",
                             "log.level": 5,

@@ -45,7 +45,7 @@ _app: APIRouter = APIRouter()
                                 "name": "win_evtx",
                                 "type": "ingestion",
                                 "desc": "Windows EVTX log file processor.",
-                                "filename": "win_evtx.py",
+                                "filename": "gi_win_evtx.py",
                                 "internal": False,
                                 "options": [],
                                 "depends_on": [],
@@ -445,12 +445,12 @@ async def mapping_file_upload_handler(
                         "req_id": "7b37b846-e3e9-441f-bb4f-b0177ed76d86",
                         "data": [
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "autopsy_webform_autofill.json",
                                 "mapping_ids": ["Autopsy Web Form Autofill"],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "JLECmd_csv.json",
                                 "mapping_ids": [
                                     "custom_destinations",
@@ -458,67 +458,67 @@ async def mapping_file_upload_handler(
                                 ],
                             },
                             {
-                                "metadata": {"plugin": ["sqlite"]},
+                                "metadata": {"plugin": ["gi_sqlite"]},
                                 "filename": "firefox_sqlite.json",
                                 "mapping_ids": ["moz_places", "moz_annos"],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "PECmd_csv.json",
-                                "mapping_ids": ["timeline", "pecmd"],
+                                "mapping_ids": ["timeline", "gi_pecmd"],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "RecentFileCacheParser_csv.json",
                                 "mapping_ids": ["recentfilecacheparser"],
                             },
                             {
-                                "metadata": {"plugin": ["sqlite"]},
+                                "metadata": {"plugin": ["gi_sqlite"]},
                                 "filename": "chrome_history.json",
                                 "mapping_ids": ["urls", "downloads"],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "autopsy_webhistory.json",
                                 "mapping_ids": ["Autopsy Web History"],
                             },
                             {
-                                "metadata": {"plugin": ["apache_error_clf"]},
+                                "metadata": {"plugin": ["gi_apache_error_clf"]},
                                 "filename": "apache_error_clf.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "mftecmd_csv.json",
                                 "mapping_ids": ["record", "boot", "j", "sds"],
                             },
                             {
-                                "metadata": {"plugin": ["systemd_journal"]},
+                                "metadata": {"plugin": ["gi_systemd_journal"]},
                                 "filename": "systemd_journal.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["win_evtx", "csv"]},
+                                "metadata": {"plugin": ["gi_gi_win_evtx", "gi_gi_csv"]},
                                 "filename": "windows.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["sqlite"]},
+                                "metadata": {"plugin": ["gi_sqlite"]},
                                 "filename": "chrome_webdata.json",
                                 "mapping_ids": ["autofill"],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "autopsy_usbdevices.json",
                                 "mapping_ids": ["Autopsy USBDevice"],
                             },
                             {
-                                "metadata": {"plugin": ["apache_access_clf"]},
+                                "metadata": {"plugin": ["gi_apache_access_clf"]},
                                 "filename": "apache_access_clf.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "SrumECmd.json",
                                 "mapping_ids": [
                                     "appresourceuseinfo",
@@ -530,12 +530,12 @@ async def mapping_file_upload_handler(
                                 ],
                             },
                             {
-                                "metadata": {"plugin": ["csv"]},
+                                "metadata": {"plugin": ["gi_csv"]},
                                 "filename": "LECmd_csv.json",
                                 "mapping_ids": ["lecmd"],
                             },
                             {
-                                "metadata": {"plugin": ["pcap"]},
+                                "metadata": {"plugin": ["gi_pcap"]},
                                 "filename": "pcap.json",
                                 "mapping_ids": [],
                             },

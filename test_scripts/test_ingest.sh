@@ -10,10 +10,10 @@ function usage {
   echo 'usage:' "$0" '-p <path/to/file/zipfile/directory> [-l to test raw ingestion, -p is ignored]'
   echo ' [-q to use the given req_id] [-o <offset> to start file transfer at offset, ignored for raw]'
   echo ' [-f to filter during ingestion (TEST_INGESTION_FILTER json env variable is used if set)]'
-  echo ' [-i to use ingest_zip_simple instead of ingest_zip for zip file (hardcoded win_evtx plugin, *.evtx mask)]'
+  echo ' [-i to use ingest_zip_simple instead of ingest_zip for zip file (hardcoded gi_win_evtx plugin, *.evtx mask)]'
   echo ' [-x to reset collaboration/elasticsearch first]'
   echo
-  echo 'host,operation,context,client_id,plugin,index,user,password are set respectively to "localhost:8080", 1 (test operation), "testcontext", 1 (test client), "win_evtx", "testidx", "ingest", "ingest".'
+  echo 'host,operation,context,client_id,plugin,index,user,password are set respectively to "localhost:8080", 1 (test operation), "testcontext", 1 (test client), "gi_win_evtx", "testidx", "ingest", "ingest".'
   echo
   echo 'most of the parameters can be changed via environment variables:'
   echo ' TEST_HOST, TEST_OPERATION, TEST_CONTEXT, TEST_CLIENT, TEST_PLUGIN, TEST_INDEX, TEST_USER, TEST_PASSWORD,'
@@ -46,7 +46,7 @@ fi
 
 _MASK="${TEST_MASK:-*.evtx}"
 _CONTEXT="${TEST_CONTEXT:-testcontext}"
-_PLUGIN="${TEST_PLUGIN:-win_evtx}"
+_PLUGIN="${TEST_PLUGIN:-gi_win_evtx}"
 _INDEX="${TEST_INDEX:-testidx}"
 _OPERATION="${TEST_OPERATION:-1}"
 _CLIENT="${TEST_CLIENT:-1}"

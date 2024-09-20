@@ -54,8 +54,6 @@ class PluginBase(ABC):
 
         Args:
             path (str): The path to the plugin.
-            collab: instance of sqlalchemy client
-            elastic: instance of elasticsearch client
             kwargs: additional arguments if any
         """
         self.req_id: str = None
