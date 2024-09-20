@@ -44,7 +44,7 @@ from gulp.api.elastic.structs import (
     GulpQueryParameter,
     GulpQueryType,
 )
-from gulp.defs import API_DESC_WS_ID, ObjectNotFound
+from gulp.defs import API_DESC_PYSYGMA_PLUGIN, API_DESC_WS_ID, ObjectNotFound
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
 
@@ -523,7 +523,7 @@ async def query_sigma_handler(
     pysigma_plugin: Annotated[
         str,
         Query(
-            description='fallback pysigma plugin name. Defaults to None (use "logsource.product" from sigma rule if present).'
+            description=API_DESC_PYSYGMA_PLUGIN,
         ),
     ] = None,
     plugin_params: Annotated[GulpPluginParams, Body()] = None,
@@ -602,7 +602,7 @@ async def query_sigma_files_handler(
     pysigma_plugin: Annotated[
         str,
         Query(
-            description='fallback pysigma plugin name. Defaults to None (use "logsource.product" from sigma rule if present).'
+            description=API_DESC_PYSYGMA_PLUGIN
         ),
     ] = None,
     plugin_params: Annotated[GulpPluginParams, Body()] = None,
@@ -688,7 +688,7 @@ async def query_sigma_zip_handler(
     pysigma_plugin: Annotated[
         str,
         Query(
-            description='fallback pysigma plugin name. Defaults to None (use "logsource.product" from each sigma rule, if present).'
+            description=API_DESC_PYSYGMA_PLUGIN
         ),
     ] = None,
     plugin_params: Annotated[GulpPluginParams, Body()] = None,

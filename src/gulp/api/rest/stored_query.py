@@ -27,7 +27,7 @@ from gulp.api.collab.base import GulpCollabFilter, GulpCollabType
 from gulp.api.collab.collabobj import CollabObj
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.structs import GulpQueryParameter, GulpQueryType
-from gulp.defs import InvalidArgument
+from gulp.defs import API_DESC_PYSYGMA_PLUGIN, InvalidArgument
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
@@ -248,7 +248,7 @@ async def stored_query_create_from_sigma_zip_handler(
     pysigma_plugin: Annotated[
         str,
         Query(
-            description='fallback pysigma plugin name. Defaults to None (use "logsource.product" from each sigma rule, if present).'
+            description=API_DESC_PYSYGMA_PLUGIN,
         ),
     ] = None,
     tags_from_directories: Annotated[

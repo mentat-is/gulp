@@ -1006,7 +1006,7 @@ async def gather_sigma_directories_to_stored_queries(
             token (str): The authentication token.
             req_id (str): The request ID.
             files_path (str): The path to the directory containing the sigma files.
-            pysigma_plugin (str, optional): fallback pysigma plugin name. Defaults to None (use "logsource.product" from each sigma rule, if present).
+            pysigma_plugin (str, optional): fallback pysigma plugin `filename with or without .py/.pyc`. Defaults to None (use "logsource.product" from each sigma rule, if present).
             tags_from_directories (bool, optional): Whether to extract tags from directories. Defaults to True.
             ws_id (str, optional): The websocket id. Defaults to None.
         Returns:

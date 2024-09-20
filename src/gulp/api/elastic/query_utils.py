@@ -1023,7 +1023,7 @@ async def sigma_directory_to_gulpqueryparams(
 
     Args:
         directory (str): The directory path containing the Sigma YAML files.
-        pysigma_plugin (str, optional): fallback pysigma plugin name. Defaults to None (use "logsource.product" from each sigma rule, if present).
+        pysigma_plugin (str, optional): fallback pysigma plugin `filename with or without .py/.pyc`. Defaults to None (use "logsource.product" from each sigma rule, if present).
         tags_from_directories (bool, optional): Whether to add (each sub)directory name as tags (plus the ones found in the sigma rule itself) in the resulting query. Defaults to True.
         plugin_params (GulpPluginParams, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
         tags_filter (list[str], optional): Only use sigma rules with these tags. Defaults to None (use all sigma rules).
