@@ -49,7 +49,6 @@ class WsQueueDataType(IntEnum):
     QUERY_STATS_UPDATE = 11  # data: GulpStats with type=GulpCollabType.STATS_QUERY
     INGESTION_DONE=12 # data: { "src_file"": "...", "context": "..." }
     REBASE_DONE=13 # data: { "status": GulpRequestStatus, "error": str (on error only), "index": "...", "dest_index": "...", "result": { ... } }
-    EXTERNAL_QUERY_RESULT=14 # data: { "chunk": 1234, "last": bool, "events": [ GulpDocument, GulpDocument, ... ] }
 
 class ConnectedWs:
     """
@@ -112,7 +111,7 @@ class WsData:
         client_id: int = None,
         timestamp: int = None,
     ):
-        self.type: WsQueueDataType = t
+        self.type: WsQueueDataType = WsQueueDataType(t)
         self.data: dict = data if data is not None else {}
         self.username: str = username
         self.req_id: str = req_id

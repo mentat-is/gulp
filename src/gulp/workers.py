@@ -954,7 +954,17 @@ async def query_plugin_task(**kwargs):
 
     num_results, status = await coro
 
-    # done
+    # done   
+    qs = TmpQueryStats() 
+    qs.matches_total = num_results
+    await GulpStats.update(
+        await collab_api.collab(),
+        req_id,
+        ws_id,
+        qs=qs,
+        force=True,
+        new_status=status,
+    )
     ws_api.shared_queue_add_data(
         ws_api.WsQueueDataType.QUERY_DONE,
         req_id,

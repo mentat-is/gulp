@@ -9,6 +9,7 @@ import muty.file
 import muty.string
 import muty.time
 
+
 import gulp.config as config
 from gulp.api.elastic.structs import (
     GulpDocument,
@@ -28,68 +29,6 @@ UNMAPPED_PREFIX = "gulp.unmapped"
 from opensearchpy import AsyncOpenSearch as AsyncElasticsearch
 
 _elastic: AsyncElasticsearch = None
-
-
-def _build_query_options(opt: GulpQueryOptions = None) -> dict:
-    """
-    Translates GulpQueryOptions into Elasticsearch query options.
-
-    Args:
-        opt (GulpQueryOptions, optional): The query options. Defaults to None (default options=sort by @timestamp desc).
-
-    Returns:
-        dict: The built query options.
-    """
-    logger().debug(opt)
-    if opt is None:
-        # use default
-        opt = GulpQueryOptions(fields_filter=GulpFieldsFilterType.DEFAULT)
-
-    n = {}
-    if opt.sort is not None:
-        # add sort options
-        n["sort"] = []
-        for k, v in opt.sort.items():
-            n["sort"].append({k: {"order": v}})
-        # we also add event.hash and event.sequence among sort options to return very distinct results (sometimes, timestamp granularity is not enogh)
-        if "event.hash" not in opt.sort:
-            n["sort"].append({"event.hash": {"order": "asc"}})
-        if "event.sequence" not in opt.sort:
-            n["sort"].append({"event.sequence": {"order": "asc"}})
-    else:
-        # default sort
-        n["sort"] = [
-            {"@timestamp": {"order": "asc"}},
-            # {"event.hash": {"order": "asc"}},
-        ]
-
-    if opt.limit is not None:
-        # use provided
-        n["size"] = opt.limit
-    else:
-        # default
-        n["size"] = 1000
-
-    if opt.search_after is not None:
-        # next chunk from this point
-        n["search_after"] = opt.search_after
-    else:
-        n["search_after"] = None
-
-    n["source"] = None
-    if opt.fields_filter is not None:
-        if opt.fields_filter == GulpFieldsFilterType.ALL:
-            # all fields
-            n["source"] = None
-        elif opt.fields_filter == GulpFieldsFilterType.DEFAULT.name:
-            # default set
-            opt.fields_filter = GulpFieldsFilterType.DEFAULT.value
-        else:
-            # only return these fields
-            n["source"] = opt.fields_filter.split(",")
-
-    # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
-    return n
 
 
 def _parse_mappings(d: dict, parent_key="", result=None) -> dict:
@@ -964,8 +903,9 @@ async def query_time_histograms(
         dict: The parsed Elasticsearch response.
 
     """
+    from gulp.api.elastic.query_utils import build_elastic_query_options
     q = gulpqueryflt_to_dsl(flt)
-    opts = _build_query_options(options)
+    opts = build_elastic_query_options(options)
 
     # clear options
     aggregations = {
@@ -1132,7 +1072,8 @@ async def query_raw(
     Raises:
         ObjectNotFound: If no results are found.
     """
-    opts = _build_query_options(options)
+    from gulp.api.elastic.query_utils import build_elastic_query_options
+    opts = build_elastic_query_options(options)
     logger().debug(
         "query_raw: %s, options=%s"
         % (json.dumps(q, indent=2), json.dumps(opts, indent=2))

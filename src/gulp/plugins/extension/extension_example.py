@@ -72,7 +72,7 @@ class Plugin(PluginBase):
             % (user_id, operation_id, client_id, ws_id, req_id)
         )
         ws_api.shared_queue_add_data(
-            (99),
+            ws_api.WsQueueDataType.QUERY_RESULT,
             req_id,
             {"hellooooooooooooo": "wooooooooorld"},
             ws_id=ws_id,

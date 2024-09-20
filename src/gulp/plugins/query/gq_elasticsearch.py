@@ -7,15 +7,22 @@ import muty.string
 import muty.time
 import muty.xml
 
+from gulp.api import collab_api, elastic_api
 from gulp.api.collab.base import GulpRequestStatus
+from gulp.api.collab.stats import GulpStats, TmpQueryStats
+from gulp.api.elastic.query import QueryResult
+from gulp.api.elastic.query_utils import build_elasticsearch_generic_query, check_canceled_or_failed
 from gulp.api.elastic.structs import (
     GulpQueryFilter,
     GulpQueryOptions,
+    gulpqueryflt_to_dsl,
 )
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
+from gulp.api.rest import ws as ws_api
+
 
 try:
     from elasticsearch import AsyncElasticsearch
@@ -103,9 +110,6 @@ class Plugin(PluginBase):
             "querying elasticsearch, params=%s, filter: %s" % (plugin_params, flt)
         )
 
-        status = GulpRequestStatus.FAILED
-        num_results = 0
-
         # get options
         url: str = plugin_params.extra.get("url")
         is_opensearch: bool = plugin_params.extra.get("is_opensearch")
@@ -117,19 +121,87 @@ class Plugin(PluginBase):
         if not url or not index:
             raise InvalidArgument("missing required parameters (url, index)")
 
+        # convert basic filter and options to a raw query, ensure only start_msec, end_msec, extra is present
+        q, o = build_elasticsearch_generic_query(flt, options)
+
         # connect to elastic
         cl: AsyncElasticsearch = AsyncElasticsearch(
             url,
-            http_auth=(username, password),
+            basic_auth=(username, password),
             verify_certs=False,
-            use_ssl=True if url.lower().startswith('https') else False
         )
         logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
+
+        query_res = QueryResult()
+        query_res.query_name = "%s_%s" % (req_id, muty.string.generate_unique())
+        query_res.req_id = req_id
+        if o.include_query_in_result:
+            query_res.query_raw = q
         
-        # loop until there's data, in chunks of 1000 events, or until we reach the limit
-        # - update stats
-        # - check request canceled
-        # - write results on the websocket
+        while True:            
+            logger().debug("querying elasticsearch, query=%s, options=%s" % (q, o))
+            try:
+                r = await elastic_api.query_raw(
+                        cl, index, q, options
+                    ) 
+            except Exception as ex:
+                logger().exception(ex)
+                raise ex
+
+            # get data
+            evts = r.get("results", [])
+            aggs = r.get("aggregations", None)
+            len_evts = len(evts)
+
+            # fill query result
+            query_res.search_after = r.get("search_after", None)
+            query_res.total_hits = r.get("total", 0)
+            logger().debug(
+                "%d results (TOTAL), this chunk=%d"
+                % (query_res.total_hits, len_evts)
+            )
+
+            query_res.events = evts
+            query_res.aggregations = aggs
+            if len_evts == 0 or len_evts < options.limit:
+                query_res.last_chunk = True
+
+            # send QueryResult over websocket
+            ws_api.shared_queue_add_data(
+                ws_api.WsQueueDataType.QUERY_RESULT,
+                req_id,
+                query_res.to_dict(),
+                client_id=client_id,
+                operation_id=operation_id,
+                username=username,
+                ws_id=ws_id,
+            )
+
+            # processed an event chunk (evts)
+            processed += len_evts
+            chunk += 1
+            logger().error(
+                "sent %d events to ws, num processed events=%d, chunk=%d ..."
+                % (len(evts), processed, chunk)
+            )
+            if await check_canceled_or_failed(req_id):
+                status = GulpRequestStatus.CANCELED
+                break                
+
+            query_res.chunk += 1
+            if query_res.search_after is None:
+                logger().debug(
+                    "search_after=None or search_after_loop=False, query done!"
+                )
+                break
+
+            options.search_after = query_res.search_after
+            logger().debug(
+                "search_after=%s, total_hits=%d, running another query to get more results ...."
+                % (query_res.search_after, query_res.total_hits)
+            )
+            
         await cl.close()
         logger().debug("elasticsearch connection instance=%s closed!" % (cl))
-        return num_results, status
+
+        return query_res.total_hits, status

@@ -242,7 +242,7 @@ async def apply_sigma_group_filters(
     return l
 
 
-async def _check_canceled_or_failed(req_id: str) -> bool:
+async def check_canceled_or_failed(req_id: str) -> bool:
     # get stats and check if the request has been canceled/failed
     stats = await GulpStats.get(
         await collab_api.collab(),
@@ -354,7 +354,7 @@ async def _create_notes_on_match(
             cs_batch = []
 
             # check if the request has been canceled
-            if await _check_canceled_or_failed(req_id):
+            if await check_canceled_or_failed(req_id):
                 failed = -1
                 break
 
@@ -564,7 +564,7 @@ async def query_by_gulpconvertedquery(
                 else:
                     # check if the request has been canceled
                     # (if create_notes is true, check is done in _create_notes_on_match)
-                    if await _check_canceled_or_failed(req_id):
+                    if await check_canceled_or_failed(req_id):
                         break
 
                 if create_notes and max_notes > 0 and processed >= max_notes:
@@ -1121,3 +1121,102 @@ async def sigma_directory_to_gulpqueryparams(
         )
 
     return l
+
+
+def build_elasticsearch_generic_query(
+    flt: GulpQueryFilter, options: GulpQueryOptions=None
+) -> tuple[dict, GulpQueryOptions]:
+    """
+    Build a generic Elasticsearch query based on the provided filter and options.
+    Args:
+        flt (GulpQueryFilter): The filter criteria for the query, including start and end times, and any extra parameters (everything else is ignored).
+        options (GulpQueryOptions, optional): The options for the query, including limit, fields to filter, include_query_in_result and sort order (everything else is ignored).
+    Returns:
+        tuple[dict, GulpQueryOptions]: A tuple containing the Elasticsearch query dictionary and the modified query options dictionary.
+    """
+    if options is None:
+        options = GulpQueryOptions()
+        
+    f = GulpQueryFilter()
+    o = GulpQueryOptions()
+    
+    # only these filters are supported
+    f.start_msec = flt.start_msec
+    f.end_msec = flt.end_msec
+    f.extra = flt.extra
+
+    # only these options are supported
+    o.limit = options.limit
+    o.fields_filter = options.fields_filter
+    o.sort = options.sort
+    o.include_query_in_result = options.include_query_in_result
+    if "@timestamp" not in o.fields_filter:
+        o.fields_filter += ",@timestamp"
+    if "_id" not in o.fields_filter:
+        o.fields_filter += ",_id"
+    
+    q = gulpqueryflt_to_dsl(f)
+    return q, o
+
+
+def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
+    """
+    Translates GulpQueryOptions into Elasticsearch query options.
+
+    Args:
+        opt (GulpQueryOptions, optional): The query options. Defaults to None (default options=sort by @timestamp desc).
+
+    Returns:
+        dict: The built query options.
+    """
+    logger().debug(opt)
+    if opt is None:
+        # use default
+        opt = GulpQueryOptions(fields_filter=GulpFieldsFilterType.DEFAULT)
+
+    n = {}
+    if opt.sort is not None:
+        # add sort options
+        n["sort"] = []
+        for k, v in opt.sort.items():
+            n["sort"].append({k: {"order": v}})
+        # we also add event.hash and event.sequence among sort options to return very distinct results (sometimes, timestamp granularity is not enogh)
+        if "event.hash" not in opt.sort:
+            n["sort"].append({"event.hash": {"order": "asc"}})
+        if "event.sequence" not in opt.sort:
+            n["sort"].append({"event.sequence": {"order": "asc"}})
+    else:
+        # default sort
+        n["sort"] = [
+            {"@timestamp": {"order": "asc"}},
+            # {"event.hash": {"order": "asc"}},
+        ]
+
+    if opt.limit is not None:
+        # use provided
+        n["size"] = opt.limit
+    else:
+        # default
+        n["size"] = 1000
+
+    if opt.search_after is not None:
+        # next chunk from this point
+        n["search_after"] = opt.search_after
+    else:
+        n["search_after"] = None
+
+    n["source"] = None
+    if opt.fields_filter is not None:
+        if opt.fields_filter == GulpFieldsFilterType.ALL:
+            # all fields
+            n["source"] = None
+        elif opt.fields_filter == GulpFieldsFilterType.DEFAULT.name:
+            # default set
+            opt.fields_filter = GulpFieldsFilterType.DEFAULT.value
+        else:
+            # only return these fields
+            n["source"] = opt.fields_filter.split(",")
+
+    # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
+    return n
+    
