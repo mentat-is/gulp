@@ -59,7 +59,7 @@ class Plugin(PluginBase):
     def options(self) -> list[GulpPluginOption]:
         return [
             GulpPluginOption(
-                "url", "str", "opensearch/elasticsearch server URL.", default=None
+                "url", "str", "opensearch/elasticsearch server URL, i.e. http://localhost:9200.", default=None
             ),  # TODO
             GulpPluginOption(
                 "is_opensearch",
@@ -107,19 +107,29 @@ class Plugin(PluginBase):
         num_results = 0
 
         # get options
-        url = plugin_params.extra.get("url")
-        is_opensearch = plugin_params.extra.get("is_opensearch")
-        username = plugin_params.extra.get("username")
-        password = plugin_params.extra.get("password")
-        index = plugin_params.extra.get("index")
+        url: str = plugin_params.extra.get("url")
+        is_opensearch: bool = plugin_params.extra.get("is_opensearch")
+        username: str = plugin_params.extra.get("username")
+        password:str = plugin_params.extra.get("password")
+        index:str = plugin_params.extra.get("index")
 
+        # TODO: add support for client and CA certificates, i.e. dumping the certificates to temporary files and using them
         if not url or not index:
             raise InvalidArgument("missing required parameters (url, index)")
 
         # connect to elastic
-
+        cl: AsyncElasticsearch = AsyncElasticsearch(
+            url,
+            http_auth=(username, password),
+            verify_certs=False,
+            use_ssl=True if url.lower().startswith('https') else False
+        )
+        logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
+        
         # loop until there's data, in chunks of 1000 events, or until we reach the limit
         # - update stats
         # - check request canceled
         # - write results on the websocket
+        await cl.close()
+        logger().debug("elasticsearch connection instance=%s closed!" % (cl))
         return num_results, status
