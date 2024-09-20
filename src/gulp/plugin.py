@@ -1058,6 +1058,10 @@ def load_plugin(
     """
     logger().debug("load_plugin %s ..." % (plugin))
 
+    if not '/' in plugin and (plugin.lower().endswith(".py") or plugin.lower().endswith(".pyc")):
+        # remove extension
+        plugin = plugin.rsplit(".", 1)[0]
+
     m = plugin_cache_get(plugin)
     if ignore_cache:
         logger().debug("ignoring cache for plugin %s" % (plugin))
@@ -1237,4 +1241,6 @@ def plugin_cache_get(plugin: str) -> ModuleType:
     p = _cache.get(plugin, None)
     if p is not None:
         logger().debug("found plugin %s in cache" % (plugin))
+    else:
+        logger().warning("plugin %s not found in cache" % (plugin))
     return p
