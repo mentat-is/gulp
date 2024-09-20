@@ -95,7 +95,7 @@ def _sanitize_tags(tags: list[str]) -> list[str]:
                                         "rule": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: This is a test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.t1059\nauthor: Thomas Patzke\ndate: 2020/07/12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    EventID: 4732\n    SourceHostname|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - SourceHostname\nfalsepositives:\n  - Everything\nlevel: medium",
                                         "type": 1,
                                         "name": "sigma test",
-                                        "pysigma_plugin": "windows",
+                                        "pysigma_plugin": "gs_windows",
                                     }
                                 ],
                                 "options": {"sort": {"@timestamp": "asc"}},
@@ -126,7 +126,7 @@ def _sanitize_tags(tags: list[str]) -> list[str]:
                                         "name": "test_sigma",
                                         "type": 1,
                                         "rule": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: This is a test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.t1059\nauthor: Thomas Patzke\ndate: 2020/07/12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    EventID: 4732\n    SourceHostname|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - SourceHostname\nfalsepositives:\n  - Everything\nlevel: medium",
-                                        "pysigma_plugin": "windows",
+                                        "pysigma_plugin": "gs_windows",
                                     },
                                     {"rule": 1, "type": 4},
                                     {

@@ -34,7 +34,7 @@ EXAMPLE_QUERY_FILTER = {
 
 EXAMPLE_SIGMA_RULE_YML = {
     "example": {
-        "pysigma_plugin": "windows",
+        "pysigma_plugin": "gs_windows",
         "name": "test",
         "tags": ["windows", "security"],
         "type": 1,
