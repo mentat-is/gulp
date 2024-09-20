@@ -1,30 +1,27 @@
-import datetime
-import os
-import re
-from urllib.parse import parse_qs, urlparse
 
-import aiofiles
 import muty.dict
 import muty.jsend
 import muty.log
+import muty.os
 import muty.string
 import muty.time
 import muty.xml
 
-from gulp.api import elastic_api
 from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import (
-    GulpDocument,
-    GulpIngestionFilter,
     GulpQueryFilter,
     GulpQueryOptions,
 )
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
-from gulp.defs import GulpLogLevel, GulpPluginType, InvalidArgument
+from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
+
+try:
+    from elasticsearch import AsyncElasticsearch
+except ImportError:
+    muty.os.install_package("elasticsearch[async]")
+    from elasticsearch import AsyncElasticsearch
 
 """
 Query plugins
