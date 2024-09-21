@@ -1,7 +1,7 @@
 {
     "metadata": {
         "plugin": [
-            "gi_pcap"
+            "gi_pcap.py"
         ]
     },
     "mappings": [
