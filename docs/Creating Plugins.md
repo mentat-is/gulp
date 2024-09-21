@@ -5,6 +5,7 @@ Gulp's architecture allows developers and users to add supported files for inges
 
 Gulp supports a bunch of different log formats for ingestion.
 We currently support the following:
+
   - Apache's standard `access.log` and `error.log`
   - Windows `evtx`
   - Windows `registry` hives
@@ -22,6 +23,7 @@ We currently support the following:
 Along side the specific ones we also provide some generic "base" plugins which can be used as a base to build your own plugins!
 
 Gulp dives ingestion plugins in 3 major categories:
+
   - mapping files
   - stacked plugins
   - python plugins
@@ -40,7 +42,8 @@ Remember, the more standardized the logs we collect are, the easier it will be t
 
 Mapping files are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins.
 
-Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file under `src/gulp/ecs` folder, where mappings are typically placed.
+Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file under `src/gulp/mapping_files` folder, where mappings are typically placed.
+
 ```json
 {
   "metadata": {
@@ -80,19 +83,20 @@ Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file un
 Let's break it down, starting from `metadata`.
 This field contains useful information the server uses to categorize and suggest plugins to its clients.
 
-In particular, `plugin` lists all (*bare filenames of*) plugins which gulp should suggest this mapping for, in our case it's the `csv` plugin.
+In particular, `plugin` array lists all (*bare filenames of, i.e. name.py*) plugins which gulp should suggest this mapping for, in our case it's the `csv` plugin.
 
 The next section is the `mappings` section, the core of the mapping file, this is a list of objects which are composed of 2 fields:
+
   - mapping : which contains the actual field-by-field mappings
   - options : options specific for each mapping (such as the `mapping_id`, `event_code`, `agent_type`)
 
 Starting from the `mapping`, under this section we specify the fields and what to map them to.
 In our example, the log contains the following fields, which we want to map to the following mappings:
+
   - **SourceFile**: indicates the name of the file
   - **SourceCreated**: this field in the log specifies when the file has been **created**
   - **SourceModified**: similarly this contains the last **modified** date of the file
   - **SourceModified**: finally, this contains the last **accessed** date of the file
-
 
 Every mapping **must contain** at least one field specified as `is_timestamp` (or a `map_to` set to `@timestamp`), in order to allow indexing by the backing database.
 The `is_timestamp` parameter implies `@timestamp`, moreover, when `is_timestamp` is set a new event is generated for each field indicated as timestamp.
@@ -103,6 +107,7 @@ At the end of the mapping field, the `options` field contains some, well, option
 such as the value to fill the `event.code` field with, a `mapping_id`, etc.
 
 ### mapping fields
+
 Each mapping field ([FieldMappingEntry](/docs/html/classmapping_1_1models_1_1_field_mapping_entry.html)) must contain the `map_to` field, additionally they can contain any of the following attributes:
 
 | name    | description |
@@ -127,22 +132,24 @@ Each mapping field ([FieldMappingEntry](/docs/html/classmapping_1_1models_1_1_fi
 
 ## Stacked plugins
 
-Stacked plugins are python plugins which are base upon other plugins, usually generic plugins (such as `csv`, `sqlite`, etc),
+Stacked plugins are python *ingestion* plugins which are base upon other plugins, usually generic plugins (such as `csv`, `sqlite`, etc),
 but require a little more logic than a plain [mapping files](#mapping_files).
 
 Instead of receiving a raw event from the log file, stacked plugins receive a `GulpDocument`,
 which can be further modified before it gets ingested.
 
 While you can **technically** stack as many plugins as you want, it is advised against for 3 main reasons:
+
   - readibility: quite self explanatory
   - performance: you go through more functions for each event in each file, this may impact performance depending on how performant each function is
   - KISS principle: if an event requires logic that is split into many different files to be parsed correctly, maybe it'd be better to write a [python plugin](#python_plugins) instead!
 
 Let's get down to business!
-A quite simple example of a stacked plugin is the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/chrome_history_sqlite_stacked.py) plugin, which is based onto the [sqlite.py](https://github.com/mentat-is/gulp/src/gulp/plugins/sqlite.py) generic plugin.
+A quite simple example of a stacked plugin is the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_chrome_history_sqlite_stacked.py) plugin, which is based onto the [sqlite](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_sqlite.py) generic plugin.
 
 Since the logic behind acquiring data from an `sqlite` plugin is generic enough, it is a good foundation to build upon.
 Here's a quick overview of how the data flows:
+
 ```mermaid
 flowchart TD
     A(Log file) -->|parsed by| B[Base plugin]
@@ -185,6 +192,7 @@ In this example, it also hardcodes a specific `mapping_file` to point to the one
 
 The other big difference from the [Python plugins](#Python_plugins) is that the `record_to_gulp_document` function does **not** receive
 a raw event, but instead receives a `GulpDocument`.
+
 ```python
 async def record_to_gulp_document(
    #...
@@ -227,6 +235,7 @@ For this plugin the only real change to the ingested document we perform is to c
 `event.duration` of the event, to make it render nicely on the GUI.
 
 ## Python plugins
+
 Python plugins are the most versatile kind of extensions, allowing for parsing of complex log formats,
 converting data and handling more complex scenarios.
 
@@ -234,6 +243,7 @@ A few good examples of python plugins are the `win_evtx` and `systemd_journal` w
 Windows System logs and Systemd journal files respectively.
 
 While plugins can be as complex as needed, a simple plugin **must** implement the functions:
+
 - `name`
 - `type`
 - `ingest`
@@ -254,9 +264,11 @@ These should be specified in the `options` implementation of the plugin.
 Further documentation about plugins can be found looking for the [Plugin](/docs/html/namespacegulp_1_1plugin.html) class in the docs.
 
 # Extension plugins
+
 Extensions plugins are useful for extending gulp's API.
 TODO
 
 # Sigma plugins
+
 Sigma plugins are useful for transforming sigma rules into elastic queries.
 TODO

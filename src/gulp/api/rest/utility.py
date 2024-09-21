@@ -144,7 +144,7 @@ async def plugin_get_handler(
     plugin: Annotated[
         str,
         Query(
-            description='filename of the plugin to retrieve content for, i.e. "win_evtx.py"'
+            description='filename of the plugin to retrieve content for, i.e. "gi_win_evtx.py"'
         ),
     ],
     plugin_type: Annotated[
@@ -188,7 +188,7 @@ async def plugin_get_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"filename": "win_evtx.py"},
+                        "data": {"filename": "gi_win_evtx.py"},
                     }
                 }
             }
@@ -199,7 +199,7 @@ async def plugin_get_handler(
 async def plugin_delete_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     plugin: Annotated[
-        str, Query(description='filename of the plugin to delete, i.e. "win_evtx.py"')
+        str, Query(description='filename of the plugin to delete, i.e. "gi_win_evtx.py"')
     ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
