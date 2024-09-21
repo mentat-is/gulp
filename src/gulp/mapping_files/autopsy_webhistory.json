@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "plugin": ["csv"]
+    "plugin": ["gi_csv.py"]
   },
   "mappings": [
     {

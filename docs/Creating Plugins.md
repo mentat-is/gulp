@@ -27,6 +27,7 @@ Gulp dives ingestion plugins in 3 major categories:
   - python plugins
 
 ## Mapping files
+
 While mapping files are not technically plugins, they serve a very similar purpose, with some limitations.
 A mapping file basically instructs an existing plugins how to parse the various fields from the log, using a simplified `json` stucture.
 
@@ -44,7 +45,7 @@ Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file un
 {
   "metadata": {
     "plugin": [
-      "csv"
+      "gi_csv.py"
     ]
   },
   "mappings": [
@@ -78,7 +79,8 @@ Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file un
 
 Let's break it down, starting from `metadata`.
 This field contains useful information the server uses to categorize and suggest plugins to its clients.
-In particular, `plugin` lists all plugins which gulp should suggest this mapping for, in our case it's the `csv` plugin.
+
+In particular, `plugin` lists all (*bare filenames of*) plugins which gulp should suggest this mapping for, in our case it's the `csv` plugin.
 
 The next section is the `mappings` section, the core of the mapping file, this is a list of objects which are composed of 2 fields:
   - mapping : which contains the actual field-by-field mappings
