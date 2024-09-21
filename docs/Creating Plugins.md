@@ -266,9 +266,17 @@ Further documentation about plugins can be found looking for the [Plugin](/docs/
 # Extension plugins
 
 Extensions plugins are useful for extending gulp's API.
-TODO
+
+- they run at gulp's startup **in the main process context**.
+
+they are currently not used, just a [test implementation](../src/gulp/plugins/extension/ge_example.py) is available here: but, they will come handy when i.e. we will implement a web-management UI which will extend the REST API.
 
 # Sigma plugins
 
 Sigma plugins are useful for transforming sigma rules into elastic queries.
-TODO
+
+# Query plugins
+
+This kind of plugin allows Gulp to query external sources through the [query_plugin API](../src/gulp/api/rest/query.py#async-def-query_plugin), i.e. SIEM **without ingesting their data**.
+
+
