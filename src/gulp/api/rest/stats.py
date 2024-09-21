@@ -105,7 +105,7 @@ async def stats_delete_by_operation(
                                 "ingest_errors": {
                                     "/home/valerino/repos/gulp/samples/win_evtx/post-Security.evtx": [],
                                     "/home/valerino/repos/gulp/samples/win_evtx/security.evtx": [
-                                        '[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
+                                        '[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                     ],
                                 },
                                 "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
@@ -175,7 +175,7 @@ async def stats_get_by_operation(
                             "ingest_errors": {
                                 "/home/valerino/repos/gulp/samples/win_evtx/post-Security.evtx": [],
                                 "/home/valerino/repos/gulp/samples/win_evtx/security.evtx": [
-                                    '[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
+                                    '[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                 ],
                             },
                             "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
@@ -242,7 +242,7 @@ async def stats_get_by_req_id(
                                 "ingest_errors": {
                                     "/home/valerino/repos/gulp/samples/win_evtx/post-Security.evtx": [],
                                     "/home/valerino/repos/gulp/samples/win_evtx/security.evtx": [
-                                        '[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
+                                        '[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                     ],
                                 },
                                 "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
@@ -350,7 +350,7 @@ async def stats_delete(
                             "ingest_errors": {
                                 "/home/valerino/repos/gulp/samples/win_evtx/post-Security.evtx": [],
                                 "/home/valerino/repos/gulp/samples/win_evtx/security.evtx": [
-                                    '[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
+                                    '[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/gi_win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                 ],
                             },
                             "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
