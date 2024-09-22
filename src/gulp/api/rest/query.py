@@ -1241,9 +1241,18 @@ async def query_single_event_handler(
     },
     summary="use a `query plugin` to query an external source.",
     description='with this API you can i.e. query a SIEM for data without it being ingested into GULP.<br><br>'
-        'for this to work, a specific `query plugin` must be available in `$PLUGIN_DIR/query`, which translates the `GulpQueryFilter` provided to a query suitable for the external source.<br>'
-        'external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e. `"extra": { "username": "...", "password": "...", "url": ... }`.<br><br>'
-        '**NOTE**: since such queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.',            
+        'for this to work, a specific `query plugin` must be available in `$PLUGIN_DIR/query`, which translates the `GulpQueryFilter` provided to a query suitable for the external source.<br><br>'
+        'GulpQueryFilter is used to filter the data from the external source, only the following fields are used and the rest is ignored:<br>'
+        '- `start_msec`: start "@timestamp"<br>'
+        '- `end_msec`: end "@timestamp"<br>'
+        '- `extra`: a dict with any extra filter to match, like: `{ "extra": { "key": "value" } }`<br><br>'
+        'GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>'
+        '- `limit`: return max these entries per chunk on the websocket<br>'
+        '- `sort`: defaults to sort by ASCENDING "@timestamp"<br>'
+        '- `fields_filter`: if set, a CSV of fields to be included<br><br>'         
+        'external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e.<br>'
+        '`"extra": { "username": "...", "password": "...", "url": "..." }`.<br><br>'
+        '**NOTE**: since the queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.',            
 )
 
 async def query_plugin_handler(

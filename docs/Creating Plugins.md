@@ -1,6 +1,7 @@
 [TOC]
 
 # Ingestion plugins
+
 Gulp's architecture allows developers and users to add supported files for ingestion.
 
 Gulp supports a bunch of different log formats for ingestion.
@@ -275,8 +276,10 @@ they are currently not used, just a [test implementation](../src/gulp/plugins/ex
 
 Sigma plugins are useful for transforming sigma rules into elastic queries.
 
+[the only one currently implemented](../src/gulp/plugins/sigma/gs_windows.py) is used to transform Windows sigma rules to queries in the ECS format used by gulp.
+
+**NOTE: Sigma plugins may be removed in the future.**
+
 # Query plugins
 
 This kind of plugin allows Gulp to query external sources through the [query_plugin API](../src/gulp/api/rest/query.py#async-def-query_plugin), i.e. SIEM **without ingesting their data**.
-
-
