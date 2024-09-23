@@ -110,7 +110,9 @@ class GulpBaseFilter(BaseModel):
     )
     extra: Optional[dict] = Field(
         None,
-        description='filter as {"key": value, ...} to include events matching further field/s not included in the predefined set.<br>'
+        description='filter as {"key": value, ...} to include events matching further field/s not included in the predefined Gulp set.<br>'
+        'events are matched if they have the key and the value is equal to the one specified, multiple keys are matched as OR.<br>'
+        'i.e: {"winlog.event_data.SubjectUserName": "test", "winlog.event_data.SubjectDomainName": "test"} is matched if either the SubjectUserName or the SubjectDomainName is "test".<br>'
         'NOTE: not supported for filtering events sent through websocket when "store_all_documents" is set to True.',
     )
 
@@ -137,7 +139,7 @@ class GulpIngestionFilter(GulpBaseFilter):
 
     store_all_documents: Optional[bool] = Field(
         False,
-        description="filtering is done on websocket data only, but all of the documents are stored on database.",
+        description="on ingestion, if filtering is set, it is applied ONLY on data sent through the websocket BUT data is stored anyway on the storage.",
     )
 
     def to_dict(self) -> dict:
@@ -577,7 +579,11 @@ class GulpQueryOptions(BaseModel):
         False,
         description="If True, when querying for tags a stored rules is selected ONLY if it have ALL of the tags. Either, just one tag match is enough for the rule to be selected. Defaults to False (just one tag is enough).",
     )
-
+    timestamp_field: str = Field(
+        "@timestamp", 
+        description='the timestamp field to use for querying external sources in "query_plugin" API, default="@timestamp".'
+    )
+    
     # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py
     model_config = {"json_schema_extra": EXAMPLE_QUERY_OPTIONS}
 
@@ -683,7 +689,7 @@ def gulpqueryflt_dsl_dict_empty(d: dict) -> bool:
     return True
 
 
-def gulpqueryflt_to_dsl(flt: GulpQueryFilter = None) -> dict:
+def gulpqueryflt_to_dsl(flt: GulpQueryFilter = None, options: GulpQueryOptions=None) -> dict:
     """
     Converts a GulpQueryFilter object into an Elasticsearch DSL query.
 
@@ -694,7 +700,10 @@ def gulpqueryflt_to_dsl(flt: GulpQueryFilter = None) -> dict:
         dict: The Elasticsearch query dictionary.
 
     """
-
+    timestamp_field='@timestamp'
+    if options is not None:
+        timestamp_field = options.timestamp_field
+        
     if flt is None:
         # all
         qs = "*"
@@ -721,9 +730,9 @@ def gulpqueryflt_to_dsl(flt: GulpQueryFilter = None) -> dict:
             levels = [int(l) for l in flt.gulp_log_level]
             qs = _query_string_add_or_clause(qs, "log.level", levels)
         if flt.start_msec is not None and flt.start_msec > 0:
-            qs = _query_string_add_gte_clause(qs, "@timestamp", flt.start_msec)
+            qs = _query_string_add_gte_clause(qs, timestamp_field, flt.start_msec)
         if flt.end_msec is not None and flt.end_msec > 0:
-            qs = _query_string_add_lte_clause(qs, "@timestamp", flt.end_msec)
+            qs = _query_string_add_lte_clause(qs, timestamp_field, flt.end_msec)
         if flt.ev_hash is not None and len(flt.ev_hash) > 0:
             qs = _query_string_add_or_clause(qs, "event.hash", flt.ev_hash)
         if flt.raw is not None and len(flt.raw) > 0:

@@ -1155,7 +1155,7 @@ def build_elasticsearch_generic_query(
     if "_id" not in o.fields_filter:
         o.fields_filter += ",_id"
     
-    q = gulpqueryflt_to_dsl(f)
+    q = gulpqueryflt_to_dsl(f, options)
     return q, o
 
 
