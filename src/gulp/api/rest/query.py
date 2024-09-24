@@ -44,7 +44,12 @@ from gulp.api.elastic.structs import (
     GulpQueryParameter,
     GulpQueryType,
 )
-from gulp.defs import API_DESC_PYSYGMA_PLUGIN, API_DESC_WS_ID, InvalidArgument, ObjectNotFound
+from gulp.defs import (
+    API_DESC_PYSYGMA_PLUGIN,
+    API_DESC_WS_ID,
+    InvalidArgument,
+    ObjectNotFound,
+)
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
 
@@ -601,9 +606,7 @@ async def query_sigma_files_handler(
     sigma_files: Annotated[list[UploadFile], File(description="sigma rule YAMLs.")],
     pysigma_plugin: Annotated[
         str,
-        Query(
-            description=API_DESC_PYSYGMA_PLUGIN
-        ),
+        Query(description=API_DESC_PYSYGMA_PLUGIN),
     ] = None,
     plugin_params: Annotated[GulpPluginParams, Body()] = None,
     tags: Annotated[list[str], Body()] = None,
@@ -687,9 +690,7 @@ async def query_sigma_zip_handler(
     z: Annotated[UploadFile, File(description="zip with sigma rules.")],
     pysigma_plugin: Annotated[
         str,
-        Query(
-            description=API_DESC_PYSYGMA_PLUGIN
-        ),
+        Query(description=API_DESC_PYSYGMA_PLUGIN),
     ] = None,
     plugin_params: Annotated[GulpPluginParams, Body()] = None,
     tags: Annotated[list[str], Body()] = None,
@@ -860,7 +861,7 @@ async def query_max_min_handler(
             return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
         except ObjectNotFound:
             # return an empty result
-            res = {"total": 0, "aggregations": {}}
+            res = {"total": 0, "buckets": []}
             return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
 
     except Exception as ex:
@@ -1231,36 +1232,33 @@ async def query_single_event_handler(
                         "status": "success",
                         "timestamp_msec": 1701879738287,
                         "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
-                        "data": [
-                            { "GulpDocument" }, { "GulpDocument" }
-                        ]
+                        "data": [{"GulpDocument"}, {"GulpDocument"}],
                     }
                 }
             }
         }
     },
     summary="use a `query plugin` to query an external source.",
-    description='with this API you can i.e. query a SIEM for data without it being ingested into GULP.<br><br>'
-        'for this to work, a specific `query plugin` must be available in `$PLUGIN_DIR/query`, which translates the `GulpQueryFilter` provided to a query suitable for the external source.<br><br>'
-        'GulpQueryFilter is used to filter the data from the external source, only the following fields are used and the rest is ignored:<br>'
-        '- `start_msec`: start "@timestamp"<br>'
-        '- `end_msec`: end "@timestamp"<br>'
-        '- `extra`: a dict with any extra filter to match, like: `{ "extra": { "key": "value" } }` (check `GulpBaseFilter` documentation)<br><br>'
-        'GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>'
-        '- `limit`: return max these entries per chunk on the websocket<br>'
-        '- `sort`: defaults to sort by ASCENDING "@timestamp"<br>'
-        '- `fields_filter`: if set, a CSV of fields to be included<br>'
-        '- `timestamp_field`: the field to be used as timestamp, defaults to "@timestamp"<br><br>'        
-        'external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e.<br>'
-        '`"extra": { "username": "...", "password": "...", "url": "..." }`.<br><br>'
-        '**NOTE**: since the queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.',            
+    description="with this API you can i.e. query a SIEM for data without it being ingested into GULP.<br><br>"
+    "for this to work, a specific `query plugin` must be available in `$PLUGIN_DIR/query`, which translates the `GulpQueryFilter` provided to a query suitable for the external source.<br><br>"
+    "GulpQueryFilter is used to filter the data from the external source, only the following fields are used and the rest is ignored:<br>"
+    '- `start_msec`: start "@timestamp"<br>'
+    '- `end_msec`: end "@timestamp"<br>'
+    '- `extra`: a dict with any extra filter to match, like: `{ "extra": { "key": "value" } }` (check `GulpBaseFilter` documentation)<br><br>'
+    "GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>"
+    "- `limit`: return max these entries per chunk on the websocket<br>"
+    '- `sort`: defaults to sort by ASCENDING "@timestamp"<br>'
+    "- `fields_filter`: if set, a CSV of fields to be included<br>"
+    '- `timestamp_field`: the field to be used as timestamp, defaults to "@timestamp"<br><br>'
+    "external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
+    '`"extra": { "username": "...", "password": "...", "url": "..." }`.<br><br>'
+    "**NOTE**: since the queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.",
 )
-
 async def query_plugin_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
     operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
-    client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],    
+    client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_QUERY_PLUGIN)],
     plugin_params: Annotated[GulpPluginParams, Body()],
@@ -1269,19 +1267,31 @@ async def query_plugin_handler(
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
-    
+
     # print the request
     logger().debug(
-        "query_plugin_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s" % 
-        (token, operation_id, client_id, ws_id, plugin, plugin_params, flt, options, req_id)        
+        "query_plugin_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s"
+        % (
+            token,
+            operation_id,
+            client_id,
+            ws_id,
+            plugin,
+            plugin_params,
+            flt,
+            options,
+            req_id,
+        )
     )
     if len(flt.to_dict()) == 0:
         raise JSendException(req_id=req_id, ex=InvalidArgument("flt is empty!"))
     if len(plugin_params.extra) == 0:
-        raise JSendException(req_id=req_id, ex=InvalidArgument("plugin_params.extra is empty!"))
+        raise JSendException(
+            req_id=req_id, ex=InvalidArgument("plugin_params.extra is empty!")
+        )
     if options is None:
         options = GulpQueryOptions()
-    
+
     try:
         user, _ = await UserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
