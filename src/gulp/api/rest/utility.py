@@ -42,7 +42,7 @@ _app: APIRouter = APIRouter()
                         "req_id": "fc21e3c5-fcbf-4fda-a9bb-5776ef418dfd",
                         "data": [
                             {
-                                "name": "win_evtx",
+                                "display_name": "win_evtx",
                                 "type": "ingestion",
                                 "desc": "Windows EVTX log file processor.",
                                 "filename": "gi_win_evtx.py",
@@ -54,10 +54,10 @@ _app: APIRouter = APIRouter()
                                 "version": "1.0",
                             },
                             {
-                                "name": "raw",
+                                "display_name": "raw",
                                 "type": "ingestion",
                                 "desc": "Raw events ingestion plugin.",
-                                "filename": "raw.py",
+                                "filename": "gi_raw.py",
                                 "internal": False,
                                 "options": [],
                                 "depends_on": [],
@@ -66,10 +66,10 @@ _app: APIRouter = APIRouter()
                                 "version": "1.0",
                             },
                             {
-                                "name": "stacked",
+                                "display_name": "stacked",
                                 "type": "ingestion",
                                 "desc": "example plugin stacked over the CSV plugin",
-                                "filename": "stacked_example.py",
+                                "filename": "gi_stacked_example.py",
                                 "internal": False,
                                 "options": [],
                                 "depends_on": [],
@@ -78,10 +78,10 @@ _app: APIRouter = APIRouter()
                                 "version": "1.0",
                             },
                             {
-                                "name": "csv",
+                                "display_name": "csv",
                                 "type": "ingestion",
                                 "desc": "generic CSV file processor",
-                                "filename": "csv.py",
+                                "filename": "gi_csv.py",
                                 "internal": False,
                                 "options": [
                                     {

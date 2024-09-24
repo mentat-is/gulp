@@ -1107,7 +1107,7 @@ async def list_plugins() -> list[dict]:
             try:
                 p = load_plugin(f)
                 n = {
-                    "name": p.name(),
+                    "display_name": p.name(),
                     "type": str(p.type()),
                     "desc": p.desc(),
                     "filename": os.path.basename(p.path),
