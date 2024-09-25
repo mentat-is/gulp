@@ -2,6 +2,16 @@
 # Install From Sources
 [TOC]
 
+## Using the setup script
+Installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
+```bash
+curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
+chmod +x gulp_setup.sh
+sudo ./gulp_setup.sh --dev -d ./gulp
+```
+
+If your OS is not supported please refer to the manual installation instructions below.
+
 ## 1. prerequisites
 
 the following should be done only **first time**.

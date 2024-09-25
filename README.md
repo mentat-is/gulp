@@ -50,20 +50,13 @@ soon we will release the slides we did at [MOCA2024](https://moca.camp), stay tu
 
 ## Installation
 
-### Prerequisites
+### Quick Install
+```
+curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh | sudo bash
+```
+This will create a `gulp` folder, inside the current directory.
 
-- docker
-- docker-compose-v2
-- github token
-
-  - ❗❗ a [github token](https://github.com/settings/tokens) must be created and setup to access the private repositories during development:
-
-  ```bash
-  # install github-cli, then
-  gh auth login
-  # then choose "https login" and enter your token.
-  ```
-
+### Installation
 - [docker](<./docs/Install Docker.md>)
 - [install from sources](<./docs/Install Dev.md>)
 

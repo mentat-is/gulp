@@ -2,11 +2,15 @@
 
 #Logging
 LOG_FILE="/tmp/gulp-install-$(date +%s).log"
+MANUAL_INSTALL_DOCS="https://github.com/mentat-is/gulp/blob/develop/docs/Install%20Dev.md"
 
 # Packages to install
-UBUNTU_PACKAGES="python3.12 docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-dev python3.12-venv"
-ARCH_PACKAGES="rust git python docker docker-compose docker-buildx jq libpqxx git-lfs"
-FEDORA_PACKAGES=""
+UBUNTU_PACKAGES="curl python3.12 python3-pip software-properties-common docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-dev pipx python3.12-venv"
+ARCH_PACKAGES="rust git python docker docker-compose docker-buildx jq libpqxx git-lfs curl pipx"
+FEDORA_PACKAGES="python3.12 docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-devel curl pipx"
+#TODO: only install dev packages for --dev installs, these should be split into e.g. UBUNTU_PACKAGES and UBUNTU_DEV_PACKAGES
+
+IS_DEV_INSTALL=0
 
 INSTALL_CMD=""
 INSTALL_OPTS=""
@@ -46,7 +50,7 @@ detect_os() {
 prepare_install() {
     case "${OS,,}" in
         # Debian/Ubuntu based
-        debian | ubuntu | kali)
+        debian* | ubuntu | kali)
             USE_RUSTUP=1
             INSTALL_CMD="apt-get"
             INSTALL_OPTS="install -y"
@@ -54,6 +58,11 @@ prepare_install() {
 
             # Setup repositories for python3.x
             add-apt-repository ppa:deadsnakes/ppa
+            exit_status=$?
+            if [ $exit_status -ne 0 ]; then
+                echo "[!] Error: failed to add ppa (exit code $exit_status)."
+                exit 1
+            fi
 
             # Setup repos for docker
             $INSTALL_CMD $INSTALL_OPTS install -y ca-certificates curl tee
@@ -71,6 +80,7 @@ prepare_install() {
 
         # Arch based distros (Arch, endeavour, manjaro, ...)
         arch | archlinux | endeavouros | manjaro)
+            USE_RUSTUP=0
             INSTALL_CMD="pacman"
             INSTALL_OPTS="-S --noconfirm"
             PACKAGES=$ARCH_PACKAGES
@@ -78,10 +88,44 @@ prepare_install() {
             pacman -Sy
         ;;
 
-        # TODO: Fedora based?
+        # Fedora based
+        fedora* | centos* )
+            USE_RUSTUP=1
+            INSTALL_CMD="dnf"
+            INSTALL_OPTS="-y install"
+            PACKAGES=$FEDORA_PACKAGES
+
+            # Add docker repository
+            dnf -y install dnf-plugins-core
+            dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+
+            rhel_ver=$(awk -F'=' '/VERSION_ID/{ gsub(/"/,""); print $2}' /etc/os-release | cut -d. -f1)
+
+            case "$rhel_ver" in
+                9 | 40)
+                    #Fedora 40 or CentOS Stream 9 / RHEL9
+                    dnf config-manager --set-enabled crb
+                    dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+                ;;
+
+                8)
+                    #RHEL8
+                    dnf config-manager --set-enabled powertools
+                    dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+                ;;
+
+                *)
+                    echo "[!] VER: OS version ($rhel_ver) not supported. Please try manual install ($MANUAL_INSTALL_DOCS)"
+                    exit 1;
+                ;;
+            esac
+
+            dnf upgrade --refresh
+        ;;
+
         # Unknown.
         *)
-            echo "[!] OS: $OS not supported"
+            echo "[!] OS: $OS not supported. Please try manual install ($MANUAL_INSTALL_DOCS)."
             exit 1;
         ;;
     esac
@@ -91,21 +135,49 @@ prepare_install() {
 do_install() {
     $INSTALL_CMD $INSTALL_OPTS $PACKAGES
 
-    git clone "https://github.com/mentat-is/gulp" $INSTALL_DIR
-
+    python312=$(which python3.12)
     prev_pwd=$PWD
 
-    # This is basically a dev install, until we have a real gulp:
-    cd $INSTALL_DIR
-    python3.12 -m venv .venv
-    source .venv/bin/activate
+    #TODO: if $SUDO_USER is not set, give a warning to make sure user knows these are owned by root
+    if [ -z "$SUDO_USER" ]; then
+        echo "[!] Warning: variable '$$SUDO_USER' not set, ALL installed files will be owned by $USER."
+        $SUDO_USER=$USER
+    fi
 
-    # Install dependencies and gulp
-    pip install git+https://github.com/mentat-is/muty-python
-    #pip install git+https://github.com/mentat-is/gulp
-    pip install .
-    deactivate
-    cd $prev_pwd
+    if [ $IS_DEV_INSTALL -eq 1 ]; then
+        echo "[.] Performing DEV installation to $INSTALL_DIR"
+        git clone "https://github.com/mentat-is/gulp" $INSTALL_DIR
+
+        cd $INSTALL_DIR
+        $python312 -m venv .venv
+        source .venv/bin/activate
+
+        # Install dependencies and gulp
+        pip install git+https://github.com/mentat-is/muty-python
+        pip install -e .
+        deactivate
+        cd $prev_pwd
+
+        echo "[*] To start gulp for the first time, run:"
+        echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
+    else
+        echo "[.] Performing PROD installation to $INSTALL_DIR"
+
+        # ensure pipx venvs are in path and reload it
+        pipx ensurepath && source ~/.bashrc
+
+        #TODO: until we have a packaged distributable .deb/.rpm/.pkg file or a pypi release, we must rely on pipx
+        #su $SUDO_USER -c "pipx install git+https://github.com/mentat-is/muty-python"
+        su $SUDO_USER -c "pipx install git+https://github.com/mentat-is/gulp"
+        mkdir -p $INSTALL_DIR
+
+        #download the bare minimum (gulp config template & Dockerfile)
+        curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/gulp_cfg_template.json -o $INSTALL_DIR/gulp_cfg_template.json
+        curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/Dockerfile -o $INSTALL_DIR/Dockerfile
+
+        echo "[*] To start gulp for the first time, run:"
+        echo "cd $INSTALL_DIR && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
+    fi
 
     # Prepare directories
     mkdir -p "$HOME/.config/gulp"
@@ -114,28 +186,63 @@ do_install() {
     mkdir -p "$INSTALL_DIR/opensearch_data3"
     mkdir -p "$INSTALL_DIR/postgres_data1"
 
-    #TODO: if $SUDO_USER is not set, give a warning to make sure user knows these are owned by root
-    if [ -z "$SUDO_USER" ]; then
-        echo "[!] Warning: variable '$$SUDO_USER' not set, installation will be performed as $USER."
-        $SUDO_USER=$USER
-    fi
-    echo "[*] Checking folder permissions to be owned by $SUDO_USER"
+    echo "[*] Setting folder permissions to be owned by $SUDO_USER"
     chown -R $SUDO_USER:$SUDO_USER $INSTALL_DIR
 
-    echo "[*] Copying configuration template file to $HOME/.config/gulp"
+    echo "[*] Copying configuration template file to $GULP_CFG_PATH"
     cp "$INSTALL_DIR/gulp_cfg_template.json" "$GULP_CFG_PATH"
 }
 
-usage() { echo "Usage: $0 [-d <path>]" 1>&2; exit 1; }
+usage() {
+    echo "Usage: $0 [-h|--help] [--dev] [-d <path>]" 1>&2
+    echo -e "\t-h|--help: show this help message" 1>&2
+    echo -e "\t--dev: developer install" 1>&2
+    echo -e "\t--prod: production install (default)" 1>&2
+    exit 1
+}
+
 main() {
-    while getopts ":d:" o; do
+    while getopts ":dh-:" o; do
         case "${o}" in
+            #long options
+            -)
+                case "${OPTARG}" in
+                    dev)
+                        IS_DEV_INSTALL=1
+                    ;;
+
+                    prod)
+                        #this should be the default
+                        IS_DEV_INSTALL=0
+                    ;;
+
+                    help)
+                        usage
+                    ;;
+
+                    *)
+                        if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+                            echo "Unknown option --${OPTARG}" >&2
+                        fi
+
+                        usage
+                    ;;
+                esac
+            ;;
+
             d)
                 INSTALL_DIR=${OPTARG}
-                #((s == 45 || s == 90)) || usage
+            ;;
+
+            h)
+                usage
             ;;
 
             *)
+                if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+                    echo "Unknown option -${OPTARG}" >&2
+                fi
+
                 usage
             ;;
         esac
@@ -161,9 +268,6 @@ main() {
     echo "[.] Installing packages and gULP..."
     do_install
     echo -e "[*] Done.\n"
-
-    echo "To start gulp for the first time, run:"
-    echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
 }
 
 main "$@"
