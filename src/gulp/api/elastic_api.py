@@ -17,7 +17,7 @@ from gulp.api.elastic.structs import (
     GulpIngestionFilter,
     GulpQueryFilter,
     GulpQueryOptions,
-    gulpqueryflt_to_dsl,
+    gulpqueryflt_to_elastic_dsl,
 )
 from gulp.defs import GulpEventFilterResult, ObjectNotFound
 from gulp.utils import logger
@@ -645,7 +645,7 @@ async def rebase(
         "rebase index %s to %s with offset=%d, flt=%s ..."
         % (index, dest_index, msec_offset, flt)
     )
-    q = gulpqueryflt_to_dsl(flt)
+    q = gulpqueryflt_to_elastic_dsl(flt)
     convert_script = """
         if ( ctx._source["@timestamp"] != 0 ) {
             ctx._source["@timestamp"] = ctx._source["@timestamp"] + params.msec_offset;
@@ -829,7 +829,7 @@ async def query_max_min_per_field(
             % (group_by, json.dumps(aggregations, indent=2))
         )
 
-    q = gulpqueryflt_to_dsl(flt)
+    q = gulpqueryflt_to_elastic_dsl(flt)
     logger().debug("query_max_min_per_field: q=%s" % (json.dumps(q, indent=2)))
     body = {"track_total_hits": True, "query": q["query"], "aggregations": aggregations}
     headers = {
@@ -906,7 +906,7 @@ async def query_time_histograms(
 
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
-    q = gulpqueryflt_to_dsl(flt)
+    q = gulpqueryflt_to_elastic_dsl(flt)
     opts = build_elastic_query_options(options)
 
     # clear options

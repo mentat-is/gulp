@@ -1246,10 +1246,9 @@ async def query_single_event_handler(
     '- `end_msec`: end "@timestamp"<br>'
     '- `extra`: a dict with any extra filter to match, like: `{ "extra": { "key": "value" } }` (check `GulpBaseFilter` documentation)<br><br>'
     "GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>"
-    "- `limit`: return max these entries per chunk on the websocket<br>"
-    '- `sort`: defaults to sort by ASCENDING "@timestamp"<br>'
-    "- `fields_filter`: if set, a CSV of fields to be included<br>"
-    '- `timestamp_field`: the field to be used as timestamp, defaults to "@timestamp"<br><br>'
+    "- `limit`: return max these entries **per chunk** on the websocket<br>"
+    '- `sort`: defaults to sort by ASCENDING timestamp<br>'
+    '- `timestamp_field`: the field to be used as timestamp, defaults to the external source default (i.e. "@timestamp" for elasticsearch/opensearch)<br><br>'
     "external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
     '`"extra": { "username": "...", "password": "...", "url": "..." }`.<br><br>'
     "**NOTE**: since the queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.",

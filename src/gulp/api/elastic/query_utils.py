@@ -27,7 +27,7 @@ from gulp.api.elastic.query import (
     GulpQuery,
     QueryResult,
     SigmaGroupFilter,
-    gulpqueryflt_to_dsl,
+    gulpqueryflt_to_elastic_dsl,
 )
 from gulp.api.elastic.structs import (
     GulpFieldsFilterType,
@@ -830,7 +830,7 @@ async def gulpqueryparam_to_gulpquery(
     if g.type == GulpQueryType.GULP_FILTER:
         if g.name is None:
             raise InvalidArgument("name must be set for GulpQueryType.GULP_FILTER")
-        r = gulpqueryflt_to_dsl(GulpQueryFilter.from_dict(g.rule))
+        r = gulpqueryflt_to_elastic_dsl(GulpQueryFilter.from_dict(g.rule))
         return GulpQuery(name=g.name, rule=r, glyph_id=g.glyph_id)
     if g.type == GulpQueryType.INDEX:
         # get from database
@@ -1129,8 +1129,8 @@ def build_elasticsearch_generic_query(
     """
     Build a generic Elasticsearch query based on the provided filter and options.
     Args:
-        flt (GulpQueryFilter): The filter criteria for the query, including start and end times, and any extra parameters (everything else is ignored).
-        options (GulpQueryOptions, optional): The options for the query, including limit, fields to filter, include_query_in_result and sort order (everything else is ignored).
+        flt (GulpQueryFilter): The filter criteria for the query: "start_msec", "end_msec", "extra" (everything else is ignored).
+        options (GulpQueryOptions, optional): The options for the query: "limit", "sort" (everything else is ignored).
     Returns:
         tuple[dict, GulpQueryOptions]: A tuple containing the Elasticsearch query dictionary and the modified query options dictionary.
     """
@@ -1147,15 +1147,9 @@ def build_elasticsearch_generic_query(
 
     # only these options are supported
     o.limit = options.limit
-    o.fields_filter = options.fields_filter
+    o.fields_filter = None
     o.sort = options.sort
-    o.include_query_in_result = options.include_query_in_result
-    if "@timestamp" not in o.fields_filter:
-        o.fields_filter += ",@timestamp"
-    if "_id" not in o.fields_filter:
-        o.fields_filter += ",_id"
-    
-    q = gulpqueryflt_to_dsl(f, options)
+    q = gulpqueryflt_to_elastic_dsl(f, options)
     return q, o
 
 
@@ -1172,7 +1166,7 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
     logger().debug(opt)
     if opt is None:
         # use default
-        opt = GulpQueryOptions(fields_filter=GulpFieldsFilterType.DEFAULT)
+        opt = GulpQueryOptions()
 
     n = {}
     if opt.sort is not None:
@@ -1189,9 +1183,11 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         # default sort
         n["sort"] = [
             {"@timestamp": {"order": "asc"}},
-            # {"event.hash": {"order": "asc"}},
+            {"event.hash": {"order": "asc"}},
+            {"event.sequence": {"order": "asc"}}
         ]
 
+    
     if opt.limit is not None:
         # use provided
         n["size"] = opt.limit

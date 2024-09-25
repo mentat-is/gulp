@@ -167,6 +167,15 @@ class GulpIngestionFilter(GulpBaseFilter):
         """
         return GulpIngestionFilter(**d)
 
+    @model_validator(mode="before")
+    @classmethod
+    def to_py_dict(cls, data: str | dict):
+        if data is None or len(data) == 0:
+            return {}
+
+        if isinstance(data, dict):
+            return data
+        return json.loads(data)
 
 class GulpQueryFilter(GulpBaseFilter):
     """
@@ -265,6 +274,16 @@ class GulpQueryFilter(GulpBaseFilter):
             GulpQueryFilter: The created GulpQueryFilter object.
         """
         return GulpQueryFilter(**flt)
+
+    @model_validator(mode="before")
+    @classmethod
+    def to_py_dict(cls, data: str | dict):
+        if data is None or len(data) == 0:
+            return {}
+
+        if isinstance(data, dict):
+            return data
+        return json.loads(data)
 
 
 class GulpDocument:
@@ -555,8 +574,8 @@ class GulpQueryOptions(BaseModel):
         description='this must be set as the "search_after" returned from the PREVIOUS search, to get another chunk (used for pagination together with "limit", read https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html).',
     )
     sort: dict[str, SortOrder] = Field(
-        {"@timestamp": "asc"},
-        description="defines specific sort order for specific fields (default=sort by ascending @timestamp).",
+        None,
+        description="defines specific sort order for specific fields, i.e. { '@timestamp': 'asc' } (default=sort by ascending timestamp).",
     )
     fields_filter: Union[GulpFieldsFilterType, str] = Field(
         GulpFieldsFilterType.DEFAULT,
@@ -580,8 +599,8 @@ class GulpQueryOptions(BaseModel):
         description="If True, when querying for tags a stored rules is selected ONLY if it have ALL of the tags. Either, just one tag match is enough for the rule to be selected. Defaults to False (just one tag is enough).",
     )
     timestamp_field: str = Field(
-        "@timestamp", 
-        description='the timestamp field to use for querying external sources in "query_plugin" API, default="@timestamp".'
+        None, 
+        description='if set, the timestamp field to be used for querying external sources in "query_plugin" API, if different from the default.'
     )
     
     # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py
@@ -689,7 +708,7 @@ def gulpqueryflt_dsl_dict_empty(d: dict) -> bool:
     return True
 
 
-def gulpqueryflt_to_dsl(flt: GulpQueryFilter = None, options: GulpQueryOptions=None) -> dict:
+def gulpqueryflt_to_elastic_dsl(flt: GulpQueryFilter = None, options: GulpQueryOptions=None) -> dict:
     """
     Converts a GulpQueryFilter object into an Elasticsearch DSL query.
 

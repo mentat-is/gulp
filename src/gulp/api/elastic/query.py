@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from gulp.api.elastic.structs import (
     GulpQueryFilter,
     gulpqueryflt_dsl_dict_empty,
-    gulpqueryflt_to_dsl,
+    gulpqueryflt_to_elastic_dsl,
 )
 
 EXAMPLE_SIGMA_GROUP_FILTER = {
@@ -208,7 +208,7 @@ class GulpQuery:
             flt (GulpQueryFilter): The filter to add.
         """
         # first we convert the filter itself to a DSL query: the converted filter has a 'bool' query with a 'must' clause containing the filter.
-        qq = gulpqueryflt_to_dsl(flt)
+        qq = gulpqueryflt_to_elastic_dsl(flt)
         if gulpqueryflt_dsl_dict_empty(qq):
             return
 

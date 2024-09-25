@@ -15,7 +15,7 @@ from gulp.api.elastic.query_utils import build_elasticsearch_generic_query, chec
 from gulp.api.elastic.structs import (
     GulpQueryFilter,
     GulpQueryOptions,
-    gulpqueryflt_to_dsl,
+    gulpqueryflt_to_elastic_dsl,
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import PluginBase
