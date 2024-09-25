@@ -27,5 +27,9 @@ test_scripts/test.json
 requirements.txt
 *log*.txt
 
+#non free plugins
+src/gulp/plugins/**/*_paid_*.py*
+
+
 #auto generated docs
 docs/html
