@@ -44,19 +44,14 @@ Here's the rough timeline we put together, it is subject to change:
 
 soon we will release the slides we did at [MOCA2024](https://moca.camp), stay tuned!
 
-## Architecture
-
-[GULP architecture](./docs/Architecture.md)
-
 ## Installation
-
 ### Quick Install
 ```
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh | sudo bash
 ```
 This will create a `gulp` folder, inside the current directory.
 
-### Installation
+### Other installation methods
 - [docker](<./docs/Install Docker.md>)
 - [install from sources](<./docs/Install Dev.md>)
 
@@ -153,6 +148,10 @@ TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "
 >   - if TEST_WS_ID is not specified, ingestion happens anyway, but results are not broadcasted.
 >
 > - resuming ingestion is supported **if the `req_id` parameter is the same across requests**.
+
+## Architecture
+
+[GULP architecture](./docs/Architecture.md)
 
 ## Clients
 
