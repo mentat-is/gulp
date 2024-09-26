@@ -34,7 +34,7 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 
 - they may extend api through `rest_api.fastapi_app().add_api_route()`.
 - `their init runs in the MAIN process context`
-- they may use aiopool and process_executor from rest_api as usual.
+- they may use aiopool and process_executor from rest_api as usual, **as long as they are run from the MAIN process (in this example, "example_task" is running in the MAIN process)**.
 
 """
 
@@ -58,7 +58,7 @@ class Plugin(PluginBase):
             )
         )
 
-    async def _example_task_internal(
+    async def _run_in_worker(
         self,
         user_id: int,
         operation_id: int,
@@ -102,7 +102,7 @@ class Plugin(PluginBase):
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex
 
-        # then run internal function in one of the tasks of the worker processes (may also spawn more ...)
+        # then run internal function in one of the tasks of the worker processes
         tasks = []
         executor = rest_api.process_executor()
         logger().debug(
@@ -112,7 +112,7 @@ class Plugin(PluginBase):
         try:
             tasks.append(
                 executor.apply(
-                    self._example_task_internal,
+                    self._run_in_worker,
                     (
                         user_id,
                         operation_id,
