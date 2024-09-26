@@ -168,5 +168,5 @@ This is the intended official wanna-be client for gulp.
 > It is not feature complete and far from being production ready :).
 > Feel free to open issues, but any contribution should go towards the new WIP [web client](https://github.com/mentat-is/gulpui-web)
 
-If you want to use the .NET client "as-is", you can use the Windows binary from [here](https://github.com/mentat-is/gulp/bins/gulp-dotnet.zip).
+If you want to use the .NET client "as-is", you can use the Windows binary from [here](https://github.com/mentat-is/gulp/releases/download/legacy/GUiLP_legacy_bin.7z).
 To run the executable on Linux, install .NET 6.0 using `wine` and run `GUiLP.exe`.
