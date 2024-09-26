@@ -1124,7 +1124,7 @@ async def sigma_directory_to_gulpqueryparams(
 
 
 def build_elasticsearch_generic_query(
-    flt: GulpQueryFilter, options: GulpQueryOptions=None
+    flt: GulpQueryFilter, options: GulpQueryOptions=None, timestamp_field: str="@timestamp"
 ) -> tuple[dict, GulpQueryOptions]:
     """
     Build a generic Elasticsearch query based on the provided filter and options.
@@ -1149,7 +1149,7 @@ def build_elasticsearch_generic_query(
     o.limit = options.limit
     o.fields_filter = None
     o.sort = options.sort
-    q = gulpqueryflt_to_elastic_dsl(f, options)
+    q = gulpqueryflt_to_elastic_dsl(f, options, timestamp_field)
     return q, o
 
 
@@ -1215,4 +1215,54 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
 
     # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
+
+def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0, 
+                        timestamp_is_string: bool=True, 
+                        timestamp_format_string: str=None, 
+                        timestamp_day_first: bool=False, 
+                        timestamp_year_first: bool=True, 
+                        timestamp_unit: str='ms', 
+                        timestamp_field: str='@timestamp') -> int:
+    """
+    return the timestamp in nanoseconds, accounting for the various timestamp formats and units.
     
+    Args:
+        evt (dict): the event to process.
+        timestamp_offset_msec (int): the timestamp offset to apply, in milliseconds.
+        timestamp_is_string (bool): if True, the timestamp is a string.
+        timestamp_format_string (str): the timestamp format string (or None to autodetect).
+        timestamp_day_first (bool): if True, the timestamp is a string and the day is the first element in the string.
+        timestamp_year_first (bool): if True, the timestamp is a string and the year is the first element in the string.
+        timestamp_unit (str): the timestamp unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).
+        timestamp_field (str): the timestamp field.
+        
+    Returns:
+        int: the timestamp in nanoseconds.
+    """
+    
+    # get value first
+    t = evt.get(timestamp_field)
+    
+    # turn to nanoseconds
+    if timestamp_is_string:
+        # parse string timestamp
+        if timestamp_format_string:
+            # use format string
+            t = datetime.datetime.strptime(t, timestamp_format_string)
+            t = muty.time.datetime_to_epoch_nsec(t)
+        else:
+            # try to auto detect format
+            t = muty.time.string_to_epoch_nsec(t, dayfirst=timestamp_day_first, yearfirst=timestamp_year_first)
+    else:            
+        # already a number
+        t = int(t)
+        if timestamp_unit == "ms":
+            t = t * muty.time.MILLISECONDS_TO_NANOSECONDS
+        elif timestamp_unit == "s":
+            t = t * muty.time.SECONDS_TO_NANOSECONDS
+
+    if timestamp_offset_msec != 0:
+        t = t + timestamp_offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
+    return t
+
+

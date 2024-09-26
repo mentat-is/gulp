@@ -598,10 +598,6 @@ class GulpQueryOptions(BaseModel):
         False,
         description="If True, when querying for tags a stored rules is selected ONLY if it have ALL of the tags. Either, just one tag match is enough for the rule to be selected. Defaults to False (just one tag is enough).",
     )
-    timestamp_field: str = Field(
-        None, 
-        description='if set, the timestamp field to be used for querying external sources in "query_plugin" API, if different from the default.'
-    )
     
     # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py
     model_config = {"json_schema_extra": EXAMPLE_QUERY_OPTIONS}
@@ -708,21 +704,18 @@ def gulpqueryflt_dsl_dict_empty(d: dict) -> bool:
     return True
 
 
-def gulpqueryflt_to_elastic_dsl(flt: GulpQueryFilter = None, options: GulpQueryOptions=None) -> dict:
+def gulpqueryflt_to_elastic_dsl(flt: GulpQueryFilter = None, options: GulpQueryOptions=None, timestamp_field: str = "@timestamp") -> dict:
     """
     Converts a GulpQueryFilter object into an Elasticsearch DSL query.
 
     Args:
         flt (GulpQueryFilter, optional): The GulpQueryFilter object containing the filter parameters.
-
+        options (GulpQueryOptions, optional): The GulpQueryOptions object containing the options.
+        timestamp_field (str, optional): The timestamp field to be used for querying external sources in "query_plugin" API, if different from the default.
     Returns:
         dict: The Elasticsearch query dictionary.
 
     """
-    timestamp_field='@timestamp'
-    if options is not None:
-        timestamp_field = options.timestamp_field
-        
     if flt is None:
         # all
         qs = "*"

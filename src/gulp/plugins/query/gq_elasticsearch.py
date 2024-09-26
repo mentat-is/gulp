@@ -1,4 +1,5 @@
 
+import datetime
 import muty.dict
 import muty.jsend
 import muty.log
@@ -11,7 +12,7 @@ from gulp.api import collab_api, elastic_api
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpQueryStats
 from gulp.api.elastic.query import QueryResult
-from gulp.api.elastic.query_utils import build_elasticsearch_generic_query, check_canceled_or_failed
+from gulp.api.elastic.query_utils import build_elasticsearch_generic_query, check_canceled_or_failed, process_event_timestamp
 from gulp.api.elastic.structs import (
     GulpQueryFilter,
     GulpQueryOptions,
@@ -43,7 +44,24 @@ The plugin must implement the following methods:
 
 class Plugin(PluginBase):
     """
-    query plugin for Wazuh.
+    query plugin for opensearch/elasticsearch.
+    
+    example flt and plugin_params:
+    
+     {
+        "flt": { "start_msec": 1475730263242, "end_msec": 1475830263242},
+        "plugin_params": {
+            "extra": {
+                "url": "localhost:9200",
+                "username": "admin",
+                "password": "Gulp1234!",
+                "index": "testidx",
+                "timestamp_is_string": false,
+                "timestamp_unit": "ms",
+                "is_elasticsearch": false,
+            }
+        }
+    }
     """
 
     def type(self) -> GulpPluginType:
@@ -88,12 +106,49 @@ class Plugin(PluginBase):
                 default=None,
             ),
             GulpPluginOption(
-                "offset_msec",
+                "timestamp_offset_msec",
                 "int",
                 'if set, this is used to rebase "@timestamp" (and "@timestamp_nsec") in the query results.',
                 default="_time",
             ),
+            GulpPluginOption(
+                "timestamp_field",
+                "str",
+                'timestamp field to be used for querying external sources in "query_plugin" API, if different from the default.',
+                default="@timestamp",
+            ), 
+            GulpPluginOption(
+                "timestamp_is_string",
+                "bool",
+                'if set, timestamp is a string (not numeric).',
+                default=None,
+            ),
+            GulpPluginOption(
+                "timestamp_format_string",
+                "str",
+                'if set, the string used to parse the timestamp if timestamp_is_string is True.',
+                default=None,
+            ),
+            GulpPluginOption(
+                "timestamp_day_first",
+                "bool",
+                'if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with dayfirst=True.',
+                default=False,
+            ),
+            GulpPluginOption(
+                "timestamp_year_first",
+                "bool",
+                'if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with yearfirst=True.',
+                default=True,
+            ),
+            GulpPluginOption(
+                "timestamp_unit",
+                "str",
+                'if timestamp is a number, this is the unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).',
+                default="ms",
+            ),
         ]
+
 
     async def query(
         self,
@@ -113,18 +168,28 @@ class Plugin(PluginBase):
 
         # get options
         url: str = plugin_params.extra.get("url")
-        is_elasticsearch: bool = plugin_params.extra.get("is_elasticsearch")
+        is_elasticsearch: bool = plugin_params.extra.get("is_elasticsearch", True)
         elastic_user: str = plugin_params.extra.get("username")
         password: str = plugin_params.extra.get("password")
         index:str = plugin_params.extra.get("index")
-        offset_msec: int = plugin_params.extra.get("offset_msec")
+        timestamp_is_string: bool = plugin_params.extra.get("timestamp_is_string", True)
+        timestamp_format_string: str = plugin_params.extra.get("timestamp_format_string", None)
+        timestamp_day_first: bool = plugin_params.extra.get("timestamp_day_first", False)
+        timestamp_year_first: bool = plugin_params.extra.get("timestamp_year_first", True)
+        timestamp_unit: str = plugin_params.extra.get("timestamp_unit", "ms")
+        timestamp_field: str = plugin_params.extra.get("timestamp_field", "@timestamp")
+        timestamp_offset_msec: int = plugin_params.extra.get("timestamp_offset_msec", 0)
         
         # TODO: add support for client and CA certificates, i.e. dumping the certificates to temporary files and using them
-        if not url or not index:
-            raise InvalidArgument("missing required parameters (url, index)")
-
+        if not url or not index or not elastic_user:
+            raise InvalidArgument("missing required parameters (url=%s, username=%s, index=%s)" % (url, elastic_user, index))
+        if not url.startswith("http"):
+            # default to http
+            logger().warning("url does not start with http, adding default http:// prefix!") 
+            url = "http://" + url
+            
         # convert basic filter and options to a raw query, ensure only start_msec, end_msec, extra is present
-        q, o = build_elasticsearch_generic_query(flt, options)
+        q, o = build_elasticsearch_generic_query(flt, options, timestamp_field)
         raw_query_dict = q['query']
         if is_elasticsearch:
             # connect to elastic
@@ -154,76 +219,81 @@ class Plugin(PluginBase):
         processed: int=0
         chunk: int=0
         status = GulpRequestStatus.DONE
-        while True:            
-            logger().debug("querying, query=%s, options=%s" % (q, o))
-            try:
-                r = await api(cl,index, raw_query_dict, o)
-            except ObjectNotFound as ex:
-                logger().error('no more data found!')
-                break
-            except Exception as ex:
-                raise ex
+        
+        try:
+            while True:            
+                logger().debug("querying, query=%s, options=%s" % (q, o))
+                try:
+                    r = await api(cl,index, raw_query_dict, o)
+                except ObjectNotFound as ex:
+                    logger().error('no more data found!')
+                    break
+                except Exception as ex:
+                    raise ex
 
-            # get data
-            evts = r.get("results", [])
-            aggs = r.get("aggregations", None)
-            len_evts = len(evts)
+                # get data
+                evts = r.get("results", [])
+                aggs = r.get("aggregations", None)
+                len_evts = len(evts)
 
-            if offset_msec != 0:
-                # apply rebase timestamp
                 for e in evts:
-                    e['@timestamp'] = e['@timestamp'] + offset_msec
-                    e['@timestamp_nsec'] = e['@timestamp_nsec'] + offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
-                    
-            # fill query result
-            query_res.search_after = r.get("search_after", None)
-            query_res.total_hits = r.get("total", 0)
-            logger().debug(
-                "%d results (TOTAL), this chunk=%d"
-                % (query_res.total_hits, len_evts)
-            )
-
-            query_res.events = evts
-            query_res.aggregations = aggs
-            if len_evts == 0 or len_evts < options.limit:
-                query_res.last_chunk = True
-
-            # send QueryResult over websocket
-            ws_api.shared_queue_add_data(
-                ws_api.WsQueueDataType.QUERY_RESULT,
-                req_id,
-                query_res.to_dict(),
-                client_id=client_id,
-                operation_id=operation_id,
-                username=username,
-                ws_id=ws_id,
-            )
-
-            # processed an event chunk (evts)
-            processed += len_evts
-            chunk += 1
-            logger().error(
-                "sent %d events to ws, num processed events=%d, chunk=%d ..."
-                % (len(evts), processed, chunk)
-            )
-            if await check_canceled_or_failed(req_id):
-                status = GulpRequestStatus.CANCELED
-                break                
-
-            query_res.chunk += 1
-            if query_res.search_after is None:
+                    # in each event, process the timestamp
+                    ts = process_event_timestamp(e, timestamp_offset_msec, 
+                        timestamp_is_string, timestamp_format_string, 
+                        timestamp_day_first, timestamp_year_first, 
+                        timestamp_unit, timestamp_field)
+                    e['@timestamp_nsec'] = ts
+                    e['@timestamp'] = ts / muty.time.MILLISECONDS_TO_NANOSECONDS
+                        
+                # fill query result
+                query_res.search_after = r.get("search_after", None)
+                query_res.total_hits = r.get("total", 0)
                 logger().debug(
-                    "search_after=None or search_after_loop=False, query done!"
+                    "%d results (TOTAL), this chunk=%d"
+                    % (query_res.total_hits, len_evts)
                 )
-                break
 
-            o.search_after = query_res.search_after
-            logger().debug(
-                "search_after=%s, total_hits=%d, running another query to get more results ...."
-                % (query_res.search_after, query_res.total_hits)
-            )
-            
-        await cl.close()
-        logger().debug("elasticsearch connection instance=%s closed!" % (cl))
+                query_res.events = evts
+                query_res.aggregations = aggs
+                if len_evts == 0 or len_evts < options.limit:
+                    query_res.last_chunk = True
 
-        return query_res.total_hits, status
+                # send QueryResult over websocket
+                ws_api.shared_queue_add_data(
+                    ws_api.WsQueueDataType.QUERY_RESULT,
+                    req_id,
+                    query_res.to_dict(),
+                    client_id=client_id,
+                    operation_id=operation_id,
+                    username=username,
+                    ws_id=ws_id,
+                )
+
+                # processed an event chunk (evts)
+                processed += len_evts
+                chunk += 1
+                logger().error(
+                    "sent %d events to ws, num processed events=%d, chunk=%d ..."
+                    % (len(evts), processed, chunk)
+                )
+                if await check_canceled_or_failed(req_id):
+                    status = GulpRequestStatus.CANCELED
+                    break                
+
+                query_res.chunk += 1
+                if query_res.search_after is None:
+                    logger().debug(
+                        "search_after=None or search_after_loop=False, query done!"
+                    )
+                    break
+
+                o.search_after = query_res.search_after
+                logger().debug(
+                    "search_after=%s, total_hits=%d, running another query to get more results ...."
+                    % (query_res.search_after, query_res.total_hits)
+                )
+                
+            return query_res.total_hits, status
+        finally:
+            await cl.close()
+            logger().debug("elasticsearch connection instance=%s closed!" % (cl))
