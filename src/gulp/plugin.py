@@ -1104,7 +1104,7 @@ async def list_plugins() -> list[dict]:
     Returns:
         list[dict]: The list of available plugins.
     """
-    path_plugins = config.path_plugins()
+    path_plugins = config.path_plugins(t=None)
     l = []
     for plugin_type in GulpPluginType:
         plugin_subdir = {

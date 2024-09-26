@@ -525,7 +525,12 @@ def elastic_verify_certs() -> bool:
 
 def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
     """
-    Returns the plugins path.
+    returns the plugins path depending on the plugin type
+    
+    t: GulpPluginType = GulpPluginType.INGESTION
+    
+    returns:
+        str: the plugins path
     """
     default_path = impresources.files("gulp.plugins")
     p = os.getenv("PATH_PLUGINS", None)
@@ -544,6 +549,11 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
         # logger().debug("using default plugins path: %s" % (default_path))
         p = default_path
 
+    if t is None:
+        # return the base plugins path
+        
+        return p
+    
     # use plugin type as subdirectory
     return muty.file.safe_path_join(p, t.value)
 
