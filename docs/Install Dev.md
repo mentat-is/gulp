@@ -20,16 +20,16 @@ or grab the `7z` containing for our [binary legacy client](https://github.com/me
 ### Legacy client on Linux
 The legacy client is runnable via [wine](https://winehq.org).
 
-Download and install the **Desktop Runtime for .NET** using `wine` from [here](https://dotnet.microsoft.com/en-us/download/dotnet/6.0),
+To get running on Linux, download and install the **Desktop Runtime for .NET** using `wine` from [here](https://dotnet.microsoft.com/en-us/download/dotnet/6.0),
 then simply run `wine GUiLP.exe`.
 
-In case the UI presents some artifacts or is hard to read, run `winecfg` and make sure the colors for (under `Desktop Integration->Item`):
+In case the UI presents some artifacts or is hard to read, run `winecfg` and make sure the colors for:
 - Menu Text
 - Message Box Text
 - Controls Text
 - Window Text
 
-are set to **white**, or some text might not be readable.
+under `Desktop Integration->Item` are set to **white**, otherwise some text might not be readable.
 
 For larger resolutions, it is also suggested to set the screen resolution to higher DPIs (under `Graphics->Screen resolution`) to help with readibility the screen.
 
