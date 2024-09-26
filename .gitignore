@@ -28,7 +28,7 @@ requirements.txt
 *log*.txt
 
 #non free plugins
-src/gulp/plugins/**/*_paid_*.py*
+src/gulp/plugins/**/paid_*.py*
 
 
 #auto generated docs
