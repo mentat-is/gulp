@@ -1,1 +1,0 @@
-../../../../../gulp-paid-plugins/query/paid_splunk.py
