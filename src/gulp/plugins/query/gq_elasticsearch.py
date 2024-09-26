@@ -87,6 +87,12 @@ class Plugin(PluginBase):
                 "Index name.",
                 default=None,
             ),
+            GulpPluginOption(
+                "offset_msec",
+                "int",
+                'if set, this is used to rebase "@timestamp" (and "@timestamp_nsec") in the query results.',
+                default="_time",
+            ),
         ]
 
     async def query(
@@ -111,7 +117,8 @@ class Plugin(PluginBase):
         elastic_user: str = plugin_params.extra.get("username")
         password: str = plugin_params.extra.get("password")
         index:str = plugin_params.extra.get("index")
-
+        offset_msec: int = plugin_params.extra.get("offset_msec")
+        
         # TODO: add support for client and CA certificates, i.e. dumping the certificates to temporary files and using them
         if not url or not index:
             raise InvalidArgument("missing required parameters (url, index)")
@@ -162,6 +169,12 @@ class Plugin(PluginBase):
             aggs = r.get("aggregations", None)
             len_evts = len(evts)
 
+            if offset_msec != 0:
+                # apply rebase timestamp
+                for e in evts:
+                    e['@timestamp'] = e['@timestamp'] + offset_msec
+                    e['@timestamp_nsec'] = e['@timestamp_nsec'] + offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
+                    
             # fill query result
             query_res.search_after = r.get("search_after", None)
             query_res.total_hits = r.get("total", 0)
