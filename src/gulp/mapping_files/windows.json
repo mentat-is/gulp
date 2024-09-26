@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "plugin": ["gi_win_evtx.py", "gi_csv.py"]
+    "plugin": ["win_evtx.py", "csv.py"]
   },
   "mappings": [
     {

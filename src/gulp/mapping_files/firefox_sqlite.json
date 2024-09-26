@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "plugin": ["gi_sqlite.py"]
+    "plugin": ["sqlite.py"]
   },
   "mappings": [
     {

@@ -126,7 +126,7 @@ class Plugin(PluginBase):
             GulpPluginOption(
                 "timestamp_format_string",
                 "str",
-                'if set, the string used to parse the timestamp if timestamp_is_string is True.',
+                'if set, the format string used to parse the timestamp if "timestamp_is_string" is True.',
                 default=None,
             ),
             GulpPluginOption(

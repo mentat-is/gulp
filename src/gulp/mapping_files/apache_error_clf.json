@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "plugin": ["gi_apache_error_clf.py"]
+    "plugin": ["apache_error_clf.py"]
   },
   "mappings": [
     {

@@ -49,7 +49,7 @@ Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file un
 {
   "metadata": {
     "plugin": [
-      "gi_csv.py"
+      "csv.py"
     ]
   },
   "mappings": [
@@ -146,7 +146,7 @@ While you can **technically** stack as many plugins as you want, it is advised a
   - KISS principle: if an event requires logic that is split into many different files to be parsed correctly, maybe it'd be better to write a [python plugin](#python_plugins) instead!
 
 Let's get down to business!
-A quite simple example of a stacked plugin is the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_chrome_history_sqlite_stacked.py) plugin, which is based onto the [sqlite](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_sqlite.py) generic plugin.
+A quite simple example of a stacked plugin is the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_history_sqlite_stacked.py) plugin, which is based onto the [sqlite](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/sqlite.py) generic plugin.
 
 Since the logic behind acquiring data from an `sqlite` plugin is generic enough, it is a good foundation to build upon.
 Here's a quick overview of how the data flows:
@@ -270,13 +270,13 @@ Extensions plugins are useful for extending gulp's API.
 
 - they run at gulp's startup **in the main process context**.
 
-they are currently not used, just a [test implementation](../src/gulp/plugins/extension/ge_example.py) is available here: but, they will come handy when i.e. we will implement a web-management UI which will extend the REST API.
+they are currently not used, just a [test implementation](../src/gulp/plugins/extension/example.py) is available here: but, they will come handy when i.e. we will implement a web-management UI which will extend the REST API.
 
 # Sigma plugins
 
 Sigma plugins are useful for transforming sigma rules into elastic queries.
 
-[the only one currently implemented](../src/gulp/plugins/sigma/gs_windows.py) is used to transform Windows sigma rules to queries in the ECS format used by gulp.
+[the only one currently implemented](../src/gulp/plugins/sigma/windows.py) is used to transform Windows sigma rules to queries in the ECS format used by gulp.
 
 **NOTE: Sigma plugins may be removed in the future.**
 

@@ -97,10 +97,10 @@ def _sanitize_tags(tags: list[str]) -> list[str]:
                             "value": {
                                 "q": [
                                     {
-                                        "rule": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: This is a test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.t1059\nauthor: Thomas Patzke\ndate: 2020/07/12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    EventID: 4732\n    SourceHostname|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - SourceHostname\nfalsepositives:\n  - Everything\nlevel: medium",
+                                        "rule": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: This is a test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.t1059\nauthor: me\ndate: 2020-07-12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    EventID: 4732\n    gulp.context|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - gulp.context\nfalsepositives:\n  - Everything\nlevel: medium",
                                         "type": 1,
                                         "name": "sigma test",
-                                        "pysigma_plugin": "gs_windows",
+                                        "pysigma_plugin": "windows",
                                     }
                                 ],
                                 "options": {"sort": {"@timestamp": "asc"}},
@@ -130,8 +130,8 @@ def _sanitize_tags(tags: list[str]) -> list[str]:
                                     {
                                         "name": "test_sigma",
                                         "type": 1,
-                                        "rule": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: This is a test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.t1059\nauthor: Thomas Patzke\ndate: 2020/07/12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    EventID: 4732\n    SourceHostname|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - SourceHostname\nfalsepositives:\n  - Everything\nlevel: medium",
-                                        "pysigma_plugin": "gs_windows",
+                                        "rule": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: Match all *context test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.test\nauthor: me\ndate: 2020-07-12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    gulp.context|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - gulp.context\nfalsepositives:\n  - Everything\nlevel: medium",
+                                        "pysigma_plugin": "windows",
                                     },
                                     {"rule": 1, "type": 4},
                                     {
@@ -142,7 +142,7 @@ def _sanitize_tags(tags: list[str]) -> list[str]:
                                                 "must": [
                                                     {
                                                         "query_string": {
-                                                            "query": "event.code:4732 AND gulp.context*context",
+                                                            "query": "event.code:4732 AND gulp.context:*context",
                                                             "analyze_wildcard": True,
                                                         }
                                                     }
@@ -486,7 +486,7 @@ async def query_stored_sigma_tags_handler(
                         "1": {
                             "summary": "sigma rule YAML",
                             "value": {
-                                "sigma": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: This is a test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.t1059\nauthor: Thomas Patzke\ndate: 2020/07/12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    EventID: 4732\n    SourceHostname|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - SourceHostname\nfalsepositives:\n  - Everything\nlevel: medium",
+                                "sigma": "title: Test\nid: 2dcca7b4-4b3a-4db6-9364-a019d54904bf\nstatus: test\ndescription: Match all *context test\nreferences:\n  - ref1\n  - ref2\ntags:\n  - attack.execution\n  - attack.test\nauthor: me\ndate: 2020-07-12\nlogsource:\n  category: process_creation\n  product: windows\ndetection:\n  selection:\n    gulp.context|endswith: context\n  condition: selection\nfields:\n  - EventId\n  - gulp.context\nfalsepositives:\n  - Everything\nlevel: medium",
                                 "options": {"limit": 10, "sort": {"@timestamp": "asc"}},
                             },
                         }
@@ -1081,7 +1081,7 @@ async def _parse_operation_aggregation(d: dict):
                             "doc_count": 98630,
                             "plugins": [
                                 {
-                                    "name": "gi_win_evtx",
+                                    "name": "win_evtx",
                                     "src_file": [
                                         {
                                             "name": "security_big_sample.evtx",
@@ -1168,7 +1168,7 @@ async def query_operations_handler(
                             "@timestamp": 1573258569309,
                             "@timestamp_nsec": 1573258569309000000,
                             "gulp.context": "testcontext2",
-                            "agent.type": "gi_win_evtx",
+                            "agent.type": "win_evtx",
                             "agent.id": "client:test_test_1.0",
                             "event.id": "1447406958",
                             "log.level": 5,
@@ -1259,7 +1259,7 @@ async def query_plugin_handler(
     operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
     client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_QUERY_PLUGIN)],
+    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
     plugin_params: Annotated[GulpPluginParams, Body()],
     flt: Annotated[GulpQueryFilter, Body()],
     options: Annotated[GulpQueryOptions, Body()] = None,

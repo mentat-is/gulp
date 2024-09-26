@@ -45,7 +45,7 @@ _app: APIRouter = APIRouter()
                                 "display_name": "win_evtx",
                                 "type": "ingestion",
                                 "desc": "Windows EVTX log file processor.",
-                                "filename": "gi_win_evtx.py",
+                                "filename": "win_evtx.py",
                                 "internal": False,
                                 "options": [],
                                 "depends_on": [],
@@ -57,7 +57,7 @@ _app: APIRouter = APIRouter()
                                 "display_name": "raw",
                                 "type": "ingestion",
                                 "desc": "Raw events ingestion plugin.",
-                                "filename": "gi_raw.py",
+                                "filename": "raw.py",
                                 "internal": False,
                                 "options": [],
                                 "depends_on": [],
@@ -69,7 +69,7 @@ _app: APIRouter = APIRouter()
                                 "display_name": "stacked",
                                 "type": "ingestion",
                                 "desc": "example plugin stacked over the CSV plugin",
-                                "filename": "gi_stacked_example.py",
+                                "filename": "stacked_example.py",
                                 "internal": False,
                                 "options": [],
                                 "depends_on": [],
@@ -81,7 +81,7 @@ _app: APIRouter = APIRouter()
                                 "display_name": "csv",
                                 "type": "ingestion",
                                 "desc": "generic CSV file processor",
-                                "filename": "gi_csv.py",
+                                "filename": "csv.py",
                                 "internal": False,
                                 "options": [
                                     {
@@ -144,13 +144,13 @@ async def plugin_get_handler(
     plugin: Annotated[
         str,
         Query(
-            description='filename of the plugin to retrieve content for, i.e. "gi_win_evtx.py"'
+            description='filename of the plugin to retrieve content for, i.e. "win_evtx.py"'
         ),
     ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
         Query(
-            description='the plugin type (ingestion, sigma, ...), to look for "plugin" in the right directory.'
+            description=gulp.defs.API_DESC_PLUGIN_TYPE
         ),
     ] = gulp.defs.GulpPluginType.INGESTION,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
@@ -188,7 +188,7 @@ async def plugin_get_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"filename": "gi_win_evtx.py"},
+                        "data": {"filename": "win_evtx.py"},
                     }
                 }
             }
@@ -199,12 +199,12 @@ async def plugin_get_handler(
 async def plugin_delete_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     plugin: Annotated[
-        str, Query(description='filename of the plugin to delete, i.e. "gi_win_evtx.py"')
+        str, Query(description='filename of the plugin to be deleted, i.e. "win_evtx.py"')
     ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
         Query(
-            description='the plugin type (ingestion, sigma, ...), to look for "plugin" in the right directory.'
+            description=gulp.defs.API_DESC_PLUGIN_TYPE
         ),
     ] = gulp.defs.GulpPluginType.INGESTION,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
@@ -258,7 +258,7 @@ async def plugin_upload_handler(
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
         Query(
-            description='the plugin type (ingestion, sigma, ...), to look for "plugin" in the right directory.'
+            description=gulp.defs.API_DESC_PLUGIN_TYPE
         ),
     ] = gulp.defs.GulpPluginType.INGESTION,
     allow_overwrite: Annotated[
@@ -445,12 +445,12 @@ async def mapping_file_upload_handler(
                         "req_id": "7b37b846-e3e9-441f-bb4f-b0177ed76d86",
                         "data": [
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "autopsy_webform_autofill.json",
                                 "mapping_ids": ["Autopsy Web Form Autofill"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "JLECmd_csv.json",
                                 "mapping_ids": [
                                     "custom_destinations",
@@ -458,67 +458,67 @@ async def mapping_file_upload_handler(
                                 ],
                             },
                             {
-                                "metadata": {"plugin": ["gi_sqlite"]},
+                                "metadata": {"plugin": ["sqlite"]},
                                 "filename": "firefox_sqlite.json",
                                 "mapping_ids": ["moz_places", "moz_annos"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "PECmd_csv.json",
-                                "mapping_ids": ["timeline", "gi_pecmd"],
+                                "mapping_ids": ["timeline", "pecmd"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "RecentFileCacheParser_csv.json",
                                 "mapping_ids": ["recentfilecacheparser"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_sqlite"]},
+                                "metadata": {"plugin": ["sqlite"]},
                                 "filename": "chrome_history.json",
                                 "mapping_ids": ["urls", "downloads"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "autopsy_webhistory.json",
                                 "mapping_ids": ["Autopsy Web History"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_apache_error_clf"]},
+                                "metadata": {"plugin": ["apache_error_clf"]},
                                 "filename": "apache_error_clf.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "mftecmd_csv.json",
                                 "mapping_ids": ["record", "boot", "j", "sds"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_systemd_journal"]},
+                                "metadata": {"plugin": ["systemd_journal"]},
                                 "filename": "systemd_journal.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["gi_gi_win_evtx", "gi_gi_csv"]},
+                                "metadata": {"plugin": ["win_evtx", "csv"]},
                                 "filename": "windows.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["gi_sqlite"]},
+                                "metadata": {"plugin": ["sqlite"]},
                                 "filename": "chrome_webdata.json",
                                 "mapping_ids": ["autofill"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "autopsy_usbdevices.json",
                                 "mapping_ids": ["Autopsy USBDevice"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_apache_access_clf"]},
+                                "metadata": {"plugin": ["apache_access_clf"]},
                                 "filename": "apache_access_clf.json",
                                 "mapping_ids": [],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "SrumECmd.json",
                                 "mapping_ids": [
                                     "appresourceuseinfo",
@@ -530,12 +530,12 @@ async def mapping_file_upload_handler(
                                 ],
                             },
                             {
-                                "metadata": {"plugin": ["gi_csv"]},
+                                "metadata": {"plugin": ["csv"]},
                                 "filename": "LECmd_csv.json",
                                 "mapping_ids": ["lecmd"],
                             },
                             {
-                                "metadata": {"plugin": ["gi_pcap"]},
+                                "metadata": {"plugin": ["pcap"]},
                                 "filename": "pcap.json",
                                 "mapping_ids": [],
                             },

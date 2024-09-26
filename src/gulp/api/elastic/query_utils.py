@@ -684,7 +684,7 @@ async def sigma_to_raw(
 
     Args:
         rule (str|SigmaRule): The Sigma rule, may be in YAML format to be converted using SigmaRule.from_yaml().
-        pysigma_plugin (str, optional): optional sigma plugin name. if None, sigma rule logsource.product is used, and a plugin file named 'gs_name' must be available.
+        pysigma_plugin (str, optional): optional sigma plugin name. if None, sigma rule logsource.product is used, and a plugin file named 'name' must be available.
             if pysigma_plugin loading fails, an empty pipeline is used.
         plugin_params (GulpPluginParams, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
 
@@ -712,7 +712,7 @@ async def sigma_to_raw(
                 % (rule)
             )
 
-        pysigma_plugin = "gs_" + r.logsource.product
+        pysigma_plugin = r.logsource.product
 
     # load pipeline via dedicated pysigma plugin
     try:

@@ -34,33 +34,31 @@ EXAMPLE_QUERY_FILTER = {
 
 EXAMPLE_SIGMA_RULE_YML = {
     "example": {
-        "pysigma_plugin": "gs_windows",
+        "pysigma_plugin": "windows",
         "name": "test",
         "tags": ["windows", "security"],
         "type": 1,
         "rule": """title: Test
 id: 2dcca7b4-4b3a-4db6-9364-a019d54904bf
 status: test
-description: This is a test
+description: This is a test to match all events having gulp.context=*context
 references:
   - ref1
   - ref2
 tags:
   - attack.execution
-  - attack.t1059
-author: Thomas Patzke
-date: 2020/07/12
+  - attack.test  
+author: me
+date: 2020-07-12
 logsource:
   category: process_creation
   product: windows
 detection:
   selection:
-    EventID: 4732
-    SourceHostname|endswith: context
+    gulp.context|endswith: context
   condition: selection
 fields:
-  - EventId
-  - SourceHostname
+  - gulp.context
 falsepositives:
   - Everything
 level: medium

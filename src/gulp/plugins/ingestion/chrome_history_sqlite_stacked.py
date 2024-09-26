@@ -1,15 +1,10 @@
+from enum import Enum
 
-import muty.os
-import muty.string
-import muty.xml
-import muty.time
-
-
-import gulp.plugin as gulp_plugin
+from gulp import plugin as gulp_plugin
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
@@ -17,20 +12,41 @@ from gulp.plugin_internal import GulpPluginParams
 
 class Plugin(PluginBase):
     """
-    teamviewer connections_incoming.txt plugin stacked over the REGEX plugin
+    chrome based browsers history plugin stacked over the SQLITE plugin
     """
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
     def desc(self) -> str:
-        return """teamviewer connections_incoming.txt regex stacked plugin"""
+        return """chrome based browsers history sqlite stacked plugin"""
 
     def name(self) -> str:
-        return "teamviewer_regex_stacked"
+        return "chrome_history_sqlite_stacked"
 
     def version(self) -> str:
         return "1.0"
+
+    class ChromeHistoryTable(Enum):
+        cluster_keywords = 0
+        cluster_visit_duplicates = 1
+        clusters = 2
+        clusters_and_visits = 3
+        content_annotations = 4
+        context_annotations = 5
+        downloads = 6
+        downloads_slices = 7
+        downloads_url_chains = 8
+        history_sync_metadata = 9
+        keyword_search_terms = 10
+        meta = 11
+        segment_usage = 12
+        segments = 13
+        sqlite_sequence = 14
+        urls = 15
+        visit_source = 16
+        visited_links = 17
+        visits = 18
 
     async def record_to_gulp_document(
         self,
@@ -50,24 +66,13 @@ class Plugin(PluginBase):
 
         for r in record:
             event: GulpDocument = r
-            fme: list[FieldMappingEntry] = []
-            for k, v in event.extra.items():
-                e = self._map_source_key(
-                    plugin_params,
-                    custom_mapping,
-                    k,
-                    v,
-                    index_type_mapping=index_type_mapping,
-                    **kwargs,
-                )
-                fme.extend(e)
+            # if we are handling a download, we can calculate event.duration with start_time and end_time
+            if "download_end_time" in event.extra.keys():
+                end_time = event.extra.get("download_end_time", 0)
+                start_time = event.extra.get("download_start_time", 0)
 
-            # we receive nanos from the regex plugin
-            #event.timestamp_nsec = event.timestamp
-            #event.timestamp = muty.time.nanos_to_millis(event.timestamp)
-            endtime=muty.time.string_to_epoch_nsec(event.extra.get("gulp.unmapped.endtime", None))
-
-            event.duration_nsec = endtime-event.timestamp_nsec
+                if start_time > 0 and end_time > 0:
+                    event.duration_nsec = end_time - start_time
 
         return record
 
@@ -97,37 +102,23 @@ class Plugin(PluginBase):
             flt=flt,
             **kwargs,
         )
-
         if plugin_params is None:
             plugin_params = GulpPluginParams()
         fs = TmpIngestStats(source)
 
         # initialize mapping
         try:
-            await self.ingest_plugin_initialize(
-                index, source, skip_mapping=True)
-            mod = gulp_plugin.load_plugin("gi_regex", **kwargs)
+            await self.ingest_plugin_initialize(index, source, skip_mapping=True)
+            mod = gulp_plugin.load_plugin("sqlite", **kwargs)
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
-
-        # parse connections_incoming.txt
-        # TODO: instead get regexes form mapping file based on mapping_id
-        plugin_params.extra = {}
-        regex = r"\s+".join([
-            r"(?P<userid>[0-9]+)",
-            r"(?P<username>[^\s]+)",
-            r"(?P<timestamp>([0-9]+-[0-9]+-[0-9]+ [0-9]+\:[0-9]+\:[0-9]+))",
-            r"(?P<endtime>([0-9]+-[0-9]+-[0-9]+ [0-9]+\:[0-9]+\:[0-9]+))",
-            r"(?P<local_user>[^\s]+)",
-            r"(?P<session_type>[^\s]+)",
-            r"(?P<guid>{.*})"
-        ])
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
-        plugin_params.extra["regex"] = regex
-        #plugin_params.extra["flags"] = re.MULTILINE
-
+        plugin_params.mapping_file = "chrome_history.json"
+        plugin_params.extra = { "queries": {"visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"} }
         return await mod.ingest(
             index,
             req_id,

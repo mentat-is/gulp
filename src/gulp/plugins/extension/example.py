@@ -28,7 +28,7 @@ from gulp.utils import logger
 
 ## loading
 
-extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension`. and they must be named `ge_*.py`.
+extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension`.
 
 ## internals
 
@@ -47,16 +47,23 @@ class Plugin(PluginBase):
     ) -> None:
         super().__init__(path, **kwargs)
         # add api routes for this plugin
-        self._add_api_routes()
-        logger().debug(
-            "%s extension plugin initialized, aiopool=%s, executor=%s, fastapi_app=%s"
-            % (
-                self.name(),
-                rest_api.aiopool(),
-                rest_api.process_executor(),
-                rest_api.fastapi_app(),
+        if not self._check_pickled():
+            # in the first init, add api routes (we are in the MAIN process here)
+            self._add_api_routes()
+            logger().debug(
+                "%s extension plugin initialized, aiopool=%s, executor=%s, fastapi_app=%s"
+                % (
+                    self.name(),
+                    rest_api.aiopool(),
+                    rest_api.process_executor(),
+                    rest_api.fastapi_app(),
+                )
             )
-        )
+        else:
+            # in the re-init, we are in the worker process here
+            logger().debug(
+                "%s extension plugin re-initialized" % self.name()
+            )
 
     async def _run_in_worker(
         self,

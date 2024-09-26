@@ -1,7 +1,7 @@
 {
   "metadata": {
     "plugin": [
-      "gi_systemd_journal.py"
+      "systemd_journal.py"
     ]
   },
   "mappings": [

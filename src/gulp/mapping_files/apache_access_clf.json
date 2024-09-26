@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "plugin": ["gi_apache_access_clf.py"]
+    "plugin": ["apache_access_clf.py"]
   },
   "mappings": [
     {

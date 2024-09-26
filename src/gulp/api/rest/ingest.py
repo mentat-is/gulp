@@ -349,7 +349,7 @@ async def ingest_raw_handler(
     <br>
     ```json
     {
-        "gi_win_evtx": {
+        "win_evtx": {
             "files": ["win_evtx/system.evtx", "win_evtx/security.evtx"],
             // optional parameters to pass to the plugin
             "plugin_params": {

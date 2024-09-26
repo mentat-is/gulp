@@ -1,6 +1,7 @@
 """Gulp plugin base class and plugin utilities.
 """
 
+import importlib
 import ipaddress
 import os
 from abc import ABC, abstractmethod
@@ -47,6 +48,13 @@ class PluginBase(ABC):
     """
     Base class for all Gulp plugins.
     """
+    def _check_pickled(self):
+        if self._pickled:
+            return True
+        return False
+
+    def __reduce__(self):
+        return (load_plugin, (self.path, self.type(), True, True), self.__dict__)
 
     def __init__(
         self,
@@ -60,6 +68,7 @@ class PluginBase(ABC):
             path (str): The path to the plugin.
             kwargs: additional arguments if any
         """
+        self._pickled = False
         self.req_id: str = None
         self.index: str = None
         self.client_id: str = None
@@ -1022,23 +1031,21 @@ def _get_plugin_path(
     # TODO: on license manager, disable plain .py load (only encrypted pyc)
     # get path according to plugin type
     path_plugins = config.path_plugins(plugin_type)
+    plugin_path = os.path.join(path_plugins, f"{plugin}.py")
 
-    ppy = muty.file.safe_path_join(path_plugins, plugin + ".py")
-    if not muty.file.exists(ppy):
-        # try pyc
-        ppyc = muty.file.safe_path_join(path_plugins, plugin + ".pyc")
-        if not muty.file.exists(ppyc):
+    if not muty.file.exists(plugin_path):
+        plugin_path = os.path.join(path_plugins, f"{plugin}.pyc")
+        if not muty.file.exists(plugin_path):
             raise ObjectNotFound(
-                "plugin %s not found (tried %s, %s)" % (plugin, ppy, ppyc)
+                f"Plugin {plugin} not found (tried {plugin}.py and {plugin}.pyc in {path_plugins})"
             )
-        return ppyc
-    return ppy
-
+    return plugin_path
 
 def load_plugin(
     plugin: str,
     plugin_type: GulpPluginType = GulpPluginType.INGESTION,
     ignore_cache: bool = False,
+    from_reduce: bool = False,
     **kwargs,
 ) -> PluginBase:
     """
@@ -1049,6 +1056,7 @@ def load_plugin(
         plugin_type (GulpPluginType, optional): The type of the plugin to load. Defaults to GulpPluginType.INGESTION.
             this is ignored if the plugin is an absolute path or if "plugin_cache" is enabled and the plugin is already cached.
         ignore_cache (bool, optional): Whether to ignore the plugin cache. Defaults to False.
+        from_reduce (bool, optional): Whether the plugin is being loaded from a reduce call. Defaults to False.
         **kwargs (dict, optional): Additional keyword arguments.
     Returns:
         PluginBase: The loaded plugin.
@@ -1056,7 +1064,7 @@ def load_plugin(
     Raises:
         Exception: If the plugin could not be loaded.
     """
-    logger().debug("load_plugin %s ..." % (plugin))
+    logger().debug("load_plugin %s, type=%s, ignore_cache=%r, kwargs=%s ..." % (plugin, plugin_type, ignore_cache, kwargs))
 
     if not '/' in plugin and (plugin.lower().endswith(".py") or plugin.lower().endswith(".pyc")):
         # remove extension
@@ -1067,26 +1075,23 @@ def load_plugin(
         logger().debug("ignoring cache for plugin %s" % (plugin))
         m = None
 
-    if m is not None:
-        return m.Plugin(plugin, **kwargs)
-
     if "/" in plugin:
-        # plugins is an absolute path
+        # plugin is an absolute path
         path = muty.file.abspath(plugin)
     else:
-        # uses plugin_type to load from the correct subfolder
+        # use plugin_type to load from the correct subfolder
         path = _get_plugin_path(plugin, plugin_type=plugin_type)
 
+    module_name = f"gulp.plugins.{plugin_type.value}.{plugin}"
     try:
-        m: PluginBase = muty.dynload.load_dynamic_module_from_file(path)
+        m = muty.dynload.load_dynamic_module_from_file(module_name, path)
     except Exception as ex:
         raise Exception(
-            "load_dynamic_module_from_file() failed, could not load plugin %s !"
-            % (path)
+            f"Failed to load plugin {path}: {str(ex)}"
         ) from ex
 
-    mod: PluginBase = m.Plugin(path, **kwargs)
-    logger().debug("loaded plugin: %s" % (mod.name()))
+    mod: PluginBase = m.Plugin(path, _pickled=from_reduce, **kwargs)
+    logger().debug("loaded plugin m=%s, mod=%s, name()=%s" % (m, mod, mod.name()))
     plugin_cache_add(m, plugin)
 
     return mod
@@ -1100,31 +1105,38 @@ async def list_plugins() -> list[dict]:
         list[dict]: The list of available plugins.
     """
     path_plugins = config.path_plugins()
-    files = await muty.file.list_directory_async(path_plugins, "*.py*", recursive=True)
     l = []
-    for f in files:
-        if "__init__" not in f and "__pycache__" not in f:
-            try:
-                p = load_plugin(f)
-                n = {
-                    "display_name": p.name(),
-                    "type": str(p.type()),
-                    "desc": p.desc(),
-                    "filename": os.path.basename(p.path),
-                    "internal": p.internal(),
-                    "options": [o.to_dict() for o in p.options()],
-                    "depends_on": p.depends_on(),
-                    "tags": p.tags(),
-                    "event_type_field": p.event_type_field(),
-                    "version": p.version(),
-                }
-                l.append(n)
-                unload_plugin(p)
-            except Exception as ex:
-                logger().exception(ex)
-                logger().error("could not load plugin %s" % (f))
-                continue
-
+    for plugin_type in GulpPluginType:
+        plugin_subdir = {
+            GulpPluginType.INGESTION: "ingestion",
+            GulpPluginType.EXTENSION: "extension",
+            GulpPluginType.SIGMA: "sigma", 
+            GulpPluginType.QUERY: "query",
+        }.get(plugin_type, "ingestion")
+        subdir_path = os.path.join(path_plugins, plugin_subdir)
+        files = await muty.file.list_directory_async(subdir_path, "*.py*")
+        for f in files:
+            if "__init__" not in f and "__pycache__" not in f:
+                try:
+                    p = load_plugin(os.path.splitext(os.path.basename(f))[0], plugin_type)
+                    n = {
+                        "display_name": p.name(),
+                        "type": str(p.type()),
+                        "desc": p.desc(),
+                        "filename": os.path.basename(p.path),
+                        "internal": p.internal(),
+                        "options": [o.to_dict() for o in p.options()],
+                        "depends_on": p.depends_on(),
+                        "tags": p.tags(),
+                        "event_type_field": p.event_type_field(),
+                        "version": p.version(),
+                    }
+                    l.append(n)
+                    unload_plugin(p)
+                except Exception as ex:
+                    logger().exception(ex)
+                    logger().error("could not load plugin %s" % (f))
+                    continue
     return l
 
 

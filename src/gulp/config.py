@@ -544,10 +544,6 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
         # logger().debug("using default plugins path: %s" % (default_path))
         p = default_path
 
-    # check plugin type
-    if t == GulpPluginType.INGESTION:
-        return str(p)
-
     # use plugin type as subdirectory
     return muty.file.safe_path_join(p, t.value)
 

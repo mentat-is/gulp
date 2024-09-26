@@ -213,7 +213,7 @@ async def _create_default_data(engine: AsyncEngine) -> None:
             gqp = GulpQueryParameter(
                 type=GulpQueryType.SIGMA_YAML,
                 rule=base64.b64decode(sigma_matchcontext).decode(),
-                pysigma_plugin="gs_windows",
+                pysigma_plugin="windows",
             )
             r = await query_utils.gulpqueryparam_to_gulpquery(engine, gqp)
             await CollabObj.create(

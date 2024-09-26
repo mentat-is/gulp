@@ -9,7 +9,7 @@ To submit PRs, just stick with these simple rules:
 1. follow [the install docs for developers](<./docs/Install Dev.md>) to setup the dev environment.
 2. `be modular!`
 3. use (*and extend it*, you are welcome!) our utility library [muty-python](https://github.com/mentat-is/muty-python) instead of repeating common code, or to abstract complex functionality.
-4. use FFI if you need performances, i.e. as the [win_evtx](https://github.com/mentat-is/src/gulp/plugins/win_evtx.py) plugin which uses a [pyevtx-rs rust's backend](https://github.com/omerbenamram/pyevtx-rs)
+4. use FFI if you need performances, i.e. as the [win_evtx](https://github.com/mentat-is/src/gulp/plugins/ingestion/win_evtx.py) plugin which uses a [pyevtx-rs rust's backend](https://github.com/omerbenamram/pyevtx-rs)
 5. **plugin.ingest() should not throw exceptions: instead, eat it and loop to be sure to ingest as much data as you can from the input.**
 6. use [microsoft's black](https://marketplace.visualstudio.com/items?itemName=ms-python.black-formatter) formatter with the default settings.
 

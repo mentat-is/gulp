@@ -140,7 +140,9 @@ async def _load_extension_plugins() -> list["PluginBase"]:
     l = []
     for f in files:
         if "__init__" not in f and "__pycache__" not in f:
-            p = plugin.load_plugin(f)
+            # get base filename without extension
+            plugin_name = os.path.basename(f).rsplit(".", 1)[0]
+            p = plugin.load_plugin(plugin_name, GulpPluginType.EXTENSION)
             l.append(p)
     logger().debug("loaded %d extension plugins: %s" % (len(l), l))
     return l

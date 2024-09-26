@@ -15,7 +15,7 @@ class Plugin(PluginBase):
         super().__init__(path)
 
         # load eml plugin
-        p = plugin.load_plugin("gi_eml")
+        p = plugin.load_plugin("eml")
         self._eml_parser = p
 
     def desc(self) -> str:

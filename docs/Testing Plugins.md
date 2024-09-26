@@ -15,7 +15,7 @@ usage: ./test_scripts/test_ingest.sh -p <path/to/file/zipfile/directory> [-l to 
  [-i to use ingest_zip_simple instead of ingest_zip for zip file (hardcoded win_evtx plugin, *.evtx mask)]
  [-x to reset collaboration/elasticsearch first]
 
-host,operation,context,client_id,plugin,index,user,password are set respectively to "localhost:8080", 1 (test operation), "testcontext", 1 (test client), "gi_win_evtx", "testidx", "ingest", "ingest".
+host,operation,context,client_id,plugin,index,user,password are set respectively to "localhost:8080", 1 (test operation), "testcontext", 1 (test client), "win_evtx", "testidx", "ingest", "ingest".
 
 most of the parameters can be changed via environment variables:
  TEST_HOST, TEST_OPERATION, TEST_CONTEXT, TEST_CLIENT, TEST_PLUGIN, TEST_INDEX, TEST_USER, TEST_PASSWORD,
@@ -30,53 +30,53 @@ Here are a few examples on how to use the [test_ingest.sh](https://github.com/me
 
 ## win_evtx plugin
 
-Source: [gi_win_evtx.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_win_evtx.py)
+Source: [win_evtx.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/win_evtx.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_win_evtx ./test_scripts/test_ingest.sh -p samples/gi_win_evtx
+TEST_WS_ID="websocket_id" TEST_PLUGIN=win_evtx ./test_scripts/test_ingest.sh -p samples/win_evtx
 ```
 
 ## win_reg plugin
 
-Source: [gi_win_reg.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_win_reg.py)
+Source: [win_reg.py](https://github.com/mentat-is/gulp/src/gulp/plugins/win_reg.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_win_reg ./test_scripts/test_ingest.sh -p samples/win_reg
+TEST_WS_ID="websocket_id" TEST_PLUGIN=win_reg ./test_scripts/test_ingest.sh -p samples/win_reg
 ```
 
 ## apache_access_clf plugin
 
-Source: [gi_apache_access_clf.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_apache_access_clf.py)
+Source: [apache_access_clf.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/apache_access_clf.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_apache_access_clf ./test_scripts/test_ingest.sh -p samples/apache_access_clf/access.log.sample
+TEST_WS_ID="websocket_id" TEST_PLUGIN=apache_access_clf ./test_scripts/test_ingest.sh -p samples/apache_access_clf/access.log.sample
 ```
 
 ## apache_error_clf plugin
 
-Source: [gi_apache_error_clf.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_apache_error_clf.py)
+Source: [apache_error_clf.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/apache_error_clf.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_apache_error_clf ./test_scripts/test_ingest.sh -p samples/apache_error_clf/error.log
+TEST_WS_ID="websocket_id" TEST_PLUGIN=apache_error_clf ./test_scripts/test_ingest.sh -p samples/apache_error_clf/error.log
 ```
 
 ## chrome_history_sqlite_stacked plugin
 
-Source: [gi_chrome_history_sqlite_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_chrome_history_sqlite_stacked.py)
+Source: [chrome_history_sqlite_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_history_sqlite_stacked.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_chrome_history_sqlite_stacked ./test_scripts/test_ingest.sh -p $HOME/.config/chromium/Profile\ 1/History
+TEST_WS_ID="websocket_id" TEST_PLUGIN=chrome_history_sqlite_stacked ./test_scripts/test_ingest.sh -p $HOME/.config/chromium/Profile\ 1/History
 ```
 
 ## chrome_webdata_sqlite_stacked plugin
 
-Source: [gi_chrome_webdata_sqlite_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_chrome_webdata_sqlite_stacked.py)
+Source: [chrome_webdata_sqlite_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_webdata_sqlite_stacked.py)
 
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_chrome_webdata_sqlite_stacked ./test_scripts/test_ingest.sh -p $HOME/.config/chromium/Profile\ 1/Web\ Data
+TEST_WS_ID="websocket_id" TEST_PLUGIN=chrome_webdata_sqlite_stacked ./test_scripts/test_ingest.sh -p $HOME/.config/chromium/Profile\ 1/Web\ Data
 ```
 
 ## eml plugin
 
-Source: [gi_eml.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_eml.py)
+Source: [eml.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/eml.py)
 
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_eml ./test_scripts/test_ingest.sh -p samples/eml/
+TEST_WS_ID="websocket_id" TEST_PLUGIN=eml ./test_scripts/test_ingest.sh -p samples/eml/
 ```
 
 This plugin supports the following options:
@@ -84,25 +84,25 @@ This plugin supports the following options:
 
 ## mbox plugin
 
-Source: [gi_mbox.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_mbox.py)
+Source: [mbox.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/mbox.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_mbox ./test_scripts/test_ingest.sh -p samples/mbox/
+TEST_WS_ID="websocket_id" TEST_PLUGIN=mbox ./test_scripts/test_ingest.sh -p samples/mbox/
 ```
 
 This plugin supports the same options as the `eml` plugin.
 
 ## teamviewer_regex_stacked plugin
 
-Source: [gi_teamviewer_regex_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_teamviewer_regex_stacked.py)
+Source: [teamviewer_regex_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/teamviewer_regex_stacked.py)
 ```sh
 TEST_WS_ID="websocket_id" TEST_PLUGIN=teamviewer_regex_stacked ./test_scripts/test_ingest.sh -p samples/teamviwer/connections_incoming.txt
 ```
 
 ## regex plugin
 
-Source: [gi_regex.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_regex.py)
+Source: [regex.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/regex.py)
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN_PARAMS='{"extra":{"regex":"(?P<test>.*)-(?P<timestamp>.*)"}}' TEST_PLUGIN=gi_regex ./test_scripts/test_ingest.sh -x -p samples/regex/test.sample
+TEST_WS_ID="websocket_id" TEST_PLUGIN_PARAMS='{"extra":{"regex":"(?P<test>.*)-(?P<timestamp>.*)"}}' TEST_PLUGIN=regex ./test_scripts/test_ingest.sh -x -p samples/regex/test.sample
 ```
 
 This plugin requires the following options to be set in order to work:
@@ -115,24 +115,24 @@ The `regex` parameter must satisfy the following requirements:
 
 ## systemd_journal plugin
 
-Source: [gi_systemd_journal.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_systemd_journal.py)
+Source: [systemd_journal.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/systemd_journal.py)
 
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_systemd_journal ./test_scripts/test_ingest.sh -p ./samples/systemd_journal/system.journal
+TEST_WS_ID="websocket_id" TEST_PLUGIN=systemd_journal ./test_scripts/test_ingest.sh -p ./samples/systemd_journal/system.journal
 ```
 
 ## csv plugin
 
-Source: [gi_csv.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_csv.py)
+Source: [csv.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/csv.py)
 
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_csv TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}' ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_record.csv
+TEST_WS_ID="websocket_id" TEST_PLUGIN=csv TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}' ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_record.csv
 ```
 
 ## sqlite plugin
 
-Source: [gi_sqlite.py](https://github.com/mentat-is/gulp/src/gulp/plugins/gi_sqlite.py)
+Source: [sqlite.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/sqlite.py)
 
 ```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=gi_sqlite TEST_PLUGIN_PARAMS='{"mapping_file": "chrome_webdata.json"}' ./test_scripts/test_ingest.sh -p ./samples/chrome-webdata/webdata.sqlite
+TEST_WS_ID="websocket_id" TEST_PLUGIN=sqlite TEST_PLUGIN_PARAMS='{"mapping_file": "chrome_webdata.json"}' ./test_scripts/test_ingest.sh -p ./samples/chrome-webdata/webdata.sqlite
 ```

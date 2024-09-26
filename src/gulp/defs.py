@@ -9,8 +9,8 @@ API_DESC_REQID = muty.jsend.API_DESC_REQID
 API_DESC_WS_ID = "websocket id to send the response/s to."
 API_DESC_PRIVATE = "if set, the object will be private (only the owner can see it)."
 API_DESC_COLLAB_LEVEL = "if set, one of the GulpCollabLevel levels to indicate the importance of the collab object (DEFAULT, WARNING, ERROR)."
-API_DESC_PLUGIN = "`filename with or without .py/.pyc, must start with gi_` of the plugin to process the request with."
-API_DESC_QUERY_PLUGIN = "`filename with or without .py/.pyc, must start with gq_` of the plugin to process the request with."
+API_DESC_PLUGIN = "`filename with or without .py/.pyc` of the plugin to process the request with."
+API_DESC_PLUGIN_TYPE = "the plugin type (ingestion, sigma, extension, query)."
 API_DESC_UPLOADFILE = "file to be uploaded."
 API_DESC_COUNT = "returns count only (limit, skip, sort are ignored if set)."
 API_DESC_INDEX = "the target elasticsearch index or datastream."
@@ -27,7 +27,7 @@ API_DESC_INGEST_IGNORE_ERRORS = (
     "ignore errors instead of stopping (current file) ingestion at first error."
 )
 API_DESC_INGESTION_PLUGIN_PARAMS = "additional parameters for the ingestion plugin."
-API_DESC_PYSYGMA_PLUGIN="fallback pysigma plugin `filename with or without .py/.py, must start with gs_`. Defaults to None (use 'logsource.product' from sigma rule if present)."
+API_DESC_PYSYGMA_PLUGIN="fallback pysigma plugin `filename with or without .py/.py`. Defaults to None (use 'logsource.product' from sigma rule if present)."
 API_DESC_SIGMA_PLUGIN_PARAMS = "additional parameters for the sigma plugin."
 API_DESC_CLIENT = "the id of a client registered via client_create() on the collab DB."
 API_DESC_OPERATION = (
@@ -47,7 +47,7 @@ EXAMPLE_CONTEXT = {"example": {"value": "testcontext"}}
 
 EXAMPLE_CLIENT_ID = {"example": {"value": 1}}
 
-EXAMPLE_PLUGIN = {"example": {"value": "gi_win_evtx"}}
+EXAMPLE_PLUGIN = {"example": {"value": "win_evtx"}}
 
 """
 5-16 characters length

@@ -98,10 +98,10 @@ WARN_FORMAT            = "$file:$line: $text"
 WARN_LOGFILE           =
 INPUT                  = .
 INPUT_ENCODING         = UTF-8
-FILE_PATTERNS        = **/plugins/csv.py \
-    **/gulp/plugins/stacked_example.py \
+FILE_PATTERNS        = **/plugins/ingestion/csv.py \
+    **/gulp/plugins/ingestion/stacked_example.py \
     **/gulp/plugins/extension/extension_example \
-    **/gulp/plugins/win_evtx.py \
+    **/gulp/plugins/ingestion/win_evtx.py \
     **/gulp/plugins/sigma/windows.py \
     **/gulp/api/mapping/* \
     **/gulp/plugin.py \

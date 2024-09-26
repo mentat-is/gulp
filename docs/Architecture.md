@@ -75,22 +75,22 @@ all plugins conforms to the [PluginBase](https://github.com/mentat-is/gulp/src/g
 
 - _ingestion plugins_ ingests events from different sources, i.e. _windows evtx, apache CLF_, ... creating documents on OpenSearch.
 
-  - **they must be in `$PLUGINDIR` and named `gi_name.py/c`**.
+  - **they must reside in `$PLUGINDIR/ingestion`**.
   - documents are created mapping each event field to the [ECS standard](https://www.elastic.c/guide/en/ecs/current/index.html) as close as possible, resulting in ECS-compliant data stored in the OpenSearch index.
-  > ingestion plugins may be stacked in a chain, as in the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/chrome_history_sqlite_stacked.py) plugin.
+  > ingestion plugins may be stacked in a chain, as in the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_history_sqlite_stacked.py) plugin.
 
 
 - _sigma plugins_ leverages [pysigma pipelines](https://sigmahq-pysigma.readthedocs.io/en/latest/index.html) to convert
   [sigma rules](https://github.com/SigmaHQ/sigma) to [Lucene DSL queries](https://www.opensearch.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html) mapping the original rule fields to _ECS_.
-  - **they must be in `$PLUGINDIR/sigma` and named `gs_name.py/c`**.
+  - **they must reside in `$PLUGINDIR/sigma`**.
   - to implement sigma plugins, look at the [windows sigma plugin](https://github.com/mentat-is/gulp/src/gulp/plugins/sigma/windows.py).
 
 - _extension plugins_ are loaded at startup and may extend API and add functionality.
-  - **they must be in `$PLUGINDIR/extension` and named  `ge_name.py/c`**.
+  - **they must reside in `$PLUGINDIR/extension`**.
   > look at the [extension_example](https://github.com/mentat-is/gulp/src/gulp/plugins/extension/extension_example.py) to see how they work (documentation inside).
 
 - _query plugins_ are used by the `query_plugin` API to support querying external sources (i.e. *SIEM*, ...)
-  - **they must be in `$PLUGINDIR/query` and named `gq_name.py/c`**.
+  - **they must reside in `$PLUGINDIR/query`**.
 
 #### Mapping files
 
@@ -99,7 +99,7 @@ to customize mappings, plugins may use specifically crafted JSON files to be put
 examples of such files and related API parameters may be found in the [ecs](https://github.com/mentat-is/gulp/src/gulp/ecs) folder and in [plugin_internal_py](https://github.com/mentat-is/gulp/src/gulp/plugin_internal.py).
 
 for an extensive use of custom mapping, look at the
-[csv plugin](https://github.com/mentat-is/gulp/src/gulp/plugins/csv.py), which allows to ingest arbitrary CSV files with (*and also without*) mapping files.
+[csv plugin](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/csv.py), which allows to ingest arbitrary CSV files with (*and also without*) mapping files.
 
 ### API
 
@@ -186,13 +186,13 @@ Response from the websocket is a [WsData](./src/gulp/api/rest/ws.py) object like
     "files_total": 24,
     "ingest_errors": {
       "/home/gulp/gulp/samples/win_evtx/sample_with_a_bad_chunk_magic.evtx": [
-        "[/home/gulp/gulp/src/gulp/plugins/win_evtx.py:ingest:349] IndexError: list index out of range\n"
+        "[/home/gulp/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:349] IndexError: list index out of range\n"
       ],
       "/home/gulp/gulp/samples/win_evtx/sysmon.evtx": [
-        "[/home/gulp/gulp/src/gulp/plugins/win_evtx.py:ingest:337] RuntimeError: Failed to parse chunk header\n"
+        "[/home/gulp/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:337] RuntimeError: Failed to parse chunk header\n"
       ],
       "/home/gulp/gulp/samples/win_evtx/security.evtx": [
-        "[/home/gulp/gulp/src/gulp/plugins/win_evtx.py:record_to_gulp_document:138]   File \"<string>\", line 33\n[/home/gulp/gulp/src/gulp/plugins/win_evtx.py:record_to_gulp_document:138] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n"
+        "[/home/gulp/gulp/src/gulp/plugins/ingestion/win_evtx.py:record_to_gulp_document:138]   File \"<string>\", line 33\n[/home/gulp/gulp/src/gulp/plugins/ingestion/win_evtx.py:record_to_gulp_document:138] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n"
       ]
     },
     "current_src_file": "/home/gulp/gulp/samples/win_evtx/security_big_sample.evtx"
