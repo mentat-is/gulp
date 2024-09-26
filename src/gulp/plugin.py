@@ -1107,13 +1107,7 @@ async def list_plugins() -> list[dict]:
     path_plugins = config.path_plugins(t=None)
     l = []
     for plugin_type in GulpPluginType:
-        plugin_subdir = {
-            GulpPluginType.INGESTION: "ingestion",
-            GulpPluginType.EXTENSION: "extension",
-            GulpPluginType.SIGMA: "sigma", 
-            GulpPluginType.QUERY: "query",
-        }.get(plugin_type, "ingestion")
-        subdir_path = os.path.join(path_plugins, plugin_subdir)
+        subdir_path = os.path.join(path_plugins, plugin_type.value)
         files = await muty.file.list_directory_async(subdir_path, "*.py*")
         for f in files:
             if "__init__" not in f and "__pycache__" not in f:
