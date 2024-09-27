@@ -7,11 +7,13 @@ import aiofiles.ospath
 import json5
 import muty.file
 import muty.os
-from gulp.utils import logger
+
 from gulp.defs import GulpPluginType
+from gulp.utils import logger
 
 _config: dict = None
 _config_file_path = None
+
 
 def init():
     """
@@ -41,7 +43,9 @@ async def initialize_custom_directories():
         None
     """
     # base mappings directory
-    default_mapping_files_path = os.path.abspath(impresources.files("gulp.mapping_files"))
+    default_mapping_files_path = os.path.abspath(
+        impresources.files("gulp.mapping_files")
+    )
     default_plugins_path = os.path.abspath(impresources.files("gulp.plugins"))
     custom_mapping_files_path = path_mapping_files()
     if custom_mapping_files_path is not None:
@@ -58,12 +62,16 @@ async def initialize_custom_directories():
         # we will use custom_mapping_files_path so, copy the whole directory there
         if not await aiofiles.ospath.exists(custom_mapping_files_path):
             logger().info(
-                "copying mapping files to custom directory: %s" % (custom_mapping_files_path)
+                "copying mapping files to custom directory: %s"
+                % (custom_mapping_files_path)
             )
-            await muty.file.copy_dir_async(default_mapping_files_path, custom_mapping_files_path)
+            await muty.file.copy_dir_async(
+                default_mapping_files_path, custom_mapping_files_path
+            )
         else:
             logger().warning(
-                "custom mapping files directory already exists: %s" % (custom_mapping_files_path)
+                "custom mapping files directory already exists: %s"
+                % (custom_mapping_files_path)
             )
 
     if (
@@ -526,9 +534,9 @@ def elastic_verify_certs() -> bool:
 def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
     """
     returns the plugins path depending on the plugin type
-    
+
     t: GulpPluginType = GulpPluginType.INGESTION
-    
+
     returns:
         str: the plugins path
     """
@@ -544,16 +552,21 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
             logger().debug(
                 "using 'path_plugins' from configuration  as plugins path: %s" % (p)
             )
-            return os.path.expanduser(p)
+            if t is None:
+                return os.path.expanduser(p)
+
+            # append plugins type directory
+            pp = os.path.expanduser(p)
+            return muty.file.safe_path_join(pp, t.value)
 
         # logger().debug("using default plugins path: %s" % (default_path))
         p = default_path
 
     if t is None:
         # return the base plugins path
-        
+
         return p
-    
+
     # use plugin type as subdirectory
     return muty.file.safe_path_join(p, t.value)
 
@@ -567,7 +580,10 @@ def path_mapping_files() -> str:
         # try config
         n = _config.get("path_mapping_files", None)
         if n is not None:
-            logger().debug('using overridden "mapping_files" directory from configuration: %s' % (n))
+            logger().debug(
+                'using overridden "mapping_files" directory from configuration: %s'
+                % (n)
+            )
             n = os.path.expanduser(n)
         else:
             # default
