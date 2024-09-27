@@ -691,7 +691,27 @@ class PluginBase(ABC):
         # add more types here if needed ...
         # logger().debug("returning %s:%s" % (k, v))
         return str(v)
-
+    
+    def _map_source_key_lite(self, event: dict, fields: dict) -> dict:
+        # for each field, check if key exist: if so, map it using "map_to"
+        for k, field in fields.items():
+            if k in event:                
+                map_to = field.get("map_to", None)
+                if map_to is not None:
+                    event[map_to] = event[k]
+                elif field.get("is_event_code", False):
+                    # event code is a special case: 
+                    # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
+                    v = event[k]
+                    event["event.code"] = str(v)
+                    if isinstance(v, int) or str(v).isnumeric():
+                        # already numeric
+                        event["gulp.event.code"] = int(v)
+                    else:
+                        # string, hash it
+                        event["gulp.event.code"] = muty.crypto.hash_crc24(v)
+        return event
+    
     def _map_source_key(
         self,
         plugin_params: GulpPluginParams,
@@ -727,7 +747,7 @@ class PluginBase(ABC):
             if custom_mapping.options is not None
             else GulpMappingOptions()
         )
-
+        
         # basic checks
         if v == "-" or v is None:
             return []
