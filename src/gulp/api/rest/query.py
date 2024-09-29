@@ -212,11 +212,11 @@ async def query_multi_handler(
         flt = GulpQueryFilter()
     if options is None:
         options = GulpQueryOptions()
-    
+
     if options.fields_filter is None:
         # use default fields filter
         options.fields_filter = ",".join(query_utils.FIELDS_FILTER_MANDATORY)
-        
+
     logger().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
         % (q, flt, options, sigma_group_flts)
@@ -1253,10 +1253,10 @@ async def query_single_event_handler(
     '- `extra`: a dict with any extra filter to match, like: `{ "extra": { "key": "value" } }` (check `GulpBaseFilter` documentation)<br><br>'
     "GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>"
     "- `limit`: return max these entries **per chunk** on the websocket<br>"
-    '- `sort`: defaults to sort by ASCENDING timestamp<br>'
-    '- `fields_filter`: a CSV list of fields to include in the result (default=None=all)<br>'
+    "- `sort`: defaults to sort by ASCENDING timestamp<br>"
+    "- `fields_filter`: a CSV list of fields to include in the result.<br>"
     "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
-    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`'
+    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`',
 )
 async def query_external_handler(
     bt: BackgroundTasks,
@@ -1265,9 +1265,36 @@ async def query_external_handler(
     client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
-    plugin_params: Annotated[GulpPluginParams, Body()],
-    flt: Annotated[GulpQueryFilter, Body()],
-    options: Annotated[GulpQueryOptions, Body()] = None,
+    plugin_params: Annotated[
+        GulpPluginParams,
+        Body(
+            examples=[
+                {
+                    "extra": {
+                        "username": "...",
+                        "password": "...",
+                        "url": "http://localhost:9200",
+                        "index": "testidx",
+                        "mapping": {"key": {"map_to": "...", "is_event_code": False}},
+                    }
+                }
+            ]
+        ),
+    ],
+    flt: Annotated[
+        GulpQueryFilter,
+        Body(examples=[{"start_msec": 1475730263242, "end_msec": 1475830263242}]),
+    ],
+    options: Annotated[
+        GulpQueryOptions,
+        Body(
+            examples=[
+                {
+                    "fields_filter": "event.original",
+                }
+            ]
+        ),
+    ],
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -1346,7 +1373,7 @@ async def query_external_handler(
                         "status": "success",
                         "timestamp_msec": 1701879738287,
                         "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
-                        "data": {"GulpDocument"}
+                        "data": {"GulpDocument"},
                     }
                 }
             }
@@ -1356,47 +1383,65 @@ async def query_external_handler(
     description="with this API you can query an external source (i.e. a SIEM) for data without it being ingested into GULP, using a `query_plugin` in `$PLUGIN_DIR/query`.<br><br>"
     "this API is used to return a single event **with all fields** if `query_external` has been used to retrieve only partial data (through `fields_filter`).<br><br>"
     "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
-    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`'
+    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`',
 )
 async def query_external_single_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
-    client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
-    plugin_params: Annotated[GulpPluginParams, Body()],
-    event: Annotated[str, Query(description='the event retrieved via `query_external`.')],
+    plugin_params: Annotated[
+        GulpPluginParams,
+        Body(
+            examples=[
+                {
+                    "extra": {
+                        "username": "...",
+                        "password": "...",
+                        "url": "http://localhost:9200",
+                        "index": "testidx",
+                        "mapping": {"key": {"map_to": "...", "is_event_code": False}},
+                    }
+                }
+            ]
+        ),
+    ],
+    event: Annotated[
+        dict,
+        Body(
+            examples=[
+                {
+                    "operation_id": "testop",
+                    "@timestamp": 1573258569309,
+                    "@timestamp_nsec": 1573258569309000000,
+                    "gulp.context": "testcontext2",
+                    "agent.type": "win_evtx",
+                    "agent.id": "client:test_test_1.0",
+                    "event.id": "1447406958",
+                }
+            ]
+        ),
+    ],
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
 
     # print the request
     logger().debug(
-        "query_external_single_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, event=%s, req_id=%s"
-        % (
-            token,
-            operation_id,
-            client_id,
-            ws_id,
-            plugin,
-            plugin_params,
-            event,
-            req_id,
-        )
+        "query_external_single_handler: token=%s, plugin=%s, plugin_params=%s, event=%s, req_id=%s"
+        % (token, plugin, plugin_params, event, req_id)
     )
     if len(plugin_params.extra) == 0:
         raise JSendException(
             req_id=req_id, ex=InvalidArgument("plugin_params.extra is empty!")
         )
     try:
-        user, _ = await UserSession.check_token(
+        await UserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
-    # load plugin   
+    # load plugin
     mod = None
     try:
         mod: gulp.plugin.PluginBase = gulp.plugin.load_plugin(
@@ -1408,20 +1453,15 @@ async def query_external_single_handler(
 
     try:
         ev = await mod.query_single(
-            operation_id,
-            client_id,
-            user.id,
-            user.name,
-            ws_id,
-            req_id,
             plugin_params,
             event,
-            )
+        )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=ev))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex        
+        raise JSendException(req_id=req_id, ex=ex) from ex
     finally:
         gulp.plugin.unload_plugin(mod)
+
 
 def router() -> APIRouter:
     """

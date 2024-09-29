@@ -569,7 +569,10 @@ class GulpQueryOptions(BaseModel):
     )
     fields_filter: str = Field( # TODO: turn to list[str] ?
         None, 
-        description='if not None, a CSV list of fields to include in the result (the following fields are mandatory and always included: `_id,@timestamp,@timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`). Using "*" will return all fields. Defaults to None (all fields are returned).',
+        description='if not None, a CSV list of fields to include in the result.<br><br>'
+        'The default fields are `always included even if not specified`: `_id,@timestamp,@timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`).<br>'
+        'Using `"*"` will return all fields.<br><br>.'
+        'Defaults to None (default fields are returned).',
     )
     disable_notes_on_match: bool = Field(
         False, description="disable automatic notes on query match (sigma-rules only)."
@@ -692,7 +695,6 @@ def gulpqueryflt_dsl_dict_empty(d: dict) -> bool:
                     return True
                 return False
     return True
-
 
 def gulpqueryflt_to_elastic_dsl(flt: GulpQueryFilter = None, options: GulpQueryOptions=None, timestamp_field: str = "@timestamp") -> dict:
     """

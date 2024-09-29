@@ -1,3 +1,4 @@
+import datetime
 import os
 from typing import Union
 
@@ -10,7 +11,7 @@ from sigma.exceptions import SigmaError
 from sigma.processing.pipeline import ProcessingPipeline
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncEngine
-
+import muty.time
 import gulp.api.collab_api as collab_api
 import gulp.api.elastic_api as elastic_api
 import gulp.config as config
@@ -1106,36 +1107,6 @@ async def sigma_directory_to_gulpqueryparams(
     return l
 
 
-def build_elasticsearch_generic_query(
-    flt: GulpQueryFilter, options: GulpQueryOptions=None, timestamp_field: str="@timestamp"
-) -> tuple[dict, GulpQueryOptions]:
-    """
-    Build a generic Elasticsearch query based on the provided filter and options.
-    Args:
-        flt (GulpQueryFilter): The filter criteria for the query: "start_msec", "end_msec", "extra" (everything else is ignored).
-        options (GulpQueryOptions, optional): The options for the query: "limit", "sort" (everything else is ignored).
-    Returns:
-        tuple[dict, GulpQueryOptions]: A tuple containing the Elasticsearch query dictionary and the modified query options dictionary.
-    """
-    if options is None:
-        options = GulpQueryOptions()
-        
-    f = GulpQueryFilter()
-    o = GulpQueryOptions()
-    
-    # only these filters are supported
-    f.start_msec = flt.start_msec
-    f.end_msec = flt.end_msec
-    f.extra = flt.extra
-
-    # only these options are supported
-    o.limit = options.limit
-    o.fields_filter = None # TODO: support fields filter
-    o.sort = options.sort
-    q = gulpqueryflt_to_elastic_dsl(f, options, timestamp_field)
-    return q, o
-
-
 def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
     """
     Translates GulpQueryOptions into Elasticsearch query options.
@@ -1237,13 +1208,46 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
     else:            
         # already a number
         t = int(t)
+        
+        # convert to nanoseconds
         if timestamp_unit == "ms":
             t = t * muty.time.MILLISECONDS_TO_NANOSECONDS
         elif timestamp_unit == "s":
             t = t * muty.time.SECONDS_TO_NANOSECONDS
 
     if timestamp_offset_msec != 0:
+        # apply offset
         t = t + timestamp_offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
     return t
+
+
+def adjust_fields_filter(mandatory_list: list[str], fields_filter_csv: str=None) -> list[str]:
+    """
+    Adjust the fields filter to include the mandatory fields if not already present.
+
+    if fields_filter_csv is None, the default mandatory fields are returned.
+    if fields_filter_csv is "*", None is returned (no fields filter, all fields must be returned).
+
+    Args:
+        mandatory_list (list[str]): The list of mandatory fields
+        fields_filter_csv (str): The current CSV fields filter string to be adjusted (if None, the default mandatory fields are returned).
+
+    Returns:
+        list[str]: The adjusted fields filter string
+    """
+    if fields_filter_csv is not None:
+        if fields_filter_csv == "*":
+            return None
+
+        # we need at least the mandatory fields
+        ff = fields_filter_csv.split(",")
+        for f in mandatory_list:
+            if f not in ff:
+                ff.append(f)
+    else:
+        # no fields filter, use default   
+        ff = mandatory_list
+
+    return ff
 
 
