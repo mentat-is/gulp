@@ -114,7 +114,7 @@ class Plugin(PluginBase):
             GulpPluginOption(
                 "timestamp_field",
                 "str",
-                'timestamp field to be used for querying external sources in "query_plugin" API, if different from the default.',
+                'timestamp field to be used for querying external sources in "query_external" API, if different from the default.',
                 default="@timestamp",
             ), 
             GulpPluginOption(

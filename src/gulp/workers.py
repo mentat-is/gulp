@@ -827,7 +827,7 @@ async def ingest_zip_simple_task(
     await _print_debug_ingestion_stats(await collab_api.collab(), req_id)
 
 
-async def _query_plugin_internal(
+async def _query_external_internal(
     operation_id: int,
     client_id: int,
     user_id: int,
@@ -903,7 +903,7 @@ async def _query_plugin_internal(
     return num_results, status
 
 
-async def query_plugin_task(**kwargs):
+async def query_external_task(**kwargs):
     """
     Asynchronously handles a query plugin task by offloading the work to a worker process and
     then processing the results.
@@ -937,7 +937,7 @@ async def query_plugin_task(**kwargs):
     # offload to a worker process
     executor = rest_api.process_executor()
     coro = executor.apply(
-        _query_plugin_internal,
+        _query_external_internal,
         (
             operation_id,
             client_id,

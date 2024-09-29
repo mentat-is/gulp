@@ -47,6 +47,7 @@ from gulp.api.elastic.structs import (
 from gulp.defs import (
     API_DESC_PYSYGMA_PLUGIN,
     API_DESC_WS_ID,
+    GulpPluginType,
     InvalidArgument,
     ObjectNotFound,
 )
@@ -209,7 +210,13 @@ async def query_multi_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     if flt is None:
         flt = GulpQueryFilter()
-
+    if options is None:
+        options = GulpQueryOptions()
+    
+    if options.fields_filter is None:
+        # use default fields filter
+        options.fields_filter = ",".join(query_utils.FIELDS_FILTER_MANDATORY)
+        
     logger().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
         % (q, flt, options, sigma_group_flts)
@@ -1220,7 +1227,7 @@ async def query_single_event_handler(
 
 
 @_app.post(
-    "/query_plugin",
+    "/query_external",
     tags=["query"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -1238,9 +1245,8 @@ async def query_single_event_handler(
             }
         }
     },
-    summary="use a `query plugin` to query an external source.",
-    description="with this API you can i.e. query a SIEM for data without it being ingested into GULP.<br><br>"
-    "for this to work, a specific `query plugin` must be available in `$PLUGIN_DIR/query`, which translates the `GulpQueryFilter` provided to a query suitable for the external source.<br><br>"
+    summary="query an external source.",
+    description="with this API you can query an external source (i.e. a SIEM) for data without it being ingested into GULP, using a `query_plugin` in `$PLUGIN_DIR/query`.<br><br>"
     "GulpQueryFilter is used to filter the data from the external source, only the following fields are used and the rest is ignored:<br>"
     '- `start_msec`: start "@timestamp"<br>'
     '- `end_msec`: end "@timestamp"<br>'
@@ -1248,12 +1254,11 @@ async def query_single_event_handler(
     "GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>"
     "- `limit`: return max these entries **per chunk** on the websocket<br>"
     '- `sort`: defaults to sort by ASCENDING timestamp<br>'
-    '- `timestamp_field`: the field to be used as timestamp, defaults to the external source default (i.e. "@timestamp" for elasticsearch/opensearch)<br><br>'
-    "external source specific parameters (i.e. URL, access tokens/credentials, etc.) must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
-    '`"extra": { "username": "...", "password": "...", "url": "..." }`.<br><br>'
-    "**NOTE**: since the queried data is not stored in GULP, further processing (i.e. Sigma rules) is not available.",
+    '- `fields_filter`: a CSV list of fields to include in the result (default=None=all)<br>'
+    "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
+    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`'
 )
-async def query_plugin_handler(
+async def query_external_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
     operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
@@ -1269,7 +1274,7 @@ async def query_plugin_handler(
 
     # print the request
     logger().debug(
-        "query_plugin_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s"
+        "query_external_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s"
         % (
             token,
             operation_id,
@@ -1312,7 +1317,7 @@ async def query_plugin_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
     # run
-    coro = workers.query_plugin_task(
+    coro = workers.query_external_task(
         req_id=req_id,
         ws_id=ws_id,
         operation_id=operation_id,
@@ -1327,6 +1332,96 @@ async def query_plugin_handler(
     await rest_api.aiopool().spawn(coro)
     return muty.jsend.pending_jsend(req_id=req_id)
 
+
+@_app.post(
+    "/query_external_single",
+    tags=["query"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701879738287,
+                        "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
+                        "data": {"GulpDocument"}
+                    }
+                }
+            }
+        }
+    },
+    summary="query an external source **and return a single event**.",
+    description="with this API you can query an external source (i.e. a SIEM) for data without it being ingested into GULP, using a `query_plugin` in `$PLUGIN_DIR/query`.<br><br>"
+    "this API is used to return a single event **with all fields** if `query_external` has been used to retrieve only partial data (through `fields_filter`).<br><br>"
+    "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
+    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`'
+)
+async def query_external_single_handler(
+    bt: BackgroundTasks,
+    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
+    client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],
+    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
+    plugin_params: Annotated[GulpPluginParams, Body()],
+    event: Annotated[str, Query(description='the event retrieved via `query_external`.')],
+    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+) -> JSendResponse:
+    req_id = gulp.utils.ensure_req_id(req_id)
+
+    # print the request
+    logger().debug(
+        "query_external_single_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, event=%s, req_id=%s"
+        % (
+            token,
+            operation_id,
+            client_id,
+            ws_id,
+            plugin,
+            plugin_params,
+            event,
+            req_id,
+        )
+    )
+    if len(plugin_params.extra) == 0:
+        raise JSendException(
+            req_id=req_id, ex=InvalidArgument("plugin_params.extra is empty!")
+        )
+    try:
+        user, _ = await UserSession.check_token(
+            await collab_api.collab(), token, GulpUserPermission.READ
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+    # load plugin   
+    mod = None
+    try:
+        mod: gulp.plugin.PluginBase = gulp.plugin.load_plugin(
+            plugin, plugin_type=GulpPluginType.QUERY
+        )
+    except Exception as ex:
+        # can't load plugin ...
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+    try:
+        ev = await mod.query_single(
+            operation_id,
+            client_id,
+            user.id,
+            user.name,
+            ws_id,
+            req_id,
+            plugin_params,
+            event,
+            )
+        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=ev))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex        
+    finally:
+        gulp.plugin.unload_plugin(mod)
 
 def router() -> APIRouter:
     """

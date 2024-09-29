@@ -14,7 +14,6 @@ from gulp.plugin_internal import GulpPluginParams
 EXAMPLE_QUERY_OPTIONS = {
     "example": {
         "disable_notes_on_match": False,
-        "fields_filter": "_id,@timestamp",
         "include_query_in_result": False,
         "all_tags_must_match": False,
         "sort": {"@timestamp": "asc"},
@@ -543,15 +542,8 @@ class GulpQueryParameter(BaseModel):
         return f"GulpQueryParameter(type={self.type}, rule={self.rule}, name={self.name}, tags={self.tags}, pysigma_plugin={self.pysigma_plugin}, plugin_params={self.plugin_params}, glyph_id={self.glyph_id})"
 
 
-class GulpFieldsFilterType(StrEnum):
-    """
-    for filtering returned fields
-    """
-
-    ALL = "*"
-    DEFAULT = "_id,@timestamp,operation_id,gulp.context,gulp.source.file,event.duration,gulp.event.code,event.code"
-
-
+# mandatory fields to be included in the result for queries
+FIELDS_FILTER_MANDATORY = ["_id", "@timestamp", "@timestamp_nsec", "operation_id", "gulp.context", "gulp.source.file", "event.duration", "event.code", "gulp.event.code"]
 class GulpQueryOptions(BaseModel):
     """
     options for the query API (ordering, limit, skip).<br><br>
@@ -575,9 +567,9 @@ class GulpQueryOptions(BaseModel):
         None,
         description="defines specific sort order for specific fields, i.e. { '@timestamp': 'asc' } (default=sort by ascending timestamp).",
     )
-    fields_filter: Union[GulpFieldsFilterType, str] = Field(
-        GulpFieldsFilterType.DEFAULT,
-        description='a CSV list of fields to include in the result. special values are: "*"=all fields, "DEFAULT"=_id,@timestamp,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code',
+    fields_filter: str = Field( # TODO: turn to list[str] ?
+        None, 
+        description='if not None, a CSV list of fields to include in the result (the following fields are mandatory and always included: `_id,@timestamp,@timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`). Using "*" will return all fields. Defaults to None (all fields are returned).',
     )
     disable_notes_on_match: bool = Field(
         False, description="disable automatic notes on query match (sigma-rules only)."
@@ -709,7 +701,7 @@ def gulpqueryflt_to_elastic_dsl(flt: GulpQueryFilter = None, options: GulpQueryO
     Args:
         flt (GulpQueryFilter, optional): The GulpQueryFilter object containing the filter parameters.
         options (GulpQueryOptions, optional): The GulpQueryOptions object containing the options.
-        timestamp_field (str, optional): The timestamp field to be used for querying external sources in "query_plugin" API, if different from the default.
+        timestamp_field (str, optional): The timestamp field to be used for querying external sources in "query_external" API, if different from the default.
     Returns:
         dict: The Elasticsearch query dictionary.
 

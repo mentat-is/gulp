@@ -282,5 +282,5 @@ Sigma plugins are useful for transforming sigma rules into elastic queries.
 
 # Query plugins
 
-This kind of plugin allows Gulp to query external sources through the [query_plugin API](../src/gulp/api/rest/query.py#async-def-query_plugin), i.e. SIEM **without ingesting their data**.
+This kind of plugin allows Gulp to query external sources through the [query_external API](../src/gulp/api/rest/query.py#async-def-query_external), i.e. SIEM **without ingesting their data**.
  

@@ -156,6 +156,35 @@ class PluginBase(ABC):
         """
         return 0, GulpRequestStatus.FAILED
 
+    async def query_single(
+        self,
+        operation_id: int,
+        client_id: int,
+        user_id: int,
+        username: str,
+        ws_id: str,
+        req_id: str,
+        plugin_params: GulpPluginParams,
+        event: dict
+    ) -> dict:
+        """
+        used in query plugins to query a single **full** event from external sources.
+
+        Args:
+            operation_id (int): operation ID
+            client_id (int): client ID
+            user_id (int): user ID performing the query
+            username (str): username performing the query
+            ws_id (str): websocket ID to stream the returned data to
+            req_id (str): request ID
+            plugin_params (GulpPluginParams, optional): plugin parameters, including i.e. in GulpPluginParams.extra the login/pwd/token to connect to the external source, plugin dependent.
+            event (dict): the event to query for, i.e. as returned by the `query` method.
+            
+        Returns:
+            dict: the event found
+        """
+        return {}
+
     def internal(self) -> bool:
         """
         Returns whether the plugin is for internal use only

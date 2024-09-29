@@ -89,7 +89,7 @@ all plugins conforms to the [PluginBase](https://github.com/mentat-is/gulp/src/g
   - **they must reside in `$PLUGINDIR/extension`**.
   > look at the [extension_example](https://github.com/mentat-is/gulp/src/gulp/plugins/extension/extension_example.py) to see how they work (documentation inside).
 
-- _query plugins_ are used by the `query_plugin` API to support querying external sources (i.e. *SIEM*, ...)
+- _query plugins_ are used by the `query_external` API to support querying external sources (i.e. *SIEM*, ...)
   - **they must reside in `$PLUGINDIR/query`**.
 
 #### Mapping files

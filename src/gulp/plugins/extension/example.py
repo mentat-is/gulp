@@ -148,7 +148,7 @@ class Plugin(PluginBase):
             methods=["PUT"],
             response_model=JSendResponse,
             response_model_exclude_none=True,
-            tags=["query", "extensions"],
+            tags=["extensions"],
             responses={
                 200: {
                     "content": {

@@ -13,7 +13,6 @@ import muty.time
 import gulp.config as config
 from gulp.api.elastic.structs import (
     GulpDocument,
-    GulpFieldsFilterType,
     GulpIngestionFilter,
     GulpQueryFilter,
     GulpQueryOptions,
@@ -142,7 +141,6 @@ async def index_get_mapping_by_src(
     # query first
     options = GulpQueryOptions()
     options.limit = 1000
-    options.fields_filter = GulpFieldsFilterType.ALL
     q = {
         "query_string": {
             "query": 'gulp.context: "%s" AND gulp.source.file: "%s"'

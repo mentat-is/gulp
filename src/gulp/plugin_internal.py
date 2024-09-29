@@ -32,7 +32,7 @@ class GulpPluginParams(BaseModel):
     )
     timestamp_field: Optional[str] = Field(
         None,
-        description="The timestamp field (for, i.e. use the a generic plugin without any mapping)",
+        description="The timestamp field (for, i.e. to use in a generic plugin without any mapping)",
     )
     record_to_gulp_document_fun: SkipValidation[Any] = Field(
         [],

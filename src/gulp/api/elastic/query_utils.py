@@ -30,7 +30,7 @@ from gulp.api.elastic.query import (
     gulpqueryflt_to_elastic_dsl,
 )
 from gulp.api.elastic.structs import (
-    GulpFieldsFilterType,
+    FIELDS_FILTER_MANDATORY,
     GulpQueryFilter,
     GulpQueryOptions,
     GulpQueryParameter,
@@ -434,23 +434,6 @@ async def query_by_gulpconvertedquery(
             # in every query_result also include the raw dsl query and matching sigma rule text
             query_res.query_raw = raw_query_dict
             query_res.query_sigma_text = gulp_query.sigma_rule_text
-
-        if options.fields_filter is not None:
-            if (
-                options.fields_filter != GulpFieldsFilterType.ALL
-                and options.fields_filter != GulpFieldsFilterType.DEFAULT.name
-            ):
-                # those are mandatory
-                logger().debug(
-                    "appending to options.fields_filters=%s ..."
-                    % (options.fields_filter)
-                )
-                if "operation_id" not in options.fields_filter:
-                    options.fields_filter += ",operation_id"
-                if "gulp.context" not in options.fields_filter:
-                    options.fields_filter += ",gulp.context"
-                if "gulp.source.file" not in options.fields_filter:
-                    options.fields_filter += ",gulp.source.file"
 
         # issue raw query
         # logger().debug("options.fields_filters=%s ..." % (options.fields_filter))
@@ -1147,7 +1130,7 @@ def build_elasticsearch_generic_query(
 
     # only these options are supported
     o.limit = options.limit
-    o.fields_filter = None
+    o.fields_filter = None # TODO: support fields filter
     o.sort = options.sort
     q = gulpqueryflt_to_elastic_dsl(f, options, timestamp_field)
     return q, o
@@ -1187,7 +1170,17 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
             {"event.sequence": {"order": "asc"}}
         ]
 
-    
+    if opt.fields_filter is None or opt.fields_filter == "*":
+        # return all fields
+        n["source"] = None    
+    else:
+        # only return these fields. first, check if the mandatory fields are present, if not add them
+        fields = opt.fields_filter.split(",")
+        for f in FIELDS_FILTER_MANDATORY:
+            if f not in fields:
+                fields.append(f)                
+        n["source"] = fields
+
     if opt.limit is not None:
         # use provided
         n["size"] = opt.limit
@@ -1200,19 +1193,7 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         n["search_after"] = opt.search_after
     else:
         n["search_after"] = None
-
-    n["source"] = None
-    if opt.fields_filter is not None:
-        if opt.fields_filter == GulpFieldsFilterType.ALL:
-            # all fields
-            n["source"] = None
-        elif opt.fields_filter == GulpFieldsFilterType.DEFAULT.name:
-            # default set
-            opt.fields_filter = GulpFieldsFilterType.DEFAULT.value
-        else:
-            # only return these fields
-            n["source"] = opt.fields_filter.split(",")
-
+    
     # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
 
