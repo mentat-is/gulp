@@ -1,0 +1,11 @@
+{
+  "metadata": {
+    "plugin": ["pfsense.py"]
+  },
+  "mappings": [
+    {
+      "fields": {},
+      "options": {}
+    }
+  ]
+}
