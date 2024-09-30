@@ -112,6 +112,19 @@ class PluginBase(ABC):
         """
         Returns the name of the plugin.
         """
+    def filename(self, strip_ext: bool=True) -> str:
+        """
+        Returns the source filename of the plugin.
+        
+        Args:
+            strip_ext (bool, optional): Whether to strip the extension from the filename. Defaults to True.
+        Returns:
+            str: The source filename of the plugin.
+        """
+        s = os.path.basename(self.path)
+        if strip_ext:
+            s = os.path.splitext(s)[0]
+        return s
 
     def event_type_field(self) -> str:
         """

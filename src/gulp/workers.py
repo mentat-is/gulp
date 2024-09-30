@@ -69,7 +69,10 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
     # initialize per-process clients
     asyncio.run(collab_api.collab())
     elastic_api.elastic()
-
+    
+    # initialize per-process thread pool executor
+    rest_api.thread_pool_executor()
+    
     lock.acquire()
     spawned_processes.value += 1
     lock.release()
