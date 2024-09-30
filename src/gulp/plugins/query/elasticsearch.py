@@ -242,10 +242,14 @@ class Plugin(PluginBase):
             timestamp_unit, timestamp_field)
         e['@timestamp_nsec'] = ts
         e['@timestamp'] = ts / muty.time.MILLISECONDS_TO_NANOSECONDS
-
+        e['_source_plugin'] = self.filename()
         if mapping is not None:
             # map source keys using the mapping
             self._map_source_key_lite(e, mapping)
+        
+        if 'event.duration' not in e:
+            # default
+            e['event.duration'] = 1
         return e
     
     async def query_single(

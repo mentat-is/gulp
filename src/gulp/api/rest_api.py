@@ -3,6 +3,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import os
 import ssl
@@ -44,6 +45,7 @@ from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.utils import logger
 
 _process_executor: aiomultiprocess.Pool = None
+_thread_pool_executor: ThreadPoolExecutor = None
 _log_file_path: str = None
 _reset_collab_on_start: bool = False
 _elastic_index_to_reset: str = None
@@ -110,6 +112,19 @@ def process_executor() -> aiomultiprocess.Pool:
     global _process_executor
     return _process_executor
 
+def thread_pool_executor() -> ThreadPoolExecutor:
+    """
+    Returns the global ThreadPoolExecutor instance (per-process).
+
+    Returns:
+        ThreadPoolExecutor: The global ThreadPoolExecutor instance.
+    """
+    global _thread_pool_executor
+    if _thread_pool_executor is None:
+        logger().debug("creating thread pool executor for the current process...")
+        _thread_pool_executor = ThreadPoolExecutor()
+    
+    return _thread_pool_executor
 
 def _unload_extension_plugins():
     """
@@ -162,7 +177,7 @@ async def lifespan_handler(app: FastAPI):
     Yields:
         None
     """
-    global _mpManager, _aiopool, _process_executor, _reset_collab_on_start, _ws_q, _extension_plugins
+    global _mpManager, _aiopool, _process_executor, _reset_collab_on_start, _ws_q, _extension_plugins, _thread_pool_executor
 
     logger().info("gULP starting!")
     logger().warning(
@@ -184,6 +199,9 @@ async def lifespan_handler(app: FastAPI):
     # aiopool is used to run tasks in THIS process (the main event loop), such as the trivial tasks (query_max_min, collabobj handling, etc...).
     # ingest and query tasks are always run in parallel processes through aiomultiprocess.
     _aiopool = AioPool(config.concurrency_max_tasks())
+
+    # create thread pool executor
+    _thread_pool_executor = ThreadPoolExecutor()
 
     # setup collab and elastic
     if _reset_collab_on_start:
@@ -225,7 +243,7 @@ async def lifespan_handler(app: FastAPI):
     # each with concurrency_max_tasks() tasks in their event loop
     _process_executor = await recreate_process_executor()
 
-    # load extension plugins, if any
+    # create thread pool executor
     _extension_plugins = await _load_extension_plugins()
 
     # set a SIGINT (ctrl-c) handler for clean shutdown
@@ -257,6 +275,9 @@ async def lifespan_handler(app: FastAPI):
     await _aiopool.cancel()
     await _aiopool.join()
 
+    logger().debug("shutting down thread pool executor for the main process...")
+    _thread_pool_executor.shutdown(wait=True)
+    
     logger().debug("shutting down aiomultiprocess ...")
     _process_executor.close()
     await _process_executor.join()
