@@ -1294,7 +1294,7 @@ async def query_external_handler(
                 }
             ]
         ),
-    ],
+    ]=None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
