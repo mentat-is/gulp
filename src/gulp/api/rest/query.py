@@ -1383,7 +1383,7 @@ async def query_external_handler(
     description="with this API you can query an external source (i.e. a SIEM) for data without it being ingested into GULP, using a `query_plugin` in `$PLUGIN_DIR/query`.<br><br>"
     "this API is used to return a single event **with all fields** if `query_external` has been used to retrieve only partial data (through `fields_filter`).<br><br>"
     "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
-    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`',
+    '`"extra": { "username": "...", "password": "...", "url": "...", "index": "..." }`',
 )
 async def query_external_single_handler(
     bt: BackgroundTasks,
@@ -1398,8 +1398,7 @@ async def query_external_single_handler(
                         "username": "...",
                         "password": "...",
                         "url": "http://localhost:9200",
-                        "index": "testidx",
-                        "mapping": {"key": {"map_to": "...", "is_event_code": False}},
+                        "index": "testidx"
                     }
                 }
             ]
