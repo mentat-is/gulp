@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 .venv
 pyrightconfig.json
+venv
 
 # VSCode
 .vscode/
@@ -24,7 +25,6 @@ kibana_data
 build
 .DS_Store
 test_scripts/test.json
-requirements.txt
 *log*.txt
 
 #non free plugins
