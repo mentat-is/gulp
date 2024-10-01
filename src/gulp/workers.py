@@ -849,6 +849,7 @@ async def _query_external_internal(
 
     # load plugin
     mod = None
+    raw_plugin = None
     try:
         mod: PluginBase = gulp.plugin.load_plugin(
             plugin, plugin_type=GulpPluginType.QUERY
@@ -867,9 +868,16 @@ async def _query_external_internal(
         )
         return 0, GulpRequestStatus.FAILED
 
+    ingest_index = plugin_params.extra.get("ingest_index", None)
+    if ingest_index is not None:
+        # # load the raw plugin and pass the instance over in extra
+        raw_plugin: PluginBase = gulp.plugin.load_plugin("raw", plugin_type=GulpPluginType.INGESTION)
+        plugin_params.extra["raw_plugin"] = raw_plugin
+        plugin_params.extra["ingest_index"] = ingest_index
+        
     # query
     try:
-        start_time = timeit.default_timer()
+        start_time = timeit.default_timer()                
         num_results, status = await mod.query(
             operation_id,
             client_id,
@@ -901,8 +909,10 @@ async def _query_external_internal(
         )
         return 0, GulpRequestStatus.FAILED
 
-    # unload plugin
+    # unload plugin/s
     gulp.plugin.unload_plugin(mod)
+    if raw_plugin:
+        gulp.plugin.unload_plugin(raw_plugin)
     return num_results, status
 
 
