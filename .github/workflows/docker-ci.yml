@@ -3,11 +3,10 @@ name: docker-ci
 on:
   push:
     branches:
-      - '*'
-    #  - main
+      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-  # enable manual trigger
+  # enables manual trigger
   workflow_dispatch:
 
 env:
