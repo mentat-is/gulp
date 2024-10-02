@@ -3,6 +3,7 @@
 ####################################################################################################
 
 
+import json
 import muty.crypto
 import muty.time
 import muty.xml
@@ -65,12 +66,16 @@ class Plugin(PluginBase):
 
         events: list[dict] = source
         for evt in events:
+            #logger().debug("processing event: %s" % json.dumps(evt, indent=2))
             # ensure these are set
             if "@timestamp" not in evt:
                 logger().warning("no @timestamp, skipping!")
                 fs = self._record_failed(fs, evt, source, 'no @timestamp, skipping')
                 continue
-
+            
+            # operation_id, client_id, context should already be set inside the event.
+            # only if not, we set them here.
+            
             if "event.original" not in evt:
                 ori = str(evt)
                 evt["event.original"] = ori
@@ -85,7 +90,7 @@ class Plugin(PluginBase):
             if "event.hash" not in evt:
                 # set event hash in the end
                 evt["event.hash"] = muty.crypto.hash_blake2b(str(evt))
-
+            
             fs = fs.update(processed=1)
             try:
                 # bufferize, we will flush in the end

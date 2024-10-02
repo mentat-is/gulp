@@ -370,7 +370,7 @@ class PluginBase(ABC):
 
         Args:
             index (str): The name of the elasticsearch index.
-            source (str|dict): The source of the record (source file name or path, usually. may also be a dictionary.).
+            source (str|dict): The source of the record (source file name or path, usually. may also be a dictionary or a list of dicts).
             skip_mapping (bool, optional): Whether to skip mapping initialization (just prints source and plugin name, and return empty index mapping and custom mapping). Defaults to False.
             pipeline (ProcessingPipeline, optional): The psyigma pipeline to borrow the mapping from, if any. Defaults to None (use mapping file only).
             mapping_file (str, optional): name of the mapping file (i.e. 'windows.json') in the gulp/mapping_files directory. Defaults to None (use pipeline mapping only).
@@ -381,10 +381,16 @@ class PluginBase(ABC):
 
         """
         # logger().debug("ingest_plugin_initialize: index=%s, pipeline=%s, mapping_file=%s, mapping_id=%s, plugin_params=%s" % (index, pipeline, mapping_file, mapping_id, plugin_params))
-        logger().debug(
-            "INITIALIZING INGESTION for source=%s, plugin=%s"
-            % (muty.string.make_shorter(source, 260), self.name())
-        )
+        if isinstance(source, list) or isinstance(source, dict):
+            # source is a dictionary
+            logger().debug(
+                "INITIALIZING INGESTION for raw source, plugin=%s"
+                % (self.name()))            
+        else:        
+            logger().debug(
+                "INITIALIZING INGESTION for source=%s, plugin=%s"
+                % (muty.string.make_shorter(source, 260), self.name())
+            )
         if skip_mapping:
             return {}, GulpMapping()
 
@@ -920,7 +926,38 @@ class PluginBase(ABC):
         ]
 
         return ws_docs
-
+    
+    
+    def _check_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams) -> bool:
+        """
+        check if we need to ingest the events using the raw ingestion plugin (from the query plugin)
+        """
+        raw_plugin: PluginBase = plugin_params.extra.get("raw_plugin", None)
+        if raw_plugin is None:
+            logger().warning("no raw ingestion plugin found, skipping!")
+            return False
+        return True
+    
+    async def _perform_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams, events: list[dict], 
+        operation_id: int, client_id: int, ws_id: str, req_id: str):
+        """
+        ingest events using the raw ingestion plugin (from the query plugin)
+        
+        Args:
+            plugin_params (GulpPluginParams): The plugin parameters.
+            events (list[dict]): The events to ingest.
+            operation_id (int): The operation id.
+            client_id (int): The client id.
+            ws_id (str): The websocket id.
+            req_id (str): The request id.
+        """
+        raw_plugin: PluginBase = plugin_params.extra.get("raw_plugin", None)
+        
+        # ingest events using the raw ingestion plugin
+        ingest_index = plugin_params.extra.get("ingest_index", None)        
+        logger().debug("ingesting %d events to gulp index %s using the raw ingestion plugin from query plugin" % (len(events), ingest_index))
+        await raw_plugin.ingest(ingest_index, req_id, client_id, operation_id, None, events, ws_id)
+        
     async def _flush_buffer(
         self,
         index: str,

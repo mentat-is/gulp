@@ -272,12 +272,12 @@ async def datastream_create(
 
     # map gulp fields
     specific_gulp_mapping: dict = {
-        "log": {
-            "properties": {
-                "level": {"type": "keyword"},
-            }
-        },
-        "source": {"properties": {"domain": {"type": "keyword"}}},
+        #"log": {
+        #    "properties": {
+        #        "level": {"type": "keyword"},
+        #    }
+        #},
+        #"source": {"properties": {"domain": {"type": "keyword"}}},
         "event": {
             "properties": {
                 "hash": {"type": "keyword"},
@@ -482,13 +482,18 @@ def _build_bulk_docs(
                 + d.hash[:32]
             )
         else:
-            # remove the original id and recalculate
+            # check if _id is already set
             dd: dict = d
             _id = dd.get("_id", None)
-            if _id is not None:
+            if _id is None:
+                # create a new id
+                _id = muty.crypto.hash_blake2b(str(dd.values()))
+                ev_id = _id
+            else:
+                ev_id = _id
+                # delete _id from dict
                 del dd["_id"]
-            ev_id = muty.crypto.hash_blake2b(str(dd.values()))
-
+                
         return {"create": {"_id": ev_id}}, (d.to_dict() if is_gulp_doc else d)
 
     return [

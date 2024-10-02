@@ -521,7 +521,7 @@ class GulpStats(CollabBase):
                 # all files are processed
                 self.files_processed = self.files_total
                 finished = True
-        else:
+        elif qs is not None:
             # query stats
             self.queries_total = qs.queries_total
             self.queries_processed = qs.queries_processed
