@@ -24,7 +24,7 @@ dotwiz==0.4.0
 elastic-transport==8.15.0
 elasticsearch==8.15.1
 Events==0.5
-evtx==0.8.0
+evtx==0.8.6
 fastapi==0.115.0
 frozenlist==1.4.1
 greenlet==3.1.1
