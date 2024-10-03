@@ -11,7 +11,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-dependencies -r requirements.txt
 
-COPY .git src gulp_cfg_template.json MANIFEST.in pyproject.toml .
+COPY src gulp_cfg_template.json MANIFEST.in pyproject.toml .
+COPY .git /.git
 RUN pip install -e .
 RUN rm -fr .git
 
