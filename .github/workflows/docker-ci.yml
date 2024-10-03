@@ -48,15 +48,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]
-        run: |
-          DOCKER_BUILDKIT=1 docker build \
-            --progress=plain \
-            --build-arg _VERSION=$(git describe --tags --always) \
-            --rm \
-            -t ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.tag }} \
-            -t ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest \
-            .
-          # Uncomment the next two lines if you want to push the image
-          docker push ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.tag }}
-          docker push ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+      - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]      
+        uses: docker/build-push-action@v6
+        with:
+          build-args: |
+            _VERSION=${{ steps.get-docker-tag.outputs.tag }}
+          # if false it will only build
+          push: false
+          tags: |
+            ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.tag }}
