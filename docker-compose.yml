@@ -1,7 +1,11 @@
 services:
   gulp:
     profiles: ["full"]
+    # image: mentat-is/gulp:latest
     image: gulp:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.alpine
     container_name: gulp
     environment:
       - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -11,7 +15,7 @@ services:
     networks:
       - gulpnet
     volumes:
-      - ./gulp_cfg.json:/app/gulp_cfg.json
+      - ./gulp_cfg_template.json:/app/gulp_cfg.json
       - ./certs:/app/certs
 
     depends_on:
@@ -128,8 +132,6 @@ services:
     container_name: opensearch-dashboards
     ports:
       - 5601:5601
-    expose:
-      - "5601"
     environment:
       OPENSEARCH_HOSTS: '["http://os01:9200"]'
     depends_on:
