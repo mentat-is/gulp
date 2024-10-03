@@ -27,6 +27,9 @@ build
 test_scripts/test.json
 *log*.txt
 
+# this should be force-pushed to master on stable builds
+requirements.txt
+
 #non free plugins
 src/gulp/plugins/**/paid_*.py*
 
