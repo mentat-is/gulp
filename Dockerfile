@@ -6,7 +6,6 @@ FROM python:3.12.3-bullseye
 # Add build argument for pip cache
 ARG _VERSION
 ENV _VERSION=${_VERSION}
-ARG _REQUIREMENTS_TXT=dummy
 
 RUN mkdir /pip-cache
 
@@ -38,7 +37,7 @@ COPY ./CONTRIBUTING.md /app
 COPY ./README.md /app
 
 # copy requirements file if exists
-COPY ${_REQUIREMENTS_TXT}* /app/requirements.txt
+COPY ./requirements.txt* /app/requirements.txt
 
 # set version passed as build argument
 RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml

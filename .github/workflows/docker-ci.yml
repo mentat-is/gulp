@@ -23,15 +23,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # extracts tag from ref, returns semver tag or sha suffix
-      - name: Get Docker tag
-        id: get-docker-tag
+      - name: Get Docker tag (git version)
+        id: get-docker-tag        
         run: |
           GIT_DESCRIBE=$(git describe --tags --always)
-          echo "tag=${GIT_DESCRIBE}" >> ${GITHUB_OUTPUT}
-        
+          echo "git_version=${GIT_DESCRIBE}" >> ${GITHUB_OUTPUT}
+              
       - name: Output Docker tag
-        run: echo ${{ steps.get-docker-tag.outputs.tag }}
+        run: echo ${{ steps.get-docker-tag.outputs.git_version }}
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -46,10 +45,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          
           build-args: |
-            _VERSION=${{ steps.get-docker-tag.outputs.tag }}
+            _VERSION=${{ steps.get-docker-tag.outputs.git_version }}
+
           # if false it will only build
           push: false
           tags: |
             ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest
-            ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.tag }}
+            ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.git_version }}

@@ -6,12 +6,10 @@
 
 1. clone this repository and perform [install from sources](<./Install Dev.md>)
 
-2. build gulp image using the [buildx](https://github.com/docker/buildx) docker plugin
+2. build gulp image
 
 ~~~bash
-# create frozen requirements.txt to be used for the build (pyproject.toml package list is used by default) and pass it to the build
-./update_requirements_txt.sh
-DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _REQUIREMENTS_TXT=./requirements.txt --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp .
+DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp .
 
 # to rebuild, add --no-cache flag ...
 ~~~
