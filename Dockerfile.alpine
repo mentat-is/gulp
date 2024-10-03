@@ -11,7 +11,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --no-dependencies -r requirements.txt
 
-COPY src gulp_cfg_template.json MANIFEST.in pyproject.toml .
-RUN --mount=source=.git,target=.git,type=bind pip install -e .
+COPY .git src gulp_cfg_template.json MANIFEST.in pyproject.toml .
+RUN pip install -e .
+RUN rm -fr .git
 
 CMD [ "gulp", "--bind-to", "0.0.0.0", "8080" ]
