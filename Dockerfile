@@ -18,7 +18,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 WORKDIR /app
 
 # the following is to use the host ssh key when pulling private repos from github
-RUN mkdir /root/.ssh && ssh-keyscan github.com >>/root/.ssh/known_hosts
+# RUN mkdir /root/.ssh && ssh-keyscan github.com >>/root/.ssh/known_hosts
 
 # copy template and requirements over
 COPY ./gulp_cfg_template.json /app
@@ -29,10 +29,11 @@ COPY ./src /app
 COPY README.md /app
 
 # install freezed requirements
-RUN --mount=type=ssh --mount=type=cache,target=/root/.cache pip3 install -r ./requirements.txt --no-dependencies
+# RUN --mount=type=ssh --mount=type=cache,target=/root/.cache pip3 install -r ./requirements.txt --no-dependencies
 # and gulp itself, but remove our own dependencies (muty) already installed with the freezed requirements
-RUN sed -i '/muty-python/d' ./pyproject.toml
-RUN --mount=type=ssh --mount=type=cache,target=/root/.cache --mount=source=.git,target=.git,type=bind pip3 install -e .
+#RUN sed -i '/muty-python/d' ./pyproject.toml
+#RUN --mount=type=ssh --mount=type=cache,target=/root/.cache --mount=source=.git,target=.git,type=bind pip3 install -e .
+RUN pip3 install .
 
 # expose port 8080
 EXPOSE 8080
