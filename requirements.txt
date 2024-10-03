@@ -48,7 +48,7 @@ psycopg-binary==3.2.3
 psycopg-pool==3.2.3
 pycryptodome==3.20.0
 pydantic==2.9.2
-pydantic_core==2.23.4
+pydantic_core==2.24.0
 pyheck==0.1.5
 pyparsing==3.1.4
 pySigma==0.11.14
