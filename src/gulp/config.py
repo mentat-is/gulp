@@ -50,9 +50,14 @@ async def initialize_custom_directories():
     custom_mapping_files_path = path_mapping_files()
     if custom_mapping_files_path is not None:
         custom_mapping_files_path = os.path.abspath(custom_mapping_files_path)
-    custom_plugins_path = path_plugins()
+    custom_plugins_path = path_plugins(t=None)
     if custom_plugins_path is not None:
         custom_plugins_path = os.path.abspath(custom_plugins_path)
+
+    logger().debug("default_mapping_files_path: %s" % (default_mapping_files_path))
+    logger().debug("custom_mapping_files_path: %s" % (custom_mapping_files_path))
+    logger().debug("default_plugins_path: %s" % (default_plugins_path))
+    logger().debug("custom_plugins_path: %s" % (custom_plugins_path))
 
     if (
         custom_mapping_files_path is not None
@@ -80,6 +85,7 @@ async def initialize_custom_directories():
         != pathlib.Path(custom_plugins_path).resolve()
     ):
         # we will use custom_plugins_path so, copy the whole directory there
+        
         if not await aiofiles.ospath.exists(custom_plugins_path):
             logger().info(
                 "copying plugins to custom directory: %s" % (custom_plugins_path)
@@ -536,6 +542,7 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
     returns the plugins path depending on the plugin type
 
     t: GulpPluginType = GulpPluginType.INGESTION
+        use None to return the base plugins path
 
     returns:
         str: the plugins path
@@ -564,7 +571,6 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
 
     if t is None:
         # return the base plugins path
-
         return p
 
     # use plugin type as subdirectory

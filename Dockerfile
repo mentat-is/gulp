@@ -1,39 +1,64 @@
-# uses buildkit, must be run like: docker build --ssh default --rm -t gulp .
+# example build command:
+# DOCKER_BUILDKIT=1 docker build --build-arg _VERSION=$(git describe --tags --always --rm -t gulp .
 
 FROM python:3.12.3-bullseye
-ENV PYTHONUNBUFFERED=1
+
+# Add build argument for pip cache
+ARG _VERSION
+ARG _REQUIREMENTS_TXT=dummy
+
+RUN mkdir /pip-cache
 
 # install rust
 RUN apt-get -qq update
 RUN apt-get install -y -q \
-    build-essential \
     libsystemd-dev \
     vim \
     sed \
     git \
     curl
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PYTHONPATH="/pip-cache:/app"
+ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 
-# the following is to use the host ssh key when pulling private repos from github
-# RUN mkdir /root/.ssh && ssh-keyscan github.com >>/root/.ssh/known_hosts
 
-# copy template and requirements over
+# copy template and requirements over.
+COPY ./src /app/src
+COPY ./docs /app/docs
 COPY ./gulp_cfg_template.json /app
-COPY ./requirements.txt /app
-COPY ./MANIFEST.in /app
 COPY ./pyproject.toml /app
-COPY ./src /app
-COPY README.md /app
+COPY ./LICENSE.GULP.md /app
+COPY ./LICENSE.AGPL-3.0.md /app
+COPY ./LICENSE.md /app
+COPY ./CONTRIBUTING.md /app
+COPY ./README.md /app
 
-# install freezed requirements
-# RUN --mount=type=ssh --mount=type=cache,target=/root/.cache pip3 install -r ./requirements.txt --no-dependencies
-# and gulp itself, but remove our own dependencies (muty) already installed with the freezed requirements
-#RUN sed -i '/muty-python/d' ./pyproject.toml
-#RUN --mount=type=ssh --mount=type=cache,target=/root/.cache --mount=source=.git,target=.git,type=bind pip3 install -e .
-RUN pip3 install .
+# copy requirements file if exists
+COPY ${_REQUIREMENTS_TXT}* /app/requirements.txt
+
+# set version passed as build argument
+RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
+
+RUN --mount=type=cache,target=/root/.cache \
+    if [ -s /app/requirements.txt ]; then \
+        # we patch the pyproject.toml to remove the dependencies so we can install the
+        # frozen requirements from the host
+        echo "[.] Patching pyproject.toml to remove dependencies" && \
+        sed -i '/dependencies = \[/,/^\]/d' /app/pyproject.toml &&\
+        echo "[.] Installing frozen requirements" &&\
+        pip3 install --target=/pip-cache -r ./requirements.txt && \
+        pip3 install --no-cache-dir . ; \       
+    else \
+        echo "[.] No requirements.txt found, default (download pip packages)" && \   
+        pip3 install --no-cache-dir . ; \       
+    fi
+
+# just for debugging
+RUN python -m gulp --version || echo "python -m gulp failed"
+RUN pip list
 
 # expose port 8080
 EXPOSE 8080

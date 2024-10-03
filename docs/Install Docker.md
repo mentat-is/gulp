@@ -1,41 +1,40 @@
 # Docker Installation
+
 [TOC]
 
-## (re)build image
-> until we provide a docker image to be pulled :)
+## (re)build image from a dev environment
 
 1. clone this repository and perform [install from sources](<./Install Dev.md>)
 
 2. build gulp image using the [buildx](https://github.com/docker/buildx) docker plugin
 
 ~~~bash
+# create frozen requirements.txt to be used for the build (pyproject.toml package list is used by default) and pass it to the build
 ./update_requirements_txt.sh
-docker build --rm --tag gulp:latest --ssh default .
+DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _REQUIREMENTS_TXT=./requirements.txt --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp .
 
-# or rebuild adding the --no-cache flag
-# docker build --rm --no-cache --tag gulp:latest --ssh default .
+# to rebuild, add --no-cache flag ...
 ~~~
 
-## run
+## run with docker-compose
 
-> using default [docket-compose](../docker-compose.yml), you should provide your own ...
+you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) file to the container, and you're ready to go!
 
-```bash
-# create configuration from template, if needed
-#
-# NOTE: elastic_url, postgres_url, path_certs will be overridden by environment variables set in the docker-compose.yml file
-cp ./template_cfg.json ./gulp_cfg.json
-
-# bring up the full stack of services
-docker compose --profile full up -d
-```
-
-> also, on first run, database must be initialized first:
+use the provided [run_gulp.sh](../run_gulp.sh) script to run gulp with docker-compose:
 
 ```bash
-# 1. brings up the full stack of services except gulp
-docker compose up -d
+# default binds to port 8080 and interface 0.0.0.0
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh
 
-# 2. run gulp only, telling it to reset/create elasticsearch index "testidx" and collaboration database
-EXTRA_ARGS="--reset-collab --reset-elastic testidx" docker compose up gulp
+# bind to a different port
+PORT=8081 ./run_gulp.sh
+
+# also to a a different interface
+PORT=8081 IFACE=192.168.1.1 ./run_gulp.sh
+
+# reset elasticsearch (use index name)
+./run_gulp.sh --reset-elastic myidx
+
+# reset elasticsearch and collab
+./run_gulp.sh --reset-elastic myidx --reset-collab
 ```
