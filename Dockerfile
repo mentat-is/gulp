@@ -5,6 +5,7 @@ FROM python:3.12.3-bullseye
 
 # Add build argument for pip cache
 ARG _VERSION
+ENV _VERSION=${_VERSION}
 ARG _REQUIREMENTS_TXT=dummy
 
 RUN mkdir /pip-cache

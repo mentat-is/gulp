@@ -51,6 +51,7 @@ jobs:
       - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]      
         uses: docker/build-push-action@v6
         with:
+          context: .
           build-args: |
             _VERSION=${{ steps.get-docker-tag.outputs.tag }}
           # if false it will only build
