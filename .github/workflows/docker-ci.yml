@@ -3,7 +3,7 @@ name: docker-ci
 on:
   push:
     branches:
-      - main
+      - '*'
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   # enables manual trigger
@@ -51,6 +51,7 @@ jobs:
       - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]
         uses: docker/build-push-action@v6
         with:
+          file: Dockerfile.alpine
           build-args: |
             VERSION_COMMIT=${{ steps.get-docker-tag.outputs.tag }}
           # if false it will only build
