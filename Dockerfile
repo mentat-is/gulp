@@ -17,9 +17,6 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
-# the following is to use the host ssh key when pulling private repos from github
-RUN mkdir /root/.ssh && ssh-keyscan github.com >>/root/.ssh/known_hosts
-
 # copy template and requirements over
 COPY ./gulp_cfg_template.json /app
 COPY ./requirements.txt /app
