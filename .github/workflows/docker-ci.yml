@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_REPOSITORY: mentat-is
-  DOCKER_IMAGE_NAME: gulp
+  DOCKER_REPOSITORY: mentatis
+  DOCKER_IMAGE_NAME: gulp-core
 
 jobs:
   docker:
