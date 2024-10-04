@@ -35,8 +35,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # show help if --help or -h is provided
-if [[ "$EXTRA_ARGS" == *"--help"* || "$EXTRA_ARGS" == *"-h"* ]]; then
-  echo "Usage: $0 [--reset-collab] [--reset-elastic <index>] [--iface <iface>] [--port <port>]"
+if [[ "$EXTRA_ARGS" == *"--help"* || "$EXTRA_ARGS" == *"-h"*  || -z "$GULP_CONFIG_PATH" ]]; then
+  echo "Usage: GULP_CONFIG_PATH=/path/to/gulp_cfg.json $0 [--reset-collab] [--reset-elastic <index>] [--iface <iface>] [--port <port>]"
   echo "  --reset-collab: reset collab database"
   echo "  --reset-elastic: reset elasticsearch (index name must be provided as the 2nd argument.)"
   echo "  --iface: set the interface (default: 0.0.0.0)"

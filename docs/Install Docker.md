@@ -25,14 +25,14 @@ use the provided [run_gulp.sh](../run_gulp.sh) script to run gulp with docker-co
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh
 
 # bind to a different port
-PORT=8081 ./run_gulp.sh
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 ./run_gulp.sh
 
 # also to a a different interface
-PORT=8081 IFACE=192.168.1.1 ./run_gulp.sh
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 IFACE=192.168.1.1 ./run_gulp.sh
 
 # reset elasticsearch (use index name)
-./run_gulp.sh --reset-elastic myidx
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx
 
 # reset elasticsearch and collab
-./run_gulp.sh --reset-elastic myidx --reset-collab
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx --reset-collab
 ```

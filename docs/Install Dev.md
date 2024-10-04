@@ -3,6 +3,7 @@
 [TOC]
 
 ## Using the setup script
+
 Installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
 ```bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
@@ -18,12 +19,14 @@ Download the gULP client, either follow the [instructions](https://github.com/me
 or grab the `7z` containing for our [binary legacy client](https://github.com/mentat-is/gulp/releases/download/legacy/GUiLP_legacy_bin.7z).
 
 ### Legacy client on Linux
+
 The legacy client is runnable via [wine](https://winehq.org).
 
 To get running on Linux, download and install the **Desktop Runtime for .NET** using `wine` from [here](https://dotnet.microsoft.com/en-us/download/dotnet/6.0),
 then simply run `wine GUiLP.exe`.
 
 In case the UI presents some artifacts or is hard to read, run `winecfg` and make sure the colors for:
+
 - Menu Text
 - Message Box Text
 - Controls Text
