@@ -23,6 +23,7 @@ COPY ./src /app/src
 COPY ./docs /app/docs
 COPY ./gulp_cfg_template.json /app
 COPY ./pyproject.toml /app
+COPY ./MANIFEST.in /app
 COPY ./LICENSE.GULP.md /app
 COPY ./LICENSE.AGPL-3.0.md /app
 COPY ./LICENSE.md /app

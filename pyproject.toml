@@ -58,10 +58,9 @@ dependencies = [
 [project.scripts]
 gulp = "gulp.__main__:main"
 
-#[tool.setuptools]
-#package-dir = {"" = "src"}
-#packages = ["gulp"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
-[tool.setuptools.package-data]
-include = ["src/gulp/api/collab/assets/**", "src/gulp/mapping_files/**"]
+[tool.setuptools]
+include-package-data = true
 
