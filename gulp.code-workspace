@@ -5,6 +5,9 @@
     },
     {
       "path": "../muty-python"
+    },
+    {
+      "path": "../gulpui-web"
     }
   ],
   "settings": {

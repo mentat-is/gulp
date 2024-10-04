@@ -1,3 +1,4 @@
+# uses environment variables in .env file
 services:
   gulp:
     profiles: ["full"]
