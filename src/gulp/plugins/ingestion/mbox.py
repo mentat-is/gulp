@@ -11,13 +11,6 @@ from gulp.utils import logger
 
 
 class Plugin(PluginBase):
-    def __init__(self, path: str):
-        super().__init__(path)
-
-        # load eml plugin
-        p = plugin.load_plugin("eml")
-        self._eml_parser = p
-
     def desc(self) -> str:
         return """generic MBOX file processor"""
 
@@ -50,6 +43,8 @@ class Plugin(PluginBase):
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
+        # Load eml plugin
+        self._eml_parser = plugin.load_plugin("eml")
 
         fs = TmpIngestStats(source)
         # initialize mapping
