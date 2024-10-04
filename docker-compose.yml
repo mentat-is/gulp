@@ -2,8 +2,8 @@
 services:
   gulp:
     profiles: ["full"]
-    # image: mentat-is/gulp:latest
-    image: gulp:latest
+    image: mentat-is/gulp-core:latest
+    #image: gulp:latest
     # build:
     #   context: .
     #   dockerfile: Dockerfile.alpine
