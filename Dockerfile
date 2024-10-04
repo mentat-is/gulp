@@ -52,8 +52,10 @@ RUN if [ -s /app/requirements.txt ]; then \
         pip3 install --no-cache-dir . ; \       
     fi
 
-# show installed package list
-RUN pip3 list
+# show python info and installed package list
+RUN echo "[.] Python version: " && python3 --version
+RUN echo "[.] Python sys.path: " && python3 -c "import sys; print('\n'.join(sys.path))"    
+RUN echo "[.] Installed packages:" && pip3 list -v
 
 # test run
 RUN set -e && python3 -m gulp --version
