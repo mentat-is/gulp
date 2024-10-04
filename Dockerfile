@@ -15,10 +15,6 @@ RUN apt-get install -y -q \
     sed \
     git \
     curl
-# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-ENV PYTHONPATH="/pip-cache:/app"
-ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 
@@ -48,15 +44,17 @@ RUN if [ -s /app/requirements.txt ]; then \
         pip3 install -r ./requirements.txt && \
         pip3 install --no-cache-dir . ; \       
     else \
-        echo "[.] No requirements.txt found, default (download pip packages)" && \   
+        echo "[.] No requirements.txt found, default (download most updated pip packages)" && \   
         pip3 install --no-cache-dir . ; \       
     fi
 
-# show installed package list
-RUN pip list
+# show python info and installed package list
+RUN echo "[.] Python version: " && python3 --version
+RUN echo "[.] Python sys.path: " && python3 -c "import sys; print('\n'.join(sys.path))"    
+RUN echo "[.] Installed packages:" && pip3 list -v
 
 # test run
-RUN set -e && python -m gulp --version
+RUN set -e && python3 -m gulp --version
 
 # expose port 8080
 EXPOSE 8080

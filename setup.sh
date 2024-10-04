@@ -147,6 +147,7 @@ do_install() {
     if [ $IS_DEV_INSTALL -eq 1 ]; then
         echo "[.] Performing DEV installation to $INSTALL_DIR"
         git clone "https://github.com/mentat-is/gulp" $INSTALL_DIR
+        git clone "https://github.com/mentat-is/gulpui-web" $INSTALL_DIR
 
         cd $INSTALL_DIR
         $python312 -m venv .venv
