@@ -1,5 +1,5 @@
 # example build command:
-# DOCKER_BUILDKIT=1 docker build --build-arg _VERSION=$(git describe --tags --always --rm -t gulp .
+# DOCKER_BUILDKIT=1 docker build --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp .
 
 FROM python:3.12.3-bullseye
 
@@ -7,9 +7,7 @@ FROM python:3.12.3-bullseye
 ARG _VERSION
 ENV _VERSION=${_VERSION}
 
-RUN mkdir /pip-cache
-
-# install rust
+# install dependencies
 RUN apt-get -qq update
 RUN apt-get install -y -q \
     libsystemd-dev \
@@ -23,7 +21,6 @@ ENV PYTHONPATH="/pip-cache:/app"
 ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
-
 
 # copy template and requirements over.
 COPY ./src /app/src
@@ -42,14 +39,13 @@ COPY ./requirements.txt* /app/requirements.txt
 # set version passed as build argument
 RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
 
-RUN --mount=type=cache,target=/root/.cache \
-    if [ -s /app/requirements.txt ]; then \
+RUN if [ -s /app/requirements.txt ]; then \
         # we patch the pyproject.toml to remove the dependencies so we can install the
         # frozen requirements from the host
         echo "[.] Patching pyproject.toml to remove dependencies" && \
         sed -i '/dependencies = \[/,/^\]/d' /app/pyproject.toml &&\
         echo "[.] Installing frozen requirements" &&\
-        pip3 install --target=/pip-cache -r ./requirements.txt && \
+        pip3 install -r ./requirements.txt && \
         pip3 install --no-cache-dir . ; \       
     else \
         echo "[.] No requirements.txt found, default (download pip packages)" && \   
