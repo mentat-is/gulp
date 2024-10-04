@@ -41,12 +41,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Run script to freeze requirements (on tags or main branch or manual trigger)
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'  || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
-        run: |
-          chmod +x ./update_requirements_txt.sh
-          ./update_requirements_txt.sh
-
       - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]      
         uses: docker/build-push-action@v6
         with:
