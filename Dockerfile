@@ -60,7 +60,7 @@ RUN --mount=type=cache,target=/root/.cache \
 RUN pip list
 
 # test run
-RUN set -e && python -m gulp --version || echo "!!! python -m gulp failed !!!"
+RUN set -e && python -m gulp --version
 
 # expose port 8080
 EXPOSE 8080
