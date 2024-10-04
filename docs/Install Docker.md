@@ -2,6 +2,12 @@
 
 [TOC]
 
+## pull image directly from docker hub
+
+```bash
+docker run mentatis/gulp-core:latest
+```
+
 ## (re)build image from a dev environment
 
 1. clone this repository and perform [install from sources](<./Install Dev.md>)
