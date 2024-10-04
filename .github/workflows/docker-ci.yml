@@ -50,7 +50,7 @@ jobs:
             _VERSION=${{ steps.get-docker-tag.outputs.git_version }}
 
           # if false it will only build
-          push: false
+          push: true
           tags: |
             ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest
             ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.git_version }}
