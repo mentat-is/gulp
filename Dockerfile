@@ -53,10 +53,10 @@ RUN if [ -s /app/requirements.txt ]; then \
     fi
 
 # show installed package list
-RUN pip list
+RUN pip3 list
 
 # test run
-RUN set -e && python -m gulp --version
+RUN set -e && python3 -m gulp --version
 
 # expose port 8080
 EXPOSE 8080
