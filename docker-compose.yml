@@ -2,11 +2,9 @@
 services:
   gulp:
     profiles: ["full"]
-    #image: mentatis/gulp-core:latest
-    image: gulp-core:latest
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile.alpine
+    image: mentatis/gulp-core:latest
+    #image: gulp-core:latest
+    
     container_name: gulp
     environment:
       - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}

@@ -150,7 +150,9 @@ def main():
                 reset_collab = True
                 logger().info(
                     "first run detected, creating default index: %s" % (elastic_index)
-                )                
+                )     
+            else:
+                logger().info("not first run")           
             rest_api.start_server(
                 address,
                 port,

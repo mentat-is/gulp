@@ -232,7 +232,7 @@ def delete_first_run_file() -> None:
     config_directory = config.config_dir()
     check_first_run_file = os.path.join(config_directory, ".first_run_done")
     if os.path.exists(check_first_run_file):
-        os.remove(check_first_run_file)
+        muty.file.delete_file_or_dir(check_first_run_file)
         logger().info("first run file deleted: %s" % (check_first_run_file))
     else:
         logger().warning("first run file does not exist: %s" % (check_first_run_file))
