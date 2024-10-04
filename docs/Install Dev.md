@@ -101,8 +101,8 @@ cd ./repos/gulp
 # docker compose down
 docker compose up -d
 
-# run gulp (FIRST TIME ONLY: initialize collaboration database and opensearch index with "--reset-collab --reset-elastic testidx")
-gulp --bind-to 0.0.0.0 8080 --reset-collab --reset-elastic testidx
+# run gulp
+gulp --bind-to 0.0.0.0 8080
 
 # otherwise just run gulp --bind-to 0.0.0.0 8080
 ~~~
