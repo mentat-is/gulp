@@ -15,10 +15,6 @@ RUN apt-get install -y -q \
     sed \
     git \
     curl
-# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-ENV PYTHONPATH="/pip-cache:/app"
-ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 
