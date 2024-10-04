@@ -2,7 +2,7 @@
 services:
   gulp:
     profiles: ["full"]
-    image: mentat-is/gulp-core:latest
+    image: mentatis/gulp-core:latest
     #image: gulp:latest
     # build:
     #   context: .
