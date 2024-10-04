@@ -45,7 +45,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          
+          no-cache: true
           build-args: |
             _VERSION=${{ steps.get-docker-tag.outputs.git_version }}
 
