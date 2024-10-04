@@ -159,8 +159,8 @@ do_install() {
         deactivate
         cd $prev_pwd
 
-        echo "[*] To start gulp for the first time, run:"
-        echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
+        echo "[*] To start gulp run:"
+        echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp"
     else
         echo "[.] Performing PROD installation to $INSTALL_DIR"
 
@@ -176,8 +176,8 @@ do_install() {
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/gulp_cfg_template.json -o $INSTALL_DIR/gulp_cfg_template.json
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/Dockerfile -o $INSTALL_DIR/Dockerfile
 
-        echo "[*] To start gulp for the first time, run:"
-        echo "cd $INSTALL_DIR && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
+        echo "[*] To start gulp run:"
+        echo "cd $INSTALL_DIR && docker compose up -d && gulp"
     fi
 
     # Prepare directories
