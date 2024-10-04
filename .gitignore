@@ -31,8 +31,7 @@ test_scripts/test.json
 requirements.txt
 
 #non free plugins
-src/gulp/plugins/**/paid_*.py*
-
+src/gulp/plugins/**/paid/*.py*
 
 #auto generated docs
 docs/html

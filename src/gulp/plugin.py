@@ -1,7 +1,6 @@
 """Gulp plugin base class and plugin utilities.
 """
 
-import importlib
 import ipaddress
 import os
 from abc import ABC, abstractmethod
@@ -1115,23 +1114,42 @@ class PluginBase(ABC):
         return status
 
 
-def _get_plugin_path(
+def get_plugin_path(
     plugin: str, plugin_type: GulpPluginType = GulpPluginType.INGESTION
 ) -> str:
-
+    """
+    try different paths to get plugin path for a certain type
+    
+    Args:
+        plugin (str): The name of the plugin.
+        plugin_type (GulpPluginType, optional): The type of the plugin. Defaults to GulpPluginType.INGESTION.
+    
+    Returns:
+        str: The plugin path.
+    
+    Raises:
+        ObjectNotFound: If the plugin could not be found.
+    """
     # try plain .py first
     # TODO: on license manager, disable plain .py load (only encrypted pyc)
     # get path according to plugin type
     path_plugins = config.path_plugins(plugin_type)
-    plugin_path = os.path.join(path_plugins, f"{plugin}.py")
-
-    if not muty.file.exists(plugin_path):
-        plugin_path = os.path.join(path_plugins, f"{plugin}.pyc")
-        if not muty.file.exists(plugin_path):
-            raise ObjectNotFound(
-                f"Plugin {plugin} not found (tried {plugin}.py and {plugin}.pyc in {path_plugins})"
-            )
-    return plugin_path
+    plugin_path = muty.file.safe_path_join(path_plugins, f"{plugin}.py")
+    paid_plugin_path = muty.file.safe_path_join(path_plugins, f"paid/{plugin}.py", allow_relative=True)
+    plugin_path_pyc = muty.file.safe_path_join(path_plugins, f"{plugin}.pyc")
+    paid_plugin_path_pyc = muty.file.safe_path_join(path_plugins, f"paid/{plugin}.pyc", allow_relative=True)
+    logger().debug('trying to load plugin %s from paths: %s, %s, %s, %s' % (plugin, plugin_path, paid_plugin_path, plugin_path_pyc, paid_plugin_path_pyc))
+    if muty.file.exists(paid_plugin_path):
+        return paid_plugin_path
+    if muty.file.exists(plugin_path):        
+        return plugin_path
+    if muty.file.exists(paid_plugin_path_pyc):
+        return paid_plugin_path_pyc
+    if muty.file.exists(plugin_path_pyc):
+        return plugin_path_pyc
+    raise ObjectNotFound(
+        f"Plugin {plugin} not found!"
+    )
 
 def load_plugin(
     plugin: str,
@@ -1157,24 +1175,28 @@ def load_plugin(
         Exception: If the plugin could not be loaded.
     """
     logger().debug("load_plugin %s, type=%s, ignore_cache=%r, kwargs=%s ..." % (plugin, plugin_type, ignore_cache, kwargs))
-
-    if not '/' in plugin and (plugin.lower().endswith(".py") or plugin.lower().endswith(".pyc")):
+    plugin_bare_name = plugin
+    is_absolute_path = plugin.startswith('/')
+    if is_absolute_path:
+        plugin_bare_name = os.path.basename(plugin)
+        
+    if plugin_bare_name.lower().endswith(".py") or plugin_bare_name.lower().endswith(".pyc"):
         # remove extension
-        plugin = plugin.rsplit(".", 1)[0]
+        plugin_bare_name = plugin_bare_name.rsplit(".", 1)[0]
 
-    m = plugin_cache_get(plugin)
+    m = plugin_cache_get(plugin_bare_name)
     if ignore_cache:
-        logger().debug("ignoring cache for plugin %s" % (plugin))
+        logger().debug("ignoring cache for plugin %s" % (plugin_bare_name))
         m = None
 
-    if "/" in plugin:
+    if is_absolute_path:
         # plugin is an absolute path
         path = muty.file.abspath(plugin)
     else:
         # use plugin_type to load from the correct subfolder
-        path = _get_plugin_path(plugin, plugin_type=plugin_type)
+        path = get_plugin_path(plugin_bare_name, plugin_type=plugin_type)
 
-    module_name = f"gulp.plugins.{plugin_type.value}.{plugin}"
+    module_name = f"gulp.plugins.{plugin_type.value}.{plugin_bare_name}"
     try:
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
     except Exception as ex:
@@ -1184,8 +1206,7 @@ def load_plugin(
 
     mod: PluginBase = m.Plugin(path, _pickled=from_reduce, **kwargs)
     logger().debug("loaded plugin m=%s, mod=%s, name()=%s" % (m, mod, mod.name()))
-    plugin_cache_add(m, plugin)
-
+    plugin_cache_add(m, plugin_bare_name)
     return mod
 
 
@@ -1200,14 +1221,15 @@ async def list_plugins() -> list[dict]:
     l = []
     for plugin_type in GulpPluginType:
         subdir_path = os.path.join(path_plugins, plugin_type.value)
-        files = await muty.file.list_directory_async(subdir_path, "*.py*")
+        files = await muty.file.list_directory_async(subdir_path, "*.py*", recursive=True)
         for f in files:
             if "__init__" not in f and "__pycache__" not in f:
                 try:
-                    p = load_plugin(os.path.splitext(os.path.basename(f))[0], plugin_type)
+                    p = load_plugin(os.path.splitext(os.path.basename(f))[0], plugin_type, ignore_cache=True)
                     n = {
                         "display_name": p.name(),
                         "type": str(p.type()),
+                        "paid": '/paid/' in f.lower(),
                         "desc": p.desc(),
                         "filename": os.path.basename(p.path),
                         "internal": p.internal(),
@@ -1226,17 +1248,19 @@ async def list_plugins() -> list[dict]:
     return l
 
 
-async def get_plugin_tags(plugin: str) -> list[str]:
+async def get_plugin_tags(plugin: str, t: GulpPluginType=GulpPluginType.INGESTION) -> list[str]:
     """
     Get the tags for a given (ingestion) plugin.
 
     Args:
         plugin (str): The name of the plugin to get the tags for.
+        t (GulpPluginType, optional): The type of the plugin. Defaults to GulpPluginType.INGESTION.
     Returns:
         list[str]: The tags for the given plugin.
     """
-    p = load_plugin(plugin)
+    p = load_plugin(plugin, plugin_type=t, ignore_cache=True)
     tags = p.tags()
+    unload_plugin(p)
     return tags
 
 

@@ -537,13 +537,12 @@ def elastic_verify_certs() -> bool:
     return n
 
 
-def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
+def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION, paid: bool=False) -> str:
     """
     returns the plugins path depending on the plugin type
 
-    t: GulpPluginType = GulpPluginType.INGESTION
-        use None to return the base plugins path
-
+    t: GulpPluginType = GulpPluginType.INGESTION, use None to return the base plugins path
+    paid: bool = False, if True, the paid plugins path will be returned (ignolred if t is None)
     returns:
         str: the plugins path
     """
@@ -564,6 +563,9 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
 
             # append plugins type directory
             pp = os.path.expanduser(p)
+            if paid:
+                pp = muty.file.safe_path_join(pp, "paid")
+                
             return muty.file.safe_path_join(pp, t.value)
 
         # logger().debug("using default plugins path: %s" % (default_path))
@@ -575,7 +577,6 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION) -> str:
 
     # use plugin type as subdirectory
     return muty.file.safe_path_join(p, t.value)
-
 
 def path_mapping_files() -> str:
     """

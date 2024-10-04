@@ -1216,6 +1216,20 @@ async def shutdown_client(el: AsyncElasticsearch) -> None:
         logger().debug("elasticsearch client shutdown: %s" % (el))
 
 
+async def check_alive(el: AsyncElasticsearch) -> None:
+    """
+    Check if the Elasticsearch client is alive.
+
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client.
+
+    Raises:
+        Exception: If the client is not reachable
+        
+    """
+    res = await el.info()
+    logger().debug("elasticsearch info: %s" % (res))
+    
 def elastic(invalidate: bool = False) -> AsyncElasticsearch:
     """
     Returns the ElasticSearch client instance.

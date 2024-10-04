@@ -223,3 +223,38 @@ def ensure_req_id(req_id: str = None) -> str:
     if req_id is None:
         return muty.string.generate_unique()
     return req_id
+
+def delete_first_run_file() -> None:
+    """
+    deletes the ".first_run_done" file in the config directory.
+    """
+    import gulp.config as config
+    config_directory = config.config_dir()
+    check_first_run_file = os.path.join(config_directory, ".first_run_done")
+    if os.path.exists(check_first_run_file):
+        os.remove(check_first_run_file)
+        logger().info("first run file deleted: %s" % (check_first_run_file))
+    else:
+        logger().warning("first run file does not exist: %s" % (check_first_run_file))
+
+def check_first_run() -> bool:
+    """
+    checks if this is the first run of the application by checking the existence of ".first_run_done" file in the config directory.
+    
+    :return: True if this is the first run, False otherwise.    
+    """
+    
+    # check if this is the first run
+    import gulp.config as config
+    config_directory = config.config_dir()
+    check_first_run_file = os.path.join(config_directory, ".first_run_done")
+    if os.path.exists(check_first_run_file):
+        logger().debug("first run file exists: %s" % (check_first_run_file))
+        return False
+
+    logger().warning("first run file does not exist: %s" % (check_first_run_file))
+    # create the file
+    with open(check_first_run_file, "w") as f:
+        f.write("gulp!")
+    return True
+

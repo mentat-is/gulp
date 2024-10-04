@@ -144,7 +144,7 @@ async def plugin_get_handler(
     plugin: Annotated[
         str,
         Query(
-            description='filename of the plugin to retrieve content for, i.e. "win_evtx.py"'
+            description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
         ),
     ],
     plugin_type: Annotated[
@@ -159,9 +159,8 @@ async def plugin_get_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(await collab_api.collab(), token)
-
         path_plugins = config.path_plugins(plugin_type)
-        file_path = muty.file.safe_path_join(path_plugins, plugin)
+        file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
         # read file content
         f = await muty.file.read_file_async(file_path)
@@ -199,7 +198,7 @@ async def plugin_get_handler(
 async def plugin_delete_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     plugin: Annotated[
-        str, Query(description='filename of the plugin to be deleted, i.e. "win_evtx.py"')
+        str, Query(description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"')
     ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
@@ -216,7 +215,7 @@ async def plugin_delete_handler(
         )
 
         path_plugins = config.path_plugins(plugin_type)
-        file_path = muty.file.safe_path_join(path_plugins, plugin)
+        file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
         # delete file
         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
@@ -253,8 +252,8 @@ async def plugin_upload_handler(
     token: Annotated[
         str, Header(description=gulp.defs.API_DESC_TOKEN + " with EDIT permission")
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
-    plugin: Annotated[UploadFile, File(description="the plugin file")] = None,
+    plugin: Annotated[UploadFile, File(description="the plugin file")],
+    filename: Annotated[str, Query(description='the filename to save the plugin as, i.e. "plugin.py", "paid/paid_plugin.py"')],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
         Query(
@@ -264,6 +263,7 @@ async def plugin_upload_handler(
     allow_overwrite: Annotated[
         bool, Query(description="if set, will overwrite an existing plugin file.")
     ] = True,
+    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
@@ -271,11 +271,10 @@ async def plugin_upload_handler(
             await collab_api.collab(), token, GulpUserPermission.EDIT
         )
         path_plugins = config.path_plugins(plugin_type)
-        filename = os.path.basename(plugin.filename)
-        plugin_path = muty.file.safe_path_join(path_plugins, filename)
+        plugin_path = muty.file.safe_path_join(path_plugins, filename, allow_relative=True)
 
-        if not filename.lower().endswith(".py"):
-            raise gulp.defs.InvalidArgument("plugin must be a .py file.")
+        if not filename.lower().endswith(".py") and not filename.lower().endswith(".pyc"):
+            raise gulp.defs.InvalidArgument("plugin must be a .py/.pyc file.")
 
         if not allow_overwrite:
             # overwrite disabled
@@ -285,7 +284,7 @@ async def plugin_upload_handler(
                 )
 
         # ok, write file
-        await muty.uploadfile.to_path(plugin, dest_dir=path_plugins)
+        await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(plugin_path))
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"filename": filename})
         )
@@ -312,18 +311,24 @@ async def plugin_upload_handler(
             }
         }
     },
-    summary="get tags for the given (ingestion) plugin, if they are set: this allow to better identify plugin capabilities.",
+    summary="get tags for the given plugin, if they are set: this allow to better identify plugin capabilities.",
 )
 async def plugin_tags_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
+    plugin_type: Annotated[
+        gulp.defs.GulpPluginType,
+        Query(
+            description=gulp.defs.API_DESC_PLUGIN_TYPE
+        ),
+    ] = gulp.defs.GulpPluginType.INGESTION,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(await collab_api.collab(), token)
-        l = await gulp.plugin.get_plugin_tags(plugin)
+        l = await gulp.plugin.get_plugin_tags(plugin, plugin_type)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

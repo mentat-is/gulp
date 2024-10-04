@@ -2,8 +2,8 @@
 services:
   gulp:
     profiles: ["full"]
-    image: mentatis/gulp-core:latest
-    #image: gulp-core:latest
+    #image: mentatis/gulp-core:latest
+    image: gulp-core:latest
     # build:
     #   context: .
     #   dockerfile: Dockerfile.alpine
@@ -16,6 +16,7 @@ services:
       - IFACE=${IFACE}
     volumes:
       - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
+      - .first_run_done:/root/.config/gulp/first_run_done
 
     depends_on:
       - postgres

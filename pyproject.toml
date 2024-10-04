@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=60", "setuptools-scm>=8.0"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -57,3 +57,4 @@ dependencies = [
 
 [project.scripts]
 gulp = "gulp.__main__:main"
+

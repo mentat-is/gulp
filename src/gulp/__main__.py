@@ -4,12 +4,13 @@ import logging
 import os
 import sys
 from multiprocessing import freeze_support
-
 import art
 
+from gulp.utils import logger
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.utils
+import muty.file
 
 _logger = None
 __RUN_TESTS__ = False
@@ -30,8 +31,10 @@ async def async_test():
             is_last = True
 
         count += 1
-        print("running batch %d of %d tasks, total=%d, last=%r ..." %
-              (count, batch_size, l, is_last))
+        print(
+            "running batch %d of %d tasks, total=%d, last=%r ..."
+            % (count, batch_size, l, is_last)
+        )
 
     sys.exit(0)
 
@@ -43,6 +46,7 @@ def test():
     if not __debug__:
         return
     asyncio.run(async_test())
+
 
 def main():
     """
@@ -128,10 +132,10 @@ def main():
     # get params
     try:
         if args.version:
-            # print version string
+            # print version string and exit
             print(gulp.utils.version_string())
-        elif args.bind_to is not None:
-            # server mode
+        else:
+            # default
             print("%s\n%s" % (banner, gulp.utils.version_string()))
             address = args.bind_to[0]
             port = int(args.bind_to[1])
@@ -139,14 +143,23 @@ def main():
             elastic_index = (
                 args.reset_elastic[0] if args.reset_elastic is not None else None
             )
+            is_first_run = gulp.utils.check_first_run()
+            if is_first_run:
+                # first run, create index            
+                elastic_index = "gulpidx"
+                reset_collab = True
+                logger().info(
+                    "first run detected, creating default index: %s" % (elastic_index)
+                )                
             rest_api.start_server(
                 address,
                 port,
                 log_file_path,
                 reset_collab,
                 elastic_index,
+                is_first_run
             )
-    except Exception as ex:
+    except Exception as ex:                        
         # print exception and exit
         _logger.exception(ex)
         sys.exit(1)
