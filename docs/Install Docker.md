@@ -9,7 +9,7 @@
 2. build gulp image
 
 ~~~bash
-DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp .
+DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
 
 # to rebuild, add --no-cache flag ...
 ~~~

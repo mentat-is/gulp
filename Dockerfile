@@ -56,9 +56,11 @@ RUN --mount=type=cache,target=/root/.cache \
         pip3 install --no-cache-dir . ; \       
     fi
 
-# just for debugging
-RUN python -m gulp --version || echo "python -m gulp failed"
+# show installed package list
 RUN pip list
+
+# test run
+RUN set -e && python -m gulp --version || echo "!!! python -m gulp failed !!!"
 
 # expose port 8080
 EXPOSE 8080
