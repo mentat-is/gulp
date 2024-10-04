@@ -27,7 +27,7 @@ you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) fil
 use the provided [run_gulp.sh](../run_gulp.sh) script to run gulp with docker-compose:
 
 ```bash
-# default binds to port 8080 and interface 0.0.0.0
+# default binds to port 8080 and interface 0.0.0.0. on first run, default collaboration database and default "gulpidx" index are initialized.
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh
 
 # bind to a different port
@@ -42,3 +42,14 @@ GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx
 # reset elasticsearch and collab
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx --reset-collab
 ```
+
+> NOTE:
+> when run through the provided docker-compose, gulp creates the following in the current directory:
+>
+> - opensearch_data
+> - postgres_data
+> - .gulpconfig
+>
+> to cleanup correctly and restart from scratch, **all of them should be removed**.
+
+once you're done, `docker stop gulp && docker compose down` will shutdown both gulp and the related services.

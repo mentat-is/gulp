@@ -14,7 +14,7 @@ services:
       - IFACE=${IFACE}
     volumes:
       - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
-      - .first_run_done:/root/.config/gulp/first_run_done
+      - ./.gulpconfig:/root/.config/gulp
 
     depends_on:
       - postgres
@@ -54,7 +54,7 @@ services:
     ports:
       - 9200:9200
     volumes:
-      - ${ELASTIC_DATA}1:/usr/share/opensearch/data
+      - ${ELASTIC_DATA}:/usr/share/opensearch/data
 
   ############################################################
   # Uncomment the following to create a cluster with 3 nodes.#
