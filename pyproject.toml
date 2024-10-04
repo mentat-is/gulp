@@ -2,23 +2,6 @@
 requires = ["setuptools>=60", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-packages = ["gulp"]
-
-[tool.setuptools.package-data]
-gulp = [
-    "**/mapping-files/*.json",
-    "**/collab/assets/*",
-    # include all plugins except paid ones
-    "**/plugins/*.py",
-    "!**/plugins/**/paid_*.py",
-    "!**/plugins/**/paid_*.pyc",
-    # Exclude __pycache__ directories
-    "!**/__pycache__"
-
-]
-
 [project]
 name = "gulp"
 version = "0.0.0.0"
@@ -74,4 +57,3 @@ dependencies = [
 
 [project.scripts]
 gulp = "gulp.__main__:main"
-
