@@ -26,10 +26,13 @@ build
 .DS_Store
 test_scripts/test.json
 *log*.txt
+.gulpconfig
+
+# this should be force-pushed to master on stable builds
+requirements.txt
 
 #non free plugins
-src/gulp/plugins/**/paid_*.py*
-
+src/gulp/plugins/**/paid/*.py*
 
 #auto generated docs
 docs/html

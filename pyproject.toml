@@ -1,12 +1,10 @@
 [build-system]
-requires = ["setuptools>=60", "setuptools-scm>=8.0"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools_scm]
 
 [project]
 name = "gulp"
-dynamic = ["version"]
+version = "0.0.0.0"
 authors = [{ name = "Mentat", email = "info@mentat.is" }]
 description = "gULP - (generic) Unified Log Processor."
 readme = "README.md"
@@ -58,4 +56,11 @@ dependencies = [
 ]
 
 [project.scripts]
-gulp = "gulp.gulp:main"
+gulp = "gulp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+include-package-data = true
+

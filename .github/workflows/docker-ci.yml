@@ -23,21 +23,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # extracts tag from ref, returns semver tag or sha suffix
-      - name: Get Docker tag
-        id: get-docker-tag
-        env:
-          GITHUB_REF: ${{ github.ref }}
-          COMMIT_SHA: ${{ github.sha }}
+      - name: Get Docker tag (git version)
+        id: get-docker-tag        
         run: |
-          if [[ ${{ github.ref_type }} == "tag" ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/v}" >> ${GITHUB_OUTPUT}
-          else
-            echo "tag=${COMMIT_SHA:0:7}" >> ${GITHUB_OUTPUT}
-          fi
-      
+          GIT_DESCRIBE=$(git describe --tags --always)
+          echo "git_version=${GIT_DESCRIBE}" >> ${GITHUB_OUTPUT}
+              
       - name: Output Docker tag
-        run: echo ${{ steps.get-docker-tag.outputs.tag }}
+        run: echo ${{ steps.get-docker-tag.outputs.git_version }}
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -48,13 +41,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]
+      - name: Build and push [${{ env.DOCKER_IMAGE_NAME }}]      
         uses: docker/build-push-action@v6
         with:
+          context: .
+          no-cache: true
           build-args: |
-            VERSION_COMMIT=${{ steps.get-docker-tag.outputs.tag }}
+            _VERSION=${{ steps.get-docker-tag.outputs.git_version }}
+
           # if false it will only build
-          push: false
+          push: true
           tags: |
             ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:latest
-            ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.tag }}
+            ${{ env.DOCKER_REPOSITORY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.get-docker-tag.outputs.git_version }}

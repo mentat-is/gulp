@@ -45,13 +45,17 @@ Here's the rough timeline we put together, it is subject to change:
 soon we will release the slides we did at [MOCA2024](https://moca.camp), stay tuned!
 
 ## Installation
+
 ### Quick Install
+
 ```
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh | sudo bash
 ```
+
 This will create a `gulp` folder, inside the current directory.
 
 ### Other installation methods
+
 - [docker](<./docs/Install Docker.md>)
 - [install from sources](<./docs/Install Dev.md>)
 
@@ -107,7 +111,7 @@ to use HTTPS, the following certificates must be available:
 
 ### Run
 
-[with docker](<./docs/Install Docker.md#run>) or [with install from sources](<./docs/Install Dev.md#3-run>)
+[with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
 
 #### Test ingestion
 

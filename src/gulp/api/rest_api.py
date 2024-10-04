@@ -42,11 +42,12 @@ from gulp.api.collab.base import (
     WrongUsernameOrPassword,
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
-from gulp.utils import logger
+from gulp.utils import logger, delete_first_run_file
 
 _process_executor: aiomultiprocess.Pool = None
 _thread_pool_executor: ThreadPoolExecutor = None
 _log_file_path: str = None
+_is_first_run: bool = False
 _reset_collab_on_start: bool = False
 _elastic_index_to_reset: str = None
 _aiopool: AioPool = None
@@ -177,7 +178,7 @@ async def lifespan_handler(app: FastAPI):
     Yields:
         None
     """
-    global _mpManager, _aiopool, _process_executor, _reset_collab_on_start, _ws_q, _extension_plugins, _thread_pool_executor
+    global _mpManager, _aiopool, _process_executor, _reset_collab_on_start, _ws_q, _extension_plugins, _thread_pool_executor, _is_first_run
 
     logger().info("gULP starting!")
     logger().warning(
@@ -204,16 +205,26 @@ async def lifespan_handler(app: FastAPI):
     _thread_pool_executor = ThreadPoolExecutor()
 
     # setup collab and elastic
-    if _reset_collab_on_start:
-        logger().warning(
-            "--reset-collab is set, dropping and recreating the collaboration database ..."
-        )
-        await collab_db.drop(config.postgres_url())
 
     # create main process clients
     collab = await collab_api.collab()
     elastic = elastic_api.elastic()
     logger().debug("main process collab=%s, elastic=%s" % (collab, elastic))
+    try:
+        await collab_api.check_alive(collab)
+        # await elastic_api.check_alive(elastic)
+    except Exception as ex:
+        if _is_first_run:
+            # on first run, we delete the first run file
+            delete_first_run_file()            
+        raise ex                        
+    
+    if _reset_collab_on_start:
+        logger().warning(
+            "--reset-collab is set, dropping and recreating the collaboration database ..."
+        )
+        await collab_db.drop(config.postgres_url())
+        collab = await collab_api.collab(invalidate=True)
 
     if _elastic_index_to_reset is not None:
         logger().warning(
@@ -415,6 +426,7 @@ def start_server(
     log_file_path: str = None,
     reset_collab: bool = False,
     elastic_index: str = None,
+    is_first_run: bool = False,
 ):
     """
     Starts a server at the specified address and port using the global `_app` instance.
@@ -424,10 +436,11 @@ def start_server(
         port (int): The port number to bind the server to.
         reset_collab (bool): If True, the collab will be reset on start.
         elastic_index (str): The name of the ElasticSearch index to create (if --reset-elastic is passed).
+        is_first_run (bool): If True, this is the first run of the server.
     """
 
     # set these globals in the main server process
-    global _app, _log_file_path, _reset_collab_on_start, _elastic_index_to_reset
+    global _app, _log_file_path, _reset_collab_on_start, _elastic_index_to_reset, _is_first_run
 
     # set sigint handler (no more needed)
     # signal.signal(signal.SIGINT, set_shutdown)
@@ -435,7 +448,8 @@ def start_server(
     _log_file_path = log_file_path
     _reset_collab_on_start = reset_collab
     _elastic_index_to_reset = elastic_index
-
+    _is_first_run = is_first_run
+    
     # Append all routers to main app
     import gulp.api.rest.client
     import gulp.api.rest.collab_utility

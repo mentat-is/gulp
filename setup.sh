@@ -147,6 +147,7 @@ do_install() {
     if [ $IS_DEV_INSTALL -eq 1 ]; then
         echo "[.] Performing DEV installation to $INSTALL_DIR"
         git clone "https://github.com/mentat-is/gulp" $INSTALL_DIR
+        git clone "https://github.com/mentat-is/gulpui-web" $INSTALL_DIR
 
         cd $INSTALL_DIR
         $python312 -m venv .venv
@@ -158,8 +159,8 @@ do_install() {
         deactivate
         cd $prev_pwd
 
-        echo "[*] To start gulp for the first time, run:"
-        echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
+        echo "[*] To start gulp run:"
+        echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp"
     else
         echo "[.] Performing PROD installation to $INSTALL_DIR"
 
@@ -177,8 +178,8 @@ do_install() {
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/.env -o $INSTALL_DIR/.env
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/docker-compose.yml -o $INSTALL_DIR/docker-compose.yml
 
-        echo "[*] To start gulp for the first time, run:"
-        echo "cd $INSTALL_DIR && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
+        echo "[*] To start gulp run:"
+        echo "cd $INSTALL_DIR && docker compose up -d && gulp"
     fi
 
     # Prepare directories
