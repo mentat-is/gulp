@@ -171,9 +171,11 @@ do_install() {
         su $SUDO_USER -c "pipx install git+https://github.com/mentat-is/gulp"
         mkdir -p $INSTALL_DIR
 
-        #download the bare minimum (gulp config template & Dockerfile)
+        # download the bare minimum files needed to run gulp
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/gulp_cfg_template.json -o $INSTALL_DIR/gulp_cfg_template.json
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/Dockerfile -o $INSTALL_DIR/Dockerfile
+        curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/.env -o $INSTALL_DIR/.env
+        curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/docker-compose.yml -o $INSTALL_DIR/docker-compose.yml
 
         echo "[*] To start gulp for the first time, run:"
         echo "cd $INSTALL_DIR && docker compose up -d && gulp --reset-collab --reset-elastic gulpidx"
@@ -196,13 +198,14 @@ do_install() {
 usage() {
     echo "Usage: $0 [-h|--help] [--dev] [-d <path>]" 1>&2
     echo -e "\t-h|--help: show this help message" 1>&2
+    echo -e "\t-d <path>: specify the installation directory" 1>&2
     echo -e "\t--dev: developer install" 1>&2
     echo -e "\t--prod: production install (default)" 1>&2
     exit 1
 }
 
 main() {
-    while getopts ":dh-:" o; do
+    while getopts ":d:h-:" o; do
         case "${o}" in
             #long options
             -)
@@ -232,6 +235,7 @@ main() {
 
             d)
                 INSTALL_DIR=${OPTARG}
+                echo "$INSTALL_DIR"
             ;;
 
             h)
