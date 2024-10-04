@@ -48,7 +48,7 @@ RUN if [ -s /app/requirements.txt ]; then \
         pip3 install -r ./requirements.txt && \
         pip3 install --no-cache-dir . ; \       
     else \
-        echo "[.] No requirements.txt found, default (download pip packages)" && \   
+        echo "[.] No requirements.txt found, default (download most updated pip packages)" && \   
         pip3 install --no-cache-dir . ; \       
     fi
 
