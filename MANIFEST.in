@@ -1,0 +1,2 @@
+include src/gulp/api/collab/assets/*
+include src/gulp/mapping_files/*
