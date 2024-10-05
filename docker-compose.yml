@@ -24,6 +24,16 @@ services:
       - ${PORT:-8080}:${PORT:-8080}
     command: python3 -m gulp ${EXTRA_ARGS:-} --bind-to ${IFACE:-0.0.0.0} ${PORT:-8080}
 
+  gulpui-web:
+    #image: mentatis/gulpui-web:latest
+    image: gulpui-web:latest
+    depends_on:
+      - gulp
+    container_name: gulpui-web
+    restart: on-failure
+    ports:
+      - 3000:3000
+
   os01:
     restart: always
     image: opensearchproject/opensearch:latest

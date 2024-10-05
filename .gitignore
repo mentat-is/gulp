@@ -18,6 +18,7 @@ elastic_data3
 elastic_data
 redis_data
 postgres_data
+opensearch_data
 opensearch_data1
 opensearch_data2
 opensearch_data3
