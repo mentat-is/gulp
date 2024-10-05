@@ -15,7 +15,7 @@ docker run mentatis/gulp-core:latest
 2. build gulp image
 
 ~~~bash
-DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
+docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
 
 # to rebuild, add --no-cache flag ...
 ~~~
@@ -24,7 +24,9 @@ DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg _VERSION=$(git descr
 
 you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) file to the container, and you're ready to go!
 
-use the provided [run_gulp.sh](../run_gulp.sh) script to run gulp with docker-compose:
+use the provided [run_gulp.sh](../run_gulp.sh) script to manage gulp running through the provided [docker-compose](../docker-compose.yml):
+
+> use `run_gulp.sh --help to see available options`
 
 ```bash
 # default binds to port 8080 and interface 0.0.0.0. on first run, default collaboration database and default "gulpidx" index are initialized.
@@ -36,10 +38,10 @@ GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 ./run_gulp.sh
 # also to a a different interface
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 IFACE=192.168.1.1 ./run_gulp.sh
 
-# reset elasticsearch (use index name)
+# reset opensearch (use index name)
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx
 
-# reset elasticsearch and collab
+# reset opensearch and collab
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx --reset-collab
 ```
 
@@ -52,4 +54,5 @@ GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx
 >
 > to cleanup correctly and restart from scratch, **all of them should be removed**.
 
-once you're done, `docker stop gulp && docker compose down` will shutdown both gulp and the related services.
+once you're done, `run_gulp.sh --stop` may be used to stop all the running containers.
+

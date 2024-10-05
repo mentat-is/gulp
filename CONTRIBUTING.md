@@ -13,6 +13,10 @@ To submit PRs, just stick with these simple rules:
 5. **plugin.ingest() should not throw exceptions: instead, eat it and loop to be sure to ingest as much data as you can from the input.**
 6. use [microsoft's black](https://marketplace.visualstudio.com/items?itemName=ms-python.black-formatter) formatter with the default settings.
 
+### notes for mantainers
+
+- > at release/tag time, use [the provided script](./requirements.txt) to freeze python requirements, **force push it to the target branch** and recreate the docker image.
+  
 ## Bug reporting
 
 1. `gulp --version`

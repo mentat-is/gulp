@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# call docker-compose with optional arguments to:
-# - reset elasticsearch
-# - reset collab
-# - set the port
-# - set the interface
-# - set the path to store opensearch data
-# - set the path to store postgres data
+# managess the docker-compose environment for GULP
 
 EXTRA_ARGS=""
 PORT=8080
@@ -40,6 +34,12 @@ while [[ $# -gt 0 ]]; do
       POSTGRES_DATA_PATH=$2
       shift 2
       ;;
+    --stop)
+      docker compose --profile full down
+      docker compose down
+      shift
+      exit 0
+      ;;
     -d)
       BACKGROUND="-d"
       shift
@@ -53,14 +53,15 @@ done
 
 # show help if --help or -h is provided
 if [[ "$EXTRA_ARGS" == *"--help"* || "$EXTRA_ARGS" == *"-h"*  || -z "$GULP_CONFIG_PATH" ]]; then
-  echo "Usage: GULP_CONFIG_PATH=/path/to/gulp_cfg.json $0 [--reset-collab] [--reset-elastic <index>] [--iface <iface>] [--port <port>] [--opensearch-data-path <path>] [--postgres-data-path <path>] [-d]"
+  echo "Usage: GULP_CONFIG_PATH=/path/to/gulp_cfg.json $0 [--reset-collab] [--reset-elastic <index>] [--iface <iface>] [--port <port>] [--opensearch-data-path <path>] [--postgres-data-path <path>] [-d] | --stop"
   echo "  --help, -h: show this help"
   echo "  --reset-collab: reset collab database"
   echo "  --reset-elastic: reset elasticsearch (index name must be provided as the 2nd argument.)"
   echo "  --iface: set the interface (default: 0.0.0.0)"
   echo "  --port: set the port (default: 8080)"
-  echo "  --opensearch-data-path: set the path to store opensearch data (default: ./opensearch_data1)"
+  echo "  --opensearch-data-path: set the path to store opensearch data (default: ./opensearch_data)"
   echo "  --postgres-data-path: set the path to store postgres data (default: ./postgres_data)"
+  echo "  --stop: stop the running containers (everything else is ignored)"
   echo "  -d: run in background"
   exit 0
 fi
@@ -73,4 +74,4 @@ export ELASTIC_DATA=$OPENSEARCH_DATA_PATH
 export POSTGRES_DATA=$POSTGRES_DATA_PATH
 
 # run docker-compose with the given arguments
-COMPOSE_PROFILES=full EXTRA_ARGS="$EXTRA_ARGS" IFACE=$IFACE PORT=$PORT docker-compose up $BACKGROUND
+EXTRA_ARGS="$EXTRA_ARGS" IFACE=$IFACE PORT=$PORT docker compose --profile full up $BACKGROUND
