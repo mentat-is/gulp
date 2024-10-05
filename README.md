@@ -16,7 +16,7 @@ _made with :heart: by Mentat._
 
 <div align="center">
 
-[Description](#Description) - [Architecture](#Architecture) - [API](#API) - [Installation](#Installation) - [Run & examples](#Run) - [GUI](#clients) - [Troubleshooting](./docs/Troubleshooting.md)
+[Description](#description) - [Architecture](#architecture) - [Installation](#installation) - [Run & examples](#run) - [GUI](#clients) - [Troubleshooting](./docs/Troubleshooting.md)
 
 </div>
 
@@ -46,15 +46,40 @@ soon we will release the slides we did at [MOCA2024](https://moca.camp), stay tu
 
 ## Installation
 
-### Quick Install
+### TLDR ;)
 
-```
+#### docker
+
+this will start the provided [docker-compose.yml](./docker-compose.yml) in the current directory, use [gulp_cfg_template.json](./gulp_cfg_template.json) as base for the configuration.
+
+> default credentials for opensarch and postgreSQL are taken from [.env](.env)
+
+~~~bash
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh
+~~~
+
+#### from source
+
+this will install from sources and create a `gulp` folder, inside the current directory.
+
+~~~bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh | sudo bash
-```
+~~~
 
-This will create a `gulp` folder, inside the current directory.
+### Exposed services
 
-### Other installation methods
+- [gulp swagger page on http://localhost:8080/docs](http://localhost:8080/docs)
+- [gulp web UI on http://localhost:3000](http://localhost:3000)
+  - **user/pwd: `admin/admin`** (default gulp admin user) 
+- postgreSQL on **localhost:5432**
+  - **user/pwd: `postgres/Gulp1234!`**
+- [adminer on http://localhost:8001, to manage postgreSQL](http://localhost:8001)
+  - **server/user/pwd: `postgres/postgres/Gulp1234!`**
+- [opensearch on http://localhost:9200](http://localhost:9200)
+  - **user/pwd: `admin/Gulp1234!`**
+  - [elasticvue on http://localhost:8082](http://localhost:8082)
+
+### Installation details
 
 - [docker](<./docs/Install Docker.md>)
 - [install from sources](<./docs/Install Dev.md>)
@@ -95,18 +120,6 @@ to use HTTPS, the following certificates must be available:
   - `$PATH_CERTS/gulp-ca.pem`
   - `$PATH_CERTS/gulp.pem`
   - `$PATH_CERTS/gulp.key`
-
-### Exposed services
-
-- _http://localhost:8080_: gulp, swagger page [here](http://localhost:8080/docs)
-- _localhost:5432_: postgres (**user/pwd: `postgres/Gulp1234!`**)
-  - _http://localhost:8001_: adminer (**server/user/pwd: `postgres/postgres/Gulp1234!`**)
-- _http://localhost:9200_: opensearch (**user/pwd: `admin/Gulp1234!`**)
-  - _http://localhost:8082_: elasticvue
-  - _http://localhost:5601_: opensearch dashboards (**user/pwd: `admin/Gulp1234!`**)
-
-with the [ui](http://github.com/mentat-is/gulpui-web):
-  - http://localhost:3000: web ui
 
 ### Run
 
