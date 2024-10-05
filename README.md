@@ -42,7 +42,9 @@ Here's the rough timeline we put together, it is subject to change:
 
 ![timeline](.images/timeline.png)
 
-soon we will release the slides we did at [MOCA2024](https://moca.camp), stay tuned!
+## Moca 2024 presentation
+
+[here is our presentation](https://docs.google.com/presentation/d/e/2PACX-1vTynDHQqr2hN6d3Mlq7UGADR-SAePDUD_M9CdPd2VrS5n11JkrrWMj00KQb9flhG8i2VUlKOn2tr5Ny/pub?start=false&loop=false&delayms=3000) at [MOCA2024](https://moca.camp).
 
 ## Installation
 
