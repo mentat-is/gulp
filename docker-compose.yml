@@ -27,7 +27,7 @@ services:
   gulpui-web:
     profiles: ["full"]
     #image: mentatis/gulpui-web:latest
-    image: gulpui-web:latest
+    image: gulp-web:latest
     depends_on:
       - gulp
     container_name: gulpui-web
