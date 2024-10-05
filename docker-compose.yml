@@ -26,11 +26,10 @@ services:
 
   gulp-web:
     profiles: ["full"]
-    #image: mentatis/gulpui-web:latest
-    image: gulp-web:latest
+    image: mentatis/gulp-web:latest
     depends_on:
       - gulp
-    container_name: gulpui-web
+    container_name: gulp-web
     restart: on-failure
     ports:
       - 3000:3000
