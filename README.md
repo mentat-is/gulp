@@ -105,6 +105,9 @@ to use HTTPS, the following certificates must be available:
   - _http://localhost:8082_: elasticvue
   - _http://localhost:5601_: opensearch dashboards (**user/pwd: `admin/Gulp1234!`**)
 
+with the [ui](http://github.com/mentat-is/gulpui-web):
+  - http://localhost:3000: web ui
+
 ### Run
 
 [with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
