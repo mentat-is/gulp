@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+!/usr/bin/env bash
 # managess the docker-compose environment for GULP
 
 EXTRA_ARGS=""
@@ -69,7 +69,7 @@ fi
 # ensure directories exists
 mkdir -p $OPENSEARCH_DATA_PATH
 mkdir -p $POSTGRES_DATA_PATH
-mkdir ./gulpconfig
+mkdir ./.gulpconfig
 export ELASTIC_DATA=$OPENSEARCH_DATA_PATH
 export POSTGRES_DATA=$POSTGRES_DATA_PATH
 
