@@ -25,6 +25,7 @@ services:
     command: python3 -m gulp ${EXTRA_ARGS:-} --bind-to ${IFACE:-0.0.0.0} ${PORT:-8080}
 
   gulpui-web:
+    profiles: ["full"]
     #image: mentatis/gulpui-web:latest
     image: gulpui-web:latest
     depends_on:
