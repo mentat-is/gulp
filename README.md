@@ -69,10 +69,6 @@ the following environment variables may be set to override configuration options
 - `PATH_CERTS`: if set, overrides `path_certs` in the configuration (for HTTPS).
 - `ELASTIC_URL`: if set, overrides `elastic_url` in the configuration.
 - `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
-- `SMTP_SERVER`: if set, overrides `smtp_server` in the configuration.
-- `SMTP_USERNAME`: if set, overrides `stmp_username` in the configuration.
-- `SMTP_PASSWORD`: if set, overrides `stmp_password` in the configuration.
-- `SMTP_FROM`: if set, overrides `smtp_from` in the configuration.
 - `GULP_INTEGRATION_TEST`: **TEST ONLY**, this must be set to 1 during integration testing (i.e. client api) to disable debug features which may interfere.
 
 ### SSL
