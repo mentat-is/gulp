@@ -68,6 +68,8 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 
 ### Exposed services
 
+> using the default configuration
+
 - [gulp swagger page on http://localhost:8080/docs](http://localhost:8080/docs)
 - [gulp web UI on http://localhost:3000](http://localhost:3000)
   - **user/pwd: `admin/admin`** (default gulp admin user) 
