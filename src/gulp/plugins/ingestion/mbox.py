@@ -11,6 +11,14 @@ from gulp.utils import logger
 
 
 class Plugin(PluginBase):
+    def __init__(
+        self,
+        path: str,
+        **kwargs,
+    ) -> None:
+        super().__init__(path, **kwargs)
+        self._eml_parser = None
+
     def desc(self) -> str:
         return """generic MBOX file processor"""
 
