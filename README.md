@@ -217,8 +217,10 @@ gulp --bind-to 0.0.0.0 8080
 
 ![UI](./screenshot-ui.png)
 
-legacy UI documentation (should be enough to get you up and running)  
-[.NET UI documentation](https://docs.google.com/document/d/e/2PACX-1vT2BwplEQeXmlSScGkmQkQ2TLTQlRLwxMDaaV1npdUB78pKJ12AJXFzFsP9oWpqBtiH9L4s_B1FPm9w/pub)
+- legacy UI documentation (should be enough to get you up and running)  
 
-usage demo
-[usage demo @ MOCA2024](https://youtu.be/3WWzySRQZK8?t=1354)
+  [.NET UI documentation](https://docs.google.com/document/d/e/2PACX-1vT2BwplEQeXmlSScGkmQkQ2TLTQlRLwxMDaaV1npdUB78pKJ12AJXFzFsP9oWpqBtiH9L4s_B1FPm9w/pub)
+
+- usage demo, go to minute 22:30
+
+  [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8&t/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1354)
