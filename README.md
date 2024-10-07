@@ -50,21 +50,22 @@ Here's the rough timeline we put together, it is subject to change:
 
 ### TLDR ;)
 
+| :warning: WARNING           |
+|:----------------------------|
+| [READ THIS TO INSTALL until we have a fix :)](https://github.com/mentat-is/gulp/issues/37)     |
+
+<del>
 #### docker
-
 this will start the provided [docker-compose.yml](./docker-compose.yml) in the current directory and uses [gulp_cfg_template.json](./gulp_cfg_template.json) and [default .env](./.env) as base.
-
 ~~~bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/bootstrap.sh -o ./bootstrap.sh && chmod 755 ./bootstrap.sh && ./bootstrap.sh
 ~~~
-
 #### from source
-
 this will install from sources and create a `gulp` folder, inside the current directory.
-
 ~~~bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh | sudo bash
 ~~~
+</del>
 
 ### Exposed services
 
@@ -215,4 +216,9 @@ gulp --bind-to 0.0.0.0 8080
 4. profit!
 
 ![UI](./screenshot-ui.png)
-  
+
+legacy UI documentation (should be enough to get you up and running)  
+[.NET UI documentation](https://docs.google.com/document/d/e/2PACX-1vT2BwplEQeXmlSScGkmQkQ2TLTQlRLwxMDaaV1npdUB78pKJ12AJXFzFsP9oWpqBtiH9L4s_B1FPm9w/pub)
+
+usage demo
+[usage demo @ MOCA2024](https://youtu.be/3WWzySRQZK8?t=1354)
