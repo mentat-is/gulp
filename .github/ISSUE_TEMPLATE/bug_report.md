@@ -13,7 +13,7 @@ A clear and concise description of what the bug is, including **a significant ou
 
 > steps to enter gulp CLI for docker version:
 > ~~~bash
-> docker run --rm -it --entrypoint bash gulp-core:latest
+> docker run --rm -it --entrypoint bash mentatis/gulp-core:latest
 > ~~~
 
 **To Reproduce**
