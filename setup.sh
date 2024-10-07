@@ -49,84 +49,84 @@ detect_os() {
 # Prepare to install
 prepare_install() {
     case "${OS,,}" in
-        # Debian/Ubuntu based
-        debian* | ubuntu | kali)
-            USE_RUSTUP=1
-            INSTALL_CMD="apt-get"
-            INSTALL_OPTS="install -y"
-            PACKAGES=$UBUNTU_PACKAGES
+    # Debian/Ubuntu based
+    debian* | ubuntu | kali)
+        USE_RUSTUP=1
+        INSTALL_CMD="apt-get"
+        INSTALL_OPTS="install -y"
+        PACKAGES=$UBUNTU_PACKAGES
 
-            # Setup repositories for python3.x
-            add-apt-repository ppa:deadsnakes/ppa
-            exit_status=$?
-            if [ $exit_status -ne 0 ]; then
-                echo "[!] Error: failed to add ppa (exit code $exit_status)."
-                exit 1
-            fi
+        # Setup repositories for python3.x
+        add-apt-repository ppa:deadsnakes/ppa
+        exit_status=$?
+        if [ $exit_status -ne 0 ]; then
+            echo "[!] Error: failed to add ppa (exit code $exit_status)."
+            exit 1
+        fi
 
-            # Setup repos for docker
-            $INSTALL_CMD $INSTALL_OPTS install -y ca-certificates curl tee
-            install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
+        # Setup repos for docker
+        $INSTALL_CMD $INSTALL_OPTS install -y ca-certificates curl tee
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
 
-            # Add the docker repository to Apt sources:
-            echo \
-              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            apt-get update
+        # Add the docker repository to Apt sources:
+        echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" |
+            sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+        apt-get update
         ;;
 
-        # Arch based distros (Arch, endeavour, manjaro, ...)
-        arch | archlinux | endeavouros | manjaro)
-            USE_RUSTUP=0
-            INSTALL_CMD="pacman"
-            INSTALL_OPTS="-S --noconfirm"
-            PACKAGES=$ARCH_PACKAGES
+    # Arch based distros (Arch, endeavour, manjaro, ...)
+    arch | archlinux | endeavouros | manjaro)
+        USE_RUSTUP=0
+        INSTALL_CMD="pacman"
+        INSTALL_OPTS="-S --noconfirm"
+        PACKAGES=$ARCH_PACKAGES
 
-            pacman -Sy
+        pacman -Sy
         ;;
 
-        # Fedora based
-        fedora* | centos* )
-            USE_RUSTUP=1
-            INSTALL_CMD="dnf"
-            INSTALL_OPTS="-y install"
-            PACKAGES=$FEDORA_PACKAGES
+    # Fedora based
+    fedora* | centos*)
+        USE_RUSTUP=1
+        INSTALL_CMD="dnf"
+        INSTALL_OPTS="-y install"
+        PACKAGES=$FEDORA_PACKAGES
 
-            # Add docker repository
-            dnf -y install dnf-plugins-core
-            dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+        # Add docker repository
+        dnf -y install dnf-plugins-core
+        dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
 
-            rhel_ver=$(awk -F'=' '/VERSION_ID/{ gsub(/"/,""); print $2}' /etc/os-release | cut -d. -f1)
+        rhel_ver=$(awk -F'=' '/VERSION_ID/{ gsub(/"/,""); print $2}' /etc/os-release | cut -d. -f1)
 
-            case "$rhel_ver" in
-                9 | 40)
-                    #Fedora 40 or CentOS Stream 9 / RHEL9
-                    dnf config-manager --set-enabled crb
-                    dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-                ;;
+        case "$rhel_ver" in
+        9 | 40)
+            #Fedora 40 or CentOS Stream 9 / RHEL9
+            dnf config-manager --set-enabled crb
+            dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+            ;;
 
-                8)
-                    #RHEL8
-                    dnf config-manager --set-enabled powertools
-                    dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
-                ;;
+        8)
+            #RHEL8
+            dnf config-manager --set-enabled powertools
+            dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+            ;;
 
-                *)
-                    echo "[!] VER: OS version ($rhel_ver) not supported. Please try manual install ($MANUAL_INSTALL_DOCS)"
-                    exit 1;
-                ;;
-            esac
-
-            dnf upgrade --refresh
-        ;;
-
-        # Unknown.
         *)
-            echo "[!] OS: $OS not supported. Please try manual install ($MANUAL_INSTALL_DOCS)."
-            exit 1;
+            echo "[!] VER: OS version ($rhel_ver) not supported. Please try manual install ($MANUAL_INSTALL_DOCS)"
+            exit 1
+            ;;
+        esac
+
+        dnf upgrade --refresh
+        ;;
+
+    # Unknown.
+    *)
+        echo "[!] OS: $OS not supported. Please try manual install ($MANUAL_INSTALL_DOCS)."
+        exit 1
         ;;
     esac
 }
@@ -184,10 +184,10 @@ do_install() {
 
     # Prepare directories
     mkdir -p "$HOME/.config/gulp"
-    mkdir -p "$INSTALL_DIR/opensearch_data1"
+    mkdir -p "$INSTALL_DIR/opensearch_data"
     mkdir -p "$INSTALL_DIR/opensearch_data2"
     mkdir -p "$INSTALL_DIR/opensearch_data3"
-    mkdir -p "$INSTALL_DIR/postgres_data1"
+    mkdir -p "$INSTALL_DIR/postgres_data"
 
     echo "[*] Setting folder permissions to be owned by $SUDO_USER"
     chown -R $SUDO_USER:$SUDO_USER $INSTALL_DIR
@@ -208,51 +208,51 @@ usage() {
 main() {
     while getopts ":d:h-:" o; do
         case "${o}" in
-            #long options
-            -)
-                case "${OPTARG}" in
-                    dev)
-                        IS_DEV_INSTALL=1
-                    ;;
+        #long options
+        -)
+            case "${OPTARG}" in
+            dev)
+                IS_DEV_INSTALL=1
+                ;;
 
-                    prod)
-                        #this should be the default
-                        IS_DEV_INSTALL=0
-                    ;;
+            prod)
+                #this should be the default
+                IS_DEV_INSTALL=0
+                ;;
 
-                    help)
-                        usage
-                    ;;
-
-                    *)
-                        if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
-                            echo "Unknown option --${OPTARG}" >&2
-                        fi
-
-                        usage
-                    ;;
-                esac
-            ;;
-
-            d)
-                INSTALL_DIR=${OPTARG}
-                echo "$INSTALL_DIR"
-            ;;
-
-            h)
+            help)
                 usage
-            ;;
+                ;;
 
             *)
                 if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
-                    echo "Unknown option -${OPTARG}" >&2
+                    echo "Unknown option --${OPTARG}" >&2
                 fi
 
                 usage
+                ;;
+            esac
+            ;;
+
+        d)
+            INSTALL_DIR=${OPTARG}
+            echo "$INSTALL_DIR"
+            ;;
+
+        h)
+            usage
+            ;;
+
+        *)
+            if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+                echo "Unknown option -${OPTARG}" >&2
+            fi
+
+            usage
             ;;
         esac
     done
-    shift $((OPTIND-1))
+    shift $((OPTIND - 1))
 
     if [ -z "${INSTALL_DIR}" ]; then
         usage
