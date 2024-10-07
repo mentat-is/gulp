@@ -187,4 +187,32 @@ This is the intended official wanna-be client for gulp.
 > Feel free to open issues, but any contribution should go towards the new WIP [web client](https://github.com/mentat-is/gulpui-web)
 
 If you want to use the .NET client "as-is", you can use the Windows binary from [here](https://github.com/mentat-is/gulp/releases/download/legacy/GUiLP_legacy_bin.7z).
-To run the executable on Linux, install .NET 6.0 using `wine` and run `GUiLP.exe`.
+
+To run the executable on Linux, follow these steps:
+
+1. start gulp backend with
+
+~~~bash
+# add --reset-collab --reset-elastic indexname if reset/initialization is needed
+gulp --bind-to 0.0.0.0 8080
+~~~
+
+2. start the UI 
+  
+  on `arch linux (endeavouros)`, other OS should be similar (just package names changes, if any)
+
+  ~~~bash
+  paru -S wine wine-mono winetricks
+  winetricks -q dotnetdesktop6
+  chmod 755 ./GUiLP.exe
+  ./GUiLP.exe
+  ~~~
+
+3. make sure the ui points to `http://localhost:8080`
+
+![select host](./screenshot-select-host.png)
+
+4. profit!
+
+![UI](./screenshot-ui.png)
+  
