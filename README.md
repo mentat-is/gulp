@@ -52,12 +52,10 @@ Here's the rough timeline we put together, it is subject to change:
 
 #### docker
 
-this will start the provided [docker-compose.yml](./docker-compose.yml) in the current directory, use [gulp_cfg_template.json](./gulp_cfg_template.json) as base for the configuration.
-
-> default credentials for opensarch and postgreSQL are taken from [.env](.env)
+this will start the provided [docker-compose.yml](./docker-compose.yml) in the current directory and uses [gulp_cfg_template.json](./gulp_cfg_template.json) and [default .env](./.env) as base.
 
 ~~~bash
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh
+curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/bootstrap.sh -o ./bootstrap.sh && chmod 755 ./boostrap.sh && ./bootstrap.sh
 ~~~
 
 #### from source
@@ -74,7 +72,7 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 
 - [gulp swagger page on http://localhost:8080/docs](http://localhost:8080/docs)
 - [gulp web UI on http://localhost:3000](http://localhost:3000)
-  - **user/pwd: `admin/admin`** (default gulp admin user) 
+  - **user/pwd: `admin/admin`** (default gulp admin user)
 - postgreSQL on **localhost:5432**
   - **user/pwd: `postgres/Gulp1234!`**
 - [adminer on http://localhost:8001, to manage postgreSQL](http://localhost:8001)
