@@ -69,7 +69,7 @@ class Plugin(PluginBase):
             #logger().debug("processing event: %s" % json.dumps(evt, indent=2))
             # ensure these are set
             if "@timestamp" not in evt:
-                logger().warning("no @timestamp, skipping!")
+                #logger().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
                 fs = self._record_failed(fs, evt, source, 'no @timestamp, skipping')
                 continue
             

@@ -740,13 +740,15 @@ class PluginBase(ABC):
         
         Args:
             event (dict): The event to map.
-            fields (dict): describes the mapping, a structure like 
+            fields (dict): describes the mapping, a structure with the following format
             { 
                 "field1": { 
-                    "map_to": "mapped_field"
+                    # if "field1" exists in event, map it to "mapped_field"
+                    "map_to": "mapped_field",
                 }, 
                 "field2: {
-                    "is_event_code": True 
+                    # if "field2" exists in event, create "event.code" (str) and "gulp.event.code" (int) with the value of "field2"
+                    "is_event_code": True
                 }
             }
             index_type_mapping (dict, optional): The elasticsearch index key->type mappings. Defaults to None.
@@ -756,38 +758,41 @@ class PluginBase(ABC):
         """
         
         mapped_ev: dict={}
-        
-        # for each field, check if key exist: if so, map it using "map_to"
-        for k, field in fields.items():
-            # for every key in event
-            if k in event:
-                if index_type_mapping is not None:
-                    # fix value if needed
-                    event[k] = self._type_checks(event[k], k, index_type_mapping)
-
-                # apply mapping
+        if index_type_mapping is None:
+            index_type_mapping = {}        
+        if fields is None:
+            fields = {}
+        for k, v in event.items():
+            if k in index_type_mapping.keys():
+                # found in index mapping, fix value if needed. @timestamp is handled here
+                mapped_ev[k] = self._type_checks(v, k, index_type_mapping)
+            
+            # check for custom mapping
+            if k in fields.keys():
+                field = fields[k]
                 map_to = field.get("map_to", None)
                 is_event_code = field.get("is_event_code", False)
-
                 if is_event_code:
                     # event code is a special case: 
                     # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
-                    v = event[k]
                     mapped_ev["event.code"] = str(v)
                     if isinstance(v, int) or str(v).isnumeric():
                         # already numeric
                         mapped_ev["gulp.event.code"] = int(v)
                     else:
                         # string, hash it
-                        mapped_ev["gulp.event.code"] = muty.crypto.hash_crc24(v)                    
+                        mapped_ev["gulp.event.code"] = muty.crypto.hash_crc24(v)
+                elif map_to is not None:
+                    # apply mapping
+                    mapped_ev[map_to] = event[k]
+            else:
+                # add as unmapped, forced to string
+                if k == '_id':
+                    # this is not in the index type mapping even if it is provided
+                    mapped_ev['_id'] = str(v)                
                 else:
-                    if map_to is not None:
-                        # apply mapping
-                        mapped_ev[map_to] = event[k]
-                    else:
-                        # no mapping, just copy
-                        mapped_ev['%s.k' % (elastic_api.UNMAPPED_PREFIX)] = event[k]
-                    
+                    mapped_ev['%s.%s' % (elastic_api.UNMAPPED_PREFIX, k)] = str(v)
+
         return mapped_ev
     
     def _map_source_key(

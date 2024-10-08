@@ -589,6 +589,7 @@ class GulpStats(CollabBase):
             # check threshold (we update stats every N events processed, or forced)
             stats_update_threshold = config.stats_update_threshold()
             if (fs.tot_processed % stats_update_threshold == 0) or force:
+                # logger().warning('stats_update_threshold=%d, fs=%s, ingestion_evt_failure_threshold=%d' % (stats_update_threshold, fs, config.ingestion_evt_failure_threshold()))
                 # check failure threshold (too many failures=abort)
                 ingestion_evt_failure_threshold = (
                     config.ingestion_evt_failure_threshold()

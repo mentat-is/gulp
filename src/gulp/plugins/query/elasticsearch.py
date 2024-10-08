@@ -45,6 +45,8 @@ class Plugin(PluginBase):
     """
     query plugin for opensearch/elasticsearch.
     
+    TODO: outdated. must be reworked, based on the splunk plugin
+        
     example flt and plugin_params:
     
      {
