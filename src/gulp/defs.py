@@ -14,6 +14,7 @@ API_DESC_PLUGIN_TYPE = "the plugin type (ingestion, sigma, extension, query)."
 API_DESC_UPLOADFILE = "file to be uploaded."
 API_DESC_COUNT = "returns count only (limit, skip, sort are ignored if set)."
 API_DESC_INDEX = "the target elasticsearch index or datastream."
+API_DESC_INDEX_TEMPLATE = 'an optional index template json to override the default when creating new indexes.'
 API_DESC_TOKEN = "authentication token."
 API_DESC_ADMIN_TOKEN = "an authentication token with ADMIN permission."
 API_DESC_DELETE_EDIT_TOKEN = "an authentication token with EDIT permission if owner of the object, or DELETE (or ADMIN) permission."
@@ -21,7 +22,7 @@ API_DESC_DELETE_TOKEN = "an authentication token with DELETE (or ADMIN) permissi
 API_DESC_EDIT_TOKEN = "an authentication token with EDIT permission."
 API_DESC_INGEST_TOKEN = "an authentication token with INGEST (or ADMIN) permission."
 API_DESC_INGEST_PLUGIN = "plugin to be used for ingestion."
-API_DESC_INGEST_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "operation_id".'
+API_DESC_INGEST_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation.id".'
 API_DESC_INGEST_CONTEXT = '(optional) string to be set in ingested events as "context".'
 API_DESC_INGEST_IGNORE_ERRORS = (
     "ignore errors instead of stopping (current file) ingestion at first error."
@@ -44,7 +45,22 @@ EXAMPLE_INDEX = {"example": {"value": "testidx"}}
 
 EXAMPLE_OPERATION_ID = {"example": {"value": 1}}
 EXAMPLE_CONTEXT = {"example": {"value": "testcontext"}}
-
+EXAMPLE_INDEX_TEMPLATE = {"example": {"value": 
+    {
+        "index_patterns": ["testidx-*"],
+        "settings": {
+            "number_of_shards": 1
+        },
+        "mappings": {
+            "properties": {
+                "field1": {
+                    "type": "text"
+                }
+            }
+        }
+        
+    }
+}}
 EXAMPLE_CLIENT_ID = {"example": {"value": 1}}
 
 EXAMPLE_PLUGIN = {"example": {"value": "win_evtx"}}

@@ -557,10 +557,6 @@ async def _rebase_internal(
     ws_id: str,
     req_id: str,
     flt: GulpIngestionFilter = None,
-    max_total_fields: int = 10000,
-    refresh_interval_msec: int = 5000,
-    force_date_detection: bool = False,
-    event_original_text_analyzer: str = "standard",
     **kwargs,
 ) -> None:
     """
@@ -573,31 +569,28 @@ async def _rebase_internal(
         ws_id (str): The websocket id
         req_id (str): The request ID.
         flt (GulpIngestionFilter, optional): The filter.
-        max_total_fields (int, optional): The maximum number of fields in the index. Defaults to 10000.
-        refresh_interval_msec (int, optional): The refresh interval in milliseconds. Defaults to 5000.
-        force_date_detection (bool, optional): Whether to force date detection. Defaults to False.
-        event_original_text_analyzer (str, optional): The analyzer for the original text. Defaults to 'standard'.
         kwargs: Additional keyword arguments.
     Returns:
         None
     """
     elastic = elastic_api.elastic()
-
     ds = None
-    res = {}
+    rebase_result = {}
+    template_file: str=None
     try:
+        # get template for index and use it to create the destination datastream
+        template = await elastic_api.index_template_get(elastic, index)
+        template_file = await muty.file.write_temporary_file_async(json.dumps(template).encode())
+        
         # create another datastream (if it exists, it will be deleted)
         ds = await elastic_api.datastream_create(
             elastic,
             dest_index,
-            max_total_fields=max_total_fields,
-            refresh_interval_msec=refresh_interval_msec,
-            force_date_detection=force_date_detection,
-            event_original_text_analyzer=event_original_text_analyzer,
+            index_template=template_file,
         )
 
         # rebase
-        res = await elastic_api.rebase(elastic, index, dest_index, offset, flt=flt)
+        rebase_result = await elastic_api.rebase(elastic, index, dest_index, offset, flt=flt)
     except Exception as ex:
         # can't rebase, delete the datastream
         logger().exception(ex)
@@ -616,9 +609,11 @@ async def _rebase_internal(
         if ds is not None:
             await elastic_api.datastream_delete(elastic, dest_index)
         return
-
+    finally:
+        if template_file is not None:
+            await muty.file.delete_file_or_dir_async(template_file)
     # done
-    logger().debug("rebase result: %s" % (json.dumps(res, indent=2)))
+    logger().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
     ws_api.shared_queue_add_data(
         ws_api.WsQueueDataType.REBASE_DONE,
         req_id,
@@ -626,7 +621,7 @@ async def _rebase_internal(
             "status": GulpRequestStatus.DONE,
             "index": index,
             "dest_index": dest_index,
-            "result": res,
+            "result": rebase_result,
         },
         ws_id=ws_id,
     )
@@ -662,12 +657,6 @@ async def rebase_task(
     ws_id = kwargs["ws_id"]
     flt = kwargs.get("flt", None)
     req_id = kwargs["req_id"]
-    max_total_fields = kwargs.get("max_total_fields", 10000)
-    refresh_interval_msec = kwargs.get("refresh_interval_msec", 5000)
-    force_date_detection = kwargs.get("force_date_detection", False)
-    event_original_text_analyzer = kwargs.get(
-        "event_original_text_analyzer", "standard"
-    )
 
     # use a worker process to perform rebase
     tasks = []
@@ -683,10 +672,6 @@ async def rebase_task(
                 ws_id,
                 req_id,
                 flt,
-                max_total_fields,
-                refresh_interval_msec,
-                force_date_detection,
-                event_original_text_analyzer,
             ),
         )
     )

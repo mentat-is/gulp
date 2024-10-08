@@ -101,10 +101,10 @@ cd ./repos/gulp
 docker compose up -d
 
 # run gulp first time
-gulp --bind-to 0.0.0.0 8080 --reset-collab --reset-elastic testidx
+BIND_TO=0.0.0.0:8080 gulp --reset-collab --reset-elastic testidx
 
 # later it can be run with just
-# gulp --bind-to 0.0.0.0 8080
+# BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
 ### 8. (Optional) Test

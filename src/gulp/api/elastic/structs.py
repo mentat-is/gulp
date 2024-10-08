@@ -22,12 +22,12 @@ EXAMPLE_QUERY_OPTIONS = {
 
 EXAMPLE_QUERY_FILTER = {
     "example": {
-        "event_code": ["5152"],
+        "event.code": ["5152"],
         "gulp.log.level": [5, 3],
         "start_msec": 1475730263242,
         "end_msec": 1475830263242,
-        "operation_id": [1],
-        "context": ["testcontext"],
+        "gulp.operation.id": [1],
+        "gulp.context": ["testcontext"],
     }
 }
 
@@ -67,8 +67,8 @@ level: medium
 
 EXAMPLE_INGESTION_FILTER = {
     "example": {
-        "event_code": ["5152"],
-        "level": [5, 3],
+        "event.code": ["5152"],
+        "log.level": [5, 3],
         "start_msec": 1609459200000,
         "end_msec": 1609545600000,
         "extra": {"winlog.event_data.SubjectUserName": "test"},
@@ -141,13 +141,13 @@ class GulpIngestionFilter(GulpBaseFilter):
 
     def to_dict(self) -> dict:
         d = {
-            "store_all_documents": self.store_all_documents,
-            "category": self.category,
-            "event_code": self.event_code,
-            "level": self.gulp_log_level,
+            "event.category": self.category,
+            "event.code": self.event_code,
+            "log.level": self.gulp_log_level,
             "start_msec": self.start_msec,
             "end_msec": self.end_msec,
             "extra": self.extra,
+            "store_all_documents": self.store_all_documents,
         }
         return d
 
@@ -240,22 +240,22 @@ class GulpQueryFilter(GulpBaseFilter):
             dict: A dictionary representation of the object.
         """
         d = {
-            "category": self.category,
-            "event_code": self.event_code,
-            "level": self.gulp_log_level,
             "start_msec": self.start_msec,
             "end_msec": self.end_msec,
             "extra": self.extra,
-            "plugin": self.plugin,
-            "client_id": self.client_id,
-            "event_id": self.event_id,
-            "elastic_id": self.elastic_id,
-            "src_file": self.src_file,
-            "operation_id": self.operation_id,
-            "context": self.context,
-            "ev_hash": self.ev_hash,
-            "raw": self.raw,
             "query_string_parameters": self.query_string_parameters,
+            "event.category": self.category,
+            "event.code": self.event_code,
+            "log.level": self.gulp_log_level,
+            "agent.type": self.plugin,
+            "agent.id": self.client_id,
+            "event.id": self.event_id,
+            "_id": self.elastic_id,
+            "gulp.source.file": self.src_file,
+            "gulp.operation.id": self.operation_id,
+            "gulp.context": self.context,
+            "event.hash": self.ev_hash,
+            "event.original": self.raw,
         }
         return d
 
@@ -423,7 +423,7 @@ class GulpDocument:
         """
         # create the dictionary using dictionary comprehension
         d = {
-            "operation_id": self.operation_id,
+            "gulp.operation.id": self.operation_id,
             "gulp.context": self.context,
             "agent.type": self.plugin,
             "agent.id": self.client_id,
@@ -441,7 +441,7 @@ class GulpDocument:
             "log.level": self.original_log_level,
             "gulp.log.level": self.gulp_log_level,
             "@timestamp": self.timestamp,
-            "@timestamp_nsec": self.timestamp_nsec,
+            "gulp.timestamp.nsec": self.timestamp_nsec,
         }
 
         # remove None values
@@ -459,7 +459,7 @@ class GulpDocument:
         """
         d["invalid_timestamp"] = True
         d["@timestamp"] = 0
-        d["@timestamp_nsec"] = 0
+        d["gulp.timestamp.nsec"] = 0
         return d
 
 
@@ -543,7 +543,7 @@ class GulpQueryParameter(BaseModel):
 
 
 # mandatory fields to be included in the result for queries
-FIELDS_FILTER_MANDATORY = ["_id", "@timestamp", "@timestamp_nsec", "operation_id", "gulp.context", "gulp.source.file", "event.duration", "event.code", "gulp.event.code"]
+FIELDS_FILTER_MANDATORY = ["_id", "@timestamp", "gulp.timestamp_nsec", "gulp.operation.id", "gulp.context", "gulp.source.file", "event.duration", "event.code", "gulp.event.code"]
 class GulpQueryOptions(BaseModel):
     """
     options for the query API (ordering, limit, skip).<br><br>
@@ -570,7 +570,7 @@ class GulpQueryOptions(BaseModel):
     fields_filter: str = Field( # TODO: turn to list[str] ?
         None, 
         description='if not None, a CSV list of fields to include in the result.<br><br>'
-        'The default fields are `always included even if not specified`: `_id,@timestamp,@timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`).<br>'
+        'The default fields are `always included even if not specified`: `_id,@timestamp,gulp.timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`).<br>'
         'Using `"*"` will return all fields.<br><br>.'
         'Defaults to None (default fields are returned).',
     )
@@ -719,7 +719,7 @@ def gulpqueryflt_to_elastic_dsl(flt: GulpQueryFilter = None, options: GulpQueryO
         if flt.client_id is not None and len(flt.client_id) > 0:
             qs = _query_string_add_or_clause(qs, "agent.id", flt.client_id)
         if flt.operation_id is not None and len(flt.operation_id) > 0:
-            qs = _query_string_add_or_clause(qs, "operation_id", flt.operation_id)
+            qs = _query_string_add_or_clause(qs, "gulp.operation.id", flt.operation_id)
         if flt.context is not None and len(flt.context) > 0:
             qs = _query_string_add_or_clause(qs, "gulp.context", flt.context)
         if flt.event_id is not None and len(flt.event_id) > 0:

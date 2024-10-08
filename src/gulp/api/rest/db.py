@@ -12,7 +12,7 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import APIRouter, BackgroundTasks, Body, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Body, File, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
@@ -81,18 +81,6 @@ async def rebase_handler(
     ],
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
     flt: Annotated[GulpQueryFilter, Body()] = None,
-    max_total_fields: Annotated[
-        int, Query(description="The maximum number of fields in the index.")
-    ] = 10000,
-    refresh_interval_msec: Annotated[
-        int, Query(description="The index refresh interval in milliseconds.")
-    ] = 5000,
-    force_date_detection: Annotated[
-        bool, Query(description="Force date detection in the index.")
-    ] = False,
-    event_original_text_analyzer: Annotated[
-        str, Query(description="The event.original text analyzer.")
-    ] = "standard",
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
@@ -117,10 +105,6 @@ async def rebase_handler(
             ws_id=ws_id,
             flt=flt,
             req_id=req_id,
-            max_total_fields=max_total_fields,
-            refresh_interval_msec=refresh_interval_msec,
-            force_date_detection=force_date_detection,
-            event_original_text_analyzer=event_original_text_analyzer,
         )
         await rest_api.aiopool().spawn(coro)
 
@@ -205,40 +189,34 @@ async def elastic_list_index_handler(
 async def elastic_init_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
-    max_total_fields: Annotated[
-        int, Query(description="The maximum number of fields in the index.")
-    ] = 10000,
-    refresh_interval_msec: Annotated[
-        int, Query(description="The index refresh interval in milliseconds.")
-    ] = 5000,
-    force_date_detection: Annotated[
-        bool, Query(description="Force date detection in the index.")
-    ] = False,
-    event_original_text_analyzer: Annotated[
-        str, Query(description="The event.original text analyzer.")
-    ] = "standard",
+    index_template: Annotated[UploadFile, File(description=gulp.defs.API_DESC_INDEX_TEMPLATE,
+                                               example=gulp.defs.EXAMPLE_INDEX_TEMPLATE)]=None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
+    f:str=None
     try:
         await UserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.ADMIN
         )
+        if index_template is not None:
+            # get index template from file
+            f = await muty.uploadfile.to_path(index_template)
+        
         await elastic_api.datastream_create(
             elastic_api.elastic(),
-            index,
-            max_total_fields=max_total_fields,
-            refresh_interval_msec=refresh_interval_msec,
-            force_date_detection=force_date_detection,
-            event_original_text_analyzer=event_original_text_analyzer,
+            datastream_name=index,
+            index_template=f,
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"index": index})
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
-
+    finally:
+        if f is not None:
+            await muty.file.delete_file_or_dir_async(f)        
 
 @_app.delete(
     "/elastic_delete_index",
@@ -327,7 +305,7 @@ async def elastic_get_mapping_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(await collab_api.collab(), token)
-        m = await elastic_api.index_get_mapping(
+        m = await elastic_api.index_get_key_value_mapping(
             elastic_api.elastic(), index, return_raw_result
         )
         # m = await elastic_api.datastream_get_mapping(elastic_api.elastic(), n)
@@ -447,18 +425,8 @@ async def collab_init_handler(
 async def gulp_init_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
-    max_total_fields: Annotated[
-        int, Query(description="The maximum number of fields in the index.")
-    ] = 10000,
-    refresh_interval_msec: Annotated[
-        int, Query(description="The index refresh interval in milliseconds.")
-    ] = "5000",
-    force_date_detection: Annotated[
-        bool, Query(description="Force date detection in the index.")
-    ] = False,
-    event_original_text_analyzer: Annotated[
-        str, Query(description="The event.original text analyzer.")
-    ] = "standard",
+    index_template: Annotated[UploadFile, File(description=gulp.defs.API_DESC_INDEX_TEMPLATE,
+                                               example=gulp.defs.EXAMPLE_INDEX_TEMPLATE)]=None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
@@ -470,10 +438,7 @@ async def gulp_init_handler(
         await elastic_init_handler(
             token,
             index,
-            max_total_fields=max_total_fields,
-            refresh_interval_msec=refresh_interval_msec,
-            force_date_detection=force_date_detection,
-            event_original_text_analyzer=event_original_text_analyzer,
+            index_template=index_template,
             req_id=req_id,
         )
         await collab_init_handler(token, req_id)
@@ -481,6 +446,63 @@ async def gulp_init_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
+
+@_app.get(
+    "/elastic_get_index_template",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1715940385449,
+                        "req_id": "45db2622-dd8d-43c2-ab7b-d60af82fa114",
+                        "data": {
+                            "index_patterns": ["testidx-*"],
+                            "settings": {
+                                "index": {"number_of_shards": "1", "number_of_replicas": "1"}
+                            },
+                            "mappings": {
+                                "properties": {
+                                    "@timestamp": {"type": "date"},
+                                    "gulp.event.code": {"type": "long"},
+                                    "event.sequence": {"type": "long"},
+                                    "agent.build.original": {"type": "keyword"},
+                                    "agent.ephemeral_id": {"type": "keyword"},
+                                    "agent.id": {"type": "keyword"},
+                                    "agent.name": {"type": "keyword"},
+                                    "agent.type": {"type": "keyword"},
+                                    "agent.version": {"type": "keyword"},
+                                    "client.address": {"type": "keyword"},
+                                    "client.as.number": {"type": "long"},
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get index template from opensearch.",
+    description="returns the index template for the given index.<br>"
+        "the obtained index template can be used as a base for new indexes through setting `PATH_INDEX_TEMPLATE` when running gulp, or by setting `path_index_template` in the configuration.",
+)
+async def elastic_get_index_template_handler(
+    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
+    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+) -> JSendResponse:
+
+    req_id = gulp.utils.ensure_req_id(req_id)
+    try:
+        await UserSession.check_token(await collab_api.collab(), token, GulpUserPermission.ADMIN)
+        m = await elastic_api.index_template_get(elastic_api.elastic(), index)
+        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 def router() -> APIRouter:
     """

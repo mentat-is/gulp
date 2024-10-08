@@ -286,7 +286,7 @@ async def _create_notes_on_match(
     for e in evts:
         ev_id = e.get("_id")
         ev_ts = e.get("@timestamp")
-        ev_operation_id = e.get("operation_id")
+        ev_operation_id = e.get("gulp.operation.id")
         ev_context = e.get("gulp.context")
         ev_logfile_path = e.get("gulp.source.file")
 

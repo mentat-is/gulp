@@ -91,9 +91,11 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 
 the following environment variables may be set to override configuration options.
 
+- `BIND_TO`: if set, gulp will listen to this interface and port (either, the default `0.0.0.0:8080` is used)
 - `PATH_CONFIG`: if set, will be used as path for the configuration file (either, `~/.config/gulp/gulp_cfg.json` will be used)
 - `PATH_PLUGINS`: if set, will be used as path for `plugins` directory (either, the default `$INSTALLDIR/plugins` will be used)
 - `PATH_MAPPING_FILES`: if set, will be used as path for the mapping files to be used by plugins (either, the default is `$INSTALLDIR/mapping_files`)
+- `PATH_INDEX_TEMPLATE`: if set, will be used as the path for the index template to be used when creating new indexes (either, [default](./src/gulp/api/mapping/index_template/template.json) is used)
 - `PATH_CERTS`: if set, overrides `path_certs` in the configuration (for HTTPS).
 - `ELASTIC_URL`: if set, overrides `elastic_url` in the configuration.
 - `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
@@ -195,7 +197,7 @@ To run the executable on Linux, follow these steps:
 
 ~~~bash
 # add --reset-collab --reset-elastic indexname if reset/initialization is needed
-gulp --bind-to 0.0.0.0 8080
+BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
 2. start the UI 

@@ -1171,9 +1171,9 @@ async def query_operations_handler(
                         "timestamp_msec": 1701879738287,
                         "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
                         "data": {
-                            "operation_id": "testop",
+                            "gulp.operation.id": 1,
                             "@timestamp": 1573258569309,
-                            "@timestamp_nsec": 1573258569309000000,
+                            "gulp.timestamp.nsec": 1573258569309000000,
                             "gulp.context": "testcontext2",
                             "agent.type": "win_evtx",
                             "agent.id": "client:test_test_1.0",
@@ -1409,9 +1409,9 @@ async def query_external_single_handler(
         Body(
             examples=[
                 {
-                    "operation_id": "testop",
+                    "gulp.operation.id": 1,
                     "@timestamp": 1573258569309,
-                    "@timestamp_nsec": 1573258569309000000,
+                    "gulp.timestamp.nsec": 1573258569309000000,
                     "gulp.context": "testcontext2",
                     "agent.type": "win_evtx",
                     "agent.id": "client:test_test_1.0",

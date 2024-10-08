@@ -18,7 +18,7 @@ if not __debug__:
     __RUN_TESTS__ = False
 
 
-async def async_test():
+async def async_test():    
     if not __debug__:
         return
     l = 10
@@ -79,13 +79,6 @@ def main():
         default=["debug"],
     )
     parser.add_argument(
-        "--bind-to",
-        help='binds to this address/port, default="localhost 8080".',
-        nargs=2,
-        metavar=("address", "port"),
-        default=["localhost", 8080],
-    )
-    parser.add_argument(
         "--reset-collab",
         help="reset collaboration database on start.",
         action="store_const",
@@ -137,31 +130,25 @@ def main():
         else:
             # default
             print("%s\n%s" % (banner, gulp.utils.version_string()))
-            address = args.bind_to[0]
-            port = int(args.bind_to[1])
+            address, port = config.bind_to()
             reset_collab = args.reset_collab
             elastic_index = (
                 args.reset_elastic[0] if args.reset_elastic is not None else None
             )
             is_first_run = gulp.utils.check_first_run()
             if is_first_run:
-                # first run, create index            
+                # first run, create index
                 elastic_index = "gulpidx"
                 reset_collab = True
                 logger().info(
                     "first run detected, creating default index: %s" % (elastic_index)
-                )     
+                )
             else:
-                logger().info("not first run")           
+                logger().info("not first run")
             rest_api.start_server(
-                address,
-                port,
-                log_file_path,
-                reset_collab,
-                elastic_index,
-                is_first_run
+                address, port, log_file_path, reset_collab, elastic_index, is_first_run
             )
-    except Exception as ex:                        
+    except Exception as ex:
         # print exception and exit
         _logger.exception(ex)
         sys.exit(1)

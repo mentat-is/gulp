@@ -409,7 +409,7 @@ class PluginBase(ABC):
             if plugin_params.pipeline is not None:
                 pipeline = plugin_params.pipeline
 
-        index_type_mappings = await elastic_api.index_get_mapping(
+        index_type_mappings = await elastic_api.index_get_key_value_mapping(
             elastic_api.elastic(), index, False
         )
         # index_type_mappings = await elastic_api.datastream_get_mapping(self.elastic, index + '-template')
@@ -701,10 +701,15 @@ class PluginBase(ABC):
             if isinstance(v, str):
                 if v.isnumeric():
                     return int(v)
-                if v.startswith("0x"):
+                if v.lower().startswith("0x"):
                     return int(v, 16)
             return v
-
+        
+        if index_type == 'float' or index_type == 'double':
+            if isinstance(v, str):
+                return float(v)
+            return v
+        
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
             # convert hex to int
             return int(v, 16)
@@ -727,30 +732,63 @@ class PluginBase(ABC):
         # logger().debug("returning %s:%s" % (k, v))
         return str(v)
     
-    def _map_source_key_lite(self, event: dict, fields: dict) -> dict:
+    def _remap_event_fields(self, event: dict, fields: dict, index_type_mapping: dict=None) -> dict:
         """
-        handles special cases for:
+        apply mapping to event, handling special cases:
+            
+            - event code (always map to "event.code" and "gulp.event.code")
         
-        - event code (always map to "event.code" and "gulp.event.code")
+        Args:
+            event (dict): The event to map.
+            fields (dict): describes the mapping, a structure like 
+            { 
+                "field1": { 
+                    "map_to": "mapped_field"
+                }, 
+                "field2: {
+                    "is_event_code": True 
+                }
+            }
+            index_type_mapping (dict, optional): The elasticsearch index key->type mappings. Defaults to None.
+            
+        Returns:
+            dict: The mapped event.
         """
+        
+        mapped_ev: dict={}
+        
         # for each field, check if key exist: if so, map it using "map_to"
         for k, field in fields.items():
-            if k in event:                
+            # for every key in event
+            if k in event:
+                if index_type_mapping is not None:
+                    # fix value if needed
+                    event[k] = self._type_checks(event[k], k, index_type_mapping)
+
+                # apply mapping
                 map_to = field.get("map_to", None)
-                if map_to is not None:
-                    event[map_to] = event[k]
-                elif field.get("is_event_code", False):
+                is_event_code = field.get("is_event_code", False)
+
+                if is_event_code:
                     # event code is a special case: 
                     # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
                     v = event[k]
-                    event["event.code"] = str(v)
+                    mapped_ev["event.code"] = str(v)
                     if isinstance(v, int) or str(v).isnumeric():
                         # already numeric
-                        event["gulp.event.code"] = int(v)
+                        mapped_ev["gulp.event.code"] = int(v)
                     else:
                         # string, hash it
-                        event["gulp.event.code"] = muty.crypto.hash_crc24(v)
-        return event
+                        mapped_ev["gulp.event.code"] = muty.crypto.hash_crc24(v)                    
+                else:
+                    if map_to is not None:
+                        # apply mapping
+                        mapped_ev[map_to] = event[k]
+                    else:
+                        # no mapping, just copy
+                        mapped_ev['%s.k' % (elastic_api.UNMAPPED_PREFIX)] = event[k]
+                    
+        return mapped_ev
     
     def _map_source_key(
         self,
@@ -864,7 +902,7 @@ class PluginBase(ABC):
                 # it's a timestamp, another event will be generated
                 vv = muty.time.nanos_to_millis(v)
                 dest_fm.result["@timestamp"] = vv
-                dest_fm.result["@timestamp_nsec"] = v
+                dest_fm.result["gulp.timestamp.nsec"] = v
                 # logger().debug('***** timestamp nanos, v=%d' % (v))
                 # logger().debug('***** timestamp to millis, v=%d' % (vv))
 
@@ -927,15 +965,29 @@ class PluginBase(ABC):
         return ws_docs
     
     
-    def _check_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams) -> bool:
+    async def _check_raw_ingestion_enabled(self, plugin_params: GulpPluginParams) -> tuple[str, dict]:
         """
         check if we need to ingest the events using the raw ingestion plugin (from the query plugin)
+        
+        Args:
+            plugin_params (GulpPluginParams): The plugin parameters.
+        
+        Returns:
+            tuple[str, dict]: The ingest index and the index type mapping.
         """
         raw_plugin: PluginBase = plugin_params.extra.get("raw_plugin", None)
         if raw_plugin is None:
             logger().warning("no raw ingestion plugin found, skipping!")
-            return False
-        return True
+            return None, None
+        ingest_index = plugin_params.extra.get("ingest_index", None)
+        if ingest_index is None:
+            logger().warning("no ingest index found, skipping!")
+            return None, None
+        
+        # get kv index mapping for the ingest index
+        el = elastic_api.elastic()
+        index_type_mapping = await elastic_api.index_get_key_value_mapping(el, ingest_index, False)
+        return ingest_index, index_type_mapping
     
     async def _perform_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams, events: list[dict], 
         operation_id: int, client_id: int, ws_id: str, req_id: str):

@@ -104,13 +104,13 @@ class FieldMappingEntry(BaseModel):
     )
     is_timestamp: Optional[bool] = Field(
         False,
-        description='if True, this field refer to a timestamp and will generate "@timestamp" and "@timestamp_nsec" fields.<br>'
+        description='if True, this field refer to a timestamp and will generate "@timestamp" and "gulp.timestamp_nsec" fields.<br>'
         'NOTE: if more than one "is_timestamp" is set in the mapping, multiple events with such "@timestamp" and, possibly, "event.code" are generated.',
     )
     is_timestamp_chrome: Optional[bool] = Field(
         False,
         description="if set and if value is a number, or string representing a number, it is interpreted as a chrome/webkit timestamp (with epoch 01/01/1601) and converted to **nanoseconds from unix epoch**.<br>"
-        'NOTE: ignored if "do_multiply" is set, if set together with "is_timestamp" will generate converted chrome "@timestamp" and "@timestamp_nsec".',
+        'NOTE: ignored if "do_multiply" is set, if set together with "is_timestamp" will generate converted chrome "@timestamp" and "gulp.timestamp_nsec".',
     )
     do_multiply: Optional[float] = Field(
         None,

@@ -9,9 +9,6 @@ services:
     environment:
       - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - ELASTIC_URL=http://${ELASTIC_USER}:${ELASTIC_PASSWORD}@os01:9200
-      - EXTRA_ARGS=${EXTRA_ARGS}
-      - PORT=${PORT}
-      - IFACE=${IFACE}
     volumes:
       - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
       - ./.gulpconfig:/root/.config/gulp
@@ -22,7 +19,7 @@ services:
       - os01
     ports:
       - ${PORT:-8080}:${PORT:-8080}
-    command: python3 -m gulp ${EXTRA_ARGS:-} --bind-to ${IFACE:-0.0.0.0} ${PORT:-8080}
+    command: python3 -m gulp ${EXTRA_ARGS:-}
 
   gulp-web:
     profiles: ["full"]

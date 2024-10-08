@@ -8,7 +8,7 @@ import muty.dict
 import muty.file
 import muty.string
 import muty.time
-
+from gulp.api.mapping import index_template
 
 import gulp.config as config
 from gulp.api.elastic.structs import (
@@ -46,8 +46,160 @@ def _parse_mappings(d: dict, parent_key="", result=None) -> dict:
             result[new_key] = v
     return result
 
+async def index_template_delete(el: AsyncElasticsearch, index_name: str) -> None:
+    """
+    Delete the index template for the given index/datastream.
 
-async def datastream_get_mapping(el: AsyncElasticsearch, datastream_name: str) -> dict:
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client.
+        index_name (str): The index/datastream name.
+    """
+    try:
+        template_name = '%s-template' % (index_name)
+        logger().debug('deleting index template: %s ...' % (template_name))
+        await el.indices.delete_index_template(name=template_name)
+    except Exception as e:
+        logger().error("error deleting index template: %s" % (e))
+        
+async def index_template_get(el: AsyncElasticsearch, index_name: str) -> dict:
+    """
+    Get the index template for the given index/datastream.
+
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client.
+        index_name (str): The index/datastream name.
+
+    Returns:
+        dict: The index template.
+    """
+    template_name = '%s-template' % (index_name)
+    logger().debug('getting index template: %s ...' % (template_name))
+
+    try:
+        res = await el.indices.get_index_template(name=template_name)
+    except Exception as e:
+        raise ObjectNotFound("no template found for datastream/index %s" % (index_name))
+    
+    return res['index_templates'][0]['index_template']
+
+async def index_template_put(el: AsyncElasticsearch, index_name: str, d: dict) -> dict:
+    """
+    Put the index template for the given index/datastream.
+
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client.
+        index_name (str): The index/datastream name.
+        d (dict): The index template.
+
+    Returns:
+        dict: The response from the Elasticsearch client.
+    """    
+    template_name = '%s-template' % (index_name)
+    logger().debug('putting index template: %s ...' % (template_name))
+    headers = {"accept": "application/json", "content-type": "application/json"}
+    return await el.indices.put_index_template(name=template_name, body=d, headers=headers)
+
+async def index_template_set_from_file(el: AsyncElasticsearch, index_name: str, path: str, apply_patches: bool=True) -> dict:
+    """
+    Asynchronously sets an index template in Elasticsearch from a JSON file.
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client instance.
+        index_name (str): The name of the index/datastream to set the template for.
+        path (str): The file path to the JSON file containing the index template.
+        apply_patches (bool, optional): Whether to apply specific patches to the mappings and settings before setting the index template. Defaults to True.
+    Returns:
+        dict: The response from Elasticsearch after setting the index template.
+    """
+    
+    logger().debug('loading index template from file "%s" ...' % (path))
+    d = muty.dict.from_json_file(path)
+    return await build_and_set_index_template(el, index_name, d, apply_patches)
+
+async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, d: dict, apply_patches: bool=True) -> dict:
+    """
+    Sets an index template in Elasticsearch, applying the needed patches to the mappings and settings.
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client instance.
+        index_name (str): The name of the index for which the template is being set.
+        d (dict): The dictionary containing the template, mappings, and settings for the index.
+        apply_patches (bool, optional): Whether to apply specific patches to the mappings and settings before setting the index template. Defaults to True.
+    Returns:
+        dict: The response from the Elasticsearch client after setting the index template.
+    Raises:
+        ValueError: If the 'template' or 'mappings' key is not found in the provided dictionary.
+    Notes:
+        - The function modifies the provided dictionary to include default settings and mappings if they are not present.
+        - It applies specific patches to the mappings and settings before setting the index template.
+        - If the Elasticsearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
+    """
+    logger().debug('setting index template for "%s" ...' % (index_name))
+    template = d.get('template', None)
+    if template is None:
+        raise ValueError('no "template" key found in the index template')
+    mappings = template.get('mappings', None)
+    if mappings is None:
+        raise ValueError('no "mappings" key found in the index template')
+    settings = template.get('settings', None)
+    if settings is None:
+        template['settings'] = {}
+        settings = template['settings']
+    if settings.get('index', None) is None:
+        settings['index'] = {}
+    if settings['index'].get('mapping', None) is None:
+        settings['index']['mapping'] = {}
+    dt = mappings.get('dynamic_templates', None)
+    if dt is None:
+        dt = []
+        mappings['dynamic_templates'] = dt
+        
+    # apply our patches
+    d["index_patterns"] = [index_name]
+    d['data_stream'] = {}
+    d['priority'] = 100
+
+    # always set gulp specific mappings
+    mappings['properties']['gulp'] = {
+            "properties": {
+                "event": {"properties": {"code": {"type": "long"}}},
+                "context": {"type": "keyword"},
+                "operation": {"properties": {"id": {"type": "integer"}}},
+                "source": {"properties": {"file": {"type": "keyword"}}},
+                "log": {"properties": {"level": {"type": "integer"}}},
+                "timestamp": {"properties": {"nsec": {"type": "long"}}},
+            }        
+    }    
+    dtt=[]
+    dtt.append({
+        # force unknown mapping to string
+        "force_unmapped_to_string": {
+            "match": "%s.*" % (UNMAPPED_PREFIX),
+            #"match":"*",
+            "mapping": {"type": "keyword"},
+        }
+    })
+    dtt.extend(dt)
+    mappings['dynamic_templates'] = dtt
+    
+    if apply_patches:
+        # only set these if we do not want to use the template as is
+        #mappings['date_detection'] = True
+        #mappings['numeric_detection'] = True
+        #mappings['dynamic'] = False
+        mappings['properties']['event']['properties']['original'] = {"type": "text", "analyzer": "standard"}
+        settings['index']['mapping']['total_fields'] = {'limit': config.index_template_default_total_fields_limit()}
+        settings['index']['refresh_interval'] = config.index_template_default_refresh_interval()
+        if not config.elastic_multiple_nodes():
+            # optimize for single node
+            # this also removes "yellow" node in single node mode
+            # this also removes "yellow" node in single node mode
+            logger().warning("setting number_of_replicas to 0")
+            settings["index"]["number_of_replicas"] = 0
+
+    # write template
+    await index_template_put(el, index_name, d)
+    return d
+
+async def datastream_get_key_value_mapping(el: AsyncElasticsearch, datastream_name: str) -> dict:
     """
     Get and parse mappings for the given datastream's backing index: it will result in a dict like:
     {
@@ -79,7 +231,7 @@ async def datastream_get_mapping(el: AsyncElasticsearch, datastream_name: str) -
     return _parse_mappings(properties)
 
 
-async def index_get_mapping(
+async def index_get_key_value_mapping(
     el: AsyncElasticsearch, index_name: str, return_raw_result: bool = False
 ) -> dict:
     """
@@ -153,7 +305,7 @@ async def index_get_mapping_by_src(
     docs = docs["results"]
 
     # get mapping
-    mapping = await index_get_mapping(el, index_name)
+    mapping = await index_get_key_value_mapping(el, index_name)
     js = _get_filtered_mapping(docs, mapping)
     if len(js) == 0:
         raise ObjectNotFound("no mapping found for src_file=%s" % (src_file))
@@ -204,32 +356,25 @@ async def datastream_delete(el: AsyncElasticsearch, datastream_name: str) -> Non
         None
     """
     ds: str = datastream_name
-    template_name: str = datastream_name + "-template"
-    logger().debug(
-        'deleting datastream "%s" and template %s (if existing) ...'
-        % (template_name, ds)
-    )
 
     # params = {"ignore_unavailable": "true"}
-    headers = {"accept": "application/json"}
+    headers = {"accept": "application/json"}    
     try:
+        logger().debug('deleting datastream "%s" ...' % (ds))
         await el.indices.delete_data_stream(ds, headers=headers)
     except Exception as e:
         logger().error("error deleting datastream: %s" % (e))
         pass
     try:
-        await el.indices.delete_index_template(name=template_name, headers=headers)
+        await index_template_delete(el, datastream_name)
     except Exception as e:
         logger().error("error deleting index template: %s" % (e))
 
 
 async def datastream_create(
     el: AsyncElasticsearch,
-    datastream_name: str,
-    max_total_fields: int = 10000,
-    refresh_interval_msec=5000,
-    force_date_detection: bool = False,
-    event_original_text_analyzer: str = "standard",
+    datastream_name: str,    
+    index_template: str=None
 ) -> None:
     """
     (re)creates the Elasticsearch datastream (with backing index) and associates the index template from configuration (or uses the default).
@@ -238,10 +383,7 @@ async def datastream_create(
         el (AsyncElasticsearch): The Elasticsearch client.
         datastream_name(str): The name of the datastream to be (re)created, the index template will be re/created as "<index_name>-template".
         total.
-        max_total_fields (int, optional): The maximum number of fields in the index. Defaults to 10000.
-        refresh_interval_msec (int, optional): The refresh interval in milliseconds. Defaults to 5000 (5s).
-        force_date_detection (bool, optional): Whether to force date detection. Defaults to False.
-        event_original_text_analyzer (str, optional): The text analyzer to use for "event.original". Defaults to 'standard'.
+        index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
     Returns:
         dict
     """
@@ -249,108 +391,27 @@ async def datastream_create(
     logger().debug('re/creating datastream "%s" ...' % (ds))
     await datastream_delete(el, datastream_name)
 
-    # minimal template
-    # mappings = {"properties": {"event": {"properties": {"original": {}}}}}
-    settings = {
-        # indices.mapping.dynamic_timeout
-        # index.mapping.total_fields.ignore_dynamic_beyond_limit
-        "index": {
-            "mapping": {
-                "total_fields": {
-                    "limit": max_total_fields,
-                }
-            },
-            "refresh_interval": muty.time.time_definition_from_milliseconds(
-                float(refresh_interval_msec)
-            ),
-        },
-    }
-
-    # enforce date detection ?
-    mappings: dict = {}
-    mappings["date_detection"] = force_date_detection
-
-    # map gulp fields
-    specific_gulp_mapping: dict = {
-        #"log": {
-        #    "properties": {
-        #        "level": {"type": "keyword"},
-        #    }
-        #},
-        #"source": {"properties": {"domain": {"type": "keyword"}}},
-        "event": {
-            "properties": {
-                "hash": {"type": "keyword"},
-                "category": {"type": "keyword"},
-                "original": {"type": "text", "analyzer": event_original_text_analyzer},
-                "duration": {"type": "long"},
-                "id": {"type": "keyword"},
-                "sequence": {"type": "long"},
-                "code": {"type": "keyword"},
-            }
-        },
-        "gulp": {
-            "properties": {
-                "event": {"properties": {"code": {"type": "long"}}},
-                "context": {"type": "keyword"},
-                "source": {"properties": {"file": {"type": "keyword"}}},
-                "log": {"properties": {"level": {"type": "integer"}}},
-            }
-        },
-        "agent": {"properties": {"type": {"type": "keyword"}}},
-        "@timestamp_nsec": {"type": "long"},
-        "@timestamp": {"type": "date", "format": "epoch_millis"},
-        "operation_id": {"type": "integer"},
-    }
-    mappings["properties"] = specific_gulp_mapping
-
-    # add dynamic templates for unmapped fields
-    dt = [
-        {
-            # all unmapped fields are mapped to "keyword", to avoid type boundaries issues
-            "force_unmapped_to_string": {
-                # "match_mapping_type": "long",
-                "match": "%s.*" % (UNMAPPED_PREFIX),
-                "mapping": {"type": "keyword"},
-            }
-        }
-    ]
-    mappings["dynamic_templates"] = dt
-
-    #logger().debug("settings: %s" % (json.dumps(settings, indent=2)))
-    #logger().debug("mappings: %s" % (json.dumps(mappings, indent=2)))
-    if not config.elastic_multiple_nodes():
-        # optimize for single node
-        # this also removes "yellow" node in single node mode
-        logger().warning("setting number_of_replicas to 0")
-        settings["index"]["number_of_replicas"] = 0
-
-    ###############
-    # rebuild template
-    ###############
-    t = {}
-    # use this template just for this index
-    t["index_patterns"] = [datastream_name]
-    t["data_stream"] = {}
-    t["priority"] = 100
-    t["template"] = {}
-    t["template"]["mappings"] = mappings
-
-    # always use settings
-    t["template"]["settings"] = settings
-
-    # create index, template and data stream
-    headers = {"accept": "application/json", "content-type": "application/json"}
-    # logger().debug(json.dumps(m, indent=2))
-    template_name: str = datastream_name + "-template"
-    r = await el.indices.put_index_template(name=template_name, body=t, headers=headers)
-    logger().debug("template created: %s" % (r))
-    # await el.indices.create(index=idx, headers=headers)
-    # logger().debug("index created: %s" % (r))
-    r = await el.indices.create_data_stream(ds, headers=headers)
-    logger().debug("datastream created: %s" % (r))
-    return r
-
+    # create index template, check if we are overriding the default index template.
+    # if so, we only apply gulp-related patching and leaving everything else as is
+    apply_patches = True
+    if index_template is None:
+        template_path = config.path_index_template()
+    else:
+        template_path = index_template
+        logger().debug('using custom index template "%s" ...' % (template_path))
+        apply_patches = False
+    await index_template_set_from_file(el, datastream_name, template_path, apply_patches=apply_patches)
+    
+    try:
+        # create datastream
+        headers = {"accept": "application/json", "content-type": "application/json"}
+        r = await el.indices.create_data_stream(ds, headers=headers)
+        logger().debug("datastream created: %s" % (r))
+        return r
+    except Exception as e:
+        # delete the index template
+        await e
+        raise e
 
 def filter_doc_for_ingestion(
     doc: GulpDocument | dict,
@@ -612,7 +673,7 @@ async def ingest_bulk(
                 failed += 1
                 logger().error(
                     "failed to ingest document: %s, docs=%s"
-                    % (r, muty.string.make_shorter(str(bulk_docs), max_len=1000))
+                    % (r, muty.string.make_shorter(str(bulk_docs), max_len=10000))
                 )
                 msg = "elastic.bulk.errors.items.create.status=%s" % (op_result)
                 if error is not None:
@@ -653,8 +714,8 @@ async def rebase(
         if ( ctx._source["@timestamp"] != 0 ) {
             ctx._source["@timestamp"] = ctx._source["@timestamp"] + params.msec_offset;
             long nsec_offset = (long)params.msec_offset * params.multiplier;
-            long nsec = ctx._source["@timestamp_nsec"] + nsec_offset;
-            ctx._source["@timestamp_nsec"] = (long)nsec;
+            long nsec = ctx._source["gulp.timestamp.nsec"] + nsec_offset;
+            ctx._source["gulp.timestamp.nsec"] = (long)nsec;
         }
     """
 
@@ -781,7 +842,7 @@ async def delete_data_by_operation(
     Returns:
         None
     """
-    q = {"query": {"term": {"operation_id": operation_id}}}
+    q = {"query": {"term": {"gulp.operation.id": operation_id}}}
 
     params = None
     if refresh:
@@ -965,7 +1026,7 @@ async def query_operations(el: AsyncElasticsearch, index: str):
     max_buckets = config.aggregation_max_buckets()
     aggs = {
         "operations": {
-            "terms": {"field": "operation_id", "size": max_buckets},
+            "terms": {"field": "gulp.operation.id", "size": max_buckets},
             "aggs": {
                 "context": {
                     "terms": {"field": "gulp.context", "size": max_buckets},
@@ -1229,7 +1290,7 @@ async def check_alive(el: AsyncElasticsearch) -> None:
     """
     res = await el.info()
     logger().debug("elasticsearch info: %s" % (res))
-    
+
 def elastic(invalidate: bool = False) -> AsyncElasticsearch:
     """
     Returns the ElasticSearch client instance.

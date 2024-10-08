@@ -117,6 +117,78 @@ def override_runtime_parameter(k: str, v: any):
     _config[k] = v
     return
 
+def check_path_index_template_override() -> bool:
+    """
+    Returns whether the index template path is overridden.
+    """
+    p = os.getenv("PATH_INDEX_TEMPLATE")
+    if p is not None:
+        return True
+    p = _config.get("path_index_template", None)
+    if p is not None:
+        return True
+    return False
+
+def bind_to() -> tuple[str,int]:
+    """
+    Returns the bind address and port.
+    
+    Returns:
+        tuple[str,int]: the bind address and port
+    """
+    p = os.getenv("BIND_TO")
+    if p is None:
+        p = _config.get("bind_to", None)
+        if p is None:
+            logger().warning("bind_to not set, using default!")
+            p = '0.0.0.0:8080'
+
+    logger().debug("bind_to: %s" % (p))
+    splitted = p.split(":")
+    if len(splitted) != 2:
+        raise ValueError("invalid bind_to format: %s" % (p))
+    
+    return (splitted[0], int(splitted[1]))
+
+def path_index_template() -> str:
+    """
+    Returns the path of the index template file.
+    """
+    p = os.getenv("PATH_INDEX_TEMPLATE")
+    if p is None:
+        p = _config.get("path_index_template", None)
+    if p is None:
+        # return the default path        
+        logger().warning("path_index_template not set, using default.")
+        p = impresources.files("gulp.api.mapping.index_template")
+        p = muty.file.safe_path_join(p,'template.json')
+    
+    logger().debug("path_index_template: %s" % (p))
+    return p
+
+def index_template_default_total_fields_limit() -> int:
+    """
+    Returns the default total fields limit for the index template (default=10000).
+    """    
+    n = _config.get("index_template_default_total_fields_limit", None)
+    if n is None:
+        n = 10000
+        logger().warning("using default total fields limit")
+        
+    logger().debug("index_template_default_total_fields_limit: %d" % (n))
+    return n
+
+def index_template_default_refresh_interval() -> str:
+    """
+    Returns the default refresh interval for the index template (i.e. usually in seconds, 5s, 30s, ...).
+    """    
+    n = _config.get("index_template_default_refresh_interval", None)
+    if n is None:
+        n = "5s"
+        logger().warning("using default refresh interval for index template")
+    
+    logger().debug("index_template_default_refresh_interval: %s" % (n))
+    return n
 
 def ingestion_request_timeout() -> int:
     """

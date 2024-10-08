@@ -107,7 +107,7 @@ class Plugin(PluginBase):
             GulpPluginOption(
                 "timestamp_offset_msec",
                 "int",
-                'if set, this is used to rebase "@timestamp" (and "@timestamp_nsec") in the query results.',
+                'if set, this is used to rebase "@timestamp" (and "gulp.timestamp.nsec") in the query results.',
                 default="_time",
             ),
             GulpPluginOption(
@@ -240,12 +240,12 @@ class Plugin(PluginBase):
             timestamp_is_string, timestamp_format_string, 
             timestamp_day_first, timestamp_year_first, 
             timestamp_unit, timestamp_field)
-        e['@timestamp_nsec'] = ts
+        e['gulp.timestamp.nsec'] = ts
         e['@timestamp'] = ts / muty.time.MILLISECONDS_TO_NANOSECONDS
         e['_source_plugin'] = self.filename()
         if mapping is not None:
             # map source keys using the mapping
-            self._map_source_key_lite(e, mapping)
+            self._remap_event_fields(e, mapping)
         
         if 'event.duration' not in e:
             # default

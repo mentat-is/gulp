@@ -57,8 +57,8 @@ if [[ "$EXTRA_ARGS" == *"--help"* || "$EXTRA_ARGS" == *"-h"* || -z "$GULP_CONFIG
   echo "  --help, -h: show this help"
   echo "  --reset-collab: reset collab database"
   echo "  --reset-elastic: reset elasticsearch (index name must be provided as the 2nd argument.)"
-  echo "  --iface: set the interface (default: 0.0.0.0)"
-  echo "  --port: set the port (default: 8080)"
+  echo "  --iface: set the interface to bind to (default: 0.0.0.0)"
+  echo "  --port: set the port to listen on(default: 8080)"
   echo "  --opensearch-data-path: set the path to store opensearch data (default: ./opensearch_data)"
   echo "  --postgres-data-path: set the path to store postgres data (default: ./postgres_data)"
   echo "  --stop: stop the running containers (everything else is ignored)"
@@ -74,4 +74,4 @@ export ELASTIC_DATA=$OPENSEARCH_DATA_PATH
 export POSTGRES_DATA=$POSTGRES_DATA_PATH
 
 # run docker-compose with the given arguments
-EXTRA_ARGS="$EXTRA_ARGS" IFACE=$IFACE PORT=$PORT docker compose --profile full up $BACKGROUND
+EXTRA_ARGS="$EXTRA_ARGS" BIND_TO=$IFACE:$PORT docker compose --profile full up $BACKGROUND

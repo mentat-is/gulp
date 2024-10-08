@@ -79,8 +79,8 @@ class Plugin(PluginBase):
             if "event.original" not in evt:
                 ori = str(evt)
                 evt["event.original"] = ori
-            if "operation_id" not in evt:
-                evt["operation_id"] = operation_id
+            if "gulp.operation.id" not in evt:
+                evt["gulp.operation.id"] = operation_id
             if "agent.id" not in evt:
                 evt["agent.id"] = client_id
             if "gulp.context" not in evt:

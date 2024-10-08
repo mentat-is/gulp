@@ -1,4 +1,6 @@
 {
+  // bind_to is the address:port to bind to (default=0.0.0.0:8080), may be overridden by BIND_TO environment variable
+  "bind_to": null,
   // each spawned process will run this number of tasks concurrently, at max (default=16)
   "concurrency_max_tasks": 16,
   // only for debugging, abort ingestion of the current file on first error when indexing a document (default=true)
@@ -23,6 +25,10 @@
   "https_enforce": false,
   // enforce client certificates signed by gulp-ca for https
   "https_enforce_client_certs": false,
+  // default for index template creation
+  "index_template_default_total_fields_limit": 10000,
+  // default for index template creation
+  "index_template_default_refresh_interval": "5s",
   // bulk ingestion buffer size (higher=more memory usage, better ingestion performance, tune up/down if you have request timeouts during ingestion)
   "ingestion_buffer_size": 1000,
   // failed events in a file to consider the file ABORTED (0=disabled)
@@ -37,6 +43,8 @@
   "parallel_processes_respawn_after_tasks": 0,
   // certificates directory (may be overridden by CERTS_DIRECTORY environment variable)
   "path_certs": "~/repos/gulp/certs",
+  // index template path (null=default, may be overridden by INDEX_TEMPLATE_PATH environment variable)
+  "path_index_template": null,
   // if set, path to be used when loading mapping files used by plugins (may be overridden by PATH_MAPPING_FILES environment variable)
   "path_mapping_files": null,
   // (base) path to load plugins from. leave null to use the default "GULPDIR/plugins". can be overridden with PATH_PLUGINS environment variable

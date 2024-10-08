@@ -81,11 +81,11 @@ class GulpAssociatedEvent(BaseModel):
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
+            "_id": self.id,
             "@timestamp": self.timestamp,
-            "operation_id": self.operation_id,
-            "context": self.context,
-            "src_file": self.src_file,
+            "gulp.operation.id": self.operation_id,
+            "gulp.context": self.context,
+            "gulp.source.file": self.src_file,
         }
 
     @staticmethod
@@ -93,9 +93,9 @@ class GulpAssociatedEvent(BaseModel):
         return GulpAssociatedEvent(
             id=d["id"],
             timestamp=d["@timestamp"],
-            operation_id=d.get("operation_id"),
-            context=d.get("context"),
-            src_file=d.get("src_file"),
+            operation_id=d.get("gulp.operation.id"),
+            context=d.get("gulp.context"),
+            src_file=d.get("gulp.source.file"),
         )
 
     @model_validator(mode="before")
@@ -106,12 +106,6 @@ class GulpAssociatedEvent(BaseModel):
             return {}
 
         if isinstance(data, dict):
-            ts = data.get("timestamp", None)
-            ts_c = data.get("@timestamp", None)
-            if ts is not None:
-                data["timestamp"] = ts
-            else:
-                data["timestamp"] = ts_c
             # print('****** events (after): %s, %s' % (data, type(data)))
             return data
         return json.loads(data)
