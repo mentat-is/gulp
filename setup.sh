@@ -159,17 +159,20 @@ do_install() {
         deactivate
         cd $prev_pwd
 
+        echo "[*] Starting docker service"
+        systemctl start docker
+
         echo "[*] To start gulp run:"
         echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp"
     else
         echo "[.] Performing PROD installation to $INSTALL_DIR"
 
         # ensure pipx venvs are in path and reload it
-        pipx ensurepath && source ~/.bashrc
+        su $SUDO_USER -c "$python312 -m pipx ensurepath && source ~/.bashrc"
 
         #TODO: until we have a packaged distributable .deb/.rpm/.pkg file or a pypi release, we must rely on pipx
-        #su $SUDO_USER -c "pipx install git+https://github.com/mentat-is/muty-python"
-        su $SUDO_USER -c "pipx install git+https://github.com/mentat-is/gulp"
+        #su $SUDO_USER -c "$python312 -m pipx install git+https://github.com/mentat-is/muty-python"
+        su $SUDO_USER -c "$python312 -m pipx install git+https://github.com/mentat-is/gulp"
         mkdir -p $INSTALL_DIR
 
         # download the bare minimum files needed to run gulp
@@ -177,6 +180,9 @@ do_install() {
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/Dockerfile -o $INSTALL_DIR/Dockerfile
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/.env -o $INSTALL_DIR/.env
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/docker-compose.yml -o $INSTALL_DIR/docker-compose.yml
+
+        echo "[*] Starting docker service"
+        systemctl start docker
 
         echo "[*] To start gulp run:"
         echo "cd $INSTALL_DIR && docker compose up -d && gulp"
@@ -192,8 +198,44 @@ do_install() {
     echo "[*] Setting folder permissions to be owned by $SUDO_USER"
     chown -R $SUDO_USER:$SUDO_USER $INSTALL_DIR
 
+    # Check Docker
+    (id -nG "$SUDO_USER" | grep -qw "docker")
+    IN_GROUP=$?
+
+    ADD_TO_DOCKER_GROUP=0
+    NEEDS_SUDO=0
+    if [ $UID -ne 0 ] && [ $IN_GROUP -ne 0 ] ; then
+        while true; do
+            read -p "Add $SUDO_USER to 'docker' group? " yn
+            case $yn in
+                [Yy]* )
+                    ADD_TO_DOCKER_GROUP=1
+                break;;
+                [Nn]* )
+                    ADD_TO_DOCKER_GROUP=0
+                    NEEDS_SUDO="sudo"
+                break;;
+                * ) echo "Please answer Yy or No.";;
+            esac
+        done
+    fi
+
     echo "[*] Copying configuration template file to $GULP_CFG_PATH"
     cp "$INSTALL_DIR/gulp_cfg_template.json" "$GULP_CFG_PATH"
+
+    if [ $ADD_TO_DOCKER_GROUP -eq 1 ]; then
+        usermod -a -G docker $SUDO_USER
+        echo "[*] User $SUDO_USER added to 'docker' group. Re-launch terminal for changes to take effect (or run 'newgrp docker')"
+    fi
+
+    # build "run" command
+    if [ $IS_DEV_INSTALL -eq 1 ]; then
+        DEV_CMD="source .venv/bin/activate &&"
+    fi
+
+    CMD="cd $INSTALL_DIR && $DEV_CMD $NEEDS_SUDO docker compose up -d && gulp"
+    echo "[*] To start gulp run:"
+    echo "$CMD"
 }
 
 usage() {
