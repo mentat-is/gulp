@@ -40,6 +40,7 @@ For larger resolutions, it is also suggested to set the screen resolution to hig
 ## Manual installation
 
 ### 1. Install OS dependencies
+
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
@@ -68,7 +69,8 @@ source ./.venv/bin/activate
 ### 5. Prepare directories and configuration
 
 ~~~bash
-# create configuration directory
+# create configuration directory (ensure its empty)
+rm -rf ~/.config/gulp
 mkdir -p ~/.config/gulp
 
 # copy template configuration, edit it in case
@@ -76,9 +78,7 @@ cd ./repos/gulp
 copy ./template_cfg.json ~/.config/gulp_cfg.json
 
 # ensure data directories for postgresql and opensearch exists and are owned by the current user (NON ROOT)
-mkdir ./opensearch_data1
-mkdir ./opensearch_data2
-mkdir ./opensearch_data3
+mkdir ./opensearch_data
 mkdir ./postgres_data
 ~~~
 
@@ -98,13 +98,13 @@ pip3 install -U -e . && pip3 install -U -e ../muty-python
 cd ./repos/gulp
 
 # start postgresql and opensearch
-# docker compose down
 docker compose up -d
 
-# run gulp
-gulp --bind-to 0.0.0.0 8080
+# run gulp first time
+gulp --bind-to 0.0.0.0 8080 --reset-collab --reset-elastic testidx
 
-# otherwise just run gulp --bind-to 0.0.0.0 8080
+# later it can be run with just
+# gulp --bind-to 0.0.0.0 8080
 ~~~
 
 ### 8. (Optional) Test
@@ -112,7 +112,7 @@ gulp --bind-to 0.0.0.0 8080
 ~~~bash
 # check it ingests 98630 events (i.e. using elasticvue)
 cd ./repos/gulp
-TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
+TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~
 
 ## 4. Troubleshoot
