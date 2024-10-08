@@ -203,10 +203,10 @@ do_install() {
     IN_GROUP=$?
 
     ADD_TO_DOCKER_GROUP=0
-    NEEDS_SUDO=0
+    NEEDS_SUDO=""
     if [ $UID -ne 0 ] && [ $IN_GROUP -ne 0 ] ; then
         while true; do
-            read -p "Add $SUDO_USER to 'docker' group? " yn
+            read -p "[?] Add $SUDO_USER to 'docker' group? " yn
             case $yn in
                 [Yy]* )
                     ADD_TO_DOCKER_GROUP=1
