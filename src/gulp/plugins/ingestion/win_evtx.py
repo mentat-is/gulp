@@ -18,7 +18,7 @@ from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
-
+from gulp.utils import logger
 
 class Plugin(PluginBase):
     """
@@ -195,16 +195,46 @@ class Plugin(PluginBase):
 
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
-
+            # logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
+            if not e.text:
+                # none/empty text
+                logger().error("skipping e_tag=%s, value=%s" % (e.tag, e.text))
+                continue
+            
             # these are already processed
             if e.tag in ["EventID", "EventRecordID", "Level", "Provider"]:
                 continue
-
-            # logger().debug(
-            #     "found e_tag=%s, value=%s" % (e.tag, e.text)
-            # )
-
+            
+            entries: list[FieldMappingEntry]=[]
+            
+            if len(e.attrib) == 0:
+                # no attribs
+                entries = self._map_source_key(
+                    plugin_params,
+                    custom_mapping,
+                    e.tag,
+                    e.text,
+                    index_type_mapping=index_type_mapping,
+                    **kwargs,
+                )
+            else:
+                for attr_k, attr_v in e.attrib.items():
+                    if attr_v is None:
+                        continue
+                    k = "%s.%s" % (e.tag, attr_k)
+                    ee = self._map_source_key(
+                        plugin_params,
+                        custom_mapping,
+                        attr_k,
+                        e.text,
+                        index_type_mapping=index_type_mapping,
+                        **kwargs,
+                    )
+                    entries.extend(ee)    
+            
+            
             # Check XML tag name and set extra mapping
+            
             entries = self._map_source_key(
                 plugin_params,
                 custom_mapping,
@@ -214,6 +244,7 @@ class Plugin(PluginBase):
                 **kwargs,
             )
             for entry in entries:
+                logger().debug("entry: %s, e_tag: %s" % (entry.result, e.tag))
                 fme.append(entry)
 
                 # add attributes as more extra data

@@ -805,6 +805,9 @@ class PluginBase(ABC):
             # direct mapping, no need to check custom_mappings
             return [FieldMappingEntry(result={source_key: v})]
 
+        # ensure source_key is stripped of characters before the last .
+        source_key = source_key.split(".")[-1]
+        
         if source_key not in mapping_dict:
             # logger().error('key "%s" not found in custom mapping, mapping_dict=%s!' % (source_key, muty.string.make_shorter(str(mapping_dict))))
             # key not found in custom_mapping, check if we have to map it anyway
