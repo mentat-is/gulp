@@ -884,7 +884,7 @@ async def query_max_min_per_field(
     return _parse_query_max_min(d)
 
 
-async def refresh_index(el: AsyncElasticsearch, index: str) -> None:
+async def index_refresh(el: AsyncElasticsearch, index: str) -> None:
     """
     Refresh an index(=make changes available to search) in Elasticsearch.
 
@@ -896,7 +896,8 @@ async def refresh_index(el: AsyncElasticsearch, index: str) -> None:
         None
     """
     logger().debug("refreshing index: %s" % (index))
-    await el.indices.refresh(index=index)
+    res = await el.indices.refresh(index=index)
+    logger().debug("refreshed index: %s" % (res))
 
 
 async def query_time_histograms(
