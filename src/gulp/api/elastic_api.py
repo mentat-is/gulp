@@ -148,16 +148,25 @@ async def index_get_mapping_by_src(
         }
     }
 
-    # get the first 1000 documents as a sample
-    docs = await query_raw(el, index_name, q, options)
-    docs = docs["results"]
+    # loop with query_raw until there's data and accumulate in total_docs
+    total_docs: list=[] 
+    while True:
+        try:
+            docs = await query_raw(el, index_name, q, options)
+        except ObjectNotFound:
+            break
+        search_after = docs.get("search_after", None)
 
+        docs = docs["results"]
+        options.search_after = search_after
+        total_docs.extend(docs)
+    
+    if len(total_docs) == 0:
+        raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
+    
     # get mapping
     mapping = await index_get_mapping(el, index_name)
-    js = _get_filtered_mapping(docs, mapping)
-    if len(js) == 0:
-        raise ObjectNotFound("no mapping found for src_file=%s" % (src_file))
-
+    js = _get_filtered_mapping(docs, mapping)    
     return js
 
 
