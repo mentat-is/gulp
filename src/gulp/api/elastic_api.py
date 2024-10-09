@@ -115,10 +115,16 @@ async def index_get_mapping(
 def _get_filtered_mapping(docs: list[dict], mapping: dict) -> dict:
     filtered_mapping = {}
 
-    for key in mapping:
-        if all(key in doc for doc in docs):
-            filtered_mapping[key] = mapping[key]
+    # for each key in mapping, check if it's present in at least one of the dict in docs. 
+    # if so, add it to the filtered_mapping
+    for doc in docs:
+        for k in mapping.keys():
+            if k in doc:
+                if not k in filtered_mapping:
+                    filtered_mapping[k] = mapping[k]
 
+    # sort the keys
+    filtered_mapping = dict(sorted(filtered_mapping.items()))
     return filtered_mapping
 
 
