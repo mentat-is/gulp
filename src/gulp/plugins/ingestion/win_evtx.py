@@ -130,8 +130,7 @@ class Plugin(PluginBase):
     ) -> list[GulpDocument]:
         # process record
         # logger().debug(record)
-        evt_str: str = record["data"].encode()
-
+        evt_str: str = record["data"].encode()        
         data_elem = None
         data_elem = etree.fromstring(evt_str)
 
@@ -196,19 +195,21 @@ class Plugin(PluginBase):
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
             # logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
-            if not e.text:
-                # none/empty text
-                logger().error("skipping e_tag=%s, value=%s" % (e.tag, e.text))
-                continue
-            
+
             # these are already processed
             if e.tag in ["EventID", "EventRecordID", "Level", "Provider"]:
                 continue
             
-            entries: list[FieldMappingEntry]=[]
-            
+            # map attrs and values
+            entries: list[FieldMappingEntry]=[]            
             if len(e.attrib) == 0:
-                # no attribs
+                # no attribs, i.e. <Opcode>0</Opcode>
+                if not e.text or not e.text.strip():
+                    # none/empty text
+                    # logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
+                    continue
+            
+                # logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
                 entries = self._map_source_key(
                     plugin_params,
                     custom_mapping,
@@ -218,84 +219,32 @@ class Plugin(PluginBase):
                     **kwargs,
                 )
             else:
+                # attribs, i.e. <TimeCreated SystemTime="2019-11-08T23:20:54.670500400Z" />
                 for attr_k, attr_v in e.attrib.items():
-                    if attr_v is None:
+                    if not attr_v or not attr_v.strip():
+                        # logger().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
                         continue
-                    k = "%s.%s" % (e.tag, attr_k)
+                    if attr_k == "Name":
+                        k = attr_v
+                        v = e.text
+                        # logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                    else:
+                        k = "%s.%s" % (e.tag, attr_k)
+                        v = attr_v
+                        # logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     ee = self._map_source_key(
                         plugin_params,
                         custom_mapping,
-                        attr_k,
-                        e.text,
+                        k,
+                        v,
                         index_type_mapping=index_type_mapping,
                         **kwargs,
                     )
                     entries.extend(ee)    
             
-            
-            # Check XML tag name and set extra mapping
-            
-            entries = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                e.tag,
-                e.text,
-                index_type_mapping=index_type_mapping,
-                **kwargs,
-            )
             for entry in entries:
-                logger().debug("entry: %s, e_tag: %s" % (entry.result, e.tag))
                 fme.append(entry)
-
-                # add attributes as more extra data
-                for attr_k, attr_v in e.attrib.items():
-                    kk = "gulp.winevtx.xml.attr.%s" % (attr_k)
-                    inner_entries = self._map_source_key(
-                        plugin_params,
-                        custom_mapping,
-                        kk,
-                        attr_v,
-                        index_type_mapping=index_type_mapping,
-                        **kwargs,
-                    )
-                    for entry in inner_entries:
-                        fme.append(entry)
-
-            # Check attributes and set extra mapping
-            for attr_k, attr_v in e.attrib.items():
-                # logger().info("name: %s value: %s" % (attr_k, attr_v))
-                # logger().debug("processing attr_v=%s, value=%s" % (attr_v, e.text))
-                entries = self._map_source_key(
-                    plugin_params,
-                    custom_mapping,
-                    attr_v,
-                    e.text,
-                    index_type_mapping=index_type_mapping,
-                    **kwargs,
-                )
-                for entry in entries:
-                    fme.append(entry)
-
-                if e.text is None:
-                    # no more processing
-                    continue
-
-                value = e.text.strip()
-                if attr_v is not None:
-                    # prefer attr_v
-                    value = attr_v.strip()
-
-                entries = self._map_source_key(
-                    plugin_params,
-                    custom_mapping,
-                    attr_k,
-                    value,
-                    index_type_mapping=index_type_mapping,
-                    **kwargs,
-                )
-                for entry in entries:
-                    fme.append(entry)
-
+                
         # finally create documents
         docs = self._build_gulpdocuments(
             fme,
@@ -352,7 +301,7 @@ class Plugin(PluginBase):
                 index,
                 source=source,
                 pipeline=ecs_windows(),
-                mapping_file="windows.json",
+                #mapping_file="windows.json",
                 plugin_params=plugin_params,
             )
             # logger().debug("win_mappings: %s" % (win_mapping))
