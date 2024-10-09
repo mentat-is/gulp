@@ -267,10 +267,16 @@ async def index_get_key_value_mapping(
 def _get_filtered_mapping(docs: list[dict], mapping: dict) -> dict:
     filtered_mapping = {}
 
-    for key in mapping:
-        if all(key in doc for doc in docs):
-            filtered_mapping[key] = mapping[key]
+    # for each key in mapping, check if it's present in at least one of the dict in docs. 
+    # if so, add it to the filtered_mapping
+    for doc in docs:
+        for k in mapping.keys():
+            if k in doc:
+                if not k in filtered_mapping:
+                    filtered_mapping[k] = mapping[k]
 
+    # sort the keys
+    filtered_mapping = dict(sorted(filtered_mapping.items()))
     return filtered_mapping
 
 
@@ -300,10 +306,22 @@ async def index_get_mapping_by_src(
         }
     }
 
-    # get the first 1000 documents as a sample
-    docs = await query_raw(el, index_name, q, options)
-    docs = docs["results"]
+    # loop with query_raw until there's data and accumulate in total_docs
+    total_docs: list=[] 
+    while True:
+        try:
+            docs = await query_raw(el, index_name, q, options)
+        except ObjectNotFound:
+            break
+        search_after = docs.get("search_after", None)
 
+        docs = docs["results"]
+        options.search_after = search_after
+        total_docs.extend(docs)
+    
+    if len(total_docs) == 0:
+        raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
+    
     # get mapping
     mapping = await index_get_key_value_mapping(el, index_name)
     js = _get_filtered_mapping(docs, mapping)
@@ -930,7 +948,7 @@ async def query_max_min_per_field(
     return _parse_query_max_min(d)
 
 
-async def refresh_index(el: AsyncElasticsearch, index: str) -> None:
+async def index_refresh(el: AsyncElasticsearch, index: str) -> None:
     """
     Refresh an index(=make changes available to search) in Elasticsearch.
 
@@ -942,7 +960,8 @@ async def refresh_index(el: AsyncElasticsearch, index: str) -> None:
         None
     """
     logger().debug("refreshing index: %s" % (index))
-    await el.indices.refresh(index=index)
+    res = await el.indices.refresh(index=index)
+    logger().debug("refreshed index: %s" % (res))
 
 
 async def query_time_histograms(

@@ -40,7 +40,6 @@ For larger resolutions, it is also suggested to set the screen resolution to hig
 ## Manual installation
 
 ### 1. Install OS dependencies
-
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
@@ -112,6 +111,7 @@ BIND_TO=0.0.0.0:8080 gulp --reset-collab --reset-elastic testidx
 ~~~bash
 # check it ingests 98630 events (i.e. using elasticvue)
 cd ./repos/gulp
+TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~
 
