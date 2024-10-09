@@ -166,7 +166,7 @@ async def index_get_mapping_by_src(
     
     # get mapping
     mapping = await index_get_mapping(el, index_name)
-    js = _get_filtered_mapping(docs, mapping)    
+    js = _get_filtered_mapping(total_docs, mapping)    
     return js
 
 
