@@ -1082,7 +1082,7 @@ class PluginBase(ABC):
         """
         try:
             # finally flush ingestion buffer
-            fs = await self._flush_buffer(index, fs, ws_id, req_id, flt)
+            fs = await self._flush_buffer(index, fs, ws_id, req_id, flt, wait_for_refresh=True)
             logger().info(
                 "INGESTION DONE FOR source=%s,\n\tclient_id=%d (processed(ingested)=%d, failed=%d, skipped=%d, errors=%d, parser_errors=%d)"
                 % (
