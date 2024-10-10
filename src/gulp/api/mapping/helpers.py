@@ -9,6 +9,7 @@ from sigma.processing.transformations import FieldMappingTransformation
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
 from gulp.utils import logger
 
+
 async def _get_mappings_internal(mapping_file_path: str) -> dict:
     """Check for file existance and return json file as dict
 
@@ -38,7 +39,8 @@ async def _get_mappings_internal(mapping_file_path: str) -> dict:
     mappings = js["mappings"]
     return mappings
 
-async def get_mappings_from_file(mapping_file_path:str) -> list[GulpMapping]:
+
+async def get_mappings_from_file(mapping_file_path: str) -> list[GulpMapping]:
     """
         Retrieve all mappings from a file.
 
@@ -52,7 +54,7 @@ async def get_mappings_from_file(mapping_file_path:str) -> list[GulpMapping]:
         FileNotFoundError: if the mapping file does not exist
         ValueError: if no mapping_id are found
     """
-    mappings=[]
+    mappings = []
 
     l = logger()
     if l is None:
@@ -64,6 +66,7 @@ async def get_mappings_from_file(mapping_file_path:str) -> list[GulpMapping]:
         mappings.append(GulpMapping.from_dict(mapping))
 
     return mappings
+
 
 async def get_mapping_from_file(
     mapping_file_path: str, mapping_id: str = None
@@ -220,18 +223,12 @@ async def get_enriched_mapping_for_ingestion(
 
     if pipeline_mapping is None:
         # return mapping from file
-        l.warning(
-            "no pipeline provided, returning file mapping: %s"
-            % (json.dumps(file_mapping.to_dict(), indent=2))
-        )
+        # l.warning("no pipeline provided, returning file mapping: %s" % (json.dumps(file_mapping.to_dict(), indent=2)))
 
         return file_mapping
 
     if file_mapping is None:
-        l.warning(
-            "no file mapping provided, returning pipeline mapping: %s"
-            % (json.dumps(pipeline_mapping.to_dict(), indent=2))
-        )
+        # l.warning("no file mapping provided, returning pipeline mapping: %s" % (json.dumps(pipeline_mapping.to_dict(), indent=2)))
         return pipeline_mapping
 
     # merge mapping into pipeline_mapping
@@ -261,13 +258,21 @@ async def get_enriched_mapping_for_ingestion(
 
             # depending if the source (file) and destination (pipeline) mapping are strings or lists, we need to merge them accordingly
             if file_v.map_to is not None:
-                if isinstance(pipeline_v.map_to, list) and isinstance(file_v.map_to, list):
+                if isinstance(pipeline_v.map_to, list) and isinstance(
+                    file_v.map_to, list
+                ):
                     pipeline_v.map_to.extend(file_v.map_to)
-                elif isinstance(pipeline_v.map_to, str) and isinstance(file_v.map_to, str):
+                elif isinstance(pipeline_v.map_to, str) and isinstance(
+                    file_v.map_to, str
+                ):
                     pipeline_v.map_to = [pipeline_v.map_to, file_v.map_to]
-                elif isinstance(pipeline_v.map_to, list) and isinstance(file_v.map_to, str):
+                elif isinstance(pipeline_v.map_to, list) and isinstance(
+                    file_v.map_to, str
+                ):
                     pipeline_v.map_to.append(file_v.map_to)
-                elif isinstance(pipeline_v.map_to, str) and isinstance(file_v.map_to, list):
+                elif isinstance(pipeline_v.map_to, str) and isinstance(
+                    file_v.map_to, list
+                ):
                     file_v.map_to.append(pipeline_v.map_to)
                     pipeline_v.map_to = file_v.map_to
 

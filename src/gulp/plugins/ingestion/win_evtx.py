@@ -20,6 +20,7 @@ from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
 
+
 class Plugin(PluginBase):
     """
     windows evtx log file processor.
@@ -130,7 +131,7 @@ class Plugin(PluginBase):
     ) -> list[GulpDocument]:
         # process record
         # logger().debug(record)
-        evt_str: str = record["data"].encode()        
+        evt_str: str = record["data"].encode()
         data_elem = None
         data_elem = etree.fromstring(evt_str)
 
@@ -196,19 +197,15 @@ class Plugin(PluginBase):
             e.tag = muty.xml.strip_namespace(e.tag)
             # logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
 
-            # these are already processed
-            if e.tag in ["EventID", "EventRecordID", "Level", "Provider"]:
-                continue
-            
             # map attrs and values
-            entries: list[FieldMappingEntry]=[]            
+            entries: list[FieldMappingEntry] = []
             if len(e.attrib) == 0:
                 # no attribs, i.e. <Opcode>0</Opcode>
                 if not e.text or not e.text.strip():
                     # none/empty text
                     # logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
                     continue
-            
+                #1637340783836
                 # logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
                 entries = self._map_source_key(
                     plugin_params,
@@ -229,7 +226,7 @@ class Plugin(PluginBase):
                         v = e.text
                         # logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
-                        k = "%s.%s" % (e.tag, attr_k)
+                        k = attr_k  # "%s.%s" % (e.tag, attr_k)
                         v = attr_v
                         # logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     ee = self._map_source_key(
@@ -240,11 +237,11 @@ class Plugin(PluginBase):
                         index_type_mapping=index_type_mapping,
                         **kwargs,
                     )
-                    entries.extend(ee)    
-            
+                    entries.extend(ee)
+
             for entry in entries:
                 fme.append(entry)
-                
+
         # finally create documents
         docs = self._build_gulpdocuments(
             fme,
@@ -301,7 +298,7 @@ class Plugin(PluginBase):
                 index,
                 source=source,
                 pipeline=ecs_windows(),
-                #mapping_file="windows.json",
+                # mapping_file="windows.json",
                 plugin_params=plugin_params,
             )
             # logger().debug("win_mappings: %s" % (win_mapping))
