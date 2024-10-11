@@ -199,21 +199,23 @@ do_install() {
     chown -R $SUDO_USER:$SUDO_USER $INSTALL_DIR
 
     # Check Docker
+    echo -n "[*] Checking if $SUDO_USER is part of 'docker' group... "
     (id -nG "$SUDO_USER" | grep -qw "docker")
     IN_GROUP=$?
 
     ADD_TO_DOCKER_GROUP=0
     NEEDS_SUDO=""
     if [ $SUDO_USER != "root" ] && [ $IN_GROUP -ne 0 ] ; then
+        echo "NOT IN GROUP"
         while true; do
-          read -p "[?] Add $SUDO_USER to 'docker' group (Yy/Nn)?" yn
+            read -p "[?] Add $SUDO_USER to 'docker' group (Yy/Nn)?" yn
             case $yn in
                 [Yy]* )
                     ADD_TO_DOCKER_GROUP=1
                 break;;
                 [Nn]* )
                     ADD_TO_DOCKER_GROUP=0
-                    NEEDS_SUDO="sudo"
+                    NEEDS_SUDO=" sudo"
                 break;;
             esac
         done
@@ -229,10 +231,10 @@ do_install() {
 
     # build "run" command
     if [ $IS_DEV_INSTALL -eq 1 ]; then
-        DEV_CMD="source .venv/bin/activate &&"
+        DEV_CMD=" source .venv/bin/activate &&"
     fi
 
-    CMD="cd $INSTALL_DIR && $DEV_CMD $NEEDS_SUDO docker compose up -d && gulp"
+    CMD="cd $INSTALL_DIR &&$DEV_CMD$NEEDS_SUDO docker compose up -d && gulp"
     echo "[*] To start gulp run:"
     echo "$CMD"
 }
