@@ -204,7 +204,7 @@ do_install() {
 
     ADD_TO_DOCKER_GROUP=0
     NEEDS_SUDO=""
-    if [ $UID -ne 0 ] && [ $IN_GROUP -ne 0 ] ; then
+    if [ $SUDO_USER != "root" ] && [ $IN_GROUP -ne 0 ] ; then
         while true; do
             read -p "[?] Add $SUDO_USER to 'docker' group? " yn
             case $yn in
