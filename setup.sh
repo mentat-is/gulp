@@ -158,12 +158,6 @@ do_install() {
         pip install -e .
         deactivate
         cd $prev_pwd
-
-        echo "[*] Starting docker service"
-        systemctl start docker
-
-        echo "[*] To start gulp run:"
-        echo "cd $INSTALL_DIR && source .venv/bin/activate && docker compose up -d && gulp"
     else
         echo "[.] Performing PROD installation to $INSTALL_DIR"
 
@@ -180,13 +174,10 @@ do_install() {
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/Dockerfile -o $INSTALL_DIR/Dockerfile
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/.env -o $INSTALL_DIR/.env
         curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/docker-compose.yml -o $INSTALL_DIR/docker-compose.yml
-
-        echo "[*] Starting docker service"
-        systemctl start docker
-
-        echo "[*] To start gulp run:"
-        echo "cd $INSTALL_DIR && docker compose up -d && gulp"
     fi
+
+    echo "[*] Starting docker service"
+    systemctl start docker
 
     # Prepare directories
     mkdir -p "$HOME/.config/gulp"
@@ -195,7 +186,7 @@ do_install() {
     mkdir -p "$INSTALL_DIR/opensearch_data3"
     mkdir -p "$INSTALL_DIR/postgres_data"
 
-    echo "[*] Setting folder permissions to be owned by $SUDO_USER"
+    echo "[*] Setting folder permissions ($INSTALL_DIR) to be owned by $SUDO_USER:$SUDO_USER"
     chown -R $SUDO_USER:$SUDO_USER $INSTALL_DIR
 
     # Check Docker
