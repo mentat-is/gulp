@@ -8,7 +8,6 @@ import muty.dict
 import muty.file
 import muty.string
 import muty.time
-from gulp.api.mapping import index_template
 
 import gulp.config as config
 from gulp.api.elastic.structs import (
@@ -18,6 +17,7 @@ from gulp.api.elastic.structs import (
     GulpQueryOptions,
     gulpqueryflt_to_elastic_dsl,
 )
+from gulp.api.mapping import index_template
 from gulp.defs import GulpEventFilterResult, ObjectNotFound
 from gulp.utils import logger
 
@@ -51,6 +51,7 @@ def _parse_mappings(d: dict, parent_key="", result=None) -> dict:
             result[new_key] = v
     return result
 
+
 async def index_template_delete(el: AsyncElasticsearch, index_name: str) -> None:
     """
     Delete the index template for the given index/datastream.
@@ -60,11 +61,12 @@ async def index_template_delete(el: AsyncElasticsearch, index_name: str) -> None
         index_name (str): The index/datastream name.
     """
     try:
-        template_name = '%s-template' % (index_name)
-        logger().debug('deleting index template: %s ...' % (template_name))
+        template_name = "%s-template" % (index_name)
+        logger().debug("deleting index template: %s ..." % (template_name))
         await el.indices.delete_index_template(name=template_name)
     except Exception as e:
         logger().error("error deleting index template: %s" % (e))
+
 
 async def index_template_get(el: AsyncElasticsearch, index_name: str) -> dict:
     """
@@ -77,15 +79,16 @@ async def index_template_get(el: AsyncElasticsearch, index_name: str) -> dict:
     Returns:
         dict: The index template.
     """
-    template_name = '%s-template' % (index_name)
-    logger().debug('getting index template: %s ...' % (template_name))
+    template_name = "%s-template" % (index_name)
+    logger().debug("getting index template: %s ..." % (template_name))
 
     try:
         res = await el.indices.get_index_template(name=template_name)
     except Exception as e:
         raise ObjectNotFound("no template found for datastream/index %s" % (index_name))
 
-    return res['index_templates'][0]['index_template']
+    return res["index_templates"][0]["index_template"]
+
 
 async def index_template_put(el: AsyncElasticsearch, index_name: str, d: dict) -> dict:
     """
@@ -99,12 +102,17 @@ async def index_template_put(el: AsyncElasticsearch, index_name: str, d: dict) -
     Returns:
         dict: The response from the Elasticsearch client.
     """
-    template_name = '%s-template' % (index_name)
-    logger().debug('putting index template: %s ...' % (template_name))
+    template_name = "%s-template" % (index_name)
+    logger().debug("putting index template: %s ..." % (template_name))
     headers = {"accept": "application/json", "content-type": "application/json"}
-    return await el.indices.put_index_template(name=template_name, body=d, headers=headers)
+    return await el.indices.put_index_template(
+        name=template_name, body=d, headers=headers
+    )
 
-async def index_template_set_from_file(el: AsyncElasticsearch, index_name: str, path: str, apply_patches: bool=True) -> dict:
+
+async def index_template_set_from_file(
+    el: AsyncElasticsearch, index_name: str, path: str, apply_patches: bool = True
+) -> dict:
     """
     Asynchronously sets an index template in Elasticsearch from a JSON file.
     Args:
@@ -120,7 +128,10 @@ async def index_template_set_from_file(el: AsyncElasticsearch, index_name: str, 
     d = muty.dict.from_json_file(path)
     return await build_and_set_index_template(el, index_name, d, apply_patches)
 
-async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, d: dict, apply_patches: bool=True) -> dict:
+
+async def build_and_set_index_template(
+    el: AsyncElasticsearch, index_name: str, d: dict, apply_patches: bool = True
+) -> dict:
     """
     Sets an index template in Elasticsearch, applying the needed patches to the mappings and settings.
     Args:
@@ -138,61 +149,70 @@ async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, 
         - If the Elasticsearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
     """
     logger().debug('setting index template for "%s" ...' % (index_name))
-    template = d.get('template', None)
+    template = d.get("template", None)
     if template is None:
         raise ValueError('no "template" key found in the index template')
-    mappings = template.get('mappings', None)
+    mappings = template.get("mappings", None)
     if mappings is None:
         raise ValueError('no "mappings" key found in the index template')
-    settings = template.get('settings', None)
+    settings = template.get("settings", None)
     if settings is None:
-        template['settings'] = {}
-        settings = template['settings']
-    if settings.get('index', None) is None:
-        settings['index'] = {}
-    if settings['index'].get('mapping', None) is None:
-        settings['index']['mapping'] = {}
-    dt = mappings.get('dynamic_templates', None)
+        template["settings"] = {}
+        settings = template["settings"]
+    if settings.get("index", None) is None:
+        settings["index"] = {}
+    if settings["index"].get("mapping", None) is None:
+        settings["index"]["mapping"] = {}
+    dt = mappings.get("dynamic_templates", None)
     if dt is None:
         dt = []
-        mappings['dynamic_templates'] = dt
+        mappings["dynamic_templates"] = dt
 
     # apply our patches
     d["index_patterns"] = [index_name]
-    d['data_stream'] = {}
-    d['priority'] = 100
+    d["data_stream"] = {}
+    d["priority"] = 100
 
     # always set gulp specific mappings
-    mappings['properties']['gulp'] = {
-            "properties": {
-                "event": {"properties": {"code": {"type": "long"}}},
-                "context": {"type": "keyword"},
-                "operation": {"properties": {"id": {"type": "integer"}}},
-                "source": {"properties": {"file": {"type": "keyword"}}},
-                "log": {"properties": {"level": {"type": "integer"}}},
-                "timestamp": {"properties": {"nsec": {"type": "long"}}},
-            }
-    }
-    dtt=[]
-    dtt.append({
-        # force unknown mapping to string
-        "force_unmapped_to_string": {
-            "match": "%s.*" % (UNMAPPED_PREFIX),
-            #"match":"*",
-            "mapping": {"type": "keyword"},
+    mappings["properties"]["gulp"] = {
+        "properties": {
+            "event": {"properties": {"code": {"type": "long"}}},
+            "context": {"type": "keyword"},
+            "operation": {"properties": {"id": {"type": "integer"}}},
+            "source": {"properties": {"file": {"type": "keyword"}}},
+            "log": {"properties": {"level": {"type": "integer"}}},
+            "timestamp": {"properties": {"nsec": {"type": "long"}}},
         }
-    })
+    }
+    dtt = []
+    dtt.append(
+        {
+            # force unknown mapping to string
+            "force_unmapped_to_string": {
+                "match": "%s.*" % (UNMAPPED_PREFIX),
+                # "match":"*",
+                "mapping": {"type": "keyword"},
+            }
+        }
+    )
     dtt.extend(dt)
-    mappings['dynamic_templates'] = dtt
+    mappings["dynamic_templates"] = dtt
 
     if apply_patches:
         # only set these if we do not want to use the template as is
-        #mappings['date_detection'] = True
-        #mappings['numeric_detection'] = True
-        #mappings['dynamic'] = False
-        mappings['properties']['event']['properties']['original'] = {"type": "text", "analyzer": "standard"}
-        settings['index']['mapping']['total_fields'] = {'limit': config.index_template_default_total_fields_limit()}
-        settings['index']['refresh_interval'] = config.index_template_default_refresh_interval()
+        # mappings['date_detection'] = True
+        # mappings['numeric_detection'] = True
+        # mappings['dynamic'] = False
+        mappings["properties"]["event"]["properties"]["original"] = {
+            "type": "text",
+            "analyzer": "standard",
+        }
+        settings["index"]["mapping"]["total_fields"] = {
+            "limit": config.index_template_default_total_fields_limit()
+        }
+        settings["index"][
+            "refresh_interval"
+        ] = config.index_template_default_refresh_interval()
         if not config.elastic_multiple_nodes():
             # optimize for single node
             # this also removes "yellow" node in single node mode
@@ -204,7 +224,10 @@ async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, 
     await index_template_put(el, index_name, d)
     return d
 
-async def datastream_get_key_value_mapping(el: AsyncElasticsearch, datastream_name: str) -> dict:
+
+async def datastream_get_key_value_mapping(
+    el: AsyncElasticsearch, datastream_name: str
+) -> dict:
     """
     Get and parse mappings for the given datastream's backing index: it will result in a dict like:
     {
@@ -333,7 +356,7 @@ async def index_get_mapping_by_src(
         raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
 
     # get mapping
-    mapping = await index_get_mapping(el, index_name)
+    mapping = await index_get_key_value_mapping(el, index_name)
     js = _get_filtered_mapping(total_docs, mapping)
     return js
 
@@ -397,9 +420,7 @@ async def datastream_delete(el: AsyncElasticsearch, datastream_name: str) -> Non
 
 
 async def datastream_create(
-    el: AsyncElasticsearch,
-    datastream_name: str,
-    index_template: str=None
+    el: AsyncElasticsearch, datastream_name: str, index_template: str = None
 ) -> None:
     """
     (re)creates the Elasticsearch datastream (with backing index) and associates the index template from configuration (or uses the default).
@@ -425,7 +446,9 @@ async def datastream_create(
         template_path = index_template
         logger().debug('using custom index template "%s" ...' % (template_path))
         apply_patches = False
-    await index_template_set_from_file(el, datastream_name, template_path, apply_patches=apply_patches)
+    await index_template_set_from_file(
+        el, datastream_name, template_path, apply_patches=apply_patches
+    )
 
     try:
         # create datastream
@@ -437,6 +460,7 @@ async def datastream_create(
         # delete the index template
         await e
         raise e
+
 
 def filter_doc_for_ingestion(
     doc: GulpDocument | dict,
@@ -1321,6 +1345,7 @@ async def check_alive(el: AsyncElasticsearch) -> None:
     """
     res = await el.info()
     logger().debug("elasticsearch info: %s" % (res))
+
 
 def elastic(invalidate: bool = False) -> AsyncElasticsearch:
     """
