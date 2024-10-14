@@ -18,6 +18,8 @@ PACKAGES=""
 INSTALL_DIR="$PWD/gulp"
 GULP_CFG_PATH="$HOME/.config/gulp/gulp_cfg.json"
 
+EDITOR=${EDITOR:-vi}
+
 check_privs() {
     if [ $UID -ne 0 ]; then
         echo "[!] You must run this script with sudo."
@@ -227,12 +229,12 @@ do_install() {
     case $yn in
         [Yy]* )
             $EDITOR $INSTALL_DIR/.env
-        break;;
+        ;;
         * )
             echo "[!] Skipped. Remember to change the values in your .env file before starting gulp!"
             echo "[*] Showing .env default values:"
             cat $INSTALL_DIR/.env
-        break;;
+        ;;
     esac
 
     # build "run" command
