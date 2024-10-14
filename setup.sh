@@ -200,7 +200,7 @@ do_install() {
         echo "NOT IN GROUP"
         while true; do
             # make sure to read from controlling tty instead of stdin (which is from a pipe)
-            read -p "[?] Add $SUDO_USER to 'docker' group (Yy/Nn)?" yn < /dev/tty 
+            read -p "[?] Add $SUDO_USER to 'docker' group (Yy/Nn)?" yn < /dev/tty
             case $yn in
                 [Yy]* )
                     ADD_TO_DOCKER_GROUP=1
@@ -218,7 +218,7 @@ do_install() {
 
     if [ $ADD_TO_DOCKER_GROUP -eq 1 ]; then
         usermod -a -G docker $SUDO_USER
-        echo "[*] User $SUDO_USER added to 'docker' group. Re-launch terminal for changes to take effect (or run 'newgrp docker')"
+        echo "[*] User $SUDO_USER added to 'docker' group. Changes will only take effect after next login (or you can run 'newgrp docker')"
     fi
 
     # build "run" command
