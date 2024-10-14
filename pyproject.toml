@@ -34,7 +34,6 @@ dependencies = [
     "psycopg",
     "pycryptodome",
     "pydantic>=2",
-    "pyparsing",
     "pySigma-backend-elasticsearch",
     "pySigma-backend-opensearch",
     "pySigma",
