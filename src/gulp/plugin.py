@@ -114,7 +114,7 @@ class PluginBase(ABC):
     def filename(self, strip_ext: bool=True) -> str:
         """
         Returns the source filename of the plugin.
-        
+
         Args:
             strip_ext (bool, optional): Whether to strip the extension from the filename. Defaults to True.
         Returns:
@@ -179,7 +179,7 @@ class PluginBase(ABC):
         Args:
             plugin_params (GulpPluginParams, optional): plugin parameters, including i.e. in GulpPluginParams.extra the login/pwd/token to connect to the external source, plugin dependent.
             event (dict): the event to query for, i.e. as returned by the `query` method.
-            
+
         Returns:
             dict: the event found
         """
@@ -384,8 +384,8 @@ class PluginBase(ABC):
             # source is a dictionary
             logger().debug(
                 "INITIALIZING INGESTION for raw source, plugin=%s"
-                % (self.name()))            
-        else:        
+                % (self.name()))
+        else:
             logger().debug(
                 "INITIALIZING INGESTION for source=%s, plugin=%s"
                 % (muty.string.make_shorter(source, 260), self.name())
@@ -704,12 +704,12 @@ class PluginBase(ABC):
                 if v.lower().startswith("0x"):
                     return int(v, 16)
             return v
-        
+
         if index_type == 'float' or index_type == 'double':
             if isinstance(v, str):
                 return float(v)
             return v
-        
+
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
             # convert hex to int
             return int(v, 16)
@@ -731,49 +731,49 @@ class PluginBase(ABC):
         # add more types here if needed ...
         # logger().debug("returning %s:%s" % (k, v))
         return str(v)
-    
+
     def _remap_event_fields(self, event: dict, fields: dict, index_type_mapping: dict=None) -> dict:
         """
         apply mapping to event, handling special cases:
-            
+
             - event code (always map to "event.code" and "gulp.event.code")
-        
+
         Args:
             event (dict): The event to map.
             fields (dict): describes the mapping, a structure with the following format
-            { 
-                "field1": { 
+            {
+                "field1": {
                     # if "field1" exists in event, map it to "mapped_field"
                     "map_to": "mapped_field",
-                }, 
+                },
                 "field2: {
                     # if "field2" exists in event, create "event.code" (str) and "gulp.event.code" (int) with the value of "field2"
                     "is_event_code": True
                 }
             }
             index_type_mapping (dict, optional): The elasticsearch index key->type mappings. Defaults to None.
-            
+
         Returns:
             dict: The mapped event.
         """
-        
+
         mapped_ev: dict={}
         if index_type_mapping is None:
-            index_type_mapping = {}        
+            index_type_mapping = {}
         if fields is None:
             fields = {}
         for k, v in event.items():
             if k in index_type_mapping.keys():
                 # found in index mapping, fix value if needed. @timestamp is handled here
                 mapped_ev[k] = self._type_checks(v, k, index_type_mapping)
-            
+
             # check for custom mapping
             if k in fields.keys():
                 field = fields[k]
                 map_to = field.get("map_to", None)
                 is_event_code = field.get("is_event_code", False)
                 if is_event_code:
-                    # event code is a special case: 
+                    # event code is a special case:
                     # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
                     mapped_ev["event.code"] = str(v)
                     if isinstance(v, int) or str(v).isnumeric():
@@ -789,12 +789,12 @@ class PluginBase(ABC):
                 # add as unmapped, forced to string
                 if k == '_id':
                     # this is not in the index type mapping even if it is provided
-                    mapped_ev['_id'] = str(v)                
+                    mapped_ev['_id'] = str(v)
                 else:
                     mapped_ev['%s.%s' % (elastic_api.UNMAPPED_PREFIX, k)] = str(v)
 
         return mapped_ev
-    
+
     def _map_source_key(
         self,
         plugin_params: GulpPluginParams,
@@ -830,7 +830,7 @@ class PluginBase(ABC):
             if custom_mapping.options is not None
             else GulpMappingOptions()
         )
-        
+
         # basic checks
         if v == "-" or v is None:
             return []
@@ -842,9 +842,7 @@ class PluginBase(ABC):
                 return []
 
         # fix value if needed, and add to extra
-        if ignore_custom_mapping or (
-            plugin_params is not None and plugin_params.ignore_mapping_ingest
-        ):
+        if ignore_custom_mapping:
             # direct mapping, no need to check custom_mappings
             return [FieldMappingEntry(result={source_key: v})]
 
@@ -968,15 +966,15 @@ class PluginBase(ABC):
         ]
 
         return ws_docs
-    
-    
+
+
     async def _check_raw_ingestion_enabled(self, plugin_params: GulpPluginParams) -> tuple[str, dict]:
         """
         check if we need to ingest the events using the raw ingestion plugin (from the query plugin)
-        
+
         Args:
             plugin_params (GulpPluginParams): The plugin parameters.
-        
+
         Returns:
             tuple[str, dict]: The ingest index and the index type mapping.
         """
@@ -988,17 +986,17 @@ class PluginBase(ABC):
         if ingest_index is None:
             logger().warning("no ingest index found, skipping!")
             return None, None
-        
+
         # get kv index mapping for the ingest index
         el = elastic_api.elastic()
         index_type_mapping = await elastic_api.index_get_key_value_mapping(el, ingest_index, False)
         return ingest_index, index_type_mapping
-    
-    async def _perform_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams, events: list[dict], 
+
+    async def _perform_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams, events: list[dict],
         operation_id: int, client_id: int, ws_id: str, req_id: str):
         """
         ingest events using the raw ingestion plugin (from the query plugin)
-        
+
         Args:
             plugin_params (GulpPluginParams): The plugin parameters.
             events (list[dict]): The events to ingest.
@@ -1008,12 +1006,12 @@ class PluginBase(ABC):
             req_id (str): The request id.
         """
         raw_plugin: PluginBase = plugin_params.extra.get("raw_plugin", None)
-        
+
         # ingest events using the raw ingestion plugin
-        ingest_index = plugin_params.extra.get("ingest_index", None)        
+        ingest_index = plugin_params.extra.get("ingest_index", None)
         logger().debug("ingesting %d events to gulp index %s using the raw ingestion plugin from query plugin" % (len(events), ingest_index))
         await raw_plugin.ingest(ingest_index, req_id, client_id, operation_id, None, events, ws_id)
-        
+
     async def _flush_buffer(
         self,
         index: str,
@@ -1176,14 +1174,14 @@ def get_plugin_path(
 ) -> str:
     """
     try different paths to get plugin path for a certain type
-    
+
     Args:
         plugin (str): The name of the plugin.
         plugin_type (GulpPluginType, optional): The type of the plugin. Defaults to GulpPluginType.INGESTION.
-    
+
     Returns:
         str: The plugin path.
-    
+
     Raises:
         ObjectNotFound: If the plugin could not be found.
     """
@@ -1198,7 +1196,7 @@ def get_plugin_path(
     logger().debug('trying to load plugin %s from paths: %s, %s, %s, %s' % (plugin, plugin_path, paid_plugin_path, plugin_path_pyc, paid_plugin_path_pyc))
     if muty.file.exists(paid_plugin_path):
         return paid_plugin_path
-    if muty.file.exists(plugin_path):        
+    if muty.file.exists(plugin_path):
         return plugin_path
     if muty.file.exists(paid_plugin_path_pyc):
         return paid_plugin_path_pyc
@@ -1236,7 +1234,7 @@ def load_plugin(
     is_absolute_path = plugin.startswith('/')
     if is_absolute_path:
         plugin_bare_name = os.path.basename(plugin)
-        
+
     if plugin_bare_name.lower().endswith(".py") or plugin_bare_name.lower().endswith(".pyc"):
         # remove extension
         plugin_bare_name = plugin_bare_name.rsplit(".", 1)[0]

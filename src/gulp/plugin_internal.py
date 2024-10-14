@@ -22,14 +22,6 @@ class GulpPluginParams(BaseModel):
     config_override: Optional[dict[str, Any]] = Field(
         {}, description="allow to override gulp configuration parameters."
     )
-    ignore_mapping_ingest: Optional[bool] = Field(
-        False,
-        description="ignore mapping when ingesting (to be compatible with OpenSearch Security Analytics).",
-    )
-    ignore_mapping_sigma_query: Optional[bool] = Field(
-        False,
-        description="ignore mapping when querying using Sigma rules.",
-    )
     timestamp_field: Optional[str] = Field(
         None,
         description="The timestamp field (for, i.e. to use in a generic plugin without any mapping)",
@@ -63,8 +55,6 @@ class GulpPluginParams(BaseModel):
             "mapping_file": self.mapping_file,
             "mapping_id": self.mapping_id,
             "config_override": self.config_override,
-            "ignore_mapping_ingest": self.ignore_mapping_ingest,
-            "ignore_mapping_sigma_query": self.ignore_mapping_sigma_query,
             "extra": self.extra,
             "timestamp_field": self.timestamp_field,
             "record_to_gulp_document_fun": self.record_to_gulp_document_fun,
@@ -78,8 +68,6 @@ class GulpPluginParams(BaseModel):
             mapping_file=d.get("mapping_file", None),
             mapping_id=d.get("mapping_id", None),
             timestamp_field=d.get("timestamp_field", None),
-            ignore_mapping_ingest=d.get("ignore_mapping_ingest", False),
-            ignore_mapping_sigma_query=d.get("ignore_mapping_sigma_query", False),
             config_override=d.get("config_override", {}),
             extra=d.get("extra", {}),
             record_to_gulp_document_fun=d.get("record_to_gulp_document_fun", []),

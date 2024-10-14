@@ -46,7 +46,7 @@ references:
   - ref2
 tags:
   - attack.execution
-  - attack.test  
+  - attack.test
 author: me
 date: 2020-07-12
 logsource:
@@ -284,6 +284,9 @@ class GulpQueryFilter(GulpBaseFilter):
 
 
 class GulpDocument:
+    """
+    represents a Gulp document.
+    """
     __slots__ = (
         "idx",
         "operation_id",
@@ -304,9 +307,6 @@ class GulpDocument:
         "extra",
         "hash",
     )
-    """
-    represents a Gulp document.
-    """
 
     def __init__(
         self,
@@ -457,7 +457,7 @@ class GulpDocument:
         Adds an invalid timestamp to the given dictionary.
         NOTE: this should be investigated if unexpected (i.e. when data have a timestamp)
         """
-        d["invalid_timestamp"] = True
+        d["gulp.timestamp.invalid"] = True
         d["@timestamp"] = 0
         d["gulp.timestamp.nsec"] = 0
         return d
@@ -568,7 +568,7 @@ class GulpQueryOptions(BaseModel):
         description="defines specific sort order for specific fields, i.e. { '@timestamp': 'asc' } (default=sort by ascending timestamp).",
     )
     fields_filter: str = Field( # TODO: turn to list[str] ?
-        None, 
+        None,
         description='if not None, a CSV list of fields to include in the result.<br><br>'
         'The default fields are `always included even if not specified`: `_id,@timestamp,gulp.timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`).<br>'
         'Using `"*"` will return all fields.<br><br>.'
@@ -591,7 +591,7 @@ class GulpQueryOptions(BaseModel):
         False,
         description="If True, when querying for tags a stored rules is selected ONLY if it have ALL of the tags. Either, just one tag match is enough for the rule to be selected. Defaults to False (just one tag is enough).",
     )
-    
+
     # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py
     model_config = {"json_schema_extra": EXAMPLE_QUERY_OPTIONS}
 

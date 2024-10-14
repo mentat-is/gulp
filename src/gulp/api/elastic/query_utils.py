@@ -700,19 +700,12 @@ async def sigma_to_raw(
 
     # load pipeline via dedicated pysigma plugin
     try:
-        if plugin_params is not None and plugin_params.ignore_mapping_sigma_query:
-            # use an empty pipeline
-            logger().warning(
-                "forced use of empty pipeline during Sigma Rule conversion."
-            )
-            processing_pipeline = ProcessingPipeline()
-        else:
-            # use provided
-            mod: pluginbase.PluginBase = pluginbase.load_plugin(
-                pysigma_plugin, plugin_type=GulpPluginType.SIGMA
-            )
-            processing_pipeline = await mod.pipeline(plugin_params=plugin_params)
-            pluginbase.unload_plugin(mod)
+        # use provided pipeline
+        mod: pluginbase.PluginBase = pluginbase.load_plugin(
+            pysigma_plugin, plugin_type=GulpPluginType.SIGMA
+        )
+        processing_pipeline = await mod.pipeline(plugin_params=plugin_params)
+        pluginbase.unload_plugin(mod)
 
         backend = OpensearchLuceneBackend(processing_pipeline=processing_pipeline)
 
@@ -825,6 +818,7 @@ async def gulpqueryparam_to_gulpquery(
         tags = None
         sigma_rule_id = None
         sigma_rule_file = None
+        sigma_description = None
         if o[0].data is not None:
             # if it is a sigma, get the id, tags and description
             tags = o[0].data.get("tags", None)
@@ -1143,13 +1137,13 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
 
     if opt.fields_filter is None or opt.fields_filter == "*":
         # return all fields
-        n["source"] = None    
+        n["source"] = None
     else:
         # only return these fields. first, check if the mandatory fields are present, if not add them
         fields = opt.fields_filter.split(",")
         for f in FIELDS_FILTER_MANDATORY:
             if f not in fields:
-                fields.append(f)                
+                fields.append(f)
         n["source"] = fields
 
     if opt.limit is not None:
@@ -1164,20 +1158,20 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         n["search_after"] = opt.search_after
     else:
         n["search_after"] = None
-    
+
     # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
 
-def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0, 
-                        timestamp_is_string: bool=True, 
-                        timestamp_format_string: str=None, 
-                        timestamp_day_first: bool=False, 
-                        timestamp_year_first: bool=True, 
-                        timestamp_unit: str='ms', 
+def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
+                        timestamp_is_string: bool=True,
+                        timestamp_format_string: str=None,
+                        timestamp_day_first: bool=False,
+                        timestamp_year_first: bool=True,
+                        timestamp_unit: str='ms',
                         timestamp_field: str='@timestamp') -> int:
     """
     return the timestamp in nanoseconds, accounting for the various timestamp formats and units.
-    
+
     Args:
         evt (dict): the event to process.
         timestamp_offset_msec (int): the timestamp offset to apply, in milliseconds.
@@ -1187,14 +1181,14 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
         timestamp_year_first (bool): if True, the timestamp is a string and the year is the first element in the string.
         timestamp_unit (str): the timestamp unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).
         timestamp_field (str): the timestamp field.
-        
+
     Returns:
         int: the timestamp in nanoseconds.
     """
-    
+
     # get value first
     t = evt.get(timestamp_field)
-    
+
     # turn to nanoseconds
     if timestamp_is_string:
         # parse string timestamp
@@ -1205,10 +1199,10 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
         else:
             # try to auto detect format
             t = muty.time.string_to_epoch_nsec(t, dayfirst=timestamp_day_first, yearfirst=timestamp_year_first)
-    else:            
+    else:
         # already a number
         t = int(t)
-        
+
         # convert to nanoseconds
         if timestamp_unit == "ms":
             t = t * muty.time.MILLISECONDS_TO_NANOSECONDS
@@ -1245,7 +1239,7 @@ def adjust_fields_filter(mandatory_list: list[str], fields_filter_csv: str=None)
             if f not in ff:
                 ff.append(f)
     else:
-        # no fields filter, use default   
+        # no fields filter, use default
         ff = mandatory_list
 
     return ff

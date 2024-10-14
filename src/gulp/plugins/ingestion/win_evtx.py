@@ -134,12 +134,6 @@ class Plugin(PluginBase):
         evt_str: str = record["data"].encode()
         data_elem = None
         data_elem = etree.fromstring(evt_str)
-
-        # check if we should ignore mapping
-        ignore_mapping = False
-        if plugin_params is not None and plugin_params.ignore_mapping_ingest:
-            ignore_mapping = True
-
         cat_tree = data_elem[0]
 
         # extra mapping from event code
@@ -177,14 +171,6 @@ class Plugin(PluginBase):
 
         #  raw event as text
         raw_text = str(record["data"])
-
-        if ignore_mapping:
-            # persist these into the event
-            entry.result["EventID"] = evt_code
-            entry.result["Level"] = original_log_level
-            entry.result["Provider"] = evt_provider
-            entry.result["EventRecordID"] = evt_id
-            entry.result["Channel"] = evt_channel
 
         # append this entry
         fme.append(entry)
