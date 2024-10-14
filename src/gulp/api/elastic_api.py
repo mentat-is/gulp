@@ -9,7 +9,6 @@ import muty.file
 import muty.string
 import muty.time
 
-
 import gulp.config as config
 from gulp.api.elastic.structs import (
     GulpDocument,
@@ -24,10 +23,15 @@ from gulp.utils import logger
 # to be used in dynamic templates
 UNMAPPED_PREFIX = "gulp.unmapped"
 
+from elasticsearch import (
+    AsyncElasticsearch as AElasticSearch,
+)  # use AElasticSearch for Elasticsearch
+
 # NOTE: this was originally written for Elasticsearch, then ported to OpenSearch. maybe it should be refactored to remove this "as" alias.
 # TODO: one day this should be properly renamed
-from opensearchpy import AsyncOpenSearch as AsyncElasticsearch # use AsyncElasticSearch for OpenSearch
-from elasticsearch import AsyncElasticsearch as AElasticSearch # use AElasticSearch for Elasticsearch
+from opensearchpy import (
+    AsyncOpenSearch as AsyncElasticsearch,
+)  # use AsyncElasticSearch for OpenSearch
 
 _elastic: AsyncElasticsearch = None
 
@@ -115,7 +119,7 @@ async def index_get_mapping(
 def _get_filtered_mapping(docs: list[dict], mapping: dict) -> dict:
     filtered_mapping = {}
 
-    # for each key in mapping, check if it's present in at least one of the dict in docs. 
+    # for each key in mapping, check if it's present in at least one of the dict in docs.
     # if so, add it to the filtered_mapping
     for doc in docs:
         for k in mapping.keys():
@@ -155,10 +159,11 @@ async def index_get_mapping_by_src(
     }
 
     # loop with query_raw until there's data and accumulate in total_docs
-    total_docs: list=[] 
+    total_docs: list = []
     while True:
         try:
             docs = await query_raw(el, index_name, q, options)
+            logger().debug("docs: %s" % (json.dumps(docs, indent=2)))
         except ObjectNotFound:
             break
         search_after = docs.get("search_after", None)
@@ -166,13 +171,17 @@ async def index_get_mapping_by_src(
         docs = docs["results"]
         options.search_after = search_after
         total_docs.extend(docs)
-    
+
+        if search_after is None:
+            # no more results
+            break
+
     if len(total_docs) == 0:
         raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
-    
+
     # get mapping
     mapping = await index_get_mapping(el, index_name)
-    js = _get_filtered_mapping(total_docs, mapping)    
+    js = _get_filtered_mapping(total_docs, mapping)
     return js
 
 
@@ -287,12 +296,12 @@ async def datastream_create(
 
     # map gulp fields
     specific_gulp_mapping: dict = {
-        #"log": {
+        # "log": {
         #    "properties": {
         #        "level": {"type": "keyword"},
         #    }
-        #},
-        #"source": {"properties": {"domain": {"type": "keyword"}}},
+        # },
+        # "source": {"properties": {"domain": {"type": "keyword"}}},
         "event": {
             "properties": {
                 "hash": {"type": "keyword"},
@@ -332,8 +341,8 @@ async def datastream_create(
     ]
     mappings["dynamic_templates"] = dt
 
-    #logger().debug("settings: %s" % (json.dumps(settings, indent=2)))
-    #logger().debug("mappings: %s" % (json.dumps(mappings, indent=2)))
+    # logger().debug("settings: %s" % (json.dumps(settings, indent=2)))
+    # logger().debug("mappings: %s" % (json.dumps(mappings, indent=2)))
     if not config.elastic_multiple_nodes():
         # optimize for single node
         # this also removes "yellow" node in single node mode
@@ -508,7 +517,7 @@ def _build_bulk_docs(
                 ev_id = _id
                 # delete _id from dict
                 del dd["_id"]
-                
+
         return {"create": {"_id": ev_id}}, (d.to_dict() if is_gulp_doc else d)
 
     return [
@@ -925,6 +934,7 @@ async def query_time_histograms(
 
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
+
     q = gulpqueryflt_to_elastic_dsl(flt)
     opts = build_elastic_query_options(options)
 
@@ -1094,6 +1104,7 @@ async def query_raw(
         ObjectNotFound: If no results are found.
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
+
     opts = build_elastic_query_options(options)
     logger().debug(
         "query_raw: %s, options=%s"
@@ -1119,6 +1130,7 @@ async def query_raw(
     js = _parse_elastic_res(res, options=options)
     return js
 
+
 async def query_raw_elastic(
     el: AElasticSearch, index: str, q: dict, options: GulpQueryOptions = None
 ) -> dict:
@@ -1137,12 +1149,13 @@ async def query_raw_elastic(
         ObjectNotFound: If no results are found.
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
+
     opts = build_elastic_query_options(options)
     logger().debug(
         "query_raw: %s, options=%s"
         % (json.dumps(q, indent=2), json.dumps(opts, indent=2))
     )
-    
+
     res = await el.search(
         index=index,
         track_total_hits=True,
@@ -1153,6 +1166,7 @@ async def query_raw_elastic(
         source=opts["source"],
     )
     return _parse_elastic_res(res, options=options)
+
 
 def get_client() -> AsyncElasticsearch:
     """
@@ -1241,11 +1255,12 @@ async def check_alive(el: AsyncElasticsearch) -> None:
 
     Raises:
         Exception: If the client is not reachable
-        
+
     """
     res = await el.info()
     logger().debug("elasticsearch info: %s" % (res))
-    
+
+
 def elastic(invalidate: bool = False) -> AsyncElasticsearch:
     """
     Returns the ElasticSearch client instance.
