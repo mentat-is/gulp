@@ -230,7 +230,7 @@ do_install() {
         break;;
         * )
             echo "[!] Skipped. Remember to change the values in your .env file before starting gulp!"
-            echo "[*] Showing default values:"
+            echo "[*] Showing .env default values:"
             cat $INSTALL_DIR/.env
         break;;
     esac
