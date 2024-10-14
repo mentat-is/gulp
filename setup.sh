@@ -228,7 +228,7 @@ do_install() {
     read -p "[?] Do you want to edit the .env file now (Yy/Nn)?" yn < /dev/tty
     case $yn in
         [Yy]* )
-            $EDITOR $INSTALL_DIR/.env
+            $EDITOR $INSTALL_DIR/.env < /dev/tty
         ;;
         * )
             echo "[!] Skipped. Remember to change the values in your .env file before starting gulp!"
