@@ -163,7 +163,7 @@ async def index_get_mapping_by_src(
     while True:
         try:
             docs = await query_raw(el, index_name, q, options)
-            logger().debug("docs: %s" % (json.dumps(docs, indent=2)))
+            # logger().debug("docs: %s" % (json.dumps(docs, indent=2)))
         except ObjectNotFound:
             break
         search_after = docs.get("search_after", None)
@@ -171,7 +171,7 @@ async def index_get_mapping_by_src(
         docs = docs["results"]
         options.search_after = search_after
         total_docs.extend(docs)
-
+        
         if search_after is None:
             # no more results
             break
