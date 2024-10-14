@@ -199,7 +199,8 @@ do_install() {
     if [ $SUDO_USER != "root" ] && [ $IN_GROUP -ne 0 ] ; then
         echo "NOT IN GROUP"
         while true; do
-            read -p "[?] Add $SUDO_USER to 'docker' group (Yy/Nn)?" yn
+            # make sure to read from controlling tty instead of stdin (which is from a pipe)
+            read -p "[?] Add $SUDO_USER to 'docker' group (Yy/Nn)?" yn < $(tty)
             case $yn in
                 [Yy]* )
                     ADD_TO_DOCKER_GROUP=1
