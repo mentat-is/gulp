@@ -24,10 +24,15 @@ from gulp.utils import logger
 # to be used in dynamic templates
 UNMAPPED_PREFIX = "gulp.unmapped"
 
+from elasticsearch import (
+    AsyncElasticsearch as AElasticSearch,
+)  # use AElasticSearch for Elasticsearch
+
 # NOTE: this was originally written for Elasticsearch, then ported to OpenSearch. maybe it should be refactored to remove this "as" alias.
 # TODO: one day this should be properly renamed
-from opensearchpy import AsyncOpenSearch as AsyncElasticsearch # use AsyncElasticSearch for OpenSearch
-from elasticsearch import AsyncElasticsearch as AElasticSearch # use AElasticSearch for Elasticsearch
+from opensearchpy import (
+    AsyncOpenSearch as AsyncElasticsearch,
+)  # use AsyncElasticSearch for OpenSearch
 
 _elastic: AsyncElasticsearch = None
 
@@ -60,7 +65,7 @@ async def index_template_delete(el: AsyncElasticsearch, index_name: str) -> None
         await el.indices.delete_index_template(name=template_name)
     except Exception as e:
         logger().error("error deleting index template: %s" % (e))
-        
+
 async def index_template_get(el: AsyncElasticsearch, index_name: str) -> dict:
     """
     Get the index template for the given index/datastream.
@@ -79,7 +84,7 @@ async def index_template_get(el: AsyncElasticsearch, index_name: str) -> dict:
         res = await el.indices.get_index_template(name=template_name)
     except Exception as e:
         raise ObjectNotFound("no template found for datastream/index %s" % (index_name))
-    
+
     return res['index_templates'][0]['index_template']
 
 async def index_template_put(el: AsyncElasticsearch, index_name: str, d: dict) -> dict:
@@ -93,7 +98,7 @@ async def index_template_put(el: AsyncElasticsearch, index_name: str, d: dict) -
 
     Returns:
         dict: The response from the Elasticsearch client.
-    """    
+    """
     template_name = '%s-template' % (index_name)
     logger().debug('putting index template: %s ...' % (template_name))
     headers = {"accept": "application/json", "content-type": "application/json"}
@@ -110,7 +115,7 @@ async def index_template_set_from_file(el: AsyncElasticsearch, index_name: str, 
     Returns:
         dict: The response from Elasticsearch after setting the index template.
     """
-    
+
     logger().debug('loading index template from file "%s" ...' % (path))
     d = muty.dict.from_json_file(path)
     return await build_and_set_index_template(el, index_name, d, apply_patches)
@@ -151,7 +156,7 @@ async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, 
     if dt is None:
         dt = []
         mappings['dynamic_templates'] = dt
-        
+
     # apply our patches
     d["index_patterns"] = [index_name]
     d['data_stream'] = {}
@@ -166,8 +171,8 @@ async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, 
                 "source": {"properties": {"file": {"type": "keyword"}}},
                 "log": {"properties": {"level": {"type": "integer"}}},
                 "timestamp": {"properties": {"nsec": {"type": "long"}}},
-            }        
-    }    
+            }
+    }
     dtt=[]
     dtt.append({
         # force unknown mapping to string
@@ -179,7 +184,7 @@ async def build_and_set_index_template(el: AsyncElasticsearch, index_name: str, 
     })
     dtt.extend(dt)
     mappings['dynamic_templates'] = dtt
-    
+
     if apply_patches:
         # only set these if we do not want to use the template as is
         #mappings['date_detection'] = True
@@ -267,7 +272,7 @@ async def index_get_key_value_mapping(
 def _get_filtered_mapping(docs: list[dict], mapping: dict) -> dict:
     filtered_mapping = {}
 
-    # for each key in mapping, check if it's present in at least one of the dict in docs. 
+    # for each key in mapping, check if it's present in at least one of the dict in docs.
     # if so, add it to the filtered_mapping
     for doc in docs:
         for k in mapping.keys():
@@ -307,10 +312,11 @@ async def index_get_mapping_by_src(
     }
 
     # loop with query_raw until there's data and accumulate in total_docs
-    total_docs: list=[] 
+    total_docs: list = []
     while True:
         try:
             docs = await query_raw(el, index_name, q, options)
+            # logger().debug("docs: %s" % (json.dumps(docs, indent=2)))
         except ObjectNotFound:
             break
         search_after = docs.get("search_after", None)
@@ -318,16 +324,17 @@ async def index_get_mapping_by_src(
         docs = docs["results"]
         options.search_after = search_after
         total_docs.extend(docs)
-    
+
+        if search_after is None:
+            # no more results
+            break
+
     if len(total_docs) == 0:
         raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
-    
-    # get mapping
-    mapping = await index_get_key_value_mapping(el, index_name)
-    js = _get_filtered_mapping(docs, mapping)
-    if len(js) == 0:
-        raise ObjectNotFound("no mapping found for src_file=%s" % (src_file))
 
+    # get mapping
+    mapping = await index_get_mapping(el, index_name)
+    js = _get_filtered_mapping(total_docs, mapping)
     return js
 
 
@@ -376,7 +383,7 @@ async def datastream_delete(el: AsyncElasticsearch, datastream_name: str) -> Non
     ds: str = datastream_name
 
     # params = {"ignore_unavailable": "true"}
-    headers = {"accept": "application/json"}    
+    headers = {"accept": "application/json"}
     try:
         logger().debug('deleting datastream "%s" ...' % (ds))
         await el.indices.delete_data_stream(ds, headers=headers)
@@ -391,7 +398,7 @@ async def datastream_delete(el: AsyncElasticsearch, datastream_name: str) -> Non
 
 async def datastream_create(
     el: AsyncElasticsearch,
-    datastream_name: str,    
+    datastream_name: str,
     index_template: str=None
 ) -> None:
     """
@@ -419,7 +426,7 @@ async def datastream_create(
         logger().debug('using custom index template "%s" ...' % (template_path))
         apply_patches = False
     await index_template_set_from_file(el, datastream_name, template_path, apply_patches=apply_patches)
-    
+
     try:
         # create datastream
         headers = {"accept": "application/json", "content-type": "application/json"}
@@ -572,7 +579,7 @@ def _build_bulk_docs(
                 ev_id = _id
                 # delete _id from dict
                 del dd["_id"]
-                
+
         return {"create": {"_id": ev_id}}, (d.to_dict() if is_gulp_doc else d)
 
     return [
@@ -989,6 +996,7 @@ async def query_time_histograms(
 
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
+
     q = gulpqueryflt_to_elastic_dsl(flt)
     opts = build_elastic_query_options(options)
 
@@ -1158,6 +1166,7 @@ async def query_raw(
         ObjectNotFound: If no results are found.
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
+
     opts = build_elastic_query_options(options)
     logger().debug(
         "query_raw: %s, options=%s"
@@ -1183,6 +1192,7 @@ async def query_raw(
     js = _parse_elastic_res(res, options=options)
     return js
 
+
 async def query_raw_elastic(
     el: AElasticSearch, index: str, q: dict, options: GulpQueryOptions = None
 ) -> dict:
@@ -1201,12 +1211,13 @@ async def query_raw_elastic(
         ObjectNotFound: If no results are found.
     """
     from gulp.api.elastic.query_utils import build_elastic_query_options
+
     opts = build_elastic_query_options(options)
     logger().debug(
         "query_raw: %s, options=%s"
         % (json.dumps(q, indent=2), json.dumps(opts, indent=2))
     )
-    
+
     res = await el.search(
         index=index,
         track_total_hits=True,
@@ -1217,6 +1228,7 @@ async def query_raw_elastic(
         source=opts["source"],
     )
     return _parse_elastic_res(res, options=options)
+
 
 def get_client() -> AsyncElasticsearch:
     """
@@ -1305,7 +1317,7 @@ async def check_alive(el: AsyncElasticsearch) -> None:
 
     Raises:
         Exception: If the client is not reachable
-        
+
     """
     res = await el.info()
     logger().debug("elasticsearch info: %s" % (res))
