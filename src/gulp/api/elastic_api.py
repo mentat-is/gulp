@@ -311,6 +311,7 @@ async def index_get_mapping_by_src(
     # query first
     options = GulpQueryOptions()
     options.limit = 1000
+    options.fields_filter = ["*"]
     q = {
         "query_string": {
             "query": 'gulp.context: "%s" AND gulp.source.file: "%s"'
@@ -319,7 +320,7 @@ async def index_get_mapping_by_src(
     }
 
     # get mapping
-    mapping = await index_get_mapping(el, index_name)
+    mapping = await index_get_key_value_mapping(el, index_name)
     filtered_mapping = {}
 
     # loop with query_raw until there's data and update filtered_mapping
