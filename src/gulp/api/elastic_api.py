@@ -116,27 +116,11 @@ async def index_get_mapping(
     return _parse_mappings(properties)
 
 
-def _get_filtered_mapping(docs: list[dict], mapping: dict) -> dict:
-    filtered_mapping = {}
-
-    # for each key in mapping, check if it's present in at least one of the dict in docs.
-    # if so, add it to the filtered_mapping
-    for doc in docs:
-        for k in mapping.keys():
-            if k in doc:
-                if not k in filtered_mapping:
-                    filtered_mapping[k] = mapping[k]
-
-    # sort the keys
-    filtered_mapping = dict(sorted(filtered_mapping.items()))
-    return filtered_mapping
-
-
 async def index_get_mapping_by_src(
     el: AsyncElasticsearch, index_name: str, context: str, src_file: str
 ) -> dict:
     """
-    Get and parse mappings for the given index, considering only "gulp.source.file"=src_file and "gulp.context"=context.
+    Get and parse mappings for the given index, considering only "gulp.context"=context and "gulp.source.file"=src_file.
 
     The return type is the same as index_get_mapping with return_raw_result=False.
 
@@ -158,8 +142,11 @@ async def index_get_mapping_by_src(
         }
     }
 
-    # loop with query_raw until there's data and accumulate in total_docs
-    total_docs: list = []
+    # get mapping
+    mapping = await index_get_mapping(el, index_name)
+    filtered_mapping = {}
+
+    # loop with query_raw until there's data and update filtered_mapping
     while True:
         try:
             docs = await query_raw(el, index_name, q, options)
@@ -170,19 +157,24 @@ async def index_get_mapping_by_src(
 
         docs = docs["results"]
         options.search_after = search_after
-        total_docs.extend(docs)
-        
+
+        # Update filtered_mapping with the current batch of documents
+        for doc in docs:
+            for k in mapping.keys():
+                if k in doc:
+                    if k not in filtered_mapping:
+                        filtered_mapping[k] = mapping[k]
+
         if search_after is None:
             # no more results
             break
 
-    if len(total_docs) == 0:
+    if not filtered_mapping:
         raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
 
-    # get mapping
-    mapping = await index_get_mapping(el, index_name)
-    js = _get_filtered_mapping(total_docs, mapping)
-    return js
+    # sort the keys
+    filtered_mapping = dict(sorted(filtered_mapping.items()))
+    return filtered_mapping
 
 
 async def datastream_list(el: AsyncElasticsearch) -> list[str]:
