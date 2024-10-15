@@ -5,13 +5,14 @@ from typing import Union
 import muty.file
 import muty.log
 import muty.string
+import muty.time
 from dotwiz import DotWiz
 from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.exceptions import SigmaError
 from sigma.processing.pipeline import ProcessingPipeline
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncEngine
-import muty.time
+
 import gulp.api.collab_api as collab_api
 import gulp.api.elastic_api as elastic_api
 import gulp.config as config
@@ -1132,19 +1133,11 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         n["sort"] = [
             {"@timestamp": {"order": "asc"}},
             {"event.hash": {"order": "asc"}},
-            {"event.sequence": {"order": "asc"}}
+            {"event.sequence": {"order": "asc"}},
         ]
 
-    if opt.fields_filter is None or opt.fields_filter == "*":
-        # return all fields
-        n["source"] = None
-    else:
-        # only return these fields. first, check if the mandatory fields are present, if not add them
-        fields = opt.fields_filter.split(",")
-        for f in FIELDS_FILTER_MANDATORY:
-            if f not in fields:
-                fields.append(f)
-        n["source"] = fields
+    # fields filter
+    n["source"] = adjust_fields_filter(FIELDS_FILTER_MANDATORY, opt.fields_filter)
 
     if opt.limit is not None:
         # use provided
@@ -1162,13 +1155,17 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
     # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
 
-def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
-                        timestamp_is_string: bool=True,
-                        timestamp_format_string: str=None,
-                        timestamp_day_first: bool=False,
-                        timestamp_year_first: bool=True,
-                        timestamp_unit: str='ms',
-                        timestamp_field: str='@timestamp') -> int:
+
+def process_event_timestamp(
+    evt: dict,
+    timestamp_offset_msec: int = 0,
+    timestamp_is_string: bool = True,
+    timestamp_format_string: str = None,
+    timestamp_day_first: bool = False,
+    timestamp_year_first: bool = True,
+    timestamp_unit: str = "ms",
+    timestamp_field: str = "@timestamp",
+) -> int:
     """
     return the timestamp in nanoseconds, accounting for the various timestamp formats and units.
 
@@ -1198,7 +1195,9 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
             t = muty.time.datetime_to_epoch_nsec(t)
         else:
             # try to auto detect format
-            t = muty.time.string_to_epoch_nsec(t, dayfirst=timestamp_day_first, yearfirst=timestamp_year_first)
+            t = muty.time.string_to_epoch_nsec(
+                t, dayfirst=timestamp_day_first, yearfirst=timestamp_year_first
+            )
     else:
         # already a number
         t = int(t)
@@ -1215,26 +1214,29 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
     return t
 
 
-def adjust_fields_filter(mandatory_list: list[str], fields_filter_csv: str=None) -> list[str]:
+def adjust_fields_filter(
+    mandatory_list: list[str], fields_filter: list[str] = None
+) -> list[str]:
     """
     Adjust the fields filter to include the mandatory fields if not already present.
 
-    if fields_filter_csv is None, the default mandatory fields are returned.
-    if fields_filter_csv is "*", None is returned (no fields filter, all fields must be returned).
+    if fields_filter is None, the default mandatory fields are returned.
+    if fields_filter is ["*"], None is returned (no fields filter, all fields must be returned).
 
     Args:
         mandatory_list (list[str]): The list of mandatory fields
-        fields_filter_csv (str): The current CSV fields filter string to be adjusted (if None, the default mandatory fields are returned).
+        fields_filter (list[str]): The fields filter
 
     Returns:
         list[str]: The adjusted fields filter string
     """
-    if fields_filter_csv is not None:
-        if fields_filter_csv == "*":
+    if fields_filter is not None and len(fields_filter) > 0:
+        if fields_filter[0] == "*":
+            # return all fields
             return None
 
         # we need at least the mandatory fields
-        ff = fields_filter_csv.split(",")
+        ff = fields_filter
         for f in mandatory_list:
             if f not in ff:
                 ff.append(f)
@@ -1243,5 +1245,3 @@ def adjust_fields_filter(mandatory_list: list[str], fields_filter_csv: str=None)
         ff = mandatory_list
 
     return ff
-
-

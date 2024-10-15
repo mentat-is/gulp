@@ -567,11 +567,10 @@ class GulpQueryOptions(BaseModel):
         None,
         description="defines specific sort order for specific fields, i.e. { '@timestamp': 'asc' } (default=sort by ascending timestamp).",
     )
-    fields_filter: str = Field( # TODO: turn to list[str] ?
+    fields_filter: list[str] = Field(
         None,
-        description='if not None, a CSV list of fields to include in the result.<br><br>'
-        'The default fields are `always included even if not specified`: `_id,@timestamp,gulp.timestamp_nsec,operation_id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`).<br>'
-        'Using `"*"` will return all fields.<br><br>.'
+        description='if not None, a list of fields to be included in the result (use [ "*" ] to include all fields).<br><br>'
+        'The following default fields are `always included even if not specified`: `_id,@timestamp,gulp.timestamp_nsec,gulp.operation.id,gulp.context,gulp.source.file,event.duration,event.code,gulp.event.code`).<br>'
         'Defaults to None (default fields are returned).',
     )
     disable_notes_on_match: bool = Field(

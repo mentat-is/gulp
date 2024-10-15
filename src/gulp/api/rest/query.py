@@ -215,7 +215,7 @@ async def query_multi_handler(
 
     if options.fields_filter is None:
         # use default fields filter
-        options.fields_filter = ",".join(query_utils.FIELDS_FILTER_MANDATORY)
+        options.fields_filter = query_utils.FIELDS_FILTER_MANDATORY
 
     logger().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
@@ -989,7 +989,7 @@ async def query_time_histograms_handler(
     return_hits: Annotated[
         bool,
         Query(
-            description="return hits (the events themself) in the response (use *options.fields_filter* to tune which fields to return)."
+            description="return hits (the events themself) in the response (use ´options.fields_filter´ to tune which fields to return)."
         ),
     ] = False,
     flt: Annotated[GulpQueryFilter, Body()] = None,
@@ -1254,7 +1254,7 @@ async def query_single_event_handler(
     "GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>"
     "- `limit`: return max these entries **per chunk** on the websocket<br>"
     "- `sort`: defaults to sort by ASCENDING timestamp<br>"
-    "- `fields_filter`: a CSV list of fields to include in the result.<br>"
+    "- `fields_filter`: a list of fields to include in the result, or [ '*' ] to return all fields.<br>"
     "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
     '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`',
 )
@@ -1290,7 +1290,7 @@ async def query_external_handler(
         Body(
             examples=[
                 {
-                    "fields_filter": "event.original",
+                    "fields_filter": ["event.original"],
                 }
             ]
         ),
