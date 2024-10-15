@@ -175,12 +175,14 @@ class GulpStats(CollabBase):
     status: Mapped[GulpRequestStatus] = mapped_column(
         Integer, default=GulpRequestStatus.ONGOING
     )
+    operation_name: Mapped[str] = mapped_column(String, default=None, nullable=True)
     operation_id: Mapped[int] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"), default=None, nullable=True
     )
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"), default=None, nullable=True
     )
+    client_name: Mapped[str] = mapped_column(String, default=None, nullable=True)
     context: Mapped[str] = mapped_column(String, default=None, nullable=True)
     time_created: Mapped[int] = mapped_column(BIGINT, default=0)
     time_expire: Mapped[int] = mapped_column(BIGINT, default=0)

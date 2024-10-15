@@ -281,6 +281,11 @@ async def _create_notes_on_match(
     import gulp.api.rest.ws as ws_api
     from gulp.api.rest.ws import WsQueueDataType
 
+    # get glyph_id
+    glyph_id = gulp_query.glyph_id
+    if glyph_id is None:
+        glyph_id = options.notes_on_match_glyph_id
+
     num_notes = 0
     cs_batch: list[CollabObj] = []
     failed: int = 0
@@ -321,7 +326,7 @@ async def _create_notes_on_match(
                 events=[GulpAssociatedEvent(id=ev_id, timestamp=ev_ts)],
                 tags=["auto"],
                 data=data,
-                glyph_id=options.notes_on_match_glyph_id,
+                glyph_id=glyph_id,
                 internal_user_id=user_id,
                 skip_ws=True,
             )
