@@ -39,13 +39,12 @@ API_DESC_SYNC = 'if set, the request will be processed synchronously (but concur
 API_DESC_WORKFLOW_ID = (
     "optional id of a workflow (in the shared-data table) to assign to the operation."
 )
-API_DESC_ALL_TAGS_MUST_MATCH = 'If True, stored rules are selected only if ALL tags (i.e. ["windows", "process"]) matches. Either, just one tag match is enough for the query to be selected. Defaults to False (just one tag is enough).'
 API_DESC_CUSTOM_MAPPINGS_FILE = 'an optional JSON filename (i.e. "custom_mapping.json") in the "mapping_files" directory, containing specific mappings. if not present, default for the plugin will be used.'
 EXAMPLE_INDEX = {"example": {"value": "testidx"}}
 
 EXAMPLE_OPERATION_ID = {"example": {"value": 1}}
 EXAMPLE_CONTEXT = {"example": {"value": "testcontext"}}
-EXAMPLE_INDEX_TEMPLATE = {"example": {"value": 
+EXAMPLE_INDEX_TEMPLATE = {"example": {"value":
     {
         "index_patterns": ["testidx-*"],
         "settings": {
@@ -58,7 +57,7 @@ EXAMPLE_INDEX_TEMPLATE = {"example": {"value":
                 }
             }
         }
-        
+
     }
 }}
 EXAMPLE_CLIENT_ID = {"example": {"value": 1}}

@@ -15,7 +15,6 @@ EXAMPLE_QUERY_OPTIONS = {
     "example": {
         "disable_notes_on_match": False,
         "include_query_in_result": False,
-        "all_tags_must_match": False,
         "sort": {"@timestamp": "asc"},
     }
 }
@@ -585,10 +584,6 @@ class GulpQueryOptions(BaseModel):
     include_query_in_result: bool = Field(
         False,
         description="include query in the result (for sigma-based query, also include the sigma rule text).",
-    )
-    all_tags_must_match: bool = Field(
-        False,
-        description="If True, when querying for tags a stored rules is selected ONLY if it have ALL of the tags. Either, just one tag match is enough for the rule to be selected. Defaults to False (just one tag is enough).",
     )
 
     # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py

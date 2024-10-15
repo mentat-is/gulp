@@ -462,8 +462,7 @@ async def query_stored_sigma_tags_handler(
         # get stored queries by tags
         gqp = await query_utils.stored_sigma_tags_to_gulpqueryparameters(
             await collab_api.collab(),
-            tags,
-            all_tags_must_match=options.all_tags_must_match,
+            tags
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

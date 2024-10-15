@@ -953,7 +953,6 @@ async def stored_sigma_tags_to_gulpqueryparameters(
     collab: AsyncEngine,
     tags: list[str],
     gqp: list[GulpQueryParameter] = None,
-    all_tags_must_match: bool = False,
 ) -> list[GulpQueryParameter]:
     """
     Converts a list of tags to GulpQueryParameters (uses tagged stored sigma queries).
@@ -962,14 +961,11 @@ async def stored_sigma_tags_to_gulpqueryparameters(
         collab (AsyncEngine): The collab engine.
         tags (list[str]): The list of tags.
         gqp (list[GulpQueryParameter], optional): The list of existing GulpQueryParameters (will be added to the returned list). Defaults to None.
-        all_tags_must_match (bool, optional): If True, stored rules are slected only if ALL tags matches. Either, just one tag may match. Defaults to False.
 
     Returns:
         list[GulpQueryParameter]: The list of GulpQueryParameters.
     """
     flt = GulpCollabFilter(tags=tags, type=[GulpCollabType.STORED_QUERY])
-    if all_tags_must_match:
-        flt.opt_tags_and = True
 
     l = await CollabObj.get(collab, flt)
     ll = []
@@ -1006,7 +1002,6 @@ async def sigma_directory_to_gulpqueryparams(
         tags_from_directories (bool, optional): Whether to add (each sub)directory name as tags (plus the ones found in the sigma rule itself) in the resulting query. Defaults to True.
         plugin_params (GulpPluginParams, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
         tags_filter (list[str], optional): Only use sigma rules with these tags. Defaults to None (use all sigma rules).
-        options (GulpQueryOptions, optional): if tags_filter is not None, all_tags_must_match is used to check if all or just some tags must match to include a rule. Defaults to None.
     Returns:
         list[GulpQueryParameter]: A list of GulpQueryParameter objects.
 
@@ -1055,27 +1050,12 @@ async def sigma_directory_to_gulpqueryparams(
                     tags.append(t)
 
         if tags_filter is not None and len(tags_filter) > 0:
-            # only use rules with these tags
-            all_tags_must_match = False
-            if options is not None:
-                # tags filter must be exactly the same as the rule tags
-                all_tags_must_match = options.all_tags_must_match
-
+            # check if tags_filter is a subset of the rule tags
             match = False
-            if all_tags_must_match:
-                # check if tags_filter is exactly the same as the rule tags
-                for t in tags:
-                    if t in tags_filter:
-                        match = True
-                    else:
-                        match = False
-                        break
-            else:
-                # check if tags_filter is a subset of the rule tags
-                for t in tags:
-                    if t in tags_filter:
-                        match = True
-                        break
+            for t in tags:
+                if t in tags_filter:
+                    match = True
+                    break
             if not match:
                 logger().debug(
                     "skipping sigma file %s, tags do not match: %s != %s ..."
