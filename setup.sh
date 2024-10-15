@@ -18,6 +18,8 @@ PACKAGES=""
 INSTALL_DIR="$PWD/gulp"
 GULP_CFG_PATH="$HOME/.config/gulp/gulp_cfg.json"
 
+EDITOR=${EDITOR:-vi}
+
 check_privs() {
     if [ $UID -ne 0 ]; then
         echo "[!] You must run this script with sudo."
@@ -213,13 +215,27 @@ do_install() {
         done
     fi
 
-    echo "[*] Copying configuration template file to $GULP_CFG_PATH"
-    cp "$INSTALL_DIR/gulp_cfg_template.json" "$GULP_CFG_PATH"
-
     if [ $ADD_TO_DOCKER_GROUP -eq 1 ]; then
         usermod -a -G docker $SUDO_USER
         echo "[*] User $SUDO_USER added to 'docker' group. Changes will only take effect after next login (or you can run 'newgrp docker')"
     fi
+
+    echo "[*] Copying configuration template file to $GULP_CFG_PATH"
+    cp "$INSTALL_DIR/gulp_cfg_template.json" "$GULP_CFG_PATH"
+
+    echo "[*] Copying .env template to $INSTALL_DIR"
+    curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/.env -o "$INSTALL_DIR/.env"
+    read -p "[?] Do you want to edit the .env file now (Yy/Nn)?" yn < /dev/tty
+    case $yn in
+        [Yy]* )
+            $EDITOR $INSTALL_DIR/.env < /dev/tty
+        ;;
+        * )
+            echo "[!] Skipped. Remember to change the values in your .env file before starting gulp!"
+            echo "[*] Showing .env default values:"
+            cat $INSTALL_DIR/.env
+        ;;
+    esac
 
     # build "run" command
     if [ $IS_DEV_INSTALL -eq 1 ]; then
