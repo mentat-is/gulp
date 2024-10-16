@@ -1,9 +1,10 @@
 import asyncio
 import base64
 import os
-from gulp.utils import logger
+
 import muty.file
 import psycopg
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy_utils import create_database, database_exists, drop_database
@@ -27,6 +28,33 @@ from gulp.api.collab.user import User
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.structs import GulpQueryParameter, GulpQueryType
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.utils import logger
+
+
+async def _setup_stats_expiration(conn: psycopg.AsyncConnection) -> None:
+    # create pg_cron extension
+    await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
+
+    # create function to delete expired rows (runs every 5 minutes)
+    await conn.execute(
+        text(
+            """
+        CREATE OR REPLACE FUNCTION delete_expired_rows() RETURNS void AS $$
+        BEGIN
+            DELETE FROM stats WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000);
+        END;
+        $$ LANGUAGE plpgsql;
+    """
+        )
+    )
+
+    await conn.execute(
+        text(
+            """
+        SELECT cron.schedule('*/5 * * * *', 'SELECT delete_expired_rows();');
+    """
+        )
+    )
 
 
 async def _engine_get_internal(
@@ -46,7 +74,9 @@ async def _engine_get_internal(
     logger().debug("sslmode=%s" % (sslmode))
     if certs_dir is not None and postgres_ssl:
         # https and certs_dir is set
-        ca: str = muty.file.abspath(muty.file.safe_path_join(certs_dir, "postgres-ca.pem"))
+        ca: str = muty.file.abspath(
+            muty.file.safe_path_join(certs_dir, "postgres-ca.pem")
+        )
 
         # check if client certificate exists. if so, it will be used
         client_cert = muty.file.safe_path_join(certs_dir, "postgres.pem")
@@ -58,12 +88,12 @@ async def _engine_get_internal(
                 % (client_cert, client_key, ca)
             )
             connect_args = {
-                    "sslrootcert": ca,
-                    "sslcert": client_cert,
-                    "sslkey": client_key,
-                    "sslmode": sslmode,
-                    "sslpassword": client_key_password,
-                }
+                "sslrootcert": ca,
+                "sslcert": client_cert,
+                "sslkey": client_key,
+                "sslmode": sslmode,
+                "sslpassword": client_key_password,
+            }
         else:
             # no client certificate
             logger().debug("using server CA certificate only: %s" % (ca))
@@ -73,8 +103,9 @@ async def _engine_get_internal(
         connect_args = {}
 
     # create engine
-    engine = create_async_engine(url, echo=sql_alchemy_debug,
-                                 pool_timeout=30, connect_args=connect_args)
+    engine = create_async_engine(
+        url, echo=sql_alchemy_debug, pool_timeout=30, connect_args=connect_args
+    )
 
     if create_tables:
         # create database tables
@@ -86,9 +117,10 @@ async def _engine_get_internal(
                     logger().exception(ex)
                     raise ex
 
-    logger().info(
-        "engine %s created/initialized, url=%s ..." % (engine, url)
-    )
+        async with engine.begin() as conn:
+            # setup stats expiration
+            await _setup_stats_expiration(conn)
+    logger().info("engine %s created/initialized, url=%s ..." % (engine, url))
     return engine
 
 
@@ -102,7 +134,9 @@ async def _create_default_data(engine: AsyncEngine) -> None:
 
     # glyphs
     d = os.path.dirname(__file__)
-    with open(muty.file.safe_path_join(d, "assets/user.png", allow_relative=True), "rb") as f:
+    with open(
+        muty.file.safe_path_join(d, "assets/user.png", allow_relative=True), "rb"
+    ) as f:
         img = f.read()
         try:
             the_user = await Glyph.create(engine, img, "user")
@@ -110,14 +144,18 @@ async def _create_default_data(engine: AsyncEngine) -> None:
             # already exists
             the_user = await Glyph.get(engine, GulpCollabFilter(name=["user"]))
             the_user = the_user[0]
-    with open(muty.file.safe_path_join(d, "assets/client.png", allow_relative=True), "rb") as f:
+    with open(
+        muty.file.safe_path_join(d, "assets/client.png", allow_relative=True), "rb"
+    ) as f:
         img = f.read()
         try:
             the_client = await Glyph.create(engine, img, "client")
         except ObjectAlreadyExists:
             the_client = await Glyph.get(engine, GulpCollabFilter(name=["client"]))
             the_client = the_client[0]
-    with open(muty.file.safe_path_join(d, "assets/operation.png", allow_relative=True), "rb") as f:
+    with open(
+        muty.file.safe_path_join(d, "assets/operation.png", allow_relative=True), "rb"
+    ) as f:
         img = f.read()
         try:
             the_op = await Glyph.create(engine, img, "operation")
@@ -299,7 +337,7 @@ async def drop(
         if recreate is specified, only the database is created. to create tables and the default data, use engine_get then.
     """
 
-    def _drop(url: str, raise_if_not_exists: bool, recreate: bool):
+    def _drop_internal(url: str, raise_if_not_exists: bool, recreate: bool):
         """
         internal function to run async
         """
@@ -317,7 +355,7 @@ async def drop(
         "---> drop: url=%s, raise_if_not_exists=%s, recreate=%s"
         % (url, raise_if_not_exists, recreate)
     )
-    await asyncio.to_thread(_drop, url, raise_if_not_exists, recreate)
+    await asyncio.to_thread(_drop_internal, url, raise_if_not_exists, recreate)
 
     if recreate:
         # recreate database

@@ -338,35 +338,6 @@ class GulpStats(CollabBase):
             return stats
 
     @staticmethod
-    async def delete_expired(engine: AsyncEngine) -> None:
-        """
-        Delete expired stats from the database.
-
-        Args:
-            engine (AsyncEngine): The database engine.
-
-        Returns:
-            None
-        """
-        logger().debug("---> delete_expired")
-        now = muty.time.now_msec()
-        async with AsyncSession(
-            engine,
-        ) as sess:
-            q = delete(GulpStats).where(
-                and_(
-                    GulpStats.time_expire > 0,
-                    now > GulpStats.time_expire,
-                )
-            )
-            res = await sess.execute(q)
-            await sess.commit()
-            if res.rowcount > 0:
-                logger().info(
-                    "---> delete_expired: deleted %d expired stats" % (res.rowcount)
-                )
-
-    @staticmethod
     async def create(
         engine: AsyncEngine,
         t: GulpCollabType,
@@ -399,9 +370,6 @@ class GulpStats(CollabBase):
             "---> create: t=%s, req_id=%s, operation_id=%s, client_id=%s, context=%s, total_files=%s"
             % (t, req_id, operation_id, client_id, context, total_files)
         )
-
-        # take a chance to cleanup expired stats
-        await GulpStats.delete_expired(engine)
 
         # create stats record
         async with AsyncSession(engine, expire_on_commit=False) as sess:

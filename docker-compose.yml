@@ -4,7 +4,7 @@ services:
     profiles: ["full"]
     image: mentatis/gulp-core:latest
     #image: gulp-core:latest
-    
+
     container_name: gulp
     environment:
       - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -61,7 +61,7 @@ services:
     ports:
       - 9200:9200
     volumes:
-      - ${ELASTIC_DATA}:/usr/share/opensearch/data
+      - opensearch_data:/usr/share/opensearch/data
 
   ############################################################
   # Uncomment the following to create a cluster with 3 nodes.#
@@ -140,15 +140,12 @@ services:
       - os01
 
   postgres:
-    image: postgres
+    # using an image having pg_cron preinstalled
+    image: cleisonfmelo/postgres-pg-cron
     #command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
     restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - ${POSTGRES_DATA}:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     ports:
       - 5432:5432
 
@@ -167,3 +164,7 @@ services:
     restart: always
     ports:
       - 8002:8080
+
+volumes:
+  postgres_data:
+  opensearch_data:

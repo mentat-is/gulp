@@ -19,7 +19,7 @@ async def check_alive(engine: AsyncEngine) -> None:
         await conn.execute(text("SELECT 1"))
 
     logger().info("Collab database is reachable!")
-    
+
 async def collab(invalidate: bool = False) -> AsyncEngine:
     """
     Retrieves the collab object.

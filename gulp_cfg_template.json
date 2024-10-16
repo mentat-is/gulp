@@ -63,8 +63,6 @@
   "query_sigma_max_notes": 0,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
   "stats_ttl": 86400,
-  // how many seconds before automatically delete live-ingestion stats, default=604800=one week)
-  "stats_live_ttl": 604800,
   // how many events to ingest before updating the ingestion stats (default=1000)
   "stats_update_threshold": 1000,
   // admin/impersonation token expiration seconds, default=10 min (600 seconds)

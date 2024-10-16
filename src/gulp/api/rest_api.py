@@ -3,10 +3,10 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import os
 import ssl
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.managers import SyncManager
 from queue import Queue
 
@@ -26,9 +26,7 @@ from fastapi.concurrency import asynccontextmanager
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from muty.jsend import JSendException, JSendResponse
-from opensearchpy import AsyncOpenSearch as AsyncElasticsearch
 from opensearchpy import RequestError
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.collab.db as collab_db
 import gulp.api.collab_api as collab_api
@@ -42,7 +40,7 @@ from gulp.api.collab.base import (
     WrongUsernameOrPassword,
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
-from gulp.utils import logger, delete_first_run_file
+from gulp.utils import delete_first_run_file, logger
 
 _process_executor: aiomultiprocess.Pool = None
 _thread_pool_executor: ThreadPoolExecutor = None
@@ -113,6 +111,7 @@ def process_executor() -> aiomultiprocess.Pool:
     global _process_executor
     return _process_executor
 
+
 def thread_pool_executor() -> ThreadPoolExecutor:
     """
     Returns the global ThreadPoolExecutor instance (per-process).
@@ -124,8 +123,9 @@ def thread_pool_executor() -> ThreadPoolExecutor:
     if _thread_pool_executor is None:
         logger().debug("creating thread pool executor for the current process...")
         _thread_pool_executor = ThreadPoolExecutor()
-    
+
     return _thread_pool_executor
+
 
 def _unload_extension_plugins():
     """
@@ -212,17 +212,17 @@ async def lifespan_handler(app: FastAPI):
     logger().debug("main process collab=%s, elastic=%s" % (collab, elastic))
     try:
         await collab_api.check_alive(collab)
-        # await elastic_api.check_alive(elastic)
     except Exception as ex:
         if _is_first_run:
             # on first run, we delete the first run file
-            delete_first_run_file()            
-        raise ex                        
-    
+            delete_first_run_file()
+        raise ex
+
     if _reset_collab_on_start:
         logger().warning(
             "--reset-collab is set, dropping and recreating the collaboration database ..."
         )
+        
         await collab_db.drop(config.postgres_url())
         collab = await collab_api.collab(invalidate=True)
 
@@ -288,7 +288,7 @@ async def lifespan_handler(app: FastAPI):
 
     logger().debug("shutting down thread pool executor for the main process...")
     _thread_pool_executor.shutdown(wait=True)
-    
+
     logger().debug("shutting down aiomultiprocess ...")
     _process_executor.close()
     await _process_executor.join()
@@ -449,7 +449,7 @@ def start_server(
     _reset_collab_on_start = reset_collab
     _elastic_index_to_reset = elastic_index
     _is_first_run = is_first_run
-    
+
     # Append all routers to main app
     import gulp.api.rest.client
     import gulp.api.rest.collab_utility
