@@ -1,20 +1,28 @@
 """Gulp global definitions."""
 
+import json
 from enum import IntEnum, StrEnum
 
 import muty.jsend
+from pydantic import BaseModel, Field, model_validator
+
+from gulp.api.collab.base import GulpUserPermission
 
 # common api descriptions for swagger
 API_DESC_REQID = muty.jsend.API_DESC_REQID
 API_DESC_WS_ID = "websocket id to send the response/s to."
 API_DESC_PRIVATE = "if set, the object will be private (only the owner can see it)."
 API_DESC_COLLAB_LEVEL = "if set, one of the GulpCollabLevel levels to indicate the importance of the collab object (DEFAULT, WARNING, ERROR)."
-API_DESC_PLUGIN = "`filename with or without .py/.pyc` of the plugin to process the request with."
+API_DESC_PLUGIN = (
+    "`filename with or without .py/.pyc` of the plugin to process the request with."
+)
 API_DESC_PLUGIN_TYPE = "the plugin type (ingestion, sigma, extension, query)."
 API_DESC_UPLOADFILE = "file to be uploaded."
 API_DESC_COUNT = "returns count only (limit, skip, sort are ignored if set)."
 API_DESC_INDEX = "the target elasticsearch index or datastream."
-API_DESC_INDEX_TEMPLATE = 'an optional index template json to override the default when creating new indexes.'
+API_DESC_INDEX_TEMPLATE = (
+    "an optional index template json to override the default when creating new indexes."
+)
 API_DESC_TOKEN = "authentication token."
 API_DESC_ADMIN_TOKEN = "an authentication token with ADMIN permission."
 API_DESC_DELETE_EDIT_TOKEN = "an authentication token with EDIT permission if owner of the object, or DELETE (or ADMIN) permission."
@@ -28,7 +36,7 @@ API_DESC_INGEST_IGNORE_ERRORS = (
     "ignore errors instead of stopping (current file) ingestion at first error."
 )
 API_DESC_INGESTION_PLUGIN_PARAMS = "additional parameters for the ingestion plugin."
-API_DESC_PYSYGMA_PLUGIN="fallback pysigma plugin `filename with or without .py/.py`. Defaults to None (use 'logsource.product' from sigma rule if present)."
+API_DESC_PYSYGMA_PLUGIN = "fallback pysigma plugin `filename with or without .py/.py`. Defaults to None (use 'logsource.product' from sigma rule if present)."
 API_DESC_SIGMA_PLUGIN_PARAMS = "additional parameters for the sigma plugin."
 API_DESC_CLIENT = "the id of a client registered via client_create() on the collab DB."
 API_DESC_OPERATION = (
@@ -44,22 +52,15 @@ EXAMPLE_INDEX = {"example": {"value": "testidx"}}
 
 EXAMPLE_OPERATION_ID = {"example": {"value": 1}}
 EXAMPLE_CONTEXT = {"example": {"value": "testcontext"}}
-EXAMPLE_INDEX_TEMPLATE = {"example": {"value":
-    {
-        "index_patterns": ["testidx-*"],
-        "settings": {
-            "number_of_shards": 1
-        },
-        "mappings": {
-            "properties": {
-                "field1": {
-                    "type": "text"
-                }
-            }
+EXAMPLE_INDEX_TEMPLATE = {
+    "example": {
+        "value": {
+            "index_patterns": ["testidx-*"],
+            "settings": {"number_of_shards": 1},
+            "mappings": {"properties": {"field1": {"type": "text"}}},
         }
-
     }
-}}
+}
 EXAMPLE_CLIENT_ID = {"example": {"value": 1}}
 
 EXAMPLE_PLUGIN = {"example": {"value": "win_evtx"}}
@@ -104,6 +105,7 @@ class GulpPluginType(StrEnum):
     EXTENSION = "extension"
     QUERY = "query"
 
+
 class GulpLogLevel(IntEnum):
     """Gulp log levels status codes"""
 
@@ -140,3 +142,71 @@ class SortOrder(StrEnum):
 
     ASCENDING = "asc"
     DESCENDING = "desc"
+
+
+class GulpAPIContext(BaseModel):
+    """
+    operation, client, context are used to identify the request in the collab database.
+    """
+
+    operation: str = Field(
+        None,
+        description="optional operation in the collab database to which the request belongs to.",
+    )
+    operation_id: str = Field(
+        None,
+        description="optional operation id in the collab database to which the request belongs to.",
+    )
+    client: str = Field(
+        None,
+        description="optional client in the collab database to identify who is making the request.",
+    )
+    client_id: str = Field(
+        None,
+        description="optional client id in the collab database to identify who is making the request.",
+    )
+    context: str = Field(
+        None,
+        description="optional `gulp.context` to which the request refer to.",
+    )
+    context_id: str = Field(
+        None,
+        description="optional `gulp.context` id to which the request refer to.",
+    )
+
+    @staticmethod
+    def from_dict(d: dict) -> "GulpAPIContext":
+        """
+        Create a GulpAPIContext object from a dictionary.
+
+        Args:
+            d (dict): The dictionary containing the context attributes.
+
+        Returns:
+            GulpAPIContext: The created GulpAPIContext object.
+        """
+        return GulpAPIContext(**d)
+
+    def to_dict(self) -> dict:
+        """
+        returns a dictionary representation of the context.
+        """
+        d = {
+            "operation": self.operation,
+            "operation_id": self.operation_id,
+            "client_id": self.client_id,
+            "client": self.client,
+            "context": self.context,
+            "context_id": self.context_id,
+        }
+        return d
+
+    @model_validator(mode="before")
+    @classmethod
+    def to_py_dict(cls, data: str | dict):
+        if data is None or len(data) == 0:
+            return GulpAPIContext().to_dict()
+
+        if isinstance(data, dict):
+            return data
+        return json.loads(data)

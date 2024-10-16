@@ -40,6 +40,7 @@ For larger resolutions, it is also suggested to set the screen resolution to hig
 ## Manual installation
 
 ### 1. Install OS dependencies
+
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
@@ -75,10 +76,6 @@ mkdir -p ~/.config/gulp
 # copy template configuration, edit it in case
 cd ./repos/gulp
 copy ./template_cfg.json ~/.config/gulp_cfg.json
-
-# ensure data directories for postgresql and opensearch exists and are owned by the current user (NON ROOT)
-mkdir ./opensearch_data
-mkdir ./postgres_data
 ~~~
 
 ### 6. Install gulp
@@ -97,6 +94,7 @@ pip3 install -U -e . && pip3 install -U -e ../muty-python
 cd ./repos/gulp
 
 # start postgresql and opensearch
+# if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose up -d
 
 # run gulp first time

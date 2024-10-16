@@ -36,7 +36,7 @@ docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags 
 ------
 > [internal] load build context:
 ------
-ERROR: failed to solve: error from sender: open postgres_data: permission denied  
+ERROR: failed to solve: error from sender: open postgres_data: permission denied
 ~~~
 
 this is due to the fact you are having the default `postgres_data` directory in the current directory and postgreSQL owned it as root from a previous run.
@@ -45,7 +45,7 @@ you either move the directory temporarly, [set it to user owned](#general), reco
 
 ### general
 
-- environment variables are defined in [.env](./.env) which is automatically read by docker-compose when starting the containers: when using the [DEV installation](./Install%20Dev.md), ensure data persistence directories for postgres and OpenSearch (`ELASTIC_DATA`, `POSTGRES_DATA` defined in `.env`) exists `AND are owned by the user`.
+- environment variables to customize postgresql and opensearch installations are defined in [.env](./.env) which is automatically read by docker-compose when starting the containers.
 
 ### os
 
