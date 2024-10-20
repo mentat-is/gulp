@@ -111,7 +111,7 @@ async def plugin_list_handler(
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         l = await gulp.plugin.list_plugins()
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
@@ -149,16 +149,14 @@ async def plugin_get_handler(
     ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
-        Query(
-            description=gulp.defs.API_DESC_PLUGIN_TYPE
-        ),
+        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
     ] = gulp.defs.GulpPluginType.INGESTION,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         path_plugins = config.path_plugins(plugin_type)
         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
@@ -198,20 +196,21 @@ async def plugin_get_handler(
 async def plugin_delete_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     plugin: Annotated[
-        str, Query(description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"')
+        str,
+        Query(
+            description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
     ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
-        Query(
-            description=gulp.defs.API_DESC_PLUGIN_TYPE
-        ),
+        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
     ] = gulp.defs.GulpPluginType.INGESTION,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
         path_plugins = config.path_plugins(plugin_type)
@@ -253,12 +252,15 @@ async def plugin_upload_handler(
         str, Header(description=gulp.defs.API_DESC_TOKEN + " with EDIT permission")
     ],
     plugin: Annotated[UploadFile, File(description="the plugin file")],
-    filename: Annotated[str, Query(description='the filename to save the plugin as, i.e. "plugin.py", "paid/paid_plugin.py"')],
+    filename: Annotated[
+        str,
+        Query(
+            description='the filename to save the plugin as, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
+    ],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
-        Query(
-            description=gulp.defs.API_DESC_PLUGIN_TYPE
-        ),
+        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
     ] = gulp.defs.GulpPluginType.INGESTION,
     allow_overwrite: Annotated[
         bool, Query(description="if set, will overwrite an existing plugin file.")
@@ -268,12 +270,16 @@ async def plugin_upload_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.EDIT
+            await collab_api.session(), token, GulpUserPermission.EDIT
         )
         path_plugins = config.path_plugins(plugin_type)
-        plugin_path = muty.file.safe_path_join(path_plugins, filename, allow_relative=True)
+        plugin_path = muty.file.safe_path_join(
+            path_plugins, filename, allow_relative=True
+        )
 
-        if not filename.lower().endswith(".py") and not filename.lower().endswith(".pyc"):
+        if not filename.lower().endswith(".py") and not filename.lower().endswith(
+            ".pyc"
+        ):
             raise gulp.defs.InvalidArgument("plugin must be a .py/.pyc file.")
 
         if not allow_overwrite:
@@ -318,16 +324,14 @@ async def plugin_tags_handler(
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
     plugin_type: Annotated[
         gulp.defs.GulpPluginType,
-        Query(
-            description=gulp.defs.API_DESC_PLUGIN_TYPE
-        ),
+        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
     ] = gulp.defs.GulpPluginType.INGESTION,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         l = await gulp.plugin.get_plugin_tags(plugin, plugin_type)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
@@ -361,7 +365,7 @@ async def get_version_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         return JSONResponse(
             muty.jsend.success_jsend(
                 req_id=req_id, data={"version": gulp_utils.version_string()}
@@ -408,7 +412,7 @@ async def mapping_file_upload_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.EDIT
+            await collab_api.session(), token, GulpUserPermission.EDIT
         )
         filename = os.path.basename(mapping_file.filename)
         if not filename.lower().endswith(".json"):
@@ -558,7 +562,7 @@ async def mapping_file_list_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         path = config.path_mapping_files()
         logger().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
@@ -621,7 +625,7 @@ async def mapping_file_get_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         file_path = gulp_utils.build_mapping_file_path(mapping_file)
 
         # read file content
@@ -667,7 +671,7 @@ async def mapping_file_delete_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         file_path = gulp_utils.build_mapping_file_path(mapping_file)
 

@@ -59,10 +59,11 @@ async def stats_delete_by_operation(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.DELETE
+            await collab_api.session(), token, GulpUserPermission.DELETE
         )
         deleted = await GulpStats.delete(
-            await collab_api.collab(), GulpCollabFilter(operation_id=[operation_id])
+            await collab_api.session(),
+            GulpCollabFilter(operation_id=[operation_id]),
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"num_deleted": deleted})
@@ -108,7 +109,6 @@ async def stats_delete_by_operation(
                                         '[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                     ],
                                 },
-                                "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
                             }
                         ],
                     }
@@ -129,10 +129,11 @@ async def stats_get_by_operation(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         stats = await GulpStats.get(
-            await collab_api.collab(), GulpCollabFilter(operation_id=[operation_id])
+            await collab_api.session(),
+            GulpCollabFilter(operation_id=[operation_id]),
         )
         l = []
         for s in stats:
@@ -178,7 +179,6 @@ async def stats_get_by_operation(
                                     '[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                 ],
                             },
-                            "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
                         },
                     }
                 }
@@ -196,10 +196,10 @@ async def stats_get_by_req_id(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         stats = await GulpStats.get(
-            await collab_api.collab(), GulpCollabFilter(req_id=[r])
+            await collab_api.session(), GulpCollabFilter(req_id=[r])
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data=stats[0].to_dict())
@@ -245,7 +245,6 @@ async def stats_get_by_req_id(
                                         '[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                     ],
                                 },
-                                "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
                             }
                         ],
                     }
@@ -265,9 +264,9 @@ async def stats_list_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
-        stats = await GulpStats.get(await collab_api.collab(), flt)
+        stats = await GulpStats.get(await collab_api.session(), flt)
         ss = []
         for s in stats:
             ss.append(s.to_dict())
@@ -307,9 +306,9 @@ async def stats_delete(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.DELETE
+            await collab_api.session(), token, GulpUserPermission.DELETE
         )
-        deleted = await GulpStats.delete(await collab_api.collab(), flt)
+        deleted = await GulpStats.delete(await collab_api.session(), flt)
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"num_deleted": deleted})
         )
@@ -353,7 +352,6 @@ async def stats_delete(
                                     '[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116]   File "<string>", line 33\n[/home/valerino/repos/gulp/src/gulp/plugins/ingestion/win_evtx.py:ingest:116] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n'
                                 ],
                             },
-                            "current_src_file": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
                         },
                     }
                 }
@@ -371,10 +369,10 @@ async def stats_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         s = await GulpStats.get(
-            await collab_api.collab(), GulpCollabFilter(id=[stats_id])
+            await collab_api.session(), GulpCollabFilter(id=[stats_id])
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data=s[0].to_dict())
@@ -413,9 +411,9 @@ async def stats_cancel_request_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
-        s = await GulpStats.set_canceled(await collab_api.collab(), r)
+        s = await GulpStats.set_canceled(await collab_api.session(), r)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data={"id": s.id}))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

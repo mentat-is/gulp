@@ -79,7 +79,7 @@ async def user_data_update_handler(
             raise InvalidArgument("at least one of name, data must be specified.")
 
         ud = await UserData.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             user_data_id,
             name=name,
@@ -135,9 +135,9 @@ async def user_data_list_handler(
     try:
         # only admin can list users
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        user_datas = await UserData.get(await collab_api.collab(), flt)
+        user_datas = await UserData.get(await collab_api.session(), flt)
         l = []
         for u in user_datas:
             l.append(u.to_dict())
@@ -188,9 +188,9 @@ async def user_data_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # get the specified user data
-        user = await User.check_token_owner(await collab_api.collab(), token)
+        user = await User.check_token_owner(await collab_api.session(), token)
         user_datas = await UserData.get(
-            await collab_api.collab(),
+            await collab_api.session(),
             GulpCollabFilter(id=[user_data_id], owner_id=[user.id]),
         )
         return JSONResponse(
@@ -251,7 +251,7 @@ async def user_data_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         ud = await UserData.create(
-            await collab_api.collab(), token, name, operation_id, data, user_id
+            await collab_api.session(), token, name, operation_id, data, user_id
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -303,7 +303,7 @@ async def user_data_delete_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserData.delete(await collab_api.collab(), token, user_data_id, user_id)
+        await UserData.delete(await collab_api.session(), token, user_data_id, user_id)
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"id": user_data_id})
         )

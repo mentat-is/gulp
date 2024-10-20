@@ -60,7 +60,7 @@ async def session_impersonate(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        s = await UserSession.impersonate(await collab_api.collab(), token, user_id)
+        s = await UserSession.impersonate(await collab_api.session(), token, user_id)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=s.to_dict()))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

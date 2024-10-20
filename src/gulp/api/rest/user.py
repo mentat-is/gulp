@@ -123,7 +123,7 @@ async def user_update_handler(
             )
 
         user = await User.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             user_id,
             password,
@@ -188,9 +188,9 @@ async def user_list_handler(
     try:
         # only admin can list users
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        users = await User.get(await collab_api.collab(), flt)
+        users = await User.get(await collab_api.session(), flt)
         l = []
         for u in users:
             l.append(u.to_dict())
@@ -246,10 +246,10 @@ async def user_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # check if token has permission over user_id
-        u = User.check_token_owner(await collab_api.collab(), token, user_id)
+        u = User.check_token_owner(await collab_api.session(), token, user_id)
         user_id = u.id
         users = await User.get(
-            await collab_api.collab(), GulpCollabFilter(id=[user_id])
+            await collab_api.session(), GulpCollabFilter(id=[user_id])
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data=users[0].to_dict())
@@ -317,10 +317,15 @@ async def user_create_handler(
     try:
         # only admin can create users
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         user = await User.create(
-            await collab_api.collab(), username, password, email, permission, glyph_id
+            await collab_api.session(),
+            username,
+            password,
+            email,
+            permission,
+            glyph_id,
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -361,9 +366,9 @@ async def user_delete_handler(
     try:
         # only admin can delete users
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        await User.delete(await collab_api.collab(), user_id)
+        await User.delete(await collab_api.session(), user_id)
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"id": user_id})
         )
@@ -406,7 +411,7 @@ async def session_create_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        _, s = await User.login(await collab_api.collab(), username, password)
+        _, s = await User.login(await collab_api.session(), username, password)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=s.to_dict()))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -443,7 +448,7 @@ async def session_delete_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        session_id = await User.logout(await collab_api.collab(), token)
+        session_id = await User.logout(await collab_api.session(), token)
         return JSONResponse(
             muty.jsend.success_jsend(
                 req_id=req_id, data={"id": session_id, "token": token}

@@ -32,17 +32,15 @@ class UserSession(CollabBase):
         data (Optional[dict]): Additional data associated with the session.
     """
 
-    __tablename__ = "sessions"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    token: Mapped[str] = mapped_column(String(128), unique=True)
+    __tablename__ = "session"
+    name: Mapped[str] = mapped_column(String(128), unique=True, primary_key=True)
+    user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
     time_expire: Mapped[int] = mapped_column(BIGINT, default=0)
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "token": self.token,
+            "user": self.user,
+            "name": self.name,
             "time_expire": self.time_expire,
         }
 
@@ -62,9 +60,9 @@ class UserSession(CollabBase):
             if user_session.time_expire > 0:
                 if muty.time.now_msec() > user_session.time_expire:
                     # delete this token
-                    await UserSession.delete(engine, user_session.token)
+                    await UserSession.delete(engine, user_session.name)
                     raise SessionExpired(
-                        "session token %s expired !" % (user_session.token)
+                        "session token %s expired !" % (user_session.name)
                     )
 
     @staticmethod
@@ -96,7 +94,7 @@ class UserSession(CollabBase):
                 raise ObjectNotFound("session not found for user_id=%d !" % (user_id))
 
             logger().debug(
-                "get: token for user_id %d=%s" % (user_id, user_session.token)
+                "get: token for user_id %d=%s" % (user_id, user_session.name)
             )
 
             # check if token is expired
@@ -125,7 +123,7 @@ class UserSession(CollabBase):
         logger().debug("---> get: token=%s" % (token))
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.token == token)
+            q = select(UserSession).where(UserSession.name == token)
             res = await sess.execute(q)
             user_session: UserSession = res.scalar_one_or_none()
             if user_session is None:
@@ -169,12 +167,12 @@ class UserSession(CollabBase):
             logger().debug(
                 "user %s session already exists, update token ..." % (user.name)
             )
-            user_session.token = token
+            user_session.name = token
             user_session.time_expire = time_expire
         else:
             # create
             user_session = UserSession(
-                user_id=user.id, token=token, time_expire=time_expire
+                user_id=user.id, name=token, time_expire=time_expire
             )
             logger().debug("created new user session: %s" % (user_session))
 
@@ -264,10 +262,10 @@ class UserSession(CollabBase):
         if config.debug_allow_any_token_as_admin():
             # use admin token
             _, s = await UserSession._get_admin(engine)
-            token = s.token
+            token = s.name
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.token == token)
+            q = select(UserSession).where(UserSession.name == token)
             res = await sess.execute(q)
             session = res.scalar_one_or_none()
             if session is None:

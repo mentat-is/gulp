@@ -14,31 +14,22 @@ class Client(CollabBase):
     """
     Represents a client to ingest events."""
 
-    __tablename__ = "clients"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    name: Mapped[str] = mapped_column(String(32), unique=True)
+    __tablename__ = "client"
+    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
     type: Mapped[GulpClientType] = mapped_column(Integer, default=GulpClientType.SLURP)
-    operation_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        ForeignKey("operation.id", ondelete="SET NULL"),
-        default=None,
-        nullable=True,
-    )
     version: Mapped[Optional[str]] = mapped_column(
-        String(32), default=None, nullable=True
+        String(32), default=None
     )
-    glyph_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None, nullable=True
+    glyph: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.name", ondelete="SET NULL"), default=None
     )
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
             "name": self.name,
             "type": self.type,
-            "operation_id": self.operation_id,
             "version": self.version,
-            "glyph_id": self.glyph_id,
+            "glyph": self.glyph_id,
         }
 
     @staticmethod

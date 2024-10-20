@@ -15,20 +15,14 @@ class UserData(CollabBase):
     """
 
     __tablename__ = "user_data"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    name: Mapped[str] = mapped_column(String(128))
-    operation_id: Mapped[int] = mapped_column(
-        ForeignKey("operation.id", ondelete="CASCADE")
-    )
-    data: Mapped[dict] = mapped_column(JSONB, default=None)
+    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
+    user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
+    data: Mapped[dict] = mapped_column(JSONB)
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
-            "user_id": self.user_id,
+            "user": self.user_id,
             "name": self.name,
-            "operation_id": self.operation_id,
             "data": self.data if self.data is not None else {},
         }
 

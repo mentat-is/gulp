@@ -67,12 +67,12 @@ def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, l
         sys.path.append(ext_plugins_path)
 
     # initialize per-process clients
-    asyncio.run(collab_api.collab())
+    asyncio.run(collab_api.session())
     elastic_api.elastic()
-    
+
     # initialize per-process thread pool executor
     rest_api.thread_pool_executor()
-    
+
     lock.acquire()
     spawned_processes.value += 1
     lock.release()
@@ -164,7 +164,7 @@ async def _ingest_file_task_internal(
     Raises:
         Any exceptions raised by the plugin during ingestion.
     """
-    collab = await collab_api.collab()
+    collab = await collab_api.session()
     elastic = elastic_api.elastic()
 
     mod = None
@@ -252,7 +252,7 @@ async def ingest_directory_task(
         sigma_group_flts (list[SigmaGroupFilter], optional): to filter results on groups of sigma rule ids. Defaults to None.
     """
     executor = rest_api.process_executor()
-    collab = await collab_api.collab()
+    collab = await collab_api.session()
 
     index = kwargs["index"]
     req_id = kwargs["req_id"]
@@ -361,7 +361,7 @@ async def ingest_single_file_or_events_task(
         ws_id (str): The websocket id
     """
     executor = rest_api.process_executor()
-    collab = await collab_api.collab()
+    collab = await collab_api.session()
 
     index = kwargs["index"]
     req_id = kwargs["req_id"]
@@ -440,7 +440,7 @@ async def ingest_zip_task(
         None
     """
     executor = rest_api.process_executor()
-    collab = await collab_api.collab()
+    collab = await collab_api.session()
 
     index = kwargs["index"]
     req_id = kwargs["req_id"]
@@ -576,12 +576,14 @@ async def _rebase_internal(
     elastic = elastic_api.elastic()
     ds = None
     rebase_result = {}
-    template_file: str=None
+    template_file: str = None
     try:
         # get template for index and use it to create the destination datastream
         template = await elastic_api.index_template_get(elastic, index)
-        template_file = await muty.file.write_temporary_file_async(json.dumps(template).encode())
-        
+        template_file = await muty.file.write_temporary_file_async(
+            json.dumps(template).encode()
+        )
+
         # create another datastream (if it exists, it will be deleted)
         ds = await elastic_api.datastream_create(
             elastic,
@@ -590,7 +592,9 @@ async def _rebase_internal(
         )
 
         # rebase
-        rebase_result = await elastic_api.rebase(elastic, index, dest_index, offset, flt=flt)
+        rebase_result = await elastic_api.rebase(
+            elastic, index, dest_index, offset, flt=flt
+        )
     except Exception as ex:
         # can't rebase, delete the datastream
         logger().exception(ex)
@@ -729,7 +733,7 @@ async def ingest_zip_simple_task(
     except Exception as ex:
         logger().exception(ex)
         await GulpStats.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             GulpCollabType.STATS_INGESTION,
             req_id,
             ws_id,
@@ -738,7 +742,7 @@ async def ingest_zip_simple_task(
             context,
         )
         await GulpStats.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             req_id,
             ws_id,
             fs=TmpIngestStats(f).update(ingest_errors=[ex]),
@@ -761,7 +765,7 @@ async def ingest_zip_simple_task(
 
     tasks = []
     await GulpStats.create(
-        await collab_api.collab(),
+        await collab_api.session(),
         GulpCollabType.STATS_INGESTION,
         req_id,
         ws_id,
@@ -812,7 +816,7 @@ async def ingest_zip_simple_task(
 
     # delete unzipped files
     await muty.file.delete_file_or_dir_async(files_path)
-    await _print_debug_ingestion_stats(await collab_api.collab(), req_id)
+    await _print_debug_ingestion_stats(await collab_api.session(), req_id)
 
 
 async def _query_external_internal(
@@ -828,7 +832,7 @@ async def _query_external_internal(
     options: GulpQueryOptions,
 ) -> tuple[int, GulpRequestStatus]:
 
-    collab = await collab_api.collab()
+    collab = await collab_api.session()
     qs = TmpQueryStats()
     qs.queries_total = 1
 
@@ -856,13 +860,15 @@ async def _query_external_internal(
     ingest_index = plugin_params.extra.get("ingest_index", None)
     if ingest_index is not None:
         # # load the raw plugin and pass the instance over in extra
-        raw_plugin: PluginBase = gulp.plugin.load_plugin("raw", plugin_type=GulpPluginType.INGESTION)
+        raw_plugin: PluginBase = gulp.plugin.load_plugin(
+            "raw", plugin_type=GulpPluginType.INGESTION
+        )
         plugin_params.extra["raw_plugin"] = raw_plugin
         plugin_params.extra["ingest_index"] = ingest_index
-        
+
     # query
     try:
-        start_time = timeit.default_timer()                
+        start_time = timeit.default_timer()
         num_results, status = await mod.query(
             operation_id,
             client_id,
@@ -952,13 +958,13 @@ async def query_external_task(**kwargs):
 
     num_results, status = await coro
 
-    # done   
-    qs = TmpQueryStats() 
+    # done
+    qs = TmpQueryStats()
     qs.matches_total = num_results
     qs.queries_total = 1
     qs.queries_processed = 1
     await GulpStats.update(
-        await collab_api.collab(),
+        await collab_api.session(),
         req_id,
         ws_id,
         qs=qs,
@@ -1013,7 +1019,7 @@ async def query_multi_task(**kwargs):
 
     from gulp.api.rest.ws import WsQueueDataType
 
-    collab = await collab_api.collab()
+    collab = await collab_api.session()
     executor = rest_api.process_executor()
 
     qs: TmpQueryStats = TmpQueryStats()

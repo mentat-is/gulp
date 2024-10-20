@@ -192,7 +192,7 @@ async def link_update_handler(
             data["events"] = [e.to_dict() for e in events]
 
         l = await CollabObj.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             link_id,
@@ -268,7 +268,7 @@ async def link_create_handler(
     data["events"] = [e.to_dict() for e in events]
     try:
         l = await CollabObj.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             GulpCollabType.LINK,

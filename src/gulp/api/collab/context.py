@@ -1,17 +1,17 @@
-from typing import Union
-from gulp.utils import logger
-from sqlalchemy import String, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.asyncio.engine import AsyncEngine
+from typing import Optional, Union
+
+from sqlalchemy import Result, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 
+from gulp.api import collab_api
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
-from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.defs import ObjectNotFound
+from gulp.utils import logger
 
 
-class Context(CollabBase):
+class GulpContext(CollabBase):
     """
-    Represents a context object.
+    Represents a context object: in gulp terms, a context is used to group a set of data coming from the same host.
 
     Attributes:
         id (int): The unique identifier of the context.
@@ -20,71 +20,60 @@ class Context(CollabBase):
     """
 
     __tablename__ = "context"
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=True, init=False)
-    name: Mapped[str] = mapped_column(String(128), unique=True)
-    color: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str] = mapped_column(String(128), unique=True, primary_key=True)
+    color: Mapped[Optional[str]] = mapped_column(String(32), default="#ffffff")
     # TODO: also add created_on, updated_on, created_by, updated_by ?
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
             "name": self.name,
             "color": self.color,
         }
 
     @staticmethod
-    def _validate_format(color: str):
+    async def get_result_or_throw(
+        res: Result["GulpContext"], name: str
+    ) -> "GulpContext":
         """
-        Checks if color has a valid format
+        Throws an ObjectNotFound exception if the context is not found, or returns the context.
 
         Args:
-            color (str): value to verify.
+            res (Result[Context]): The result of the query.
+            name (str): The name of the context.
 
         Returns:
-            color: if color is valid, else exception is raised
+            Context: The context object.
         """
-        # TODO: implement validation on format
-
-        return color
+        c = res.scalar_one_or_none()
+        if c is None:
+            raise ObjectNotFound('context "%s" not found' % (name))
+        return c
 
     @staticmethod
-    async def create(engine: AsyncEngine, name: str, color: str) -> "Context":
+    async def create(name: str, color: str) -> "GulpContext":
         """
         Creates a new context (admin only)
 
         Args:
-            engine (AsyncEngine): The database engine.
             name (str): The name of the context.
             color (str): The color of the context.
 
         Returns:
             Context: The created Context object.
         """
-        color = Context._validate_format(color)
-
         # only admin can create contexts
-        logger().debug("---> create: name=%s..., color=%s" %
-                                  (name, color))
-
-        async with AsyncSession(engine, expire_on_commit=False) as sess:
-            # check if it already exists
-            q = select(Context).where(Context.name == name)
-            res = await sess.execute(q)
-            c = res.scalar_one_or_none()
-            if c is not None:
-                raise ObjectAlreadyExists("context %s already exists" % (name))
-
-            c = Context(name=name, color=color)
+        logger().debug("---> create: name=%s, color=%s" % (name, color))
+        async with await collab_api.session() as sess:
+            c = GulpContext(name=name, color=color)
             sess.add(c)
             await sess.commit()
-            logger().info("create: created context id=%d" % (c.id))
+            logger().info("---> create: created context id=%s" % (c.name))
             return c
 
     @staticmethod
-    async def update(engine: AsyncEngine, context_id: int, name: str, color: str) -> "Context":
+    async def update(name: str, color: str) -> "GulpContext":
         """
-        Updates a context (admin only)
+        Updates a context
 
         Args:
             engine (AsyncEngine): The database engine.
@@ -95,31 +84,22 @@ class Context(CollabBase):
         Returns:
             Context: The updated Context object.
         """
-        color = Context._validate_format(color)
-
-        logger().debug(
-            "---> update: id=%s, name=%s, color=%s..." % (
-                context_id, name, color)
-        )
-
-        async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(Context).where(
-                Context.id == context_id).with_for_update()
+        logger().debug("---> update: name=%s, color=%s" % (name, color))
+        async with await collab_api.session() as sess:
+            q = select(GulpContext).where(GulpContext.name == name).with_for_update()
             res = await sess.execute(q)
-            c = res.scalar_one_or_none()
-            if c is None:
-                raise ObjectNotFound("context %d not found" % context_id)
+            c = GulpContext.get_result_or_throw(res, name)
 
-            c.name = name
+            # update
             c.color = color
             await sess.commit()
-            logger().info("update: updated context id=%d" % (context_id))
+            logger().info("---> update: updated context name=%d" % (name))
             return c
 
     @staticmethod
-    async def delete(engine: AsyncEngine, context_id: int) -> None:
+    async def delete(name: str) -> None:
         """
-        Deletes a context (admin only)
+        Deletes a context
 
         Args:
             engine (AsyncEngine): The database engine.
@@ -129,31 +109,30 @@ class Context(CollabBase):
             None
         """
 
-        logger().debug("---> delete: id=%s" % (context_id))
-        async with AsyncSession(engine) as sess:
-            q = select(Context).where(Context.id == context_id)
+        logger().debug("---> delete: name=%s" % (name))
+        async with await collab_api.session() as sess:
+            q = select(GulpContext).where(GulpContext.name == name)
             res = await sess.execute(q)
-            c = res.scalar_one_or_none()
-            if c is None:
-                raise ObjectNotFound("context %d not found" % context_id)
+            c = GulpContext.get_result_or_throw(res, name)
 
+            # delete
             await sess.delete(c)
             await sess.commit()
-            logger().info("delete: deleted context id=%d" % (context_id))
+            logger().info("---> delete: deleted context name=%d" % (name))
 
     @staticmethod
     async def get(
-        engine: AsyncEngine, flt: GulpCollabFilter = None
-    ) -> Union[list["Context"], list[dict]]:
+        flt: GulpCollabFilter = None,
+    ) -> Union[list["GulpContext"]]:
         """
         Get contexts.
 
         Args:
             engine (AsyncEngine): The database engine.
-            flt (GulpCollabFilter, optional): The filter (name, id, opt_basic_fields_only, limit, offset). Defaults to None (get all).
+            flt (GulpCollabFilter, optional): The filter (name, opt_basic_fields_only, limit, offset). Defaults to None (get all).
 
         Returns:
-            Union[list['Context'], list[dict]]: The list of Context objects or the list of dictionaries with basic fields.
+            Union[list['GulpContext']: The list of Context objects.
 
         Raises:
             ObjectNotFound: If no contexts are found.
@@ -161,37 +140,21 @@ class Context(CollabBase):
         logger().debug("---> get: flt=%s" % (flt))
 
         # check each part of flt and build the query
-        q = select(Context)
+        q = select(GulpContext)
         if flt is not None:
             if flt.opt_basic_fields_only:
-                q = select(Context.id, Context.name)
-
-            if flt.id is not None:
-                q = q.where(Context.id.in_(flt.id))
+                q = select(GulpContext.id, GulpContext.name)
             if flt.name is not None:
-                q = q.where(Context.name.in_(flt.name))
+                q = q.where(GulpContext.name.in_(flt.context))
             if flt.limit is not None:
                 q = q.limit(flt.limit)
             if flt.offset is not None:
                 q = q.offset(flt.offset)
 
-        async with AsyncSession(engine) as sess:
+        async with await collab_api.session() as sess:
             res = await sess.execute(q)
-            if flt is not None and flt.opt_basic_fields_only:
-                # just the selected columns
-                contexts = res.fetchall()
-            else:
-                # full objects
-                contexts = res.scalars().all()
-            if len(contexts) == 0:
+            contexts = res.scalars().all()
+            if not contexts:
                 raise ObjectNotFound("no contexts found")
-
-            if flt is not None and flt.opt_basic_fields_only:
-                # we will return an array of dict instead of full ORM objects
-                cc = []
-                for c in contexts:
-                    cc.append({"id": c[0], "name": c[1], "color": c[2]})
-                contexts = cc
-
-            logger().info("contexts retrieved: %d ..." % (len(contexts)))
+            logger().info("---> get: found %d contexts" % (len(contexts)))
             return contexts

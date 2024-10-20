@@ -176,7 +176,7 @@ async def preprocess_sigma_group_filters(
             # if it's a number, we try to get the shared data from the db
             shared_data_id = int(f.name)
             shared_data = await CollabObj.get(
-                await collab_api.collab(),
+                await collab_api.session(),
                 GulpCollabFilter(
                     type=[GulpCollabType.SHARED_DATA_SIGMA_GROUP_FILTER],
                     id=[shared_data_id],
@@ -247,7 +247,7 @@ async def apply_sigma_group_filters(
 async def check_canceled_or_failed(req_id: str) -> bool:
     # get stats and check if the request has been canceled/failed
     stats = await GulpStats.get(
-        await collab_api.collab(),
+        await collab_api.session(),
         GulpCollabFilter(req_id=[req_id]),
     )
     if stats is not None and stats[0].status in [
@@ -312,7 +312,7 @@ async def _create_notes_on_match(
 
             # create note on db
             cs = await CollabObj.create(
-                await collab_api.collab(),
+                await collab_api.session(),
                 token=None,
                 req_id=req_id,
                 name=gulp_query.name,
@@ -635,7 +635,7 @@ async def query_by_gulpqueryparam(
     try:
         # turn GulpQueryParameter to elastic dsl so we can use query_raw
         gulp_query = await gulpqueryparam_to_gulpquery(
-            await collab_api.collab(),
+            await collab_api.session(),
             gqp,
             flt,
             sigma_rule_file=sigma_rule_file,
@@ -915,7 +915,7 @@ async def sigma_to_stored_query(
         id of the created collab object or a string error message.
     """
     # take it from process
-    engine = await collab_api.collab()
+    engine = await collab_api.session()
 
     logger().debug("reading sigma file %s ..." % (f))
     content = await muty.file.read_file_async(f)

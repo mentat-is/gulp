@@ -224,7 +224,7 @@ async def query_multi_handler(
     user_id = None
     try:
         user, session = await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         user_id = session.user_id
     except Exception as ex:
@@ -247,7 +247,7 @@ async def query_multi_handler(
     # create the request stats
     try:
         await GulpStats.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             GulpCollabType.STATS_QUERY,
             req_id,
             ws_id,
@@ -461,8 +461,7 @@ async def query_stored_sigma_tags_handler(
             raise ObjectNotFound("no tags provided")
         # get stored queries by tags
         gqp = await query_utils.stored_sigma_tags_to_gulpqueryparameters(
-            await collab_api.collab(),
-            tags
+            await collab_api.session(), tags
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -855,7 +854,7 @@ async def query_max_min_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
 
         # query
@@ -1000,7 +999,7 @@ async def query_time_histograms_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
 
         # query
@@ -1029,7 +1028,7 @@ async def query_time_histograms_handler(
 
 async def _parse_operation_aggregation(d: dict):
     # get all operation first
-    all_ops = await Operation.get(await collab_api.collab())
+    all_ops = await Operation.get(await collab_api.session())
 
     # parse aggregations into a more readable format
     result = []
@@ -1143,7 +1142,7 @@ async def query_operations_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         # query
         res = await elastic_api.query_operations(elastic_api.elastic(), index)
@@ -1213,7 +1212,7 @@ async def query_single_event_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
 
         # query
@@ -1293,7 +1292,7 @@ async def query_external_handler(
                 }
             ]
         ),
-    ]=None,
+    ] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -1324,7 +1323,7 @@ async def query_external_handler(
 
     try:
         user, _ = await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -1332,7 +1331,7 @@ async def query_external_handler(
     # create the request stats
     try:
         await GulpStats.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             GulpCollabType.STATS_QUERY,
             req_id,
             ws_id,
@@ -1397,7 +1396,7 @@ async def query_external_single_handler(
                         "username": "...",
                         "password": "...",
                         "url": "http://localhost:9200",
-                        "index": "testidx"
+                        "index": "testidx",
                     }
                 }
             ]
@@ -1434,7 +1433,7 @@ async def query_external_single_handler(
         )
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

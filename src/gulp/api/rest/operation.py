@@ -72,19 +72,19 @@ async def operation_delete_handler(
     try:
         # only admin can delete
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
         # get operation
         op: Operation = None
         l = await Operation.get(
-            await collab_api.collab(),
+            await collab_api.session(),
             GulpCollabFilter(id=[operation_id]),
         )
         op = l[0]
 
         # delete operation
-        await Operation.delete(await collab_api.collab(), operation_id)
+        await Operation.delete(await collab_api.session(), operation_id)
 
         if delete_data is not None:
             # we must also delete elasticsearch data
@@ -98,7 +98,7 @@ async def operation_delete_handler(
         if recreate_operation:
             # recreate operation
             new_op = await Operation.create(
-                await collab_api.collab(),
+                await collab_api.session(),
                 op.name,
                 op.index,
                 op.description,
@@ -155,10 +155,15 @@ async def operation_create_handler(
     try:
         # only admin can create
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         o = await Operation.create(
-            await collab_api.collab(), name, index, description, glyph_id, workflow_id
+            await collab_api.session(),
+            name,
+            index,
+            description,
+            glyph_id,
+            workflow_id,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))
     except Exception as ex:
@@ -212,10 +217,14 @@ async def operation_update_handler(
 
         # only admin can update
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         o = await Operation.update(
-            await collab_api.collab(), operation_id, description, glyph_id, workflow_id
+            await collab_api.session(),
+            operation_id,
+            description,
+            glyph_id,
+            workflow_id,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))
     except Exception as ex:
@@ -260,9 +269,9 @@ async def operation_list_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
-        ops = await Operation.get(await collab_api.collab(), flt)
+        ops = await Operation.get(await collab_api.session(), flt)
         oo = []
         for o in ops:
             oo.append(o.to_dict())
@@ -306,10 +315,10 @@ async def operation_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         ops = await Operation.get(
-            await collab_api.collab(), GulpCollabFilter(id=[operation_id])
+            await collab_api.session(), GulpCollabFilter(id=[operation_id])
         )
         op = ops[0]
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=op.to_dict()))

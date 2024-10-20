@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.utils import logger
 from gulp.api.collab.base import CollabBase, GulpCollabFilter, GulpUserPermission
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.utils import logger
 
 
 class Operation(CollabBase):
@@ -15,30 +15,22 @@ class Operation(CollabBase):
     Represents an operation in the gulp system."""
 
     __tablename__ = "operation"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    name: Mapped[str] = mapped_column(String(128), unique=True)
-    index: Mapped[Optional[str]] = mapped_column(
-        String(128), default=None)
+    name: Mapped[str] = mapped_column(String(128), unique=True, primary_key=True)
+    index: Mapped[Optional[str]] = mapped_column(String(128), default=None)
     description: Mapped[Optional[str]] = mapped_column(
-        String, default=None, nullable=True
+        String, default=None
     )
-    glyph_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        ForeignKey("glyph.id", ondelete="SET NULL"),
-        default=None,
-        nullable=True,
-    )
-    workflow_id: Mapped[Optional[int]] = mapped_column(
-        Integer, default=None, nullable=True
+    glyph: Mapped[Optional[str]] = mapped_column(
+        String(128),
+        ForeignKey("glyph.name", ondelete="SET NULL"),
+        default=None
     )
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
             "name": self.name,
             "description": self.description,
-            "glyph_id": self.glyph_id,
-            "workflow_id": self.workflow_id,
+            "glyph": self.glyph_id,
             "index": self.index,
         }
 
@@ -48,8 +40,7 @@ class Operation(CollabBase):
         name: str,
         index: str,
         description: str = None,
-        glyph_id: int = None,
-        workflow_id: int = None,
+        glyph: str = None,
     ) -> "Operation":
         """
         Creates a new operation (admin only).
@@ -70,12 +61,12 @@ class Operation(CollabBase):
             ObjectAlreadyExists: If the operation already exists.
         """
 
-        logger().debug(
-            "---> create: name=%s, description=%s" % (name, description)
-        )
+        logger().debug("---> create: name=%s, description=%s" % (name, description))
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(Operation).where(Operation.name == name and Operation.index == index)
+            q = select(Operation).where(
+                Operation.name == name and Operation.index == index
+            )
             res = await sess.execute(q)
             op = res.scalar_one_or_none()
             if op is not None:
@@ -181,8 +172,7 @@ class Operation(CollabBase):
 
     @staticmethod
     async def get(
-        engine: AsyncEngine,
-        flt: GulpCollabFilter = None
+        engine: AsyncEngine, flt: GulpCollabFilter = None
     ) -> list["Operation"]:
         """
         Get a list of operations

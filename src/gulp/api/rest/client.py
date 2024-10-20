@@ -64,10 +64,10 @@ async def client_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
         clients = await Client.get(
-            await collab_api.collab(), GulpCollabFilter(id=[client_id])
+            await collab_api.session(), GulpCollabFilter(id=[client_id])
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data=clients[0].to_dict())
@@ -124,9 +124,9 @@ async def client_list_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
-        clients = await Client.get(await collab_api.collab(), flt)
+        clients = await Client.get(await collab_api.session(), flt)
         l = []
         for c in clients:
             l.append(c.to_dict())
@@ -181,10 +181,10 @@ async def client_create_handler(
     try:
         # only admins can create clients
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         c = await Client.create(
-            await collab_api.collab(), name, t, operation_id, version, glyph_id
+            await collab_api.session(), name, t, operation_id, version, glyph_id
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=c.to_dict()))
     except Exception as ex:
@@ -238,10 +238,14 @@ async def client_update_handler(
             )
         # only admins can update clients
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         c = await Client.update(
-            await collab_api.collab(), client_id, operation_id, version, glyph_id
+            await collab_api.session(),
+            client_id,
+            operation_id,
+            version,
+            glyph_id,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=c.to_dict()))
     except Exception as ex:
@@ -279,9 +283,9 @@ async def client_delete_handler(
     try:
         # only admins can delete clients
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        await Client.delete(await collab_api.collab(), client_id)
+        await Client.delete(await collab_api.session(), client_id)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 

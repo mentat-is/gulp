@@ -5,7 +5,7 @@ from sqlalchemy import ARRAY, BIGINT, ForeignKey, Integer, String, select, updat
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.utils import logger
+
 from gulp.api.collab.base import (
     CollabBase,
     GulpCollabFilter,
@@ -14,6 +14,7 @@ from gulp.api.collab.base import (
 )
 from gulp.api.collab.session import UserSession
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.utils import logger
 
 
 class User(CollabBase):
@@ -21,26 +22,38 @@ class User(CollabBase):
     Represents a user in the system.
     """
 
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    name: Mapped[str] = mapped_column(String(32), unique=True)
+    __tablename__ = "user"
+    name: Mapped[str] = mapped_column(String(32), unique=True, primary_key=True)
     pwd_hash: Mapped[str] = mapped_column(String(128))
-    glyph_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None, nullable=True
-    )
-    email: Mapped[Optional[str]] = mapped_column(
-        String(128), default=None, nullable=True
-    )
-    time_last_login: Mapped[int] = mapped_column(BIGINT, default=0)
     permission: Mapped[GulpUserPermission] = mapped_column(
         Integer, default=GulpUserPermission.READ
     )
-    session_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("sessions.id", ondelete="SET NULL"), default=None, nullable=True
+    glyph: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.name", ondelete="SET NULL"), default=None
     )
-    user_data: Mapped[list[int]] = mapped_column(
-        ARRAY(Integer), default=None, nullable=True
+    email: Mapped[Optional[str]] = mapped_column(
+        String(128), default=None
     )
+    time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    session: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("session.name", ondelete="SET NULL"), default=None
+    )
+    user_data: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String(128)), default=None
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "pwd_hash": self.pwd_hash,
+            "glyph": self.glyph,
+            "email": self.email,
+            "time_last_login": self.time_last_login,
+            "session": self.session,
+            "logged_in": self.logged_in(),
+            "user_data": self.user_data,
+            "permission": self.permission,
+        }
 
     def is_admin(self) -> bool:
         """
@@ -77,20 +90,6 @@ class User(CollabBase):
             bool: True if the user has the specified permission, False otherwise.
         """
         return bool(self.permission & permission)
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "pwd_hash": self.pwd_hash,
-            "glyph_id": self.glyph_id,
-            "email": self.email,
-            "time_last_login": self.time_last_login,
-            "session_id": self.session_id,
-            "logged_in": self.logged_in(),
-            "user_data": self.user_data,
-            "permission": self.permission,
-        }
 
     @staticmethod
     async def get(engine: AsyncEngine, flt: GulpCollabFilter = None) -> list["User"]:
@@ -253,9 +252,7 @@ class User(CollabBase):
             MissingPermission: If the user does not have permission to update the specified user or permission level.
         """
 
-        logger().debug(
-            "---> update: token=%s, user_id=%s" % (requestor_token, user_id)
-        )
+        logger().debug("---> update: token=%s, user_id=%s" % (requestor_token, user_id))
 
         # check if the requestor has the right to update the user
         user = await User.check_token_owner(

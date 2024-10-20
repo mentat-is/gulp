@@ -147,9 +147,9 @@ async def stored_query_update_handler(
             raise InvalidArgument("INDEX type is not supported.")
 
         # convert and update rule
-        r = await query_utils.gulpqueryparam_to_gulpquery(await collab_api.collab(), q)
+        r = await query_utils.gulpqueryparam_to_gulpquery(await collab_api.session(), q)
         d = await CollabObj.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             stored_query_id,
@@ -198,11 +198,11 @@ async def stored_query_create_handler(
         if q.type == GulpQueryType.INDEX:
             raise InvalidArgument("INDEX type is not supported.")
 
-        r = await query_utils.gulpqueryparam_to_gulpquery(await collab_api.collab(), q)
+        r = await query_utils.gulpqueryparam_to_gulpquery(await collab_api.session(), q)
 
         # create the entry
         d = await CollabObj.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             GulpCollabType.STORED_QUERY,

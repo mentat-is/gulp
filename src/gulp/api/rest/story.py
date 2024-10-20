@@ -182,7 +182,7 @@ async def story_update_handler(
             )
 
         o = await CollabObj.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             story_id,
@@ -244,7 +244,7 @@ async def story_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         o = await CollabObj.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             GulpCollabType.STORY,

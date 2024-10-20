@@ -21,7 +21,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.utils import logger
+
 from gulp.api.collab.base import (
     CollabBase,
     GulpAssociatedEvent,
@@ -31,6 +31,7 @@ from gulp.api.collab.base import (
     GulpUserPermission,
 )
 from gulp.defs import InvalidArgument, ObjectAlreadyExists, ObjectNotFound
+from gulp.utils import logger
 
 
 class CollabEdits(CollabBase):
@@ -38,26 +39,24 @@ class CollabEdits(CollabBase):
     Represents an edit on a collaboration object.
     """
 
-    __tablename__ = "edits"
-    __table_args__ = (
-        Index('idx_edits_collab_obj_id', 'collab_obj_id'),
-    )
+    __tablename__ = "edit"
+    __table_args__ = (Index("idx_edits_collab_obj", "collab_obj"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    username: Mapped[str] = mapped_column(String(32))
-    collab_obj_id: Mapped[int] = mapped_column(
-        ForeignKey("collab_obj.id", ondelete="CASCADE")
+    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
+    user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
+    time_edit: Mapped[int] = mapped_column(BIGINT)
+    collab_obj: Mapped[str] = mapped_column(
+        ForeignKey("collab_obj.name", ondelete="CASCADE")
     )
-    time_edit: Mapped[int] = mapped_column(BIGINT, default=0)
+    new_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
 
     def to_dict(self):
         d = {
-            "id": self.id,
-            "user_id": self.user_id,
-            "username": self.username,
-            "collab_obj_id": self.collab_obj_id,
+            "name": self.id,
+            "user": self.user_id,
+            "collab_obj": self.collab_obj_id,
             "time_edit": self.time_edit,
+            "new_data": self.new_data,
         }
         return d
 
@@ -68,74 +67,65 @@ class CollabObj(CollabBase):
     """
 
     __tablename__ = "collab_obj"
-    __table_args__ = (
-        Index('idx_collab_obj_operation_id', 'operation_id'),
+    __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
+    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
+    type: Mapped[GulpCollabType] = mapped_column(Integer, default=GulpCollabType.NOTE)
+    context: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("context.name", ondelete="CASCADE"), default=None
     )
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    owner_user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE")
+    owner: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("user.name", ondelete="CASCADE"), default=None
     )
-    type: Mapped[GulpCollabType] = mapped_column(Integer)
-    hash: Mapped[str] = mapped_column(String(128), unique=True)
-    operation_id: Mapped[int] = mapped_column(
-        ForeignKey("operation.id", ondelete="CASCADE"), default=None, nullable=True
+    operation: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("operation.name", ondelete="CASCADE"), default=None
     )
-    time_created: Mapped[int] = mapped_column(BIGINT, default=None, nullable=True)
-    time_updated: Mapped[int] = mapped_column(BIGINT, default=None, nullable=True)
-    time_start: Mapped[int] = mapped_column(BIGINT, default=None, nullable=True)
-    time_end: Mapped[int] = mapped_column(BIGINT, default=None, nullable=True)
-    events: Mapped[Optional[list[dict]]] = mapped_column(
-        JSONB, default=None, nullable=True
+    time_created: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    time_updated: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    time_start: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    time_end: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    events: Mapped[Optional[list[dict]]] = mapped_column(JSONB, default=None)
+    source: Mapped[Optional[str]] = mapped_column(String, default=None)
+    description: Mapped[Optional[str]] = mapped_column(String, default=None)
+    text: Mapped[Optional[str]] = mapped_column(String, default=None)
+    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=None)
+    glyph: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.name", ondelete="SET NULL"), default=None
     )
-    context: Mapped[Optional[str]] = mapped_column(String, default=None, nullable=True)
-    src_file: Mapped[Optional[str]] = mapped_column(String, default=None, nullable=True)
-    name: Mapped[str] = mapped_column(String(128), default=None, nullable=True)
-    description: Mapped[Optional[str]] = mapped_column(
-        String, default=None, nullable=True
-    )
-    text: Mapped[str] = mapped_column(String, default=None, nullable=True)
-    tags: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String), default=None, nullable=True
-    )
-    glyph_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None, nullable=True
-    )
-    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None, nullable=True)
-    edits: Mapped[Optional[list[int]]] = mapped_column(ARRAY(Integer), default=None)
-    level: Mapped[GulpCollabLevel] = mapped_column(
+    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
+    level: Mapped[Optional[GulpCollabLevel]] = mapped_column(
         Integer, default=GulpCollabLevel.DEFAULT
     )
-    private: Mapped[bool] = mapped_column(Boolean, default=False)
+    private: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
+    edits: Mapped[Optional[str]] = mapped_column(ARRAY(Integer), default=None)
 
     def __repr__(self):
         return (
-            f"<CollabObj id={self.id}, owner_user_id={self.owner_user_id}, type={self.type}, level={self.level}"
+            f"<CollabObj name={self.name}, owner_user_id={self.owner}, type={self.type}, level={self.level}"
             f"time_created={self.time_created}, time_updated={self.time_updated}, "
-            f"time_start={self.time_start}, time_end={self.time_end}, operation_id={self.operation_id}, "
-            f"context={self.context}, src_file={self.src_file}, name={self.name}, "
+            f"time_start={self.time_start}, time_end={self.time_end}, operation={self.operation}, "
+            f"context={self.context}, src_file={self.source}, "
             f"description={muty.string.make_shorter(self.description)}, "
             f"text={muty.string.make_shorter(self.text)}, "
-            f"glyph_id={self.glyph_id}, "
+            f"glyph={self.glyph}, "
             f"tags={self.tags}, events={self.events}, data={self.data}, edits={self.edits}, private={self.private}>"
         )
 
     def to_dict(self, extras: dict = None):
         d = {
-            "id": self.id,
             "level": self.level,
-            "owner_user_id": self.owner_user_id,
+            "owner": self.owner,
             "type": self.type,
             "time_created": self.time_created,
             "time_updated": self.time_updated,
             "time_start": self.time_start,
             "time_end": self.time_end,
-            "operation_id": self.operation_id,
+            "operation": self.operation,
             "context": self.context,
-            "src_file": self.src_file,
+            "source": self.source,
             "name": self.name,
             "description": self.description,
             "text": self.text,
-            "glyph_id": self.glyph_id,
+            "glyph": self.glyph,
             "tags": self.tags,
             "events": self.events,
             "data": self.data,
@@ -266,9 +256,7 @@ class CollabObj(CollabBase):
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is not None:
-                logger().warning(
-                    "collab object with hash=%s already exists !" % (h)
-                )
+                logger().warning("collab object with hash=%s already exists !" % (h))
                 raise ObjectAlreadyExists(
                     "collab object with hash=%s already exists" % (h)
                 )
@@ -282,7 +270,7 @@ class CollabObj(CollabBase):
                 operation_id=operation_id,
                 time_created=now,
                 context=context,
-                src_file=src_file,
+                source=src_file,
                 name=name,
                 description=description,
                 text=txt,
@@ -309,7 +297,7 @@ class CollabObj(CollabBase):
                 obj.time_updated,
             )
             await sess.commit()
-            #ollab_api.logger().info("---> create: %s" % (obj))
+            # ollab_api.logger().info("---> create: %s" % (obj))
 
             if not skip_ws:
                 # push to websocket queue
@@ -461,7 +449,7 @@ class CollabObj(CollabBase):
                 str(obj.type)
                 + str(obj.operation_id)
                 + str(obj.context)
-                + str(obj.src_file)
+                + str(obj.source)
                 + str(obj.name)
                 + str(obj.text)
                 + str(time_start)
@@ -670,7 +658,7 @@ class CollabObj(CollabBase):
                     qq = [CollabObj.context.ilike(x) for x in flt.context]
                     q = q.filter(or_(*qq))
                 if flt.src_file:
-                    qq = [CollabObj.src_file.ilike(x) for x in flt.src_file]
+                    qq = [CollabObj.source.ilike(x) for x in flt.src_file]
                     q = q.filter(or_(*qq))
 
                 if flt.time_created_start is not None:

@@ -67,17 +67,17 @@ async def _check_parameters(
         o = None
         c = None
         u, _ = await UserSession.check_token(
-            await collab_api.collab(), token, permission
+            await collab_api.session(), token, permission
         )
         if operation_id is not None:
             o = await Operation.get(
-                await collab_api.collab(), GulpCollabFilter(id=[operation_id])
+                await collab_api.session(), GulpCollabFilter(id=[operation_id])
             )
             o = o[0]
 
         if client_id is not None:
             c = await Client.get(
-                await collab_api.collab(), GulpCollabFilter(id=[client_id])
+                await collab_api.session(), GulpCollabFilter(id=[client_id])
             )
             c = c[0]
 

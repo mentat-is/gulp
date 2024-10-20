@@ -62,9 +62,9 @@ async def glyph_create_handler(
     try:
         data = glyph.file.read()
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        g = await Glyph.create(await collab_api.collab(), data, name)
+        g = await Glyph.create(await collab_api.session(), data, name)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=g.to_dict()))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -104,10 +104,10 @@ async def glyph_update_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         data = glyph.file.read()
-        glyph = await Glyph.update(await collab_api.collab(), glyph_id, data)
+        glyph = await Glyph.update(await collab_api.session(), glyph_id, data)
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data=glyph.to_dict())
         )
@@ -147,9 +147,9 @@ async def glyph_list_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
-        l = await Glyph.get(await collab_api.collab(), flt)
+        l = await Glyph.get(await collab_api.session(), flt)
         ll = []
         for g in l:
             if isinstance(g, Glyph):
@@ -194,9 +194,9 @@ async def glyph_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.READ
+            await collab_api.session(), token, GulpUserPermission.READ
         )
-        l = await Glyph.get(await collab_api.collab(), GulpCollabFilter(id=[glyph_id]))
+        l = await Glyph.get(await collab_api.session(), GulpCollabFilter(id=[glyph_id]))
         g = l[0].to_dict()
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=g))
     except Exception as ex:
@@ -233,9 +233,9 @@ async def glyph_delete_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        await Glyph.delete(await collab_api.collab(), glyph_id)
+        await Glyph.delete(await collab_api.session(), glyph_id)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 

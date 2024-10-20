@@ -133,7 +133,7 @@ async def highlight_delete_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await collab_utility.collabobj_delete(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             GulpCollabType.HIGHLIGHT,
             hl_id,
@@ -212,7 +212,7 @@ async def highlight_update_handler(
             )
 
         o = await CollabObj.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             hl_id,
@@ -292,7 +292,7 @@ async def highlight_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         hl = await CollabObj.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             GulpCollabType.HIGHLIGHT,

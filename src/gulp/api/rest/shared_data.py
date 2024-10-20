@@ -165,7 +165,7 @@ async def shared_data_update_handler(
         if data is None and operation_id is None:
             raise InvalidArgument("at least one of data, operation_id must be set.")
         d = await CollabObj.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             obj_id,
@@ -219,7 +219,7 @@ async def shared_data_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         d = await CollabObj.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             t,

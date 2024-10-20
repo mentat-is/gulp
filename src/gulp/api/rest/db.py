@@ -96,7 +96,7 @@ async def rebase_handler(
 
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.EDIT
+            await collab_api.session(), token, GulpUserPermission.EDIT
         )
         coro = workers.rebase_task(
             index=index,
@@ -154,7 +154,7 @@ async def elastic_list_index_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         l: list[str] = await elastic_api.datastream_list(elastic_api.elastic())
         # logger().debug("datastreams=%s" % (l))
@@ -189,21 +189,26 @@ async def elastic_list_index_handler(
 async def elastic_init_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
-    index_template: Annotated[UploadFile, File(description=gulp.defs.API_DESC_INDEX_TEMPLATE,
-                                               example=gulp.defs.EXAMPLE_INDEX_TEMPLATE)]=None,
+    index_template: Annotated[
+        UploadFile,
+        File(
+            description=gulp.defs.API_DESC_INDEX_TEMPLATE,
+            example=gulp.defs.EXAMPLE_INDEX_TEMPLATE,
+        ),
+    ] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
-    f:str=None
+    f: str = None
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         if index_template is not None:
             # get index template from file
             f = await muty.uploadfile.to_path(index_template)
-        
+
         await elastic_api.datastream_create(
             elastic_api.elastic(),
             datastream_name=index,
@@ -216,7 +221,8 @@ async def elastic_init_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
     finally:
         if f is not None:
-            await muty.file.delete_file_or_dir_async(f)        
+            await muty.file.delete_file_or_dir_async(f)
+
 
 @_app.delete(
     "/elastic_delete_index",
@@ -251,7 +257,7 @@ async def elastic_delete_index_handler(
     try:
         # check token permission first
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await elastic_api.datastream_delete(elastic_api.elastic(), index)
     except Exception as ex:
@@ -304,7 +310,7 @@ async def elastic_get_mapping_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         m = await elastic_api.index_get_key_value_mapping(
             elastic_api.elastic(), index, return_raw_result
         )
@@ -361,7 +367,7 @@ async def elastic_get_mapping_by_source_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token)
+        await UserSession.check_token(await collab_api.session(), token)
         m = await elastic_api.index_get_mapping_by_src(
             elastic_api.elastic(), index, context, src
         )
@@ -394,15 +400,15 @@ async def collab_init_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
         # drop and recreate collab
-        c = await collab_api.collab()
+        c = await collab_api.session()
         await collab_db.drop(config.postgres_url())
-        await collab_db.engine_close(c)
+        await collab_api.engine_close(c)
         logger().debug("previous main process collab=%s" % (c))
-        c = await collab_api.collab(invalidate=True)
+        c = await collab_api.session(invalidate=True)
         logger().debug("current main process collab=%s" % (c))
 
         # we need also to reinit all processes
@@ -425,15 +431,20 @@ async def collab_init_handler(
 async def gulp_init_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
     index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
-    index_template: Annotated[UploadFile, File(description=gulp.defs.API_DESC_INDEX_TEMPLATE,
-                                               example=gulp.defs.EXAMPLE_INDEX_TEMPLATE)]=None,
+    index_template: Annotated[
+        UploadFile,
+        File(
+            description=gulp.defs.API_DESC_INDEX_TEMPLATE,
+            example=gulp.defs.EXAMPLE_INDEX_TEMPLATE,
+        ),
+    ] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await UserSession.check_token(
-            await collab_api.collab(), token, GulpUserPermission.ADMIN
+            await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await elastic_init_handler(
             token,
@@ -463,7 +474,10 @@ async def gulp_init_handler(
                         "data": {
                             "index_patterns": ["testidx-*"],
                             "settings": {
-                                "index": {"number_of_shards": "1", "number_of_replicas": "1"}
+                                "index": {
+                                    "number_of_shards": "1",
+                                    "number_of_replicas": "1",
+                                }
                             },
                             "mappings": {
                                 "properties": {
@@ -479,7 +493,7 @@ async def gulp_init_handler(
                                     "client.address": {"type": "keyword"},
                                     "client.as.number": {"type": "long"},
                                 }
-                            }
+                            },
                         },
                     }
                 }
@@ -488,7 +502,7 @@ async def gulp_init_handler(
     },
     summary="get index template from opensearch.",
     description="returns the index template for the given index.<br>"
-        "the obtained index template can be used as a base for new indexes through setting `PATH_INDEX_TEMPLATE` when running gulp, or by setting `path_index_template` in the configuration.",
+    "the obtained index template can be used as a base for new indexes through setting `PATH_INDEX_TEMPLATE` when running gulp, or by setting `path_index_template` in the configuration.",
 )
 async def elastic_get_index_template_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
@@ -498,11 +512,14 @@ async def elastic_get_index_template_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.collab(), token, GulpUserPermission.ADMIN)
+        await UserSession.check_token(
+            await collab_api.session(), token, GulpUserPermission.ADMIN
+        )
         m = await elastic_api.index_template_get(elastic_api.elastic(), index)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
+
 
 def router() -> APIRouter:
     """

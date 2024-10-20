@@ -6,6 +6,7 @@ import asyncio
 import multiprocessing
 import os
 import ssl
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.managers import SyncManager
 from queue import Queue
@@ -34,6 +35,7 @@ import gulp.api.elastic_api as elastic_api
 import gulp.api.rest.ws as gulp_ws
 import gulp.config as config
 import gulp.utils as gulp_utils
+from gulp.api.collab import db
 from gulp.api.collab.base import (
     MissingPermission,
     SessionExpired,
@@ -205,26 +207,21 @@ async def lifespan_handler(app: FastAPI):
     _thread_pool_executor = ThreadPoolExecutor()
 
     # setup collab and elastic
-
-    # create main process clients
-    collab = await collab_api.collab()
-    elastic = elastic_api.elastic()
-    logger().debug("main process collab=%s, elastic=%s" % (collab, elastic))
+    if _reset_collab_on_start:
+        logger().warning("--reset-collab is set!")
     try:
-        await collab_api.check_alive(collab)
+        await collab_api.setup(force_recreate=_reset_collab_on_start)
     except Exception as ex:
         if _is_first_run:
-            # on first run, we delete the first run file
+            # on first run, we delete the first run file as well, to allow the server to start again for the first time
             delete_first_run_file()
         raise ex
 
-    if _reset_collab_on_start:
-        logger().warning(
-            "--reset-collab is set, dropping and recreating the collaboration database ..."
-        )
-        
-        await collab_db.drop(config.postgres_url())
-        collab = await collab_api.collab(invalidate=True)
+    elastic = elastic_api.elastic()
+    collab_session = await collab_api.session()
+    logger().debug(
+        "main process collab_session=%s, elastic=%s" % (collab_session, elastic)
+    )
 
     if _elastic_index_to_reset is not None:
         logger().warning(
@@ -232,7 +229,7 @@ async def lifespan_handler(app: FastAPI):
             % (_elastic_index_to_reset)
         )
 
-        # loop for up to 120 seconds to wait for elasticsearch ...
+        # loop for up to 60 seconds to wait for elasticsearch ...
         elastic_reset_ok = False
         elastic_reset_failed = 0
         while elastic_reset_ok is False:
@@ -241,11 +238,11 @@ async def lifespan_handler(app: FastAPI):
                 elastic_reset_ok = True
             except Exception as ex:
                 logger().exception(
-                    "waiting elasticsearch to come up, or error in index_create() ... retrying in 1 second ..."
+                    "waiting elasticsearch to come up, or error in datastream_create() ... retrying in 1 second ..."
                 )
                 await asyncio.sleep(1)
                 elastic_reset_failed += 1
-                if elastic_reset_failed > 120:
+                if elastic_reset_failed > 60:
                     # give up after 120 seconds
                     raise ex
                 continue
@@ -273,7 +270,7 @@ async def lifespan_handler(app: FastAPI):
     _unload_extension_plugins()
 
     # shutdown pg_process_executor
-    await collab_db.engine_close(collab)
+    await collab_api.shutdown()
 
     # shutdown elastic
     await elastic_api.shutdown_client(elastic)

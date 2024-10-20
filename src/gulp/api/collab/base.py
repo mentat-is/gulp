@@ -4,8 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass
-
+from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass, declarative_base
 
 class SessionExpired(Exception):
     """if the user session has expired"""
@@ -56,9 +55,7 @@ class CollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase):
     """
     base class for all collaboration objects
     """
-
-    pass
-
+    
 
 class GulpAssociatedEvent(BaseModel):
     """

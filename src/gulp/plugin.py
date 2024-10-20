@@ -47,6 +47,7 @@ class PluginBase(ABC):
     """
     Base class for all Gulp plugins.
     """
+
     def _check_pickled(self):
         if self._pickled:
             return True
@@ -111,7 +112,8 @@ class PluginBase(ABC):
         """
         Returns the name of the plugin.
         """
-    def filename(self, strip_ext: bool=True) -> str:
+
+    def filename(self, strip_ext: bool = True) -> str:
         """
         Returns the source filename of the plugin.
 
@@ -343,7 +345,7 @@ class PluginBase(ABC):
             fs = await self._ingest_record(index, d, fs, ws_id, req_id, flt, **kwargs)
 
         status, _ = await GulpStats.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             req_id,
             ws_id,
             fs=fs.update(processed=len(docs)),
@@ -383,8 +385,8 @@ class PluginBase(ABC):
         if isinstance(source, list) or isinstance(source, dict):
             # source is a dictionary
             logger().debug(
-                "INITIALIZING INGESTION for raw source, plugin=%s"
-                % (self.name()))
+                "INITIALIZING INGESTION for raw source, plugin=%s" % (self.name())
+            )
         else:
             logger().debug(
                 "INITIALIZING INGESTION for source=%s, plugin=%s"
@@ -705,7 +707,7 @@ class PluginBase(ABC):
                     return int(v, 16)
             return v
 
-        if index_type == 'float' or index_type == 'double':
+        if index_type == "float" or index_type == "double":
             if isinstance(v, str):
                 return float(v)
             return v
@@ -732,7 +734,9 @@ class PluginBase(ABC):
         # logger().debug("returning %s:%s" % (k, v))
         return str(v)
 
-    def _remap_event_fields(self, event: dict, fields: dict, index_type_mapping: dict=None) -> dict:
+    def _remap_event_fields(
+        self, event: dict, fields: dict, index_type_mapping: dict = None
+    ) -> dict:
         """
         apply mapping to event, handling special cases:
 
@@ -757,7 +761,7 @@ class PluginBase(ABC):
             dict: The mapped event.
         """
 
-        mapped_ev: dict={}
+        mapped_ev: dict = {}
         if index_type_mapping is None:
             index_type_mapping = {}
         if fields is None:
@@ -787,11 +791,11 @@ class PluginBase(ABC):
                     mapped_ev[map_to] = event[k]
             else:
                 # add as unmapped, forced to string
-                if k == '_id':
+                if k == "_id":
                     # this is not in the index type mapping even if it is provided
-                    mapped_ev['_id'] = str(v)
+                    mapped_ev["_id"] = str(v)
                 else:
-                    mapped_ev['%s.%s' % (elastic_api.UNMAPPED_PREFIX, k)] = str(v)
+                    mapped_ev["%s.%s" % (elastic_api.UNMAPPED_PREFIX, k)] = str(v)
 
         return mapped_ev
 
@@ -967,8 +971,9 @@ class PluginBase(ABC):
 
         return ws_docs
 
-
-    async def _check_raw_ingestion_enabled(self, plugin_params: GulpPluginParams) -> tuple[str, dict]:
+    async def _check_raw_ingestion_enabled(
+        self, plugin_params: GulpPluginParams
+    ) -> tuple[str, dict]:
         """
         check if we need to ingest the events using the raw ingestion plugin (from the query plugin)
 
@@ -989,11 +994,20 @@ class PluginBase(ABC):
 
         # get kv index mapping for the ingest index
         el = elastic_api.elastic()
-        index_type_mapping = await elastic_api.index_get_key_value_mapping(el, ingest_index, False)
+        index_type_mapping = await elastic_api.index_get_key_value_mapping(
+            el, ingest_index, False
+        )
         return ingest_index, index_type_mapping
 
-    async def _perform_raw_ingest_from_query_plugin(self, plugin_params: GulpPluginParams, events: list[dict],
-        operation_id: int, client_id: int, ws_id: str, req_id: str):
+    async def _perform_raw_ingest_from_query_plugin(
+        self,
+        plugin_params: GulpPluginParams,
+        events: list[dict],
+        operation_id: int,
+        client_id: int,
+        ws_id: str,
+        req_id: str,
+    ):
         """
         ingest events using the raw ingestion plugin (from the query plugin)
 
@@ -1009,8 +1023,13 @@ class PluginBase(ABC):
 
         # ingest events using the raw ingestion plugin
         ingest_index = plugin_params.extra.get("ingest_index", None)
-        logger().debug("ingesting %d events to gulp index %s using the raw ingestion plugin from query plugin" % (len(events), ingest_index))
-        await raw_plugin.ingest(ingest_index, req_id, client_id, operation_id, None, events, ws_id)
+        logger().debug(
+            "ingesting %d events to gulp index %s using the raw ingestion plugin from query plugin"
+            % (len(events), ingest_index)
+        )
+        await raw_plugin.ingest(
+            ingest_index, req_id, client_id, operation_id, None, events, ws_id
+        )
 
     async def _flush_buffer(
         self,
@@ -1137,7 +1156,9 @@ class PluginBase(ABC):
         """
         try:
             # finally flush ingestion buffer
-            fs = await self._flush_buffer(index, fs, ws_id, req_id, flt, wait_for_refresh=True)
+            fs = await self._flush_buffer(
+                index, fs, ws_id, req_id, flt, wait_for_refresh=True
+            )
             logger().info(
                 "INGESTION DONE FOR source=%s,\n\tclient_id=%d (processed(ingested)=%d, failed=%d, skipped=%d, errors=%d, parser_errors=%d)"
                 % (
@@ -1159,7 +1180,7 @@ class PluginBase(ABC):
 
         finally:
             status, _ = await GulpStats.update(
-                await collab_api.collab(),
+                await collab_api.session(),
                 req_id,
                 ws_id,
                 fs=fs,
@@ -1190,10 +1211,17 @@ def get_plugin_path(
     # get path according to plugin type
     path_plugins = config.path_plugins(plugin_type)
     plugin_path = muty.file.safe_path_join(path_plugins, f"{plugin}.py")
-    paid_plugin_path = muty.file.safe_path_join(path_plugins, f"paid/{plugin}.py", allow_relative=True)
+    paid_plugin_path = muty.file.safe_path_join(
+        path_plugins, f"paid/{plugin}.py", allow_relative=True
+    )
     plugin_path_pyc = muty.file.safe_path_join(path_plugins, f"{plugin}.pyc")
-    paid_plugin_path_pyc = muty.file.safe_path_join(path_plugins, f"paid/{plugin}.pyc", allow_relative=True)
-    logger().debug('trying to load plugin %s from paths: %s, %s, %s, %s' % (plugin, plugin_path, paid_plugin_path, plugin_path_pyc, paid_plugin_path_pyc))
+    paid_plugin_path_pyc = muty.file.safe_path_join(
+        path_plugins, f"paid/{plugin}.pyc", allow_relative=True
+    )
+    logger().debug(
+        "trying to load plugin %s from paths: %s, %s, %s, %s"
+        % (plugin, plugin_path, paid_plugin_path, plugin_path_pyc, paid_plugin_path_pyc)
+    )
     if muty.file.exists(paid_plugin_path):
         return paid_plugin_path
     if muty.file.exists(plugin_path):
@@ -1202,9 +1230,8 @@ def get_plugin_path(
         return paid_plugin_path_pyc
     if muty.file.exists(plugin_path_pyc):
         return plugin_path_pyc
-    raise ObjectNotFound(
-        f"Plugin {plugin} not found!"
-    )
+    raise ObjectNotFound(f"Plugin {plugin} not found!")
+
 
 def load_plugin(
     plugin: str,
@@ -1229,13 +1256,18 @@ def load_plugin(
     Raises:
         Exception: If the plugin could not be loaded.
     """
-    logger().debug("load_plugin %s, type=%s, ignore_cache=%r, kwargs=%s ..." % (plugin, plugin_type, ignore_cache, kwargs))
+    logger().debug(
+        "load_plugin %s, type=%s, ignore_cache=%r, kwargs=%s ..."
+        % (plugin, plugin_type, ignore_cache, kwargs)
+    )
     plugin_bare_name = plugin
-    is_absolute_path = plugin.startswith('/')
+    is_absolute_path = plugin.startswith("/")
     if is_absolute_path:
         plugin_bare_name = os.path.basename(plugin)
 
-    if plugin_bare_name.lower().endswith(".py") or plugin_bare_name.lower().endswith(".pyc"):
+    if plugin_bare_name.lower().endswith(".py") or plugin_bare_name.lower().endswith(
+        ".pyc"
+    ):
         # remove extension
         plugin_bare_name = plugin_bare_name.rsplit(".", 1)[0]
 
@@ -1255,9 +1287,7 @@ def load_plugin(
     try:
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
     except Exception as ex:
-        raise Exception(
-            f"Failed to load plugin {path}: {str(ex)}"
-        ) from ex
+        raise Exception(f"Failed to load plugin {path}: {str(ex)}") from ex
 
     mod: PluginBase = m.Plugin(path, _pickled=from_reduce, **kwargs)
     logger().debug("loaded plugin m=%s, mod=%s, name()=%s" % (m, mod, mod.name()))
@@ -1276,15 +1306,21 @@ async def list_plugins() -> list[dict]:
     l = []
     for plugin_type in GulpPluginType:
         subdir_path = os.path.join(path_plugins, plugin_type.value)
-        files = await muty.file.list_directory_async(subdir_path, "*.py*", recursive=True)
+        files = await muty.file.list_directory_async(
+            subdir_path, "*.py*", recursive=True
+        )
         for f in files:
             if "__init__" not in f and "__pycache__" not in f:
                 try:
-                    p = load_plugin(os.path.splitext(os.path.basename(f))[0], plugin_type, ignore_cache=True)
+                    p = load_plugin(
+                        os.path.splitext(os.path.basename(f))[0],
+                        plugin_type,
+                        ignore_cache=True,
+                    )
                     n = {
                         "display_name": p.name(),
                         "type": str(p.type()),
-                        "paid": '/paid/' in f.lower(),
+                        "paid": "/paid/" in f.lower(),
                         "desc": p.desc(),
                         "filename": os.path.basename(p.path),
                         "internal": p.internal(),
@@ -1303,7 +1339,9 @@ async def list_plugins() -> list[dict]:
     return l
 
 
-async def get_plugin_tags(plugin: str, t: GulpPluginType=GulpPluginType.INGESTION) -> list[str]:
+async def get_plugin_tags(
+    plugin: str, t: GulpPluginType = GulpPluginType.INGESTION
+) -> list[str]:
     """
     Get the tags for a given (ingestion) plugin.
 

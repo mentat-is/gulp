@@ -61,9 +61,7 @@ class Plugin(PluginBase):
             )
         else:
             # in the re-init, we are in the worker process here
-            logger().debug(
-                "%s extension plugin re-initialized" % self.name()
-            )
+            logger().debug("%s extension plugin re-initialized" % self.name())
 
     async def _run_in_worker(
         self,
@@ -178,7 +176,7 @@ class Plugin(PluginBase):
 
         try:
             user, session = await UserSession.check_token(
-                await collab_api.collab(), token, GulpUserPermission.READ
+                await collab_api.session(), token, GulpUserPermission.READ
             )
             user_id = session.user_id
         except Exception as ex:

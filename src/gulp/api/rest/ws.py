@@ -15,13 +15,13 @@ import muty.time
 import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.endpoints import WebSocketEndpoint
-from gulp.utils import logger
+
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
-import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpUserPermission
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 _ws_q: Queue = None
@@ -47,8 +47,9 @@ class WsQueueDataType(IntEnum):
     INGESTION_CHUNK = 9  # data: { "events": [ GulpDocument, GulpDocument, ... ]}
     QUERY_STATS_CREATE = 10  # data: GulpStats with type=GulpCollabType.STATS_QUERY
     QUERY_STATS_UPDATE = 11  # data: GulpStats with type=GulpCollabType.STATS_QUERY
-    INGESTION_DONE=12 # data: { "src_file"": "...", "context": "..." }
-    REBASE_DONE=13 # data: { "status": GulpRequestStatus, "error": str (on error only), "index": "...", "dest_index": "...", "result": { ... } }
+    INGESTION_DONE = 12  # data: { "src_file"": "...", "context": "..." }
+    REBASE_DONE = 13  # data: { "status": GulpRequestStatus, "error": str (on error only), "index": "...", "dest_index": "...", "result": { ... } }
+
 
 class ConnectedWs:
     """
@@ -239,7 +240,10 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
 
                     # put it in the ws async queue for the selected websocket
                     await cws.q.put(d)
-                    logger().debug("data put in %s queue, type=%d(%s)!" % (cws, entry.type, entry.type.name))
+                    logger().debug(
+                        "data put in %s queue, type=%d(%s)!"
+                        % (cws, entry.type, entry.type.name)
+                    )
 
                     # rely collab data (including sigma group results, which may be interesting to all) to all other sockets
                     for _, cws in _connected_ws.items():
@@ -267,7 +271,13 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
 
 
 def shared_queue_add_data(
-    t: WsQueueDataType, req_id: str, data: dict, username: str = None, ws_id: str = None, operation_id: int=None, client_id: int = None
+    t: WsQueueDataType,
+    req_id: str,
+    data: dict,
+    username: str = None,
+    ws_id: str = None,
+    operation_id: int = None,
+    client_id: int = None,
 ) -> None:
     """
     adds an entry to the ws queue
@@ -294,7 +304,8 @@ def shared_queue_add_data(
 
         global _ws_q
         logger().debug(
-            "adding entry type=%d(%s) to ws_id=%s queue..." % (wsd.type, wsd.type.name, wsd.ws_id)
+            "adding entry type=%d(%s) to ws_id=%s queue..."
+            % (wsd.type, wsd.type.name, wsd.ws_id)
         )
         _ws_q.put(wsd.to_dict())
 
@@ -322,7 +333,7 @@ async def _check_ws_parameters(ws: WebSocket) -> dict:
 
     # check token
     u, _ = await UserSession.check_token(
-        await collab_api.collab(), js["token"], GulpUserPermission.READ
+        await collab_api.session(), js["token"], GulpUserPermission.READ
     )
 
     # also check if we have monitor permission

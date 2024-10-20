@@ -21,13 +21,11 @@ class Glyph(CollabBase):
     """
 
     __tablename__ = "glyph"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
+    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
     img: Mapped[bytes] = mapped_column(LargeBinary)
-    name: Mapped[str] = mapped_column(String(32), unique=True)
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
             "name": self.name,
             # image data is base64 encoded
             "img": base64.b64encode(self.img).decode(),

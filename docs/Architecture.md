@@ -194,8 +194,7 @@ Response from the websocket is a [WsData](./src/gulp/api/rest/ws.py) object like
       "/home/gulp/gulp/samples/win_evtx/security.evtx": [
         "[/home/gulp/gulp/src/gulp/plugins/ingestion/win_evtx.py:record_to_gulp_document:138]   File \"<string>\", line 33\n[/home/gulp/gulp/src/gulp/plugins/ingestion/win_evtx.py:record_to_gulp_document:138] lxml.etree.XMLSyntaxError: PCDATA invalid Char value 3, line 33, column 33\n"
       ]
-    },
-    "current_src_file": "/home/gulp/gulp/samples/win_evtx/security_big_sample.evtx"
+    }
   },
   "req_id": "...",
   // the caller username, if available

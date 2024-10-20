@@ -15,7 +15,7 @@ import muty.uploadfile
 from fastapi import APIRouter, Body, Header, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from gulp.utils import logger
+
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
 import gulp.defs
@@ -29,6 +29,7 @@ from gulp.api.collab.base import (
 )
 from gulp.api.collab.collabobj import CollabObj
 from gulp.defs import InvalidArgument
+from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
 
@@ -159,9 +160,7 @@ async def note_update_handler(
     events: Annotated[list[GulpAssociatedEvent], Body()] = None,
     text: Annotated[str, Body()] = None,
     title: Annotated[str, Body()] = None,
-    tags: Annotated[
-        list[str], Body()
-    ] = None,
+    tags: Annotated[list[str], Body()] = None,
     glyph_id: Annotated[
         int, Query(description="optional new glyph ID for the note.")
     ] = None,
@@ -187,7 +186,7 @@ async def note_update_handler(
             )
 
         o = await CollabObj.update(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             note_id,
@@ -273,7 +272,7 @@ async def note_create_handler(
 
         # logger().debug('events=%s' % (events))
         o = await CollabObj.create(
-            await collab_api.collab(),
+            await collab_api.session(),
             token,
             req_id,
             GulpCollabType.NOTE,
