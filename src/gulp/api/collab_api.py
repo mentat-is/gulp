@@ -1,19 +1,388 @@
+import json
 import os
+from enum import StrEnum
+from importlib import resources as impresources
+from typing import Optional, TypeVar
 
 import muty.file
-import psycopg
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlalchemy.ext.asyncio.session import AsyncSession
+import muty.time
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import Result, select, text
+from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass
+from sqlalchemy_mixins.serialize import SerializeMixin
 
-import gulp.config as config
+from gulp import config
 from gulp.api.collab import db
-from gulp.api.collab.base import CollabBase
+from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
+
+COLLAB_MAX_NAME_LENGTH = 128
+
+class SessionExpired(Exception):
+    """if the user session has expired"""
+
+
+class WrongUsernameOrPassword(Exception):
+    """if the user provides wrong username or password"""
+
+
+class MissingPermission(Exception):
+    """if the user does not have the required permission"""
+
+class GulpRequestStatus(StrEnum):
+    """Gulp request status codes (used by the stats API)."""
+
+    ONGOING = "ongoing"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELED = "canceled"
+    DONE_WITH_ERRORS = "done_with_errors"
+
+
+class GulpUserPermission(StrEnum):
+    """represent the permission of a user in the Gulp platform."""
+
+    # can read only
+    READ = "read"
+    # can edit own highlights, notes, stories, links
+    EDIT = "edit"
+    # can delete highlights, notes, stories, links
+    DELETE = "delete"
+    # can ingest files
+    INGEST = "ingest"
+    # can do anything, including creating new users and change permissions
+    ADMIN = "admin"
+    # can monitor the system (READ + monitor)
+    MONITOR = "monitor"
+
+
+PERMISSION_EDIT = [GulpUserPermission.READ, GulpUserPermission.EDIT]
+PERMISSION_DELETE = [
+    GulpUserPermission.READ,
+    GulpUserPermission.EDIT,
+    GulpUserPermission.DELETE,
+]
+PERMISSION_INGEST = [
+    GulpUserPermission.READ,
+    GulpUserPermission.INGEST,
+    GulpUserPermission.EDIT,
+]
+PERMISSION_CLIENT = [
+    GulpUserPermission.READ,
+    GulpUserPermission.INGEST,
+    GulpUserPermission.EDIT,
+    GulpUserPermission.DELETE,
+]
+PERMISSION_MONITOR = [GulpUserPermission.READ, GulpUserPermission.MONITOR]
+
+class GulpCollabLevel(StrEnum):
+    """Defines the level of collaboration object, mainly used for notes."""
+
+    DEFAULT = "default"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class GulpCollabType(StrEnum):
+    """
+    defines the type of collaboration object
+    """
+
+    NOTE = "note"
+    HIGHLIGHT = "highlight"
+    STORY = "story"
+    LINK = "link"
+    STORED_QUERY = "query"
+    STATS_INGESTION = "stats_ingestion"
+    STATS_QUERY = "stats_query"
+    SIGMA_FILTER = "sigma_filter"
+    SHARED_DATA_GENERIC = "shared_data_generic"
+    CONTEXT = "context"
+    USER = "user"
+    GLYPH = "glyph"
+    OPERATION = "operation"
+    CLIENT = "client"
+    SESSION = "session"
+
+
+T = TypeVar("T", bound="CollabBase")
+
+
+class CollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
+    """
+    base class for all objects stored in the collaboration database
+    """
+
+    def __init__(self, name: str, t: GulpCollabType, *args, **kwargs):
+        self.name = name
+        self.type = t
+        self.time_created = muty.time.now_msec()
+        self.time_updated = self.time_created
+        self.time_finished = None
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+        super().__init__(*args, **kwargs)
+
+    async def store(self, sess: AsyncSession = None) -> None:
+        """
+        stores the collaboration object in the database
+
+        Args:
+            sess (AsyncSession, optional): The session to use. Defaults to None (creates a new session).
+        """
+        if sess is None:
+            sess = await session()
+        async with sess:
+            sess.add(self)
+            await sess.commit()
+            logger().info("---> store: stored %s" % (self))
+
+    @staticmethod
+    async def delete(name: str, t: T, throw_if_not_exists: bool = True) -> None:
+        """
+        deletes a collaboration object
+
+        Args:
+            name (str): The name of the object.
+            t (T): The class of the object, derived from CollabBase.
+            throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
+        """
+        logger().debug("---> delete: name=%s, type=%s" % (name, t))
+        async with await session() as sess:
+            q = select(T).where(T.name == name).with_for_update()
+            res = await sess.execute(q)
+            c = CollabBase.get_one_result_or_throw(
+                res, name=name, t=t, throw_if_not_exists=throw_if_not_exists
+            )
+            if c is not None:
+                sess.delete(c)
+                await sess.commit()
+                logger().info("---> deleted: %s" % (c))
+
+    @staticmethod
+    async def update(name: str, t: T, d: dict, done: bool=False) -> T:
+        """
+        updates a collaboration object
+
+        Args:
+            name (str): The name of the object.
+            t (T): The type of the object.
+            d (dict): The data to update.
+            done (bool, optional): If True, sets the object as done. Defaults to False.
+
+        Returns:
+            T: The updated object.
+        """
+        logger().debug("---> update: name=%s, type=%s, d=%s" % (name, t, d))
+        async with await session() as sess:
+            q = select(T).where(T.name == name).with_for_update()
+            res = await sess.execute(q)
+            c = CollabBase.get_one_result_or_throw(res, name=name, t=t)
+
+            # update
+            for k, v in d.items():
+                setattr(c, k, v)
+            if done:
+                c.time_finished = muty.time.now_msec()
+                c.time_updated = c.time_finished
+
+            else:
+                c.time_updated = muty.time.now_msec()
+
+            await sess.commit()
+            logger().debug("---> updated: %s" % (c))
+            return c
+
+    @staticmethod
+    async def get_one_result_or_throw(
+        res: Result,
+        name: str = None,
+        t: GulpCollabType = None,
+        throw_if_not_exists: bool = True,
+    ) -> T:
+        """
+        gets one result or throws an exception
+
+        Args:
+            res (Result): The result.
+            name (str, optional): The name of the object, just for the debug print. Defaults to None.
+            t (GulpCollabType, optional): The type of the object, just for the debug print. Defaults to None.
+            throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
+        """
+        c = res.scalar_one_or_none()
+        if c is None:
+            msg = "collabobject type=%s, name=%s not found!" % (t, name)
+            if throw_if_not_exists:
+                raise ObjectNotFound(msg)
+            else:
+                logger().warning(msg)
+        return c
+
+
+class GulpCollabFilter(BaseModel):
+    """
+    defines filter to be applied to all collaboration objects
+
+    each filter specified as list, i.e. *operation_id*, matches as OR (one or more may match).<br>
+    combining multiple filters (i.e. id + operation + ...) matches as AND (all must match).<br><br>
+
+    for string fields, where not specified otherwise, the match is case-insensitive and supports SQL-like wildcards (% and _)<br>
+
+    an empty filter returns all objects.<br>
+
+    **NOTE**: not all fields are applicable to all types.
+    """
+
+    name: list[str] = Field(None, description="filter by the given name/s.")
+    level: list[GulpCollabLevel] = Field(
+        None, description="filter by the given level/s."
+    )
+    client: list[str] = Field(None, description="filter by the given client/s.")
+    context: list[str] = Field(None, description="filter by the given context/s.")
+    operation: list[str] = Field(None, description="filter by the given operation/s.")
+
+    text: list[str] = Field(
+        None, unique=True, description="filter by the given object text."
+    )
+    operation_id: list[int] = Field(
+        None, unique=True, description="filter by the given operation/s."
+    )
+    context: list[str] = Field(
+        None, unique=True, description="filter by the given context/s."
+    )
+    src_file: list[str] = Field(
+        None, unique=True, description="filter by the given source file/s."
+    )
+    type: list[GulpCollabType] = Field(
+        None, unique=True, description="filter by the given type/s."
+    )
+    status: list[GulpRequestStatus] = Field(
+        None, unique=True, description="filter by the given status/es."
+    )
+    time_created_start: int = Field(
+        None,
+        description="creation timestamp range start (matches only AFTER a certain timestamp, inclusive, milliseconds from unix epoch).",
+    )
+    time_created_end: int = Field(
+        None,
+        description="creation timestamp range end  (matches only BEFORE a certain timestamp, inclusive, milliseconds from unix epoch).",
+    )
+    time_start: int = Field(
+        None,
+        description="timestamp range start (matches only AFTER a certain timestamp, inclusive, milliseconds from unix epoch).",
+    )
+    time_end: int = Field(
+        None,
+        description="timestamp range end  (matches only BEFORE a certain timestamp, inclusive, milliseconds from unix epoch).",
+    )
+    events: list[str] = Field(
+        None,
+        unique=True,
+        description="filter by the given event ID/s in CollabObj.events list of CollabEvents.",
+    )
+    data: dict = Field(
+        None,
+        unique=True,
+        description='filter by the given { "key": "value" } in data (exact match).',
+    )
+    tags: list[str] = Field(None, unique=True, description="filter by the given tag/s.")
+    limit: int = Field(
+        None,
+        description='to be used together with "offset", maximum number of results to return. default=return all.',
+    )
+    offset: int = Field(
+        None,
+        description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
+    )
+    private_only: bool = Field(
+        False,
+        description="if True, return only private objects. Default=False (return all).",
+    )
+    opt_time_start_end_events: bool = Field(
+        False,
+        description="if True, time_start and time_end are relative to the CollabObj.events list of CollabEvents. Either, they refer to CollabObj.time_start and CollabObj.time_end as usual.",
+    )
+    opt_basic_fields_only: bool = Field(
+        False,
+        description="return only the basic fields (id, name, ...) for the collaboration object. Default=False (return all).",
+    )
+    opt_tags_and: bool = Field(
+        False,
+        description="if True, all tags must match. Default=False (at least one tag must match).",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def to_py_dict(cls, data: str | dict):
+        if data is None or len(data) == 0:
+            return {}
+
+        if isinstance(data, dict):
+            return data
+        return json.loads(data)
+
+
+class GulpAssociatedEvent(BaseModel):
+    """
+    Represents an event in the collab API needing an "events" field.
+
+    when used for filtering with a GulpCollabFilter, only "id" and "@timestamp" (if GulpCollabFilter.opt_time_start_end_events) are taken into account.
+    """
+
+    id: str = Field(None, description="the event ID")
+    timestamp: int = Field(None, description="the event timestamp")
+    operation_id: Optional[int] = Field(
+        None, description="operation ID the event is associated with."
+    )
+    context: Optional[str] = Field(
+        None, description="context the event is associated with."
+    )
+    src_file: Optional[str] = Field(
+        None, description="source file the event is associated with."
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "_id": self.id,
+            "@timestamp": self.timestamp,
+            "gulp.operation.id": self.operation_id,
+            "gulp.context": self.context,
+            "gulp.source.file": self.src_file,
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "GulpAssociatedEvent":
+        return GulpAssociatedEvent(
+            id=d["id"],
+            timestamp=d["@timestamp"],
+            operation_id=d.get("gulp.operation.id"),
+            context=d.get("gulp.context"),
+            src_file=d.get("gulp.source.file"),
+        )
+
+    @model_validator(mode="before")
+    @classmethod
+    def to_py_dict(cls, data: str | dict):
+        # print('*********** events: %s, %s' % (data, type(data)))
+        if data is None or len(data) == 0:
+            return {}
+
+        if isinstance(data, dict):
+            # print('****** events (after): %s, %s' % (data, type(data)))
+            return data
+        return json.loads(data)
+
 
 _engine: AsyncEngine = None
 _collab_sessionmaker = None
-
 
 async def _setup_stats_expiration() -> None:
     logger().debug("setting up stats expiration with pg_cron ...")
@@ -46,11 +415,29 @@ async def _setup_stats_expiration() -> None:
 
 async def _create_default_data() -> None:
     # context
+    from gulp.api.collab.client import Client
     from gulp.api.collab.context import GulpContext
+    from gulp.api.collab.glyph import Glyph
+    from gulp.api.collab.operation import Operation
+    from gulp.api.collab.user import User
 
-    the_context = await GulpContext.create("default", "#6fcee4")
+    assets_path = impresources.files("gulp.api.collab.assets")
+
+    # create default context
+    context = await GulpContext.create("default", "#6fcee4")
 
     # glyphs
+    user_b = await muty.file.read_file_async(
+        muty.file.safe_path_join(assets_path, "user.png")
+    )
+    client_b = await muty.file.read_file_async(
+        muty.file.safe_path_join(assets_path, "client.png")
+    )
+    operation_b = await muty.file.read_file_async(
+        muty.file.safe_path_join(assets_path, "operation.png")
+    )
+    user_glyph = await Glyph.create(user_b, "user")
+
     d = os.path.dirname(__file__)
     with open(
         muty.file.safe_path_join(d, "assets/user.png", allow_relative=True), "rb"

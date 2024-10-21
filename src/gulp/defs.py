@@ -6,7 +6,6 @@ from enum import IntEnum, StrEnum
 import muty.jsend
 from pydantic import BaseModel, Field, model_validator
 
-from gulp.api.collab.base import GulpUserPermission
 
 # common api descriptions for swagger
 API_DESC_REQID = muty.jsend.API_DESC_REQID

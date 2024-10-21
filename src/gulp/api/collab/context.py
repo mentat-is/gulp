@@ -2,6 +2,7 @@ from typing import Optional, Union
 
 from sqlalchemy import Result, String, select
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api import collab_api
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
@@ -20,70 +21,27 @@ class GulpContext(CollabBase):
     """
 
     __tablename__ = "context"
-    name: Mapped[str] = mapped_column(String(128), unique=True, primary_key=True)
+    name: Mapped[str] = mapped_column(String(collab_api.COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
     color: Mapped[Optional[str]] = mapped_column(String(32), default="#ffffff")
-    # TODO: also add created_on, updated_on, created_by, updated_by ?
 
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "color": self.color,
-        }
+    def __init__(self, name: str, color: str) -> None:
 
-    @staticmethod
-    async def get_result_or_throw(
-        res: Result["GulpContext"], name: str
-    ) -> "GulpContext":
-        """
-        Throws an ObjectNotFound exception if the context is not found, or returns the context.
+        self.name = name
+        self.color = color
+        logger().debug("---> GulpContext: name=%s, color=%s" % (name, color))
 
-        Args:
-            res (Result[Context]): The result of the query.
-            name (str): The name of the context.
-
-        Returns:
-            Context: The context object.
-        """
-        c = res.scalar_one_or_none()
-        if c is None:
-            raise ObjectNotFound('context "%s" not found' % (name))
-        return c
-
-    @staticmethod
-    async def create(name: str, color: str) -> "GulpContext":
-        """
-        Creates a new context (admin only)
-
-        Args:
-            name (str): The name of the context.
-            color (str): The color of the context.
-
-        Returns:
-            Context: The created Context object.
-        """
-        # only admin can create contexts
-        logger().debug("---> create: name=%s, color=%s" % (name, color))
-        async with await collab_api.session() as sess:
-            c = GulpContext(name=name, color=color)
-            sess.add(c)
+    async def store(self, sess: AsyncSession=None) -> None:
+        if sess is None:
+            sess = await collab_api.session()
+        async with sess:
+            sess.add(self)
             await sess.commit()
-            logger().info("---> create: created context id=%s" % (c.name))
-            return c
+            logger().info("---> store: stored context=%s" % (self.name))
+
 
     @staticmethod
-    async def update(name: str, color: str) -> "GulpContext":
-        """
-        Updates a context
+    async def update(name: str, d: dict) -> "GulpContext":
 
-        Args:
-            engine (AsyncEngine): The database engine.
-            context_id (int): The id of the context.
-            name (str, optional): The name of the context.
-            color (str, optional): The color of the context.
-
-        Returns:
-            Context: The updated Context object.
-        """
         logger().debug("---> update: name=%s, color=%s" % (name, color))
         async with await collab_api.session() as sess:
             q = select(GulpContext).where(GulpContext.name == name).with_for_update()

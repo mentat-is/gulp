@@ -46,6 +46,7 @@ dependencies = [
     "sigma-cli",
     "sqlalchemy-dlock",
     "sqlalchemy-utils",
+    "sqlalchemy-mixins",
     "sqlalchemy[asyncio]",
     "starlette",
     "urllib3",

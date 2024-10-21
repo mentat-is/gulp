@@ -1,14 +1,16 @@
 import base64
-from typing import Union
+from typing import Union, override
 
 from sqlalchemy import LargeBinary, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
+from gulp.api import collab_api
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
+
 
 class Glyph(CollabBase):
     """
@@ -24,20 +26,18 @@ class Glyph(CollabBase):
     name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
     img: Mapped[bytes] = mapped_column(LargeBinary)
 
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            # image data is base64 encoded
-            "img": base64.b64encode(self.img).decode(),
-        }
+    @override
+    def to_dict(self, *args, **kwargs) -> dict:
+        d = super().to_dict(*args, **kwargs)
+        d["img"] = base64.b64encode(self.img).decode()
+        return d
 
     @staticmethod
-    async def create(engine: AsyncEngine, img: bytes, name: str) -> "Glyph":
+    async def create(img: bytes, name: str) -> "Glyph":
         """
         Creates a new glyph (admin only)
 
         Args:
-            engine (AsyncEngine): The database engine.
             img (bytes): The image data.
             name (str, optional): The name of the glyph
 
@@ -46,8 +46,7 @@ class Glyph(CollabBase):
         """
         # only admin can create glyph
         logger().debug("---> create: img=%s..., name=%s" % (img[0:4], name))
-
-        async with AsyncSession(engine, expire_on_commit=False) as sess:
+        async with await collab_api.session() as sess:
             # check if it already exists
             q = select(Glyph).where(Glyph.name == name)
             res = await sess.execute(q)
@@ -75,9 +74,7 @@ class Glyph(CollabBase):
             Glyph: The updated Glyph object.
         """
 
-        logger().debug(
-            "---> update: id=%s, img=%s..." % (glyph_id, img[0:4])
-        )
+        logger().debug("---> update: id=%s, img=%s..." % (glyph_id, img[0:4]))
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             q = select(Glyph).where(Glyph.id == glyph_id).with_for_update()
