@@ -317,7 +317,7 @@ async def _create_notes_on_match(
                 context=ev_context,
                 src_file=ev_logfile_path,
                 txt=text,
-                events=[GulpAssociatedEvent(id=ev_id, timestamp=ev_ts)],
+                events=[GulpAssociatedEvent(id=ev_id, timestamp=ev_ts, context=ev_context, src_file=ev_logfile_path, operation_id=ev_operation_id)],
                 tags=["auto"],
                 data=data,
                 glyph_id=options.notes_on_match_glyph_id,
@@ -1138,18 +1138,18 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         n["sort"] = [
             {"@timestamp": {"order": "asc"}},
             {"event.hash": {"order": "asc"}},
-            {"event.sequence": {"order": "asc"}}
+            {"event.sequence": {"order": "asc"}},
         ]
 
     if opt.fields_filter is None or opt.fields_filter == "*":
         # return all fields
-        n["source"] = None    
+        n["source"] = None
     else:
         # only return these fields. first, check if the mandatory fields are present, if not add them
         fields = opt.fields_filter.split(",")
         for f in FIELDS_FILTER_MANDATORY:
             if f not in fields:
-                fields.append(f)                
+                fields.append(f)
         n["source"] = fields
 
     if opt.limit is not None:
@@ -1164,20 +1164,24 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         n["search_after"] = opt.search_after
     else:
         n["search_after"] = None
-    
+
     # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
 
-def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0, 
-                        timestamp_is_string: bool=True, 
-                        timestamp_format_string: str=None, 
-                        timestamp_day_first: bool=False, 
-                        timestamp_year_first: bool=True, 
-                        timestamp_unit: str='ms', 
-                        timestamp_field: str='@timestamp') -> int:
+
+def process_event_timestamp(
+    evt: dict,
+    timestamp_offset_msec: int = 0,
+    timestamp_is_string: bool = True,
+    timestamp_format_string: str = None,
+    timestamp_day_first: bool = False,
+    timestamp_year_first: bool = True,
+    timestamp_unit: str = "ms",
+    timestamp_field: str = "@timestamp",
+) -> int:
     """
     return the timestamp in nanoseconds, accounting for the various timestamp formats and units.
-    
+
     Args:
         evt (dict): the event to process.
         timestamp_offset_msec (int): the timestamp offset to apply, in milliseconds.
@@ -1187,14 +1191,14 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
         timestamp_year_first (bool): if True, the timestamp is a string and the year is the first element in the string.
         timestamp_unit (str): the timestamp unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).
         timestamp_field (str): the timestamp field.
-        
+
     Returns:
         int: the timestamp in nanoseconds.
     """
-    
+
     # get value first
     t = evt.get(timestamp_field)
-    
+
     # turn to nanoseconds
     if timestamp_is_string:
         # parse string timestamp
@@ -1204,11 +1208,13 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
             t = muty.time.datetime_to_epoch_nsec(t)
         else:
             # try to auto detect format
-            t = muty.time.string_to_epoch_nsec(t, dayfirst=timestamp_day_first, yearfirst=timestamp_year_first)
-    else:            
+            t = muty.time.string_to_epoch_nsec(
+                t, dayfirst=timestamp_day_first, yearfirst=timestamp_year_first
+            )
+    else:
         # already a number
         t = int(t)
-        
+
         # convert to nanoseconds
         if timestamp_unit == "ms":
             t = t * muty.time.MILLISECONDS_TO_NANOSECONDS
@@ -1221,7 +1227,9 @@ def process_event_timestamp(evt: dict, timestamp_offset_msec: int=0,
     return t
 
 
-def adjust_fields_filter(mandatory_list: list[str], fields_filter_csv: str=None) -> list[str]:
+def adjust_fields_filter(
+    mandatory_list: list[str], fields_filter_csv: str = None
+) -> list[str]:
     """
     Adjust the fields filter to include the mandatory fields if not already present.
 
@@ -1245,9 +1253,7 @@ def adjust_fields_filter(mandatory_list: list[str], fields_filter_csv: str=None)
             if f not in ff:
                 ff.append(f)
     else:
-        # no fields filter, use default   
+        # no fields filter, use default
         ff = mandatory_list
 
     return ff
-
-
