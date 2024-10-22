@@ -5,9 +5,9 @@ LOG_FILE="/tmp/gulp-install-$(date +%s).log"
 MANUAL_INSTALL_DOCS="https://github.com/mentat-is/gulp/blob/develop/docs/Install%20Dev.md"
 
 # Packages to install
-UBUNTU_PACKAGES="curl python3.12 python3-pip software-properties-common docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-dev pipx python3.12-venv"
+UBUNTU_PACKAGES="curl python3.12 python3-pip software-properties-common docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-dev pipx python3.12-venv libsystemd-dev"
 ARCH_PACKAGES="rust git python docker docker-compose docker-buildx jq libpqxx git-lfs curl pipx"
-FEDORA_PACKAGES="python3.12 docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-devel curl pipx"
+FEDORA_PACKAGES="python3.12 docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git libpqxx-devel curl pipx systemd-devel"
 #TODO: only install dev packages for --dev installs, these should be split into e.g. UBUNTU_PACKAGES and UBUNTU_DEV_PACKAGES
 
 IS_DEV_INSTALL=0
