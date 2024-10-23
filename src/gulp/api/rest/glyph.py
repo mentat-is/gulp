@@ -22,7 +22,7 @@ import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.glyph import Glyph
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 
 _app: APIRouter = APIRouter()
 
@@ -61,7 +61,7 @@ async def glyph_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         data = glyph.file.read()
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         g = await Glyph.create(await collab_api.session(), data, name)
@@ -103,7 +103,7 @@ async def glyph_update_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         data = glyph.file.read()
@@ -146,7 +146,7 @@ async def glyph_list_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         l = await Glyph.get(await collab_api.session(), flt)
@@ -193,7 +193,7 @@ async def glyph_get_by_id_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         l = await Glyph.get(await collab_api.session(), GulpCollabFilter(id=[glyph_id]))
@@ -232,7 +232,7 @@ async def glyph_delete_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await Glyph.delete(await collab_api.session(), glyph_id)

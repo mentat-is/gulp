@@ -21,7 +21,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpUserPermission
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
@@ -111,7 +111,7 @@ async def plugin_list_handler(
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         l = await gulp.plugin.list_plugins()
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
@@ -156,7 +156,7 @@ async def plugin_get_handler(
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         path_plugins = config.path_plugins(plugin_type)
         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
@@ -209,7 +209,7 @@ async def plugin_delete_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
@@ -269,7 +269,7 @@ async def plugin_upload_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.EDIT
         )
         path_plugins = config.path_plugins(plugin_type)
@@ -331,7 +331,7 @@ async def plugin_tags_handler(
 
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         l = await gulp.plugin.get_plugin_tags(plugin, plugin_type)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
@@ -365,7 +365,7 @@ async def get_version_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         return JSONResponse(
             muty.jsend.success_jsend(
                 req_id=req_id, data={"version": gulp_utils.version_string()}
@@ -411,7 +411,7 @@ async def mapping_file_upload_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.EDIT
         )
         filename = os.path.basename(mapping_file.filename)
@@ -562,7 +562,7 @@ async def mapping_file_list_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         path = config.path_mapping_files()
         logger().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
@@ -625,7 +625,7 @@ async def mapping_file_get_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         file_path = gulp_utils.build_mapping_file_path(mapping_file)
 
         # read file content
@@ -670,7 +670,7 @@ async def mapping_file_delete_handler(
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         file_path = gulp_utils.build_mapping_file_path(mapping_file)

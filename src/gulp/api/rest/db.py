@@ -26,7 +26,7 @@ import gulp.plugin
 import gulp.utils
 import gulp.workers as workers
 from gulp.api.collab.base import GulpUserPermission
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.elastic.structs import GulpQueryFilter
 from gulp.utils import logger
 
@@ -95,7 +95,7 @@ async def rebase_handler(
         )
 
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.EDIT
         )
         coro = workers.rebase_task(
@@ -153,7 +153,7 @@ async def elastic_list_index_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         l: list[str] = await elastic_api.datastream_list(elastic_api.elastic())
@@ -202,7 +202,7 @@ async def elastic_init_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     f: str = None
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         if index_template is not None:
@@ -256,7 +256,7 @@ async def elastic_delete_index_handler(
 
     try:
         # check token permission first
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await elastic_api.datastream_delete(elastic_api.elastic(), index)
@@ -310,7 +310,7 @@ async def elastic_get_mapping_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         m = await elastic_api.index_get_key_value_mapping(
             elastic_api.elastic(), index, return_raw_result
         )
@@ -367,7 +367,7 @@ async def elastic_get_mapping_by_source_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(await collab_api.session(), token)
+        await GulpUserSession.check_token(await collab_api.session(), token)
         m = await elastic_api.index_get_mapping_by_src(
             elastic_api.elastic(), index, context, src
         )
@@ -399,7 +399,7 @@ async def collab_init_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
@@ -443,7 +443,7 @@ async def gulp_init_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await elastic_init_handler(
@@ -512,7 +512,7 @@ async def elastic_get_index_template_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         m = await elastic_api.index_template_get(elastic_api.elastic(), index)

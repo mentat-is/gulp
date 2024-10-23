@@ -16,7 +16,7 @@ import gulp.api.rest_api as rest_api
 import gulp.defs
 import gulp.utils
 from gulp.api.collab.base import GulpCollabType, GulpUserPermission
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.stats import GulpStats
 from gulp.api.elastic.query import QueryResult
 from gulp.api.rest import ws as ws_api
@@ -175,7 +175,7 @@ class Plugin(PluginBase):
         req_id = gulp.utils.ensure_req_id(req_id)
 
         try:
-            user, session = await UserSession.check_token(
+            user, session = await GulpUserSession.check_token(
                 await collab_api.session(), token, GulpUserPermission.READ
             )
             user_id = session.user_id

@@ -22,7 +22,7 @@ import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpClientType, GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.client import Client
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.defs import InvalidArgument
 
 _app: APIRouter = APIRouter()
@@ -63,7 +63,7 @@ async def client_get_by_id_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         clients = await Client.get(
@@ -123,7 +123,7 @@ async def client_list_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         clients = await Client.get(await collab_api.session(), flt)
@@ -180,7 +180,7 @@ async def client_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admins can create clients
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         c = await Client.create(
@@ -237,7 +237,7 @@ async def client_update_handler(
                 "at least one of version, operation_id or glyph_id must be provided"
             )
         # only admins can update clients
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         c = await Client.update(
@@ -282,7 +282,7 @@ async def client_delete_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admins can delete clients
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await Client.delete(await collab_api.session(), client_id)

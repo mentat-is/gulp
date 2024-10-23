@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission, MissingPermission
 from gulp.api.collab_api import CollabBase
 
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 
@@ -283,7 +283,7 @@ class User(CollabBase):
     @staticmethod
     async def login(
         engine: AsyncEngine, username: str, password: str
-    ) -> tuple["User", UserSession]:
+    ) -> tuple["User", GulpUserSession]:
         """
         Logs in a user with the specified username and password.
 
@@ -296,7 +296,7 @@ class User(CollabBase):
             tuple[User, UserSession]: A tuple containing the logged-in user and the user session.
         """
         logger().debug("---> login: username=%s" % (username))
-        user, session = await UserSession.create(engine, username, password)
+        user, session = await GulpUserSession.create(engine, username, password)
         return user, session
 
     @staticmethod
@@ -313,7 +313,7 @@ class User(CollabBase):
             ObjectNotFound: If the token does not exist.
         """
         logger().debug("---> logout: token=%s" % (token))
-        return await UserSession.delete(engine, token)
+        return await GulpUserSession.delete(engine, token)
 
     @staticmethod
     async def check_token_owner(
@@ -338,7 +338,7 @@ class User(CollabBase):
             User: The user object.
         """
 
-        requestor, _ = await UserSession.check_token(engine, requestor_token)
+        requestor, _ = await GulpUserSession.check_token(engine, requestor_token)
         req_user: User = requestor
         if permission is not None and not req_user.is_admin():
             raise MissingPermission(

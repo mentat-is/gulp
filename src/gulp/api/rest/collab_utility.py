@@ -22,7 +22,7 @@ import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpUserPermission
 from gulp.api.collab.base import GulpCollabObject
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
@@ -75,7 +75,7 @@ async def collabobj_list(
 
     """
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         ll = []
@@ -105,7 +105,7 @@ async def collabobj_get_by_id(
     A helper function to get a collab object by ID.
     """
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         flt = GulpCollabFilter()
@@ -151,7 +151,7 @@ async def collab_edits_get_by_object_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         l = await GulpCollabObject.get_edits_by_object(
@@ -196,7 +196,7 @@ async def collab_edits_list_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         l = await GulpCollabObject.get_edits(await collab_api.session(), flt)
@@ -239,7 +239,7 @@ async def collab_list_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         l = await GulpCollabObject.get(await collab_api.session(), flt)

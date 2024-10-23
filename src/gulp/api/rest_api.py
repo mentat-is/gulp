@@ -458,7 +458,7 @@ def start_server(
     import gulp.api.rest.note
     import gulp.api.rest.operation
     import gulp.api.rest.query
-    import gulp.api.rest.session
+    import gulp.api.rest.user_session
     import gulp.api.rest.shared_data
     import gulp.api.rest.stats
     import gulp.api.rest.stored_query
@@ -477,7 +477,7 @@ def start_server(
     _app.include_router(gulp.api.rest.note.router())
     _app.include_router(gulp.api.rest.operation.router())
     _app.include_router(gulp.api.rest.query.router())
-    _app.include_router(gulp.api.rest.session.router())
+    _app.include_router(gulp.api.rest.user_session.router())
     _app.include_router(gulp.api.rest.shared_data.router())
     _app.include_router(gulp.api.rest.stats.router())
     _app.include_router(gulp.api.rest.stored_query.router())

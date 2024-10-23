@@ -30,7 +30,7 @@ import gulp.workers as workers
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.client import Client
 from gulp.api.collab.operation import Operation
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import User
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.plugin_internal import GulpPluginParams
@@ -66,7 +66,7 @@ async def _check_parameters(
     try:
         o = None
         c = None
-        u, _ = await UserSession.check_token(
+        u, _ = await GulpUserSession.check_token(
             await collab_api.session(), token, permission
         )
         if operation_id is not None:

@@ -28,8 +28,9 @@ from gulp.utils import logger
 _engine: AsyncEngine = None
 _collab_sessionmaker = None
 
-async def _setup_stats_expiration() -> None:
-    logger().debug("setting up stats expiration with pg_cron ...")
+async def _setup_collab_expirations() -> None:
+    logger().debug("setting up stats and tokens expiration with pg_cron ...")
+    
     async with await session() as sess:
         # create pg_cron extension
         await sess.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
@@ -38,7 +39,7 @@ async def _setup_stats_expiration() -> None:
         await sess.execute(
             text(
                 """
-            CREATE OR REPLACE FUNCTION delete_expired_rows() RETURNS void AS $$
+            CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
             BEGIN
                 DELETE FROM stats WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000);
             END;
@@ -50,10 +51,30 @@ async def _setup_stats_expiration() -> None:
         await sess.execute(
             text(
                 """
-            SELECT cron.schedule('*/5 * * * *', 'SELECT delete_expired_rows();');
+            CREATE OR REPLACE FUNCTION delete_expired_tokens_rows() RETURNS void AS $$
+            BEGIN
+                DELETE FROM session WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000);
+            END;
+            $$ LANGUAGE plpgsql;
         """
             )
         )
+
+        await sess.execute(
+            text(
+                """
+                SELECT cron.schedule('*/5 * * * *', 'SELECT delete_expired_stats_rows();');
+                """
+            )
+        )
+
+        await sess.execute(
+            text(
+                """
+                SELECT cron.schedule('* * * * *', 'SELECT delete_expired_tokens_rows();');
+                """
+            )
+        )        
         await sess.commit()
 
 
@@ -362,7 +383,7 @@ async def setup(force_recreate: bool = False) -> None:
 
             await conn.run_sync(CollabBase.metadata.create_all)
         await shutdown()
-        await _setup_stats_expiration()
+        await _setup_collab_expirations()
         await _create_default_data()
     
     url = config.postgres_url()

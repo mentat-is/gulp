@@ -2,46 +2,50 @@ from typing import Optional
 import muty.crypto
 import muty.string
 import muty.time
-from sqlalchemy import BIGINT, ForeignKey, String, select
+from sqlalchemy import BIGINT, ForeignKey, String, UniqueConstraint, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api import collab_api
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission, MissingPermission, SessionExpired, WrongUsernameOrPassword
 from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH
 from gulp.utils import logger
 import gulp.config as config
-from gulp.api.collab_api import CollabBase)
-from gulp.api.collab.base import GulpCollabObject
+from gulp.api.collab.base import GulpCollabBase
 from gulp.defs import ObjectNotFound
 
 
-class UserSession(CollabBase):
+class GulpUserSession(GulpCollabBase):
     """
     Represents a user session (logged user).
-
-    Attributes:
-        id (int): The session ID.
-        user_id (int): The ID of the user associated with the session.
-        token (str): The session token.
-        time_expire (int): The expiration time of the session.
-        data (Optional[dict]): Additional data associated with the session.
     """
-
     __tablename__ = "session"
-    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
-    user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
+
+    # ensure that the user_id is unique
+    __table_args__ = (
+        UniqueConstraint('user_id', name='uq_session_user_id'),
+    )
+
+    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), unique=True)
+    user: Mapped["User"] = relationship("User", back_populates="sessions") # mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     time_expire: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    
+    __mapper_args__ = {
+        "polymorphic_identity": "session",
+    }    
 
-    def to_dict(self) -> dict:
-        return {
-            "user": self.user,
-            "name": self.id,
-            "time_expire": self.time_expire,
-        }
+    def __init__(self, user: str, time_expire: Optional[int] = None, **kwargs):
+        super().__init__(**kwargs)
+        self.user = user
+        if config.debug_no_token_expiration():
+            self.time_expire=0
+        else:
+            self.time_expire = time_expire if time_expire is not None else 0
 
+    # Existing methods.        
     @staticmethod
-    async def check_expired(engine: AsyncEngine, user_session: "UserSession") -> None:
+    async def check_expired(engine: AsyncEngine, user_session: "GulpUserSession") -> None:
         """
         Check if the user session has expired and delete the token if it has.
 
@@ -56,7 +60,7 @@ class UserSession(CollabBase):
             if user_session.time_expire > 0:
                 if muty.time.now_msec() > user_session.time_expire:
                     # delete this token
-                    await UserSession.delete(engine, user_session.id)
+                    await GulpUserSession.delete(engine, user_session.id)
                     raise SessionExpired(
                         "session token %s expired !" % (user_session.id)
                     )
@@ -64,7 +68,7 @@ class UserSession(CollabBase):
     @staticmethod
     async def get_by_user_id(
         engine: AsyncEngine, user_id: int, **kwargs
-    ) -> "UserSession":
+    ) -> "GulpUserSession":
         """
         Retrieves a user session based on the provided user ID.
 
@@ -83,9 +87,9 @@ class UserSession(CollabBase):
         logger().debug("---> get: user_id=%s" % (user_id))
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.user_id == user_id)
+            q = select(GulpUserSession).where(GulpUserSession.user_id == user_id)
             res = await sess.execute(q)
-            user_session: UserSession = res.scalar_one_or_none()
+            user_session: GulpUserSession = res.scalar_one_or_none()
             if user_session is None:
                 raise ObjectNotFound("session not found for user_id=%d !" % (user_id))
 
@@ -94,13 +98,13 @@ class UserSession(CollabBase):
             )
 
             # check if token is expired
-            await UserSession.check_expired(engine, user_session)
+            await GulpUserSession.check_expired(engine, user_session)
 
             # token exists and is not expired
             return user_session
 
     @staticmethod
-    async def get(engine: AsyncEngine, token: str, **kwargs) -> "UserSession":
+    async def get(engine: AsyncEngine, token: str, **kwargs) -> "GulpUserSession":
         """
         Retrieves a user session based on the provided token.
 
@@ -119,9 +123,9 @@ class UserSession(CollabBase):
         logger().debug("---> get: token=%s" % (token))
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.id == token)
+            q = select(GulpUserSession).where(GulpUserSession.id == token)
             res = await sess.execute(q)
-            user_session: UserSession = res.scalar_one_or_none()
+            user_session: GulpUserSession = res.scalar_one_or_none()
             if user_session is None:
                 raise ObjectNotFound("session token %s not found !" % (token))
             logger().debug(
@@ -129,7 +133,7 @@ class UserSession(CollabBase):
             )
 
             # check if token is expired
-            await UserSession.check_expired(engine, user_session)
+            await GulpUserSession.check_expired(engine, user_session)
 
             # token exists and is not expired
             return user_session
@@ -137,9 +141,9 @@ class UserSession(CollabBase):
     @staticmethod
     async def _create_internal(
         engine: AsyncEngine, sess: AsyncSession, user, impersonated: bool = False
-    ) -> "UserSession":
+    ) -> "GulpUserSession":
         # check if session exists
-        q = select(UserSession).where(UserSession.user_id == user.id).with_for_update()
+        q = select(GulpUserSession).where(GulpUserSession.user_id == user.id).with_for_update()
         res = await sess.execute(q)
         user_session = res.scalar_one_or_none()
 
@@ -167,7 +171,7 @@ class UserSession(CollabBase):
             user_session.time_expire = time_expire
         else:
             # create
-            user_session = UserSession(
+            user_session = GulpUserSession(
                 user_id=user.id, id=token, time_expire=time_expire
             )
             logger().debug("created new user session: %s" % (user_session))
@@ -197,7 +201,7 @@ class UserSession(CollabBase):
         password: str,
         allow_any_password: bool = False,
         **kwargs,
-    ) -> tuple[any, "UserSession"]:
+    ) -> tuple[any, "GulpUserSession"]:
         """
         Creates a new user session.
 
@@ -238,7 +242,7 @@ class UserSession(CollabBase):
                     "user %s not found or wrong password" % (username)
                 )
 
-            s = await UserSession._create_internal(engine, sess, user)
+            s = await GulpUserSession._create_internal(engine, sess, user)
             return user, s
 
     @staticmethod
@@ -257,11 +261,11 @@ class UserSession(CollabBase):
         logger().debug("---> delete: token=%s" % (token))
         if config.debug_allow_any_token_as_admin():
             # use admin token
-            _, s = await UserSession._get_admin(engine)
+            _, s = await GulpUserSession._get_admin(engine)
             token = s.id
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.id == token)
+            q = select(GulpUserSession).where(GulpUserSession.id == token)
             res = await sess.execute(q)
             session = res.scalar_one_or_none()
             if session is None:
@@ -275,36 +279,22 @@ class UserSession(CollabBase):
             )
 
     @staticmethod
-    async def _get_admin(engine: AsyncEngine) -> tuple[any, "UserSession"]:
-        """
-        this is only used for debugging when "debug_allow_any_token_as_admin" is set
-
-        @return: a tuple with admin user and its session (existing or created)
-
-        """
+    async def _get_admin() -> tuple[any, "GulpUserSession"]:
         from gulp.api.collab.user import User
 
-        logger().debug("---> get_admin")
-        # get user
-        async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(User).where(User.id == "admin")
+        logger().debug("---> _get_admin")
+        
+        async with await collab_api.session() as sess:
+            q = select(GulpUserSession).where(GulpUserSession.user_id == user.id)
             res = await sess.execute(q)
-            user = res.scalar_one_or_none()
-            if user is None:
-                raise ObjectNotFound("admin user not found !")
-
-        user_session: UserSession = None
-        async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.user_id == user.id)
-            res = await sess.execute(q)
-            user_session: UserSession = res.scalar_one_or_none()
+            user_session: GulpUserSession = res.scalar_one_or_none()
 
         if user_session is not None:
             # found session
             return user, user_session
 
         # create session
-        user, user_session = await UserSession.create(
+        user, user_session = await GulpUserSession.create(
             engine, user.name, "admin", allow_any_password=True
         )
         return user, user_session
@@ -312,7 +302,7 @@ class UserSession(CollabBase):
     @staticmethod
     async def impersonate(
         engine: AsyncEngine, token: str, user_id: int
-    ) -> "UserSession":
+    ) -> "GulpUserSession":
         """
         Impersonate a user by creating a new session token for the given user ID.
 
@@ -329,7 +319,7 @@ class UserSession(CollabBase):
         from gulp.api.collab.user import User
 
         logger().debug("---> impersonate: user_id=%s" % (user_id))
-        await UserSession.check_token(engine, token, GulpUserPermission.ADMIN)
+        await GulpUserSession.check_token(engine, token, GulpUserPermission.ADMIN)
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             q = select(User).where(User.id == user_id).with_for_update()
@@ -338,44 +328,25 @@ class UserSession(CollabBase):
             if user is None:
                 raise ObjectNotFound("user %d not found!" % (user_id))
 
-            return await UserSession._create_internal(
+            return await GulpUserSession._create_internal(
                 engine, sess, user, impersonated=True
             )
 
     @staticmethod
     async def check_token(
-        engine: AsyncEngine,
         token: str,
-        requested_permission: GulpUserPermission = GulpUserPermission.READ,
-        obj_id: int = None,
-        **kwargs,
-    ) -> tuple[any, "UserSession"]:
-        """
-        Checks the validity of a token and verifies the user's permissions (also checks for token expiration).
-
-        Args:
-            engine (AsyncEngine): The database engine.
-            token (str): The token to be checked.
-            requested_permission (GulpUserPermission, optional): The requested permission level. Defaults to GulpUserPermission.READ.
-            obj_id (int, optional): The object to be checked. Defaults to None.
-            kwargs (dict): Additional keyword arguments.
-        Returns:
-            tuple[User, UserSession]: A tuple containing the User and UserSession objects.
-
-        Raises:
-            ObjectNotFound: If the user associated with the token is not found/expired.
-            MissingPermission: If the user does not have the required permissions.
-        """
+        requested_permission: GulpUserPermission = GulpUserPermission.READ,        
+    ) -> tuple[any, "GulpUserSession"]:
         from gulp.api.collab.user import User
 
         logger().debug("---> check_token: token=%s" % (token))
         if config.debug_allow_any_token_as_admin():
             # always return the admin user and its token (for testing purposes)
-            u, s = await UserSession._get_admin(engine)
+            u, s = await GulpUserSession._get_admin(engine)
             return u, s
 
         # get session
-        user_session = await UserSession.get(engine, token)
+        user_session = await GulpUserSession.get(engine, token)
 
         # get user
         async with AsyncSession(engine) as sess:

@@ -21,7 +21,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.stats import GulpStats
 
 _app: APIRouter = APIRouter()
@@ -58,7 +58,7 @@ async def stats_delete_by_operation(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.DELETE
         )
         deleted = await GulpStats.delete(
@@ -128,7 +128,7 @@ async def stats_get_by_operation(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         stats = await GulpStats.get(
@@ -195,7 +195,7 @@ async def stats_get_by_req_id(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         stats = await GulpStats.get(
@@ -263,7 +263,7 @@ async def stats_list_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         stats = await GulpStats.get(await collab_api.session(), flt)
@@ -305,7 +305,7 @@ async def stats_delete(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.DELETE
         )
         deleted = await GulpStats.delete(await collab_api.session(), flt)
@@ -368,7 +368,7 @@ async def stats_get_by_id_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         s = await GulpStats.get(
@@ -410,7 +410,7 @@ async def stats_cancel_request_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         s = await GulpStats.set_canceled(await collab_api.session(), r)

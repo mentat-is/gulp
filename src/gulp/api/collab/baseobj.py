@@ -25,29 +25,65 @@ from sqlalchemy.orm import Mapped, mapped_column, MappedAsDataclass, Declarative
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy_mixins import SerializeMixin
 from gulp.api.collab import user_session
-from gulp.api import collab_api
 from gulp.api.collab_api import GulpCollabLevel
 from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpAssociatedEvent, GulpCollabFilter, GulpCollabType, GulpUserPermission
 from gulp.defs import InvalidArgument, ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 
-T = TypeVar("T", bound="GulpCollabBase")
-class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
-    """
-    base for everything on the collab database
-    """
+T = TypeVar("T", bound="BaseObj")
+class Base(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
     __tablename__ = "collab_base"
+    __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
 
     id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), primary_key=True, unique=True)
-    type: Mapped[GulpCollabType] = mapped_column(String)
+    type: Mapped[GulpCollabType] = mapped_column(String())
     time_created: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
     time_updated: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
                                                  
+
+T = TypeVar("T", bound="BaseObj")
+class BaseObj(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
+    """
+    base for all collaboration objects (notes, links, stories, highlights)
+    """
+
+    __tablename__ = "collab_obj"
+    __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
+
+    # the following are present in all collab objects regardless of type
+    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), primary_key=True, unique=True)
+    type: Mapped[GulpCollabType] = mapped_column(String())
+    owner: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE")
+    )
+    operation: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("operation.id", ondelete="CASCADE")
+    )
+    glyph: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.id", ondelete="SET NULL"), default=None
+    )
+    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=None)
+    title: Mapped[Optional[str]] = mapped_column(String, default=None)
+    time_created: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    time_updated: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    private: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
+    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
+
+    # the following must be refactored for specific tables
+    context: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("context.id", ondelete="CASCADE"), default=None # for notes, highlight
+    )
+    source: Mapped[Optional[str]] = mapped_column(String, default=None) # for notes, highlight
+    time_start: Mapped[Optional[int]] = mapped_column(BIGINT, default=0) # for higlight 
+    time_end: Mapped[Optional[int]] = mapped_column(BIGINT, default=0) # for highlight
+    events: Mapped[Optional[list[dict]]] = mapped_column(JSONB, default=None) # for story, notes, link
+    text: Mapped[Optional[str]] = mapped_column(String, default=None) # for notes, story
+    
     __mapper_args__ = {
-        "polymorphic_identity": "collab_base",
+        "polymorphic_identity": "collab_obj",
         "polymorphic_on": "type",
     }    
-
+    
     async def store(self, sess: AsyncSession = None) -> None:
         """
         stores the collaboration object in the database
@@ -61,7 +97,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.add(self)
             await sess.commit()
             logger().info("---> store: stored %s" % (self))
-
 
     @staticmethod
     async def delete(obj_id: str, t: T, throw_if_not_exists: bool = True) -> None:
@@ -77,7 +112,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         async with await session() as sess:
             q = select(T).where(T.id == obj_id).with_for_update()
             res = await sess.execute(q)
-            c = GulpCollabObject.get_one_result_or_throw(
+            c = BaseObj.get_one_result_or_throw(
                 res, obj_id=obj_id, t=t, throw_if_not_exists=throw_if_not_exists
             )
             if c is not None:
@@ -103,7 +138,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         async with await session() as sess:
             q = select(T).where(T.name == obj_id).with_for_update()
             res = await sess.execute(q)
-            c = GulpCollabObject.get_one_result_or_throw(res, obj_id=obj_id, t=t)
+            c = BaseObj.get_one_result_or_throw(res, obj_id=obj_id, t=t)
 
             # update
             for k, v in d.items():
@@ -132,7 +167,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         c = res.scalar_one_or_none()
         if c is None:
-            msg = "collab type=%s, id=%s not found!" % (t, obj_id)
+            msg = "collabobject type=%s, name=%s not found!" % (t, obj_id)
             if throw_if_not_exists:
                 raise ObjectNotFound(msg)
             else:
@@ -140,35 +175,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return c
 
     
-class GulpCollabObject(GulpCollabBase):
-    """
-    base for all collaboration objects (notes, links, stories, highlights)
-    """
-
-    __tablename__ = "collab_obj"
-
-    # index for operation
-    __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
-
-    # the following are present in all collab objects regardless of type
-    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
-    owner: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE")
-    )
-    operation: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("operation.id", ondelete="CASCADE")
-    )
-    glyph: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None
-    )
-    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=None)
-    title: Mapped[Optional[str]] = mapped_column(String, default=None)
-    private: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
-    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
-
-    __mapper_args__ = {
-        "polymorphic_identity": "collab_obj",
-    }    
     
     @staticmethod
     async def create(
@@ -194,7 +200,7 @@ class GulpCollabObject(GulpCollabBase):
         skip_ws: bool = False,
         private: bool = False,
         level: GulpCollabLevel = GulpCollabLevel.DEFAULT,
-    ) -> "GulpCollabObject":
+    ) -> "BaseObj":
         """
         Creates a new collaboration object.
 
@@ -284,7 +290,7 @@ class GulpCollabObject(GulpCollabBase):
                 + str(txt)
                 + str(description)
             )
-            q = select(GulpCollabObject).where(GulpCollabObject.hash == h)
+            q = select(BaseObj).where(BaseObj.hash == h)
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is not None:
@@ -295,7 +301,7 @@ class GulpCollabObject(GulpCollabBase):
 
             # create new collaboration object
             now = muty.time.now_msec()
-            obj = GulpCollabObject(
+            obj = BaseObj(
                 owner_user_id=user.id if user is not None else internal_user_id,
                 type=t,
                 hash=h,
@@ -355,7 +361,7 @@ class GulpCollabObject(GulpCollabBase):
         glyph_id: int = None,
         t: GulpCollabType = None,
         private: bool = None,
-    ) -> "GulpCollabObject":
+    ) -> "BaseObj":
         """
         Update a collab object with the specified parameters.
 
@@ -398,12 +404,12 @@ class GulpCollabObject(GulpCollabBase):
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             if t is not None:
                 q = (
-                    select(GulpCollabObject)
-                    .where(GulpCollabObject.id == object_id, GulpCollabObject.type == t)
+                    select(BaseObj)
+                    .where(BaseObj.id == object_id, BaseObj.type == t)
                     .with_for_update()
                 )
             else:
-                q = select(GulpCollabObject).where(GulpCollabObject.id == object_id).with_for_update()
+                q = select(BaseObj).where(BaseObj.id == object_id).with_for_update()
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is None:
@@ -509,11 +515,11 @@ class GulpCollabObject(GulpCollabBase):
         )
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             if t is not None:
-                q = select(GulpCollabObject).where(
-                    GulpCollabObject.id == object_id, GulpCollabObject.type == t
+                q = select(BaseObj).where(
+                    BaseObj.id == object_id, BaseObj.type == t
                 )
             else:
-                q = select(GulpCollabObject).where(GulpCollabObject.id == object_id)
+                q = select(BaseObj).where(BaseObj.id == object_id)
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is None:
@@ -605,7 +611,7 @@ class GulpCollabObject(GulpCollabBase):
     @staticmethod
     async def get(
         engine: AsyncEngine, flt: GulpCollabFilter = None
-    ) -> Union[list["GulpCollabObject"], list[dict]]:
+    ) -> Union[list["BaseObj"], list[dict]]:
         """
         Gets collaboration objects.
 
@@ -621,52 +627,52 @@ class GulpCollabObject(GulpCollabBase):
         """
         logger().debug("---> get: filter=%s" % (flt))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(GulpCollabObject)
+            q = select(BaseObj)
             if flt is not None:
                 if flt.opt_basic_fields_only:
                     q = select(
-                        GulpCollabObject.id,
-                        GulpCollabObject.name,
-                        GulpCollabObject.type,
-                        GulpCollabObject.owner_user_id,
-                        GulpCollabObject.operation_id,
-                        GulpCollabObject.time_created,
-                        GulpCollabObject.time_updated,
-                        GulpCollabObject.edits,
-                        GulpCollabObject.level,
-                        GulpCollabObject.private,
+                        BaseObj.id,
+                        BaseObj.name,
+                        BaseObj.type,
+                        BaseObj.owner_user_id,
+                        BaseObj.operation_id,
+                        BaseObj.time_created,
+                        BaseObj.time_updated,
+                        BaseObj.edits,
+                        BaseObj.level,
+                        BaseObj.private,
                     )
 
                 if flt.id is not None:
-                    q = q.where(GulpCollabObject.id.in_(flt.id))
+                    q = q.where(BaseObj.id.in_(flt.id))
                 if flt.level is not None:
-                    q = q.where(GulpCollabObject.level.in_(flt.level))
+                    q = q.where(BaseObj.level.in_(flt.level))
                 if flt.private_only:
-                    q = q.where(GulpCollabObject.private is True)
+                    q = q.where(BaseObj.private is True)
                 if flt.owner_id is not None:
-                    q = q.where(GulpCollabObject.owner_user_id.in_(flt.owner_id))
+                    q = q.where(BaseObj.owner_user_id.in_(flt.owner_id))
                 if flt.name is not None:
-                    q = q.where(GulpCollabObject.name.in_(flt.name))
+                    q = q.where(BaseObj.name.in_(flt.name))
                 if flt.type is not None:
-                    q = q.where(GulpCollabObject.type.in_(flt.type))
+                    q = q.where(BaseObj.type.in_(flt.type))
                 if flt.operation_id is not None:
-                    q = q.where(GulpCollabObject.operation_id.in_(flt.operation_id))
+                    q = q.where(BaseObj.operation_id.in_(flt.operation_id))
                 if flt.context:
-                    qq = [GulpCollabObject.context.ilike(x) for x in flt.context]
+                    qq = [BaseObj.context.ilike(x) for x in flt.context]
                     q = q.filter(or_(*qq))
                 if flt.src_file:
-                    qq = [GulpCollabObject.source.ilike(x) for x in flt.src_file]
+                    qq = [BaseObj.source.ilike(x) for x in flt.src_file]
                     q = q.filter(or_(*qq))
 
                 if flt.time_created_start is not None:
                     q = q.where(
-                        GulpCollabObject.time_created is not None
-                        and GulpCollabObject.time_created >= flt.time_created_start
+                        BaseObj.time_created is not None
+                        and BaseObj.time_created >= flt.time_created_start
                     )
                 if flt.time_created_end is not None:
                     q = q.where(
-                        GulpCollabObject.time_created is not None
-                        and GulpCollabObject.time_created <= flt.time_created_end
+                        BaseObj.time_created is not None
+                        and BaseObj.time_created <= flt.time_created_end
                     )
                 if flt.opt_time_start_end_events:
                     # filter by collabobj.events["@timestamp"] time range
@@ -694,23 +700,23 @@ class GulpCollabObject(GulpCollabBase):
                     if flt.time_start is not None:
                         # filter by collabobj time_start (pin)
                         q = q.where(
-                            GulpCollabObject.time_start is not None
-                            and GulpCollabObject.time_start >= flt.time_start
+                            BaseObj.time_start is not None
+                            and BaseObj.time_start >= flt.time_start
                         )
                     if flt.time_end is not None:
                         # filter by collabobj time_end (pin)
                         q = q.where(
-                            GulpCollabObject.time_end is not None
-                            and GulpCollabObject.time_end <= flt.time_end
+                            BaseObj.time_end is not None
+                            and BaseObj.time_end <= flt.time_end
                         )
 
                 if flt.text is not None:
-                    qq = [GulpCollabObject.text.ilike(x) for x in flt.text]
+                    qq = [BaseObj.text.ilike(x) for x in flt.text]
                     q = q.filter(or_(*qq))
 
                 if flt.events is not None:
                     event_conditions = [
-                        GulpCollabObject.events.op("@>")([{"id": event_id}])
+                        BaseObj.events.op("@>")([{"id": event_id}])
                         for event_id in flt.events
                     ]
                     q = q.filter(or_(*event_conditions))
@@ -718,17 +724,17 @@ class GulpCollabObject(GulpCollabBase):
                 if flt.tags is not None:
                     if flt.opt_tags_and:
                         # all tags must match (CONTAINS operator)
-                        q = q.filter(GulpCollabObject.tags.op("@>")(flt.tags))
+                        q = q.filter(BaseObj.tags.op("@>")(flt.tags))
                     else:
                         # at least one tag must match (OVERLAP operator)
-                        q = q.filter(GulpCollabObject.tags.op("&&")(flt.tags))
+                        q = q.filter(BaseObj.tags.op("&&")(flt.tags))
 
                 if flt.data is not None:
                     # filter is a key-value dict
                     flt_data_jsonb = func.jsonb_build_object(
                         *itertools.chain(*flt.data.items())
                     )
-                    q = q.filter(GulpCollabObject.data.op("@>")(flt_data_jsonb))
+                    q = q.filter(BaseObj.data.op("@>")(flt_data_jsonb))
 
                 if flt.limit is not None:
                     q = q.limit(flt.limit)

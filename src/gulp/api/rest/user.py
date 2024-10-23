@@ -24,7 +24,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import User
 from gulp.defs import InvalidArgument
 
@@ -187,7 +187,7 @@ async def user_list_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admin can list users
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         users = await User.get(await collab_api.session(), flt)
@@ -316,7 +316,7 @@ async def user_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admin can create users
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         user = await User.create(
@@ -365,7 +365,7 @@ async def user_delete_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admin can delete users
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         await User.delete(await collab_api.session(), user_id)

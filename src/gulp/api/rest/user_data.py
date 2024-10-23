@@ -21,7 +21,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import User
 from gulp.api.collab.user_data import UserData
 from gulp.defs import InvalidArgument
@@ -134,7 +134,7 @@ async def user_data_list_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admin can list users
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         user_datas = await UserData.get(await collab_api.session(), flt)

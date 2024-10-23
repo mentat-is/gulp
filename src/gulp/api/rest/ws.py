@@ -17,6 +17,10 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from starlette.endpoints import WebSocketEndpoint
 
+from gulp.api import collab_api
+from gulp.api.collab.session import GulpUserSession
+
+
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
@@ -38,6 +42,16 @@ class WsQueueDataType(StrEnum):
     REBASE_DONE = 'rebase_done'
     CHUNK = 'chunk'
 
+class WsParameters(BaseModel):
+    token: str = Field(..., description="user token")
+    operation: list[str] = Field(None,description="The operation/s on which this websocket is registered to receive data for, defaults to None(=all).")
+    types: list[WsQueueDataType] = Field(None,description="The types of data this websocket is interested in, defaults to None(=all).")
+    is_private: bool = Field(False,description="If the websocket is private (=data do not get broadcasted to other connected websockets.")    
+
+    @staticmethod
+    def from_dict(d: dict) -> "WsParameters":
+        return WsParameters(**d)
+    
 class ConnectedWs(BaseModel):
     """
     a connected and active websocket
@@ -45,24 +59,25 @@ class ConnectedWs(BaseModel):
     ws: WebSocket = Field(...,description="The WebSocket instance.")
     ws_id: str = Field(...,description="The WebSocket ID.")
     q: asyncio.Queue = Field(...,description="The asyncio queue associated with this websocket.")
-    user: str = Field(...,description="The owner of the websocket.")
-    operation: str = Field(...,description="The operation on which this websocket is active.")
-    types: list[WsQueueDataType] = Field(None,description="The types of data this websocket is interested in, defaults to None(=all).")
+    user = Field(..., description="user associated with this websocket.")
+    params: WsParameters = Field(..., description="creation parameters for this websocket.")
 
 class WsData(BaseModel):
     """
     data carried by the websocket
     """
     type: WsQueueDataType = Field(...,description="The type of data carried by the websocket.")
-    ws_id: str = Field(...,description="The WebSocket ID.")
     operation: str = Field(...,description="The operation this data belongs to.")
-    timestamp: int = Field(...,description="The timestamp of the data.")
-    data: dict = Field({},description="The data carried by the websocket.")
+    user: str = Field(...,description="The user who issued the request.")
+    ws_id: str = Field(...,description="The WebSocket ID.")
+    req_id: str = Field(...,description="The request ID.")
+    timestamp: int = Field(None,description="The timestamp of the data.")
+    data: dict = Field(None,description="The data carried by the websocket.")
 
-    def __init__(self, **data):
-        if 'timestamp' not in data:
-            data['timestamp'] = muty.time.now_nsec()
-        super().__init__(**data)
+    def __init__(self, **kwargs):
+        if 'timestamp' not in kwargs:
+            kwargs['timestamp'] = muty.time.now_nsec()
+        super().__init__(**kwargs)
 
     def to_dict(self) -> dict:
         """
@@ -100,8 +115,7 @@ def init(ws_queue: Queue, main_process: bool = False):
     _global_shared_q = ws_queue
     if main_process:
         # start the asyncio queue fill task to keep the asyncio queue filled from the ws queue
-        asyncio.create_task(_fill_ws_queues_from_shared_queue(logger, ws_queue))
-
+        asyncio.create_task(_fill_ws_queues_from_shared_queue(ws_queue))
     logger().debug("ws initialized!")
 
 
@@ -123,10 +137,11 @@ def shared_queue_close(q: Queue) -> None:
     q.join()
 
 
-async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
+async def _fill_ws_queues_from_shared_queue(q: Queue):
     """
-    walk through the queued data in the multiprocessing shared queue and fill each connected websocket asyncio queue
+    runs continously (in the main process) to walk through the queued data in the multiprocessing shared queue and fill each connected websocket asyncio queue
     """
+
     # uses an executor to run the blocking get() call in a separate thread
     logger().debug("starting asyncio queue fill task ...")
     loop = asyncio.get_event_loop()
@@ -143,122 +158,71 @@ async def _fill_ws_queues_from_shared_queue(l: logging.Logger, q: Queue):
                 entry = WsData.from_dict(d)
 
                 # find the websocket associated with this entry
-                cws = _find_connected_ws_by_id(entry.ws_id)
+                cws = _find_target_ws(entry.ws_id)
                 if cws is None:
                     # no websocket found for this entry, skip (this WsData entry will be lost)
+                    logger().warning("no websocket found for ws_id=%s, skipping entry!" % (entry.ws_id))
                     continue
-                                
-                if cws.is_private:
-                    # only broadcast to the specific ws_id
-                    if cws.ws_id != entry.ws_id:
-                        continue
-                
-                if cws.types is not None:
-                    # check types
-                    if not entry.type in cws.types:
-                        continue
-                
-                # put it in the ws async queue for the selected websocket
-                await cws.q.put(d)
 
-                
-                
-                
-                
-                # 
-                    if WsQueueDataType.
-                    # a monitor websocket receives all data without checks                    
-                    await cws.q.put(d)
-                else:
-
-
-
-
-
-
-
-                my_ws_id = cws.ws_id
-                    # check if the entry type is in the types list for the found socket
-                    if cws.types is not None and entry.type not in cws.types:
-                        logger().debug(
-                            "skipping data for websocket %s, not in entry.types!"
-                            % (cws)
-                        )
-                        continue
-
-                    # put it in the ws async queue for the selected websocket
-                    await cws.q.put(d)
-                    logger().debug(
-                        "data put in %s queue, type=%d(%s)!"
-                        % (cws, entry.type, entry.type.name)
-                    )
-
-                    # rely collab data (including sigma group results, which may be interesting to all) to all other sockets
-                    for _, cws in _connected_ws.items():
-                        if cws.ws_id != my_ws_id and entry.type not in [
-                            WsQueueDataType.INGESTION_STATS_CREATE,
-                            WsQueueDataType.INGESTION_STATS_UPDATE,
-                            WsQueueDataType.QUERY_STATS_CREATE,
-                            WsQueueDataType.QUERY_STATS_UPDATE,
-                            WsQueueDataType.INGESTION_CHUNK,
-                            WsQueueDataType.QUERY_DONE,
-                            WsQueueDataType.QUERY_RESULT,
-                        ]:
-                            # but skip private data
-                            is_private = False
-                            if entry.data is not None:
-                                is_private = entry.data.get("private", False)
-                            if not is_private:
-                                await cws.q.put(d)
-                                logger().debug("data put in %s queue (RELY)!" % (cws))
-                            else:
-                                logger().debug("skipping private data for %s!" % (cws))
+                # broadcast
+                for _, cws in _connected_ws.items():
+                    if cws.types is not None:
+                        # check types
+                        if not entry.type in cws.types:
+                            logger().warning("skipping entry type=%s for ws_id=%s, cws.types=%s" % (entry.type, cws.ws_id, cws.types))
+                            continue
+                    if cws.operation is not None:
+                        # check operation/s
+                        if not entry.operation in cws.operation:
+                            logger().warning("skipping entry type=%s for ws_id=%s, cws.operation=%s" % (entry.type, cws.ws_id, cws.operation))
+                            continue
+                        
+                    if cws.ws_id == entry.ws_id:
+                        # always relay to the ws async queue for the target websocket
+                        await cws.q.put(d)
+                    else:
+                        # not target websocket
+                        if cws.is_private:
+                            # do not broadcast
+                            logger().warning("skipping entry type=%s for ws_id=%s, is_private=True" % (entry.type, cws.ws_id))
+                            continue
+                        
+                        # only relay collab updates to other ws
+                        if entry.type not in [ WsQueueDataType.COLLAB_UPDATE ]:
+                            continue
+                        
+                        await cws.q.put(d)
             except Empty:
                 await asyncio.sleep(1)
                 continue
 
 
 def shared_queue_add_data(
-    t: WsQueueDataType,
+    type: WsQueueDataType,
+    operation: str,
+    user: str,
+    ws_id: str,
     req_id: str,
-    data: dict,
-    username: str = None,
-    ws_id: str = None,
-    operation_id: int = None,
-    client_id: int = None,
+    data: dict=None
 ) -> None:
     """
-    adds an entry to the ws queue
+    Adds data to the shared multiprocessing queue.
 
     Args:
-        t (WsQueueDataType): The type of data to be added to the queue.
+        t (WsQueueDataType): The type of data.
+        operation (str): The operation this data belongs to.
+        username (str): The user who issued the request.
+        ws_id (str): The WebSocket ID.
         req_id (str): The request ID.
-        data (dict): The data to be added to the queue.
-        username (str, optional): The username. Defaults to None.
-        ws_id (str, optional): The websocket id. Defaults to None.
-        operation_id (int, optional): The operation ID. Defaults to None.
-        client_id (int, optional): The client ID. Defaults to None.
+        data (dict, optional): The data to add. Defaults to None.
     """
-    if ws_id is not None and len(ws_id) > 0:
-        wsd = WsData(
-            t=t,
-            ws_id=ws_id,
-            req_id=req_id,
-            data=data,
-            username=username,
-            operation_id=operation_id,
-            client_id=client_id,
-        )
-
-        global _global_shared_q
-        logger().debug(
-            "adding entry type=%d(%s) to ws_id=%s queue..."
-            % (wsd.type, wsd.type.name, wsd.ws_id)
-        )
-        _global_shared_q.put(wsd.to_dict())
+    global _global_shared_q
+    wsd = WsData(type=type, operation=operation, user=user, ws_id=ws_id, req_id=req_id, data=data)
+    logger().debug("adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id))
+    _global_shared_q.put(wsd.to_dict())
 
 
-async def _check_ws_parameters(ws: WebSocket) -> dict:
+async def _check_ws_parameters(ws: WebSocket) -> WsParameters:
     """
     Check WebSocket parameters.
 
@@ -266,23 +230,19 @@ async def _check_ws_parameters(ws: WebSocket) -> dict:
         ws (WebSocket): The WebSocket object.
 
     Returns:
-        dict: The JSON request parameters.
+        WsParameters
 
     Raises:
         gulp.defs.InvalidArgument: If the 'ws_id' parameter is missing in the JSON request.
         gulp.defs.ObjectNotFound: If the user associated with the token is not found/expired.
         gulp.defs.MissingPermission: If the user does not have the required permissions.
     """
-    import gulp.api.collab_api as collab_api
-    from gulp.api.collab.session import UserSession
-
     # receive json request
     js = await ws.receive_json()
+    params = WsParameters.from_dict(js)
 
     # check token
-    u, _ = await UserSession.check_token(
-        await collab_api.session(), js["token"], GulpUserPermission.READ
-    )
+    u, _ = await GulpUserSession.check_token(params.token, GulpUserPermission.READ)
 
     # also check if we have monitor permission
     if u.is_monitor():
@@ -307,7 +267,7 @@ async def wait_all_connected_ws_close() -> None:
     logger().debug("all active websockets closed!")
 
 
-def _find_connected_ws_by_id(ws_id: str) -> ConnectedWs:
+def _find_target_ws(ws_id: str) -> ConnectedWs:
     """
     Finds a ConnectedWs object by its ID.
 

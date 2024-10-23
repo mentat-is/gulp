@@ -22,7 +22,7 @@ import gulp.utils
 from gulp.api import collab_api, elastic_api
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.operation import Operation
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.defs import InvalidArgument
 from gulp.utils import logger
 
@@ -71,7 +71,7 @@ async def operation_delete_handler(
     res_data = {"id": operation_id}
     try:
         # only admin can delete
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
@@ -154,7 +154,7 @@ async def operation_create_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # only admin can create
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         o = await Operation.create(
@@ -216,7 +216,7 @@ async def operation_update_handler(
             )
 
         # only admin can update
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         o = await Operation.update(
@@ -268,7 +268,7 @@ async def operation_list_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         ops = await Operation.get(await collab_api.session(), flt)
@@ -314,7 +314,7 @@ async def operation_get_by_id_handler(
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
         ops = await Operation.get(

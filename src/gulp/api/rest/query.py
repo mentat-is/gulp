@@ -34,7 +34,7 @@ from gulp import workers
 from gulp.api import collab_api, elastic_api, rest_api
 from gulp.api.collab.base import GulpCollabType, GulpUserPermission
 from gulp.api.collab.operation import Operation
-from gulp.api.collab.session import UserSession
+from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.stats import GulpStats
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.query import SigmaGroupFilter, SigmaGroupFiltersParam
@@ -223,7 +223,7 @@ async def query_multi_handler(
     )
     user_id = None
     try:
-        user, session = await UserSession.check_token(
+        user, session = await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
         user_id = session.user_id
@@ -855,7 +855,7 @@ async def query_max_min_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # check token
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
 
@@ -1000,7 +1000,7 @@ async def query_time_histograms_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # check token
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
 
@@ -1143,7 +1143,7 @@ async def query_operations_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # check token
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
         # query
@@ -1213,7 +1213,7 @@ async def query_single_event_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # check token
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
 
@@ -1324,7 +1324,7 @@ async def query_external_handler(
         options = GulpQueryOptions()
 
     try:
-        user, _ = await UserSession.check_token(
+        user, _ = await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
     except Exception as ex:
@@ -1434,7 +1434,7 @@ async def query_external_single_handler(
             req_id=req_id, ex=InvalidArgument("plugin_params.extra is empty!")
         )
     try:
-        await UserSession.check_token(
+        await GulpUserSession.check_token(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
     except Exception as ex:
