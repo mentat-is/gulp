@@ -22,7 +22,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.defs import InvalidArgument
 
 _app: APIRouter = APIRouter()
@@ -164,7 +164,7 @@ async def shared_data_update_handler(
     try:
         if data is None and operation_id is None:
             raise InvalidArgument("at least one of data, operation_id must be set.")
-        d = await CollabObj.update(
+        d = await GulpCollabObject.update(
             await collab_api.session(),
             token,
             req_id,
@@ -218,7 +218,7 @@ async def shared_data_create_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        d = await CollabObj.create(
+        d = await GulpCollabObject.create(
             await collab_api.session(),
             token,
             req_id,

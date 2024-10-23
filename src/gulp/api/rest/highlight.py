@@ -22,7 +22,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabLevel, GulpCollabType
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.defs import InvalidArgument
 
 _app: APIRouter = APIRouter()
@@ -211,7 +211,7 @@ async def highlight_update_handler(
                 "at least one of time_start, time_end, name, description, glyph_id, color, private must be set."
             )
 
-        o = await CollabObj.update(
+        o = await GulpCollabObject.update(
             await collab_api.session(),
             token,
             req_id,
@@ -291,7 +291,7 @@ async def highlight_create_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        hl = await CollabObj.create(
+        hl = await GulpCollabObject.create(
             await collab_api.session(),
             token,
             req_id,

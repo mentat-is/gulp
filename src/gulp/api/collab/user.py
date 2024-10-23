@@ -6,12 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.base import (
-    CollabBase,
-    GulpCollabFilter,
-    GulpUserPermission,
-    MissingPermission,
-)
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission, MissingPermission
+from gulp.api.collab_api import CollabBase
+
 from gulp.api.collab.session import UserSession
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
@@ -23,7 +20,7 @@ class User(CollabBase):
     """
 
     __tablename__ = "user"
-    name: Mapped[str] = mapped_column(String(32), unique=True, primary_key=True)
+    id: Mapped[str] = mapped_column(String(32), unique=True, primary_key=True)
     pwd_hash: Mapped[str] = mapped_column(String(128))
     permission: Mapped[GulpUserPermission] = mapped_column(
         Integer, default=GulpUserPermission.READ
@@ -44,7 +41,7 @@ class User(CollabBase):
 
     def to_dict(self) -> dict:
         return {
-            "name": self.name,
+            "name": self.id,
             "pwd_hash": self.pwd_hash,
             "glyph": self.glyph,
             "email": self.email,
@@ -117,7 +114,7 @@ class User(CollabBase):
                 q = q.where(User.id.in_(flt.id))
 
             if flt.name is not None:
-                q = q.where(User.name.in_(flt.name))
+                q = q.where(User.id.in_(flt.name))
 
             if flt.limit is not None:
                 q = q.limit(flt.limit)
@@ -157,7 +154,7 @@ class User(CollabBase):
         logger().debug("---> create: username=%s" % (username))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             # check if user already exists
-            q = select(User).where(User.name == username)
+            q = select(User).where(User.id == username)
             res = await sess.execute(q)
             if res.scalar_one_or_none() is not None:
                 raise ObjectAlreadyExists("user %s already exists" % (username))
@@ -165,7 +162,7 @@ class User(CollabBase):
             # create
             h = muty.crypto.hash_sha256(password)
             u = User(
-                name=username,
+                id=username,
                 pwd_hash=h,
                 email=email,
                 permission=permission,
@@ -357,6 +354,6 @@ class User(CollabBase):
             # if user_id is set, it must be the same as token's user_id (or token must be an admin token)
             raise MissingPermission(
                 "%s (userid=%d) does not have permission to access user_id=%d"
-                % (req_user.name, req_user.id, user_id)
+                % (req_user.id, req_user.id, user_id)
             )
         return req_user

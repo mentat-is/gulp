@@ -1,3 +1,4 @@
+from typing import Optional
 import muty.crypto
 import muty.string
 import muty.time
@@ -5,18 +6,13 @@ from sqlalchemy import BIGINT, ForeignKey, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
-
+from gulp.api import collab_api
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission, MissingPermission, SessionExpired, WrongUsernameOrPassword
+from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH
 from gulp.utils import logger
 import gulp.config as config
-from gulp.api.collab.base import (
-    CollabBase,
-    GulpCollabFilter,
-    GulpUserPermission,
-    MissingPermission,
-    SessionExpired,
-    WrongUsernameOrPassword,
-)
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab_api import CollabBase)
+from gulp.api.collab.base import GulpCollabObject
 from gulp.defs import ObjectNotFound
 
 
@@ -33,14 +29,14 @@ class UserSession(CollabBase):
     """
 
     __tablename__ = "session"
-    name: Mapped[str] = mapped_column(String(128), unique=True, primary_key=True)
+    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
     user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
-    time_expire: Mapped[int] = mapped_column(BIGINT, default=0)
+    time_expire: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
 
     def to_dict(self) -> dict:
         return {
             "user": self.user,
-            "name": self.name,
+            "name": self.id,
             "time_expire": self.time_expire,
         }
 
@@ -60,9 +56,9 @@ class UserSession(CollabBase):
             if user_session.time_expire > 0:
                 if muty.time.now_msec() > user_session.time_expire:
                     # delete this token
-                    await UserSession.delete(engine, user_session.name)
+                    await UserSession.delete(engine, user_session.id)
                     raise SessionExpired(
-                        "session token %s expired !" % (user_session.name)
+                        "session token %s expired !" % (user_session.id)
                     )
 
     @staticmethod
@@ -94,7 +90,7 @@ class UserSession(CollabBase):
                 raise ObjectNotFound("session not found for user_id=%d !" % (user_id))
 
             logger().debug(
-                "get: token for user_id %d=%s" % (user_id, user_session.name)
+                "get: token for user_id %d=%s" % (user_id, user_session.id)
             )
 
             # check if token is expired
@@ -123,7 +119,7 @@ class UserSession(CollabBase):
         logger().debug("---> get: token=%s" % (token))
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.name == token)
+            q = select(UserSession).where(UserSession.id == token)
             res = await sess.execute(q)
             user_session: UserSession = res.scalar_one_or_none()
             if user_session is None:
@@ -167,12 +163,12 @@ class UserSession(CollabBase):
             logger().debug(
                 "user %s session already exists, update token ..." % (user.name)
             )
-            user_session.name = token
+            user_session.id = token
             user_session.time_expire = time_expire
         else:
             # create
             user_session = UserSession(
-                user_id=user.id, name=token, time_expire=time_expire
+                user_id=user.id, id=token, time_expire=time_expire
             )
             logger().debug("created new user session: %s" % (user_session))
 
@@ -227,12 +223,12 @@ class UserSession(CollabBase):
             # get user
             if allow_any_password:
                 # debugging only
-                q = select(User).where((User.name == username)).with_for_update()
+                q = select(User).where((User.id == username)).with_for_update()
                 res = await sess.execute(q)
             else:
                 q = (
                     select(User)
-                    .where((User.name == username) & (User.pwd_hash == h))
+                    .where((User.id == username) & (User.pwd_hash == h))
                     .with_for_update()
                 )
                 res = await sess.execute(q)
@@ -262,10 +258,10 @@ class UserSession(CollabBase):
         if config.debug_allow_any_token_as_admin():
             # use admin token
             _, s = await UserSession._get_admin(engine)
-            token = s.name
+            token = s.id
 
         async with AsyncSession(engine) as sess:
-            q = select(UserSession).where(UserSession.name == token)
+            q = select(UserSession).where(UserSession.id == token)
             res = await sess.execute(q)
             session = res.scalar_one_or_none()
             if session is None:
@@ -291,7 +287,7 @@ class UserSession(CollabBase):
         logger().debug("---> get_admin")
         # get user
         async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(User).where(User.name == "admin")
+            q = select(User).where(User.id == "admin")
             res = await sess.execute(q)
             user = res.scalar_one_or_none()
             if user is None:
@@ -399,7 +395,7 @@ class UserSession(CollabBase):
         is_owner = False
         if obj_id is not None:
             # get object by id
-            obj = await CollabObj.get(engine, GulpCollabFilter(id=[obj_id]))
+            obj = await GulpCollabObject.get(engine, GulpCollabFilter(id=[obj_id]))
             obj = obj[0]
 
             is_owner = obj.owner_user_id == user.id
@@ -430,7 +426,7 @@ class UserSession(CollabBase):
                     "user=%d(%s) has no permission to delete or edit object=%d (not owner, not admin, user permission=%s(%d), requested=%s(%d))"
                     % (
                         user.id,
-                        user.name,
+                        user.id,
                         obj_id,
                         user_permission_name,
                         user.permission,
@@ -448,7 +444,7 @@ class UserSession(CollabBase):
                 "user=%d(%s) do not have the requested permission: user permission=%s(%d), requested=%s(%d))"
                 % (
                     user.id,
-                    user.name,
+                    user.id,
                     user_permission_name,
                     user.permission,
                     requested_permission_name,

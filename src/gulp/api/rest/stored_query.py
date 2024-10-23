@@ -24,7 +24,7 @@ import gulp.plugin
 import gulp.utils
 import gulp.workers as workers
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.structs import GulpQueryParameter, GulpQueryType
 from gulp.defs import API_DESC_PYSYGMA_PLUGIN, InvalidArgument
@@ -148,7 +148,7 @@ async def stored_query_update_handler(
 
         # convert and update rule
         r = await query_utils.gulpqueryparam_to_gulpquery(await collab_api.session(), q)
-        d = await CollabObj.update(
+        d = await GulpCollabObject.update(
             await collab_api.session(),
             token,
             req_id,
@@ -201,7 +201,7 @@ async def stored_query_create_handler(
         r = await query_utils.gulpqueryparam_to_gulpquery(await collab_api.session(), q)
 
         # create the entry
-        d = await CollabObj.create(
+        d = await GulpCollabObject.create(
             await collab_api.session(),
             token,
             req_id,

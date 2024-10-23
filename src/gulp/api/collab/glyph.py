@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api import collab_api
-from gulp.api.collab.base import CollabBase, GulpCollabFilter
+from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpCollabFilter
+from gulp.api.collab_api import CollabBase
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 
@@ -23,7 +24,7 @@ class Glyph(CollabBase):
     """
 
     __tablename__ = "glyph"
-    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
+    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), primary_key=True, unique=True)
     img: Mapped[bytes] = mapped_column(LargeBinary)
 
     @override
@@ -48,13 +49,13 @@ class Glyph(CollabBase):
         logger().debug("---> create: img=%s..., name=%s" % (img[0:4], name))
         async with await collab_api.session() as sess:
             # check if it already exists
-            q = select(Glyph).where(Glyph.name == name)
+            q = select(Glyph).where(Glyph.id == name)
             res = await sess.execute(q)
             g = res.scalar_one_or_none()
             if g is not None:
                 raise ObjectAlreadyExists("glyph %s already exists" % (name))
 
-            g = Glyph(img=img, name=name)
+            g = Glyph(img=img, id=name)
             sess.add(g)
             await sess.commit()
             logger().info("create: created glyph id=%d" % (g.id))
@@ -136,12 +137,12 @@ class Glyph(CollabBase):
         q = select(Glyph)
         if flt is not None:
             if flt.opt_basic_fields_only:
-                q = select(Glyph.id, Glyph.name)
+                q = select(Glyph.id, Glyph.id)
 
             if flt.id is not None:
                 q = q.where(Glyph.id.in_(flt.id))
             if flt.name is not None:
-                q = q.where(Glyph.name.in_(flt.name))
+                q = q.where(Glyph.id.in_(flt.name))
             if flt.limit is not None:
                 q = q.limit(flt.limit)
             if flt.offset is not None:

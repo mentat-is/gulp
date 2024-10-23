@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.base import CollabBase, GulpCollabFilter
 from gulp.api.collab.user import User
+from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 
@@ -15,14 +16,14 @@ class UserData(CollabBase):
     """
 
     __tablename__ = "user_data"
-    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
+    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), primary_key=True, unique=True)
     user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
     data: Mapped[dict] = mapped_column(JSONB)
 
     def to_dict(self) -> dict:
         return {
             "user": self.user_id,
-            "name": self.name,
+            "name": self.id,
             "data": self.data if self.data is not None else {},
         }
 
@@ -54,7 +55,7 @@ class UserData(CollabBase):
             if flt.owner_id is not None:
                 q = q.where(UserData.user_id.in_(flt.owner_id))
             if flt.name is not None:
-                q = q.where(UserData.name.in_(flt.name))
+                q = q.where(UserData.id.in_(flt.name))
             if flt.operation_id is not None:
                 q = q.where(UserData.operation_id.in_(flt.operation_id))
 
@@ -110,7 +111,7 @@ class UserData(CollabBase):
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             # check if user data already exists
-            q = select(UserData).where(UserData.name == name)
+            q = select(UserData).where(UserData.id == name)
             res = await sess.execute(q)
             if res.scalar_one_or_none() is not None:
                 raise ObjectAlreadyExists("user_data %s already exists" % (name))
@@ -226,7 +227,7 @@ class UserData(CollabBase):
                 raise ObjectNotFound("user_data %d not found!" % (user_data_id))
 
             if name is not None:
-                user_data.name = name
+                user_data.id = name
             if data is not None:
                 user_data.data = data
 

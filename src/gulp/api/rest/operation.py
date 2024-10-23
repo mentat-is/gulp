@@ -99,7 +99,7 @@ async def operation_delete_handler(
             # recreate operation
             new_op = await Operation.create(
                 await collab_api.session(),
-                op.name,
+                op.id,
                 op.index,
                 op.description,
                 op.glyph_id,

@@ -21,7 +21,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpUserPermission
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.api.collab.session import UserSession
 from gulp.utils import logger
 
@@ -35,7 +35,7 @@ async def collabobj_delete(
     A helper function to delete a collab object.
     """
     try:
-        await CollabObj.delete(
+        await GulpCollabObject.delete(
             await collab_api.session(),
             token,
             req_id,
@@ -87,9 +87,9 @@ async def collabobj_list(
             flt.limit = 1000
             logger().warning("collabobj_list: setting limit to 1000 (default)")
 
-        l = await CollabObj.get(await collab_api.session(), flt)
+        l = await GulpCollabObject.get(await collab_api.session(), flt)
         for n in l:
-            if isinstance(n, CollabObj):
+            if isinstance(n, GulpCollabObject):
                 ll.append(n.to_dict())
             else:
                 ll.append(n)
@@ -112,7 +112,7 @@ async def collabobj_get_by_id(
         flt.id = [object_id]
         if t is not None:
             flt.type = [t]
-        l = await CollabObj.get(await collab_api.session(), flt)
+        l = await GulpCollabObject.get(await collab_api.session(), flt)
         o = l[0].to_dict()
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o))
     except Exception as ex:
@@ -154,7 +154,7 @@ async def collab_edits_get_by_object_handler(
         await UserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
-        l = await CollabObj.get_edits_by_object(
+        l = await GulpCollabObject.get_edits_by_object(
             await collab_api.session(), collab_obj_id
         )
         ll = []
@@ -199,7 +199,7 @@ async def collab_edits_list_handler(
         await UserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
-        l = await CollabObj.get_edits(await collab_api.session(), flt)
+        l = await GulpCollabObject.get_edits(await collab_api.session(), flt)
         ll = []
         for e in l:
             ll.append(e.to_dict())
@@ -242,7 +242,7 @@ async def collab_list_handler(
         await UserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.READ
         )
-        l = await CollabObj.get(await collab_api.session(), flt)
+        l = await GulpCollabObject.get(await collab_api.session(), flt)
         ll = []
         for e in l:
             ll.append(e.to_dict())

@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.base import CollabBase, GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpCollabFilter, GulpUserPermission
+from gulp.api.collab_api import CollabBase
 from gulp.defs import ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 
@@ -15,20 +16,19 @@ class Operation(CollabBase):
     Represents an operation in the gulp system."""
 
     __tablename__ = "operation"
-    name: Mapped[str] = mapped_column(String(128), unique=True, primary_key=True)
-    index: Mapped[Optional[str]] = mapped_column(String(128), default=None)
+    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
+    index: Mapped[Optional[str]] = mapped_column(String(), default=None)
     description: Mapped[Optional[str]] = mapped_column(
-        String, default=None
+        String(), default=None
     )
     glyph: Mapped[Optional[str]] = mapped_column(
-        String(128),
         ForeignKey("glyph.name", ondelete="SET NULL"),
         default=None
     )
 
     def to_dict(self) -> dict:
         return {
-            "name": self.name,
+            "name": self.id,
             "description": self.description,
             "glyph": self.glyph_id,
             "index": self.index,
@@ -65,7 +65,7 @@ class Operation(CollabBase):
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             q = select(Operation).where(
-                Operation.name == name and Operation.index == index
+                Operation.id == name and Operation.index == index
             )
             res = await sess.execute(q)
             op = res.scalar_one_or_none()
@@ -74,7 +74,7 @@ class Operation(CollabBase):
 
             # create new operation
             op = Operation(
-                name=name,
+                id=name,
                 index=index,
                 description=description,
                 glyph_id=glyph_id,
@@ -195,7 +195,7 @@ class Operation(CollabBase):
                 if flt.id is not None:
                     q = q.where(Operation.id.in_(flt.id))
                 if flt.name is not None:
-                    q = q.where(Operation.name.in_(flt.name))
+                    q = q.where(Operation.id.in_(flt.name))
                 if flt.index is not None:
                     q = q.where(Operation.index.in_(flt.index))
                 if flt.limit is not None:

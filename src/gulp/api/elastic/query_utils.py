@@ -23,7 +23,7 @@ from gulp.api.collab.base import (
     GulpCollabType,
     GulpRequestStatus,
 )
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.api.collab.stats import GulpStats
 from gulp.api.elastic.query import (
     GulpQuery,
@@ -175,7 +175,7 @@ async def preprocess_sigma_group_filters(
         try:
             # if it's a number, we try to get the shared data from the db
             shared_data_id = int(f.name)
-            shared_data = await CollabObj.get(
+            shared_data = await GulpCollabObject.get(
                 await collab_api.session(),
                 GulpCollabFilter(
                     type=[GulpCollabType.SHARED_DATA_SIGMA_GROUP_FILTER],
@@ -287,7 +287,7 @@ async def _create_notes_on_match(
         glyph_id = options.notes_on_match_glyph_id
 
     num_notes = 0
-    cs_batch: list[CollabObj] = []
+    cs_batch: list[GulpCollabObject] = []
     failed: int = 0
     for e in evts:
         ev_id = e.get("_id")
@@ -311,7 +311,7 @@ async def _create_notes_on_match(
             # logger().debug("create note for event %s, id=%s, timestamp=%d, ws_id=%s" % (e, ev_id, ev_ts, ws_id))
 
             # create note on db
-            cs = await CollabObj.create(
+            cs = await GulpCollabObject.create(
                 await collab_api.session(),
                 token=None,
                 req_id=req_id,
@@ -817,7 +817,7 @@ async def gulpqueryparam_to_gulpquery(
         return GulpQuery(name=g.name, rule=r, glyph_id=g.glyph_id)
     if g.type == GulpQueryType.INDEX:
         # get from database
-        o = await CollabObj.get(
+        o = await GulpCollabObject.get(
             engine,
             GulpCollabFilter(type=[GulpCollabType.STORED_QUERY], id=[int(g.rule)]),
         )
@@ -939,7 +939,7 @@ async def sigma_to_stored_query(
             tags = gr.tags
 
         # create stored query
-        obj = await CollabObj.create(
+        obj = await GulpCollabObject.create(
             engine,
             token,
             req_id,
@@ -972,7 +972,7 @@ async def stored_sigma_tags_to_gulpqueryparameters(
     """
     flt = GulpCollabFilter(tags=tags, type=[GulpCollabType.STORED_QUERY])
 
-    l = await CollabObj.get(collab, flt)
+    l = await GulpCollabObject.get(collab, flt)
     ll = []
     for n in l:
         # get sigma from stored query "data"

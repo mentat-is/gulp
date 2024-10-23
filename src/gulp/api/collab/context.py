@@ -5,7 +5,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api import collab_api
-from gulp.api.collab.base import CollabBase, GulpCollabFilter
+from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab_api import CollabBase
 from gulp.defs import ObjectNotFound
 from gulp.utils import logger
 
@@ -21,12 +22,11 @@ class GulpContext(CollabBase):
     """
 
     __tablename__ = "context"
-    name: Mapped[str] = mapped_column(String(collab_api.COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
+    id: Mapped[str] = mapped_column(String(gulp.api.COLLAB_MAX_NAME_LENGTH.COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
     color: Mapped[Optional[str]] = mapped_column(String(32), default="#ffffff")
 
     def __init__(self, name: str, color: str) -> None:
-
-        self.name = name
+        self.id = name
         self.color = color
         logger().debug("---> GulpContext: name=%s, color=%s" % (name, color))
 
@@ -36,7 +36,7 @@ class GulpContext(CollabBase):
         async with sess:
             sess.add(self)
             await sess.commit()
-            logger().info("---> store: stored context=%s" % (self.name))
+            logger().info("---> store: stored context=%s" % (self.id))
 
 
     @staticmethod
@@ -44,7 +44,7 @@ class GulpContext(CollabBase):
 
         logger().debug("---> update: name=%s, color=%s" % (name, color))
         async with await collab_api.session() as sess:
-            q = select(GulpContext).where(GulpContext.name == name).with_for_update()
+            q = select(GulpContext).where(GulpContext.id == name).with_for_update()
             res = await sess.execute(q)
             c = GulpContext.get_result_or_throw(res, name)
 
@@ -69,7 +69,7 @@ class GulpContext(CollabBase):
 
         logger().debug("---> delete: name=%s" % (name))
         async with await collab_api.session() as sess:
-            q = select(GulpContext).where(GulpContext.name == name)
+            q = select(GulpContext).where(GulpContext.id == name)
             res = await sess.execute(q)
             c = GulpContext.get_result_or_throw(res, name)
 
@@ -101,9 +101,9 @@ class GulpContext(CollabBase):
         q = select(GulpContext)
         if flt is not None:
             if flt.opt_basic_fields_only:
-                q = select(GulpContext.id, GulpContext.name)
+                q = select(GulpContext.id, GulpContext.id)
             if flt.name is not None:
-                q = q.where(GulpContext.name.in_(flt.context))
+                q = q.where(GulpContext.id.in_(flt.context))
             if flt.limit is not None:
                 q = q.limit(flt.limit)
             if flt.offset is not None:

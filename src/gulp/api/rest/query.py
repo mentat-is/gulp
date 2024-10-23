@@ -215,7 +215,7 @@ async def query_multi_handler(
 
     if options.fields_filter is None:
         # use default fields filter
-        options.fields_filter = query_utils.FIELDS_FILTER_MANDATORY
+        options.fields_filter = ",".join(query_utils.FIELDS_FILTER_MANDATORY)
 
     logger().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
@@ -224,7 +224,7 @@ async def query_multi_handler(
     user_id = None
     try:
         user, session = await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
         user_id = session.user_id
     except Exception as ex:
@@ -247,7 +247,7 @@ async def query_multi_handler(
     # create the request stats
     try:
         await GulpStats.create(
-            await collab_api.session(),
+            await collab_api.collab(),
             GulpCollabType.STATS_QUERY,
             req_id,
             ws_id,
@@ -461,7 +461,9 @@ async def query_stored_sigma_tags_handler(
             raise ObjectNotFound("no tags provided")
         # get stored queries by tags
         gqp = await query_utils.stored_sigma_tags_to_gulpqueryparameters(
-            await collab_api.session(), tags
+            await collab_api.collab(),
+            tags,
+            all_tags_must_match=options.all_tags_must_match,
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -854,7 +856,7 @@ async def query_max_min_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
 
         # query
@@ -987,7 +989,7 @@ async def query_time_histograms_handler(
     return_hits: Annotated[
         bool,
         Query(
-            description="return hits (the events themself) in the response (use ´options.fields_filter´ to tune which fields to return)."
+            description="return hits (the events themself) in the response (use *options.fields_filter* to tune which fields to return)."
         ),
     ] = False,
     flt: Annotated[GulpQueryFilter, Body()] = None,
@@ -999,7 +1001,7 @@ async def query_time_histograms_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
 
         # query
@@ -1028,12 +1030,12 @@ async def query_time_histograms_handler(
 
 async def _parse_operation_aggregation(d: dict):
     # get all operation first
-    all_ops = await Operation.get(await collab_api.session())
+    all_ops = await Operation.get(await collab_api.collab())
 
     # parse aggregations into a more readable format
     result = []
     for op in all_ops:
-        operation_dict = {"name": op.name, "id": op.id, "contexts": []}
+        operation_dict = {"name": op.id, "id": op.id, "contexts": []}
         for operation in d["aggregations"]["operations"]["buckets"]:
             operation_key = str(operation["key"])
             if int(operation_key) == op.id:
@@ -1142,7 +1144,7 @@ async def query_operations_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
         # query
         res = await elastic_api.query_operations(elastic_api.elastic(), index)
@@ -1169,9 +1171,9 @@ async def query_operations_handler(
                         "timestamp_msec": 1701879738287,
                         "req_id": "561b55c5-6d63-498c-bcae-3114782baee2",
                         "data": {
-                            "gulp.operation.id": 1,
+                            "operation_id": "testop",
                             "@timestamp": 1573258569309,
-                            "gulp.timestamp.nsec": 1573258569309000000,
+                            "@timestamp_nsec": 1573258569309000000,
                             "gulp.context": "testcontext2",
                             "agent.type": "win_evtx",
                             "agent.id": "client:test_test_1.0",
@@ -1212,7 +1214,7 @@ async def query_single_event_handler(
     try:
         # check token
         await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
 
         # query
@@ -1252,7 +1254,7 @@ async def query_single_event_handler(
     "GulpQueryOptions is used to specify the following (and, as above, the rest is ignored):<br>"
     "- `limit`: return max these entries **per chunk** on the websocket<br>"
     "- `sort`: defaults to sort by ASCENDING timestamp<br>"
-    "- `fields_filter`: a list of fields to include in the result, or [ '*' ] to return all fields.<br>"
+    "- `fields_filter`: a CSV list of fields to include in the result.<br>"
     "external source specific parameters must be provided in the `plugin_params.extra` field as a dict, i.e.<br>"
     '`"extra": { "username": "...", "password": "...", "url": "...", "index": "...", "mapping": { "key": { "map_to": "..." } } }`',
 )
@@ -1288,11 +1290,11 @@ async def query_external_handler(
         Body(
             examples=[
                 {
-                    "fields_filter": ["event.original"],
+                    "fields_filter": "event.original",
                 }
             ]
         ),
-    ] = None,
+    ]=None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -1323,7 +1325,7 @@ async def query_external_handler(
 
     try:
         user, _ = await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -1331,7 +1333,7 @@ async def query_external_handler(
     # create the request stats
     try:
         await GulpStats.create(
-            await collab_api.session(),
+            await collab_api.collab(),
             GulpCollabType.STATS_QUERY,
             req_id,
             ws_id,
@@ -1396,7 +1398,7 @@ async def query_external_single_handler(
                         "username": "...",
                         "password": "...",
                         "url": "http://localhost:9200",
-                        "index": "testidx",
+                        "index": "testidx"
                     }
                 }
             ]
@@ -1407,9 +1409,9 @@ async def query_external_single_handler(
         Body(
             examples=[
                 {
-                    "gulp.operation.id": 1,
+                    "operation_id": "testop",
                     "@timestamp": 1573258569309,
-                    "gulp.timestamp.nsec": 1573258569309000000,
+                    "@timestamp_nsec": 1573258569309000000,
                     "gulp.context": "testcontext2",
                     "agent.type": "win_evtx",
                     "agent.id": "client:test_test_1.0",
@@ -1433,7 +1435,7 @@ async def query_external_single_handler(
         )
     try:
         await UserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+            await collab_api.collab(), token, GulpUserPermission.READ
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

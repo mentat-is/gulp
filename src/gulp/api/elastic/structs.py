@@ -281,7 +281,19 @@ class GulpQueryFilter(GulpBaseFilter):
             return data
         return json.loads(data)
 
-
+class GulpBaseDocument(BaseModel):
+    id: str = Field(None, description="the event ID")
+    timestamp: int = Field(None, description="the event timestamp")
+    operation: Optional[int] = Field(
+        None, description="operation ID the event is associated with."
+    )
+    context: Optional[str] = Field(
+        None, description="context the event is associated with."
+    )
+    src_file: Optional[str] = Field(
+        None, description="source file the event is associated with."
+    )
+    
 class GulpDocument:
     """
     represents a Gulp document.

@@ -1,36 +1,5 @@
 # uses environment variables in .env file
 services:
-  gulp:
-    profiles: ["full"]
-    image: mentatis/gulp-core:latest
-    #image: gulp-core:latest
-
-    container_name: gulp
-    environment:
-      - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      - ELASTIC_URL=http://${ELASTIC_USER}:${ELASTIC_PASSWORD}@os01:9200
-    volumes:
-      - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
-      - ./.gulpconfig:/root/.config/gulp
-
-    depends_on:
-      - postgres
-      - adminer
-      - os01
-    ports:
-      - ${PORT:-8080}:${PORT:-8080}
-    command: python3 -m gulp ${EXTRA_ARGS:-}
-
-  gulp-web:
-    profiles: ["full"]
-    image: mentatis/gulp-web:latest
-    depends_on:
-      - gulp
-    container_name: gulp-web
-    restart: on-failure
-    ports:
-      - 3000:3000
-
   os01:
     restart: always
     image: opensearchproject/opensearch:latest
@@ -142,13 +111,19 @@ services:
   postgres:
     # using an image having pg_cron preinstalled
     image: cleisonfmelo/postgres-pg-cron
+
     #command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
     restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - 5432:5432
-
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      #- POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS}
+      
   elasticvue:
     image: cars10/elasticvue:latest
     container_name: elasticvue
@@ -164,6 +139,37 @@ services:
     restart: always
     ports:
       - 8002:8080
+
+  gulp:
+    profiles: ["full"]
+    image: mentatis/gulp-core:latest
+    #image: gulp-core:latest
+
+    container_name: gulp
+    environment:
+      - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - ELASTIC_URL=http://${ELASTIC_USER}:${ELASTIC_PASSWORD}@os01:9200
+    volumes:
+      - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
+      - ./.gulpconfig:/root/.config/gulp
+
+    depends_on:
+      - postgres
+      - adminer
+      - os01
+    ports:
+      - ${PORT:-8080}:${PORT:-8080}
+    command: python3 -m gulp ${EXTRA_ARGS:-}
+
+  gulp-web:
+    profiles: ["full"]
+    image: mentatis/gulp-web:latest
+    depends_on:
+      - gulp
+    container_name: gulp-web
+    restart: on-failure
+    ports:
+      - 3000:3000
 
 volumes:
   postgres_data:

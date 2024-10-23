@@ -1,5 +1,5 @@
 import itertools
-from typing import Optional, Union
+from typing import Optional, TypeVar, Union
 
 import muty.crypto
 import muty.string
@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Result,
     String,
     func,
     or_,
@@ -20,124 +21,154 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
-from sqlalchemy.orm import Mapped, mapped_column
-
-from gulp.api.collab.base import (
-    CollabBase,
-    GulpAssociatedEvent,
-    GulpCollabFilter,
-    GulpCollabLevel,
-    GulpCollabType,
-    GulpUserPermission,
-)
+from sqlalchemy.orm import Mapped, mapped_column, MappedAsDataclass, DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy_mixins import SerializeMixin
+from gulp.api.collab import session
+from gulp.api.collab_api import GulpCollabLevel
+from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpAssociatedEvent, GulpCollabFilter, GulpCollabType, GulpUserPermission
 from gulp.defs import InvalidArgument, ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 
-
-class CollabEdits(CollabBase):
+T = TypeVar("T", bound="GulpCollabBase")
+class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
     """
-    Represents an edit on a collaboration object.
+    base for everything on the collab database
     """
+    __tablename__ = "collab_base"
 
-    __tablename__ = "edit"
-    __table_args__ = (Index("idx_edits_collab_obj", "collab_obj"),)
+    id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), primary_key=True, unique=True)
+    type: Mapped[GulpCollabType] = mapped_column(String)
+    time_created: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    time_updated: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+                                                 
+    __mapper_args__ = {
+        "polymorphic_identity": "collab_base",
+        "polymorphic_on": "type",
+    }    
 
-    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
-    user: Mapped[str] = mapped_column(ForeignKey("user.name", ondelete="CASCADE"))
-    time_edit: Mapped[int] = mapped_column(BIGINT)
-    collab_obj: Mapped[str] = mapped_column(
-        ForeignKey("collab_obj.name", ondelete="CASCADE")
-    )
-    new_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
+    async def store(self, sess: AsyncSession = None) -> None:
+        """
+        stores the collaboration object in the database
 
-    def to_dict(self):
-        d = {
-            "name": self.id,
-            "user": self.user_id,
-            "collab_obj": self.collab_obj_id,
-            "time_edit": self.time_edit,
-            "new_data": self.new_data,
-        }
-        return d
+        Args:
+            sess (AsyncSession, optional): The session to use. Defaults to None (creates a new session).
+        """
+        if sess is None:
+            sess = await session()
+        async with sess:
+            sess.add(self)
+            await sess.commit()
+            logger().info("---> store: stored %s" % (self))
 
+        
+    @staticmethod
+    async def delete(obj_id: str, t: T, throw_if_not_exists: bool = True) -> None:
+        """
+        deletes a collaboration object
 
-class CollabObj(CollabBase):
+        Args:
+            obj_id (str): The id of the object.
+            t (T): The class of the object, derived from CollabBase.
+            throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
+        """
+        logger().debug("---> delete: obj_id=%s, type=%s" % (obj_id, t))
+        async with await session() as sess:
+            q = select(T).where(T.id == obj_id).with_for_update()
+            res = await sess.execute(q)
+            c = GulpCollabObject.get_one_result_or_throw(
+                res, obj_id=obj_id, t=t, throw_if_not_exists=throw_if_not_exists
+            )
+            if c is not None:
+                sess.delete(c)
+                await sess.commit()
+                logger().info("---> deleted: %s" % (c))
+
+    @staticmethod
+    async def update(obj_id: str, t: T, d: dict) -> T:
+        """
+        updates a collaboration object
+
+        Args:
+            obj_id (str): The id of the object.
+            t (T): The type of the object.
+            d (dict): The data to update.
+            done (bool, optional): If True, sets the object as done. Defaults to False.
+
+        Returns:
+            T: The updated object.
+        """
+        logger().debug("---> update: obj_id=%s, type=%s, d=%s" % (obj_id, t, d))
+        async with await session() as sess:
+            q = select(T).where(T.name == obj_id).with_for_update()
+            res = await sess.execute(q)
+            c = GulpCollabObject.get_one_result_or_throw(res, obj_id=obj_id, t=t)
+
+            # update
+            for k, v in d.items():
+                setattr(c, k, v)
+            c.time_updated = muty.time.now_msec()
+
+            await sess.commit()
+            logger().debug("---> updated: %s" % (c))
+            return c
+
+    @staticmethod
+    async def get_one_result_or_throw(
+        res: Result,
+        obj_id: str = None,
+        t: GulpCollabType = None,
+        throw_if_not_exists: bool = True,
+    ) -> T:
+        """
+        gets one result or throws an exception
+
+        Args:
+            res (Result): The result.
+            obj_id (str, optional): The id of the object, just for the debug print. Defaults to None.
+            t (GulpCollabType, optional): The type of the object, just for the debug print. Defaults to None.
+            throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
+        """
+        c = res.scalar_one_or_none()
+        if c is None:
+            msg = "collab type=%s, id=%s not found!" % (t, obj_id)
+            if throw_if_not_exists:
+                raise ObjectNotFound(msg)
+            else:
+                logger().warning(msg)
+        return c
+
+    
+class GulpCollabObject(GulpCollabBase):
     """
-    represents a collaboration object (i.e. note, highlight, story, link, etc.)
+    base for all collaboration objects (notes, links, stories, highlights)
     """
 
     __tablename__ = "collab_obj"
+
+    # index for operation
     __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
-    name: Mapped[str] = mapped_column(String(128), primary_key=True, unique=True)
-    type: Mapped[GulpCollabType] = mapped_column(Integer, default=GulpCollabType.NOTE)
-    context: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("context.name", ondelete="CASCADE"), default=None
-    )
+
+    # the following are present in all collab objects regardless of type
+    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
     owner: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("user.name", ondelete="CASCADE"), default=None
+        ForeignKey("user.id", ondelete="CASCADE")
     )
     operation: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("operation.name", ondelete="CASCADE"), default=None
+        ForeignKey("operation.id", ondelete="CASCADE")
     )
-    time_created: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    time_updated: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    time_start: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    time_end: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    events: Mapped[Optional[list[dict]]] = mapped_column(JSONB, default=None)
-    source: Mapped[Optional[str]] = mapped_column(String, default=None)
-    description: Mapped[Optional[str]] = mapped_column(String, default=None)
-    text: Mapped[Optional[str]] = mapped_column(String, default=None)
-    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=None)
     glyph: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.name", ondelete="SET NULL"), default=None
+        ForeignKey("glyph.id", ondelete="SET NULL"), default=None
     )
-    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
-    level: Mapped[Optional[GulpCollabLevel]] = mapped_column(
-        Integer, default=GulpCollabLevel.DEFAULT
-    )
+    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=None)
+    title: Mapped[Optional[str]] = mapped_column(String, default=None)
     private: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
-    edits: Mapped[Optional[str]] = mapped_column(ARRAY(Integer), default=None)
+    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
 
-    def __repr__(self):
-        return (
-            f"<CollabObj name={self.name}, owner_user_id={self.owner}, type={self.type}, level={self.level}"
-            f"time_created={self.time_created}, time_updated={self.time_updated}, "
-            f"time_start={self.time_start}, time_end={self.time_end}, operation={self.operation}, "
-            f"context={self.context}, src_file={self.source}, "
-            f"description={muty.string.make_shorter(self.description)}, "
-            f"text={muty.string.make_shorter(self.text)}, "
-            f"glyph={self.glyph}, "
-            f"tags={self.tags}, events={self.events}, data={self.data}, edits={self.edits}, private={self.private}>"
-        )
-
-    def to_dict(self, extras: dict = None):
-        d = {
-            "level": self.level,
-            "owner": self.owner,
-            "type": self.type,
-            "time_created": self.time_created,
-            "time_updated": self.time_updated,
-            "time_start": self.time_start,
-            "time_end": self.time_end,
-            "operation": self.operation,
-            "context": self.context,
-            "source": self.source,
-            "name": self.name,
-            "description": self.description,
-            "text": self.text,
-            "glyph": self.glyph,
-            "tags": self.tags,
-            "events": self.events,
-            "data": self.data,
-            "edits": self.edits,
-            "private": self.private,
-        }
-        if extras is not None:
-            # add extras
-            d.update(extras)
-
-        return d
-
+    __mapper_args__ = {
+        "polymorphic_identity": "collab_obj",
+    }    
+    
     @staticmethod
     async def create(
         engine: AsyncEngine,
@@ -162,7 +193,7 @@ class CollabObj(CollabBase):
         skip_ws: bool = False,
         private: bool = False,
         level: GulpCollabLevel = GulpCollabLevel.DEFAULT,
-    ) -> "CollabObj":
+    ) -> "GulpCollabObject":
         """
         Creates a new collaboration object.
 
@@ -252,7 +283,7 @@ class CollabObj(CollabBase):
                 + str(txt)
                 + str(description)
             )
-            q = select(CollabObj).where(CollabObj.hash == h)
+            q = select(GulpCollabObject).where(GulpCollabObject.hash == h)
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is not None:
@@ -263,7 +294,7 @@ class CollabObj(CollabBase):
 
             # create new collaboration object
             now = muty.time.now_msec()
-            obj = CollabObj(
+            obj = GulpCollabObject(
                 owner_user_id=user.id if user is not None else internal_user_id,
                 type=t,
                 hash=h,
@@ -289,13 +320,6 @@ class CollabObj(CollabBase):
             obj.time_updated = now
             sess.add(obj)
             await sess.flush()
-            await CollabObj._store_edit(
-                sess,
-                obj,
-                user.id if user is not None else internal_user_id,
-                user.name if user is not None else internal_username,
-                obj.time_updated,
-            )
             await sess.commit()
             # ollab_api.logger().info("---> create: %s" % (obj))
 
@@ -310,33 +334,6 @@ class CollabObj(CollabBase):
                     ws_id=ws_id,
                 )
             return obj
-
-    @staticmethod
-    async def _store_edit(
-        sess: AsyncSession,
-        obj: "CollabObj",
-        user_id: int,
-        username: str,
-        time_edit: int,
-    ) -> None:
-        # record edit in the edits table
-        e = CollabEdits(
-            user_id=user_id,
-            username=username,
-            collab_obj_id=obj.id,
-            time_edit=time_edit,
-        )
-        sess.add(e)
-        await sess.flush()
-
-        # add edit id to the collab obj
-        obj.edits.append(e.id)
-        q = (
-            update(CollabObj)
-            .where(CollabObj.id == obj.id)
-            .values(edits=obj.edits, data=obj.data)
-        )
-        await sess.execute(q)
 
     @staticmethod
     async def update(
@@ -357,7 +354,7 @@ class CollabObj(CollabBase):
         glyph_id: int = None,
         t: GulpCollabType = None,
         private: bool = None,
-    ) -> "CollabObj":
+    ) -> "GulpCollabObject":
         """
         Update a collab object with the specified parameters.
 
@@ -400,12 +397,12 @@ class CollabObj(CollabBase):
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             if t is not None:
                 q = (
-                    select(CollabObj)
-                    .where(CollabObj.id == object_id, CollabObj.type == t)
+                    select(GulpCollabObject)
+                    .where(GulpCollabObject.id == object_id, GulpCollabObject.type == t)
                     .with_for_update()
                 )
             else:
-                q = select(CollabObj).where(CollabObj.id == object_id).with_for_update()
+                q = select(GulpCollabObject).where(GulpCollabObject.id == object_id).with_for_update()
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is None:
@@ -460,7 +457,6 @@ class CollabObj(CollabBase):
             obj.hash = h
 
             # record edit in the edits table
-            await CollabObj._store_edit(sess, obj, user.id, user.name, obj.time_updated)
             sess.add(obj)
 
             #  and finally commit
@@ -512,11 +508,11 @@ class CollabObj(CollabBase):
         )
         async with AsyncSession(engine, expire_on_commit=False) as sess:
             if t is not None:
-                q = select(CollabObj).where(
-                    CollabObj.id == object_id, CollabObj.type == t
+                q = select(GulpCollabObject).where(
+                    GulpCollabObject.id == object_id, GulpCollabObject.type == t
                 )
             else:
-                q = select(CollabObj).where(CollabObj.id == object_id)
+                q = select(GulpCollabObject).where(GulpCollabObject.id == object_id)
             res = await sess.execute(q)
             obj = res.scalar_one_or_none()
             if obj is None:
@@ -608,7 +604,7 @@ class CollabObj(CollabBase):
     @staticmethod
     async def get(
         engine: AsyncEngine, flt: GulpCollabFilter = None
-    ) -> Union[list["CollabObj"], list[dict]]:
+    ) -> Union[list["GulpCollabObject"], list[dict]]:
         """
         Gets collaboration objects.
 
@@ -624,52 +620,52 @@ class CollabObj(CollabBase):
         """
         logger().debug("---> get: filter=%s" % (flt))
         async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(CollabObj)
+            q = select(GulpCollabObject)
             if flt is not None:
                 if flt.opt_basic_fields_only:
                     q = select(
-                        CollabObj.id,
-                        CollabObj.name,
-                        CollabObj.type,
-                        CollabObj.owner_user_id,
-                        CollabObj.operation_id,
-                        CollabObj.time_created,
-                        CollabObj.time_updated,
-                        CollabObj.edits,
-                        CollabObj.level,
-                        CollabObj.private,
+                        GulpCollabObject.id,
+                        GulpCollabObject.name,
+                        GulpCollabObject.type,
+                        GulpCollabObject.owner_user_id,
+                        GulpCollabObject.operation_id,
+                        GulpCollabObject.time_created,
+                        GulpCollabObject.time_updated,
+                        GulpCollabObject.edits,
+                        GulpCollabObject.level,
+                        GulpCollabObject.private,
                     )
 
                 if flt.id is not None:
-                    q = q.where(CollabObj.id.in_(flt.id))
+                    q = q.where(GulpCollabObject.id.in_(flt.id))
                 if flt.level is not None:
-                    q = q.where(CollabObj.level.in_(flt.level))
+                    q = q.where(GulpCollabObject.level.in_(flt.level))
                 if flt.private_only:
-                    q = q.where(CollabObj.private is True)
+                    q = q.where(GulpCollabObject.private is True)
                 if flt.owner_id is not None:
-                    q = q.where(CollabObj.owner_user_id.in_(flt.owner_id))
+                    q = q.where(GulpCollabObject.owner_user_id.in_(flt.owner_id))
                 if flt.name is not None:
-                    q = q.where(CollabObj.name.in_(flt.name))
+                    q = q.where(GulpCollabObject.name.in_(flt.name))
                 if flt.type is not None:
-                    q = q.where(CollabObj.type.in_(flt.type))
+                    q = q.where(GulpCollabObject.type.in_(flt.type))
                 if flt.operation_id is not None:
-                    q = q.where(CollabObj.operation_id.in_(flt.operation_id))
+                    q = q.where(GulpCollabObject.operation_id.in_(flt.operation_id))
                 if flt.context:
-                    qq = [CollabObj.context.ilike(x) for x in flt.context]
+                    qq = [GulpCollabObject.context.ilike(x) for x in flt.context]
                     q = q.filter(or_(*qq))
                 if flt.src_file:
-                    qq = [CollabObj.source.ilike(x) for x in flt.src_file]
+                    qq = [GulpCollabObject.source.ilike(x) for x in flt.src_file]
                     q = q.filter(or_(*qq))
 
                 if flt.time_created_start is not None:
                     q = q.where(
-                        CollabObj.time_created is not None
-                        and CollabObj.time_created >= flt.time_created_start
+                        GulpCollabObject.time_created is not None
+                        and GulpCollabObject.time_created >= flt.time_created_start
                     )
                 if flt.time_created_end is not None:
                     q = q.where(
-                        CollabObj.time_created is not None
-                        and CollabObj.time_created <= flt.time_created_end
+                        GulpCollabObject.time_created is not None
+                        and GulpCollabObject.time_created <= flt.time_created_end
                     )
                 if flt.opt_time_start_end_events:
                     # filter by collabobj.events["@timestamp"] time range
@@ -697,23 +693,23 @@ class CollabObj(CollabBase):
                     if flt.time_start is not None:
                         # filter by collabobj time_start (pin)
                         q = q.where(
-                            CollabObj.time_start is not None
-                            and CollabObj.time_start >= flt.time_start
+                            GulpCollabObject.time_start is not None
+                            and GulpCollabObject.time_start >= flt.time_start
                         )
                     if flt.time_end is not None:
                         # filter by collabobj time_end (pin)
                         q = q.where(
-                            CollabObj.time_end is not None
-                            and CollabObj.time_end <= flt.time_end
+                            GulpCollabObject.time_end is not None
+                            and GulpCollabObject.time_end <= flt.time_end
                         )
 
                 if flt.text is not None:
-                    qq = [CollabObj.text.ilike(x) for x in flt.text]
+                    qq = [GulpCollabObject.text.ilike(x) for x in flt.text]
                     q = q.filter(or_(*qq))
 
                 if flt.events is not None:
                     event_conditions = [
-                        CollabObj.events.op("@>")([{"id": event_id}])
+                        GulpCollabObject.events.op("@>")([{"id": event_id}])
                         for event_id in flt.events
                     ]
                     q = q.filter(or_(*event_conditions))
@@ -721,17 +717,17 @@ class CollabObj(CollabBase):
                 if flt.tags is not None:
                     if flt.opt_tags_and:
                         # all tags must match (CONTAINS operator)
-                        q = q.filter(CollabObj.tags.op("@>")(flt.tags))
+                        q = q.filter(GulpCollabObject.tags.op("@>")(flt.tags))
                     else:
                         # at least one tag must match (OVERLAP operator)
-                        q = q.filter(CollabObj.tags.op("&&")(flt.tags))
+                        q = q.filter(GulpCollabObject.tags.op("&&")(flt.tags))
 
                 if flt.data is not None:
                     # filter is a key-value dict
                     flt_data_jsonb = func.jsonb_build_object(
                         *itertools.chain(*flt.data.items())
                     )
-                    q = q.filter(CollabObj.data.op("@>")(flt_data_jsonb))
+                    q = q.filter(GulpCollabObject.data.op("@>")(flt_data_jsonb))
 
                 if flt.limit is not None:
                     q = q.limit(flt.limit)

@@ -27,7 +27,7 @@ from gulp.api.collab.base import (
     GulpCollabLevel,
     GulpCollabType,
 )
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.defs import InvalidArgument
 
 _app: APIRouter = APIRouter()
@@ -191,7 +191,7 @@ async def link_update_handler(
             # FIXME: is this still needed ?
             data["events"] = [e.to_dict() for e in events]
 
-        l = await CollabObj.update(
+        l = await GulpCollabObject.update(
             await collab_api.session(),
             token,
             req_id,
@@ -267,7 +267,7 @@ async def link_create_handler(
     # FIXME: is duplicating events into data still needed after the latest change ?
     data["events"] = [e.to_dict() for e in events]
     try:
-        l = await CollabObj.create(
+        l = await GulpCollabObject.create(
             await collab_api.session(),
             token,
             req_id,

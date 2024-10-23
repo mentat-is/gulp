@@ -27,7 +27,7 @@ from gulp.api.collab.base import (
     GulpCollabLevel,
     GulpCollabType,
 )
-from gulp.api.collab.collabobj import CollabObj
+from gulp.api.collab.base import GulpCollabObject
 from gulp.defs import InvalidArgument
 from gulp.utils import logger
 
@@ -185,7 +185,7 @@ async def note_update_handler(
                 "at least one of event_ids, text, title, glyph_id, tags, color, private must be set."
             )
 
-        o = await CollabObj.update(
+        o = await GulpCollabObject.update(
             await collab_api.session(),
             token,
             req_id,
@@ -271,7 +271,7 @@ async def note_create_handler(
             raise InvalidArgument("events and time_pin cannot be both set.")
 
         # logger().debug('events=%s' % (events))
-        o = await CollabObj.create(
+        o = await GulpCollabObject.create(
             await collab_api.session(),
             token,
             req_id,

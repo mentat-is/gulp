@@ -698,10 +698,10 @@ class GulpStats(CollabBase):
     __tablename__ = "stats"
     __table_args__ = (Index("idx_stats_operation", "operation"),)
 
-    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
     type: Mapped[GulpCollabType] = mapped_column(Integer)
-    client: Mapped[str] = mapped_column(
-        ForeignKey("client.name", ondelete="CASCADE")
+    user: Mapped[str] = mapped_column(
+        ForeignKey("user.name", ondelete="CASCADE")
     )
     operation: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.name", ondelete="CASCADE"), default=None
