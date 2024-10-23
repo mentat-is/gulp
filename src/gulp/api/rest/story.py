@@ -192,7 +192,7 @@ async def story_update_handler(
             description=description,
             glyph_id=glyph_id,
             data={"color": color} if color is not None else None,
-            t=GulpCollabType.STORY,
+            type=GulpCollabType.STORY,
             private=private,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))

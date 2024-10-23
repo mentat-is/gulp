@@ -46,8 +46,7 @@ class WsParameters(BaseModel):
     token: str = Field(..., description="user token")
     operation: list[str] = Field(None,description="The operation/s on which this websocket is registered to receive data for, defaults to None(=all).")
     types: list[WsQueueDataType] = Field(None,description="The types of data this websocket is interested in, defaults to None(=all).")
-    is_private: bool = Field(False,description="If the websocket is private (=data do not get broadcasted to other connected websockets.")    
-
+    
     @staticmethod
     def from_dict(d: dict) -> "WsParameters":
         return WsParameters(**d)
@@ -71,6 +70,7 @@ class WsData(BaseModel):
     user: str = Field(...,description="The user who issued the request.")
     ws_id: str = Field(...,description="The WebSocket ID.")
     req_id: str = Field(...,description="The request ID.")
+    private: bool = Field(False,description="If the data is private(=only ws with ws_id=ws_id can receive it).")
     timestamp: int = Field(None,description="The timestamp of the data.")
     data: dict = Field(None,description="The data carried by the websocket.")
 
@@ -182,9 +182,9 @@ async def _fill_ws_queues_from_shared_queue(q: Queue):
                         await cws.q.put(d)
                     else:
                         # not target websocket
-                        if cws.is_private:
+                        if entry.private:
                             # do not broadcast
-                            logger().warning("skipping entry type=%s for ws_id=%s, is_private=True" % (entry.type, cws.ws_id))
+                            logger().warning("skipping entry type=%s for ws_id=%s, private=True" % (entry.type, cws.ws_id))
                             continue
                         
                         # only relay collab updates to other ws

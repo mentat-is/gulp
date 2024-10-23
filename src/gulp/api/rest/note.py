@@ -197,7 +197,7 @@ async def note_update_handler(
             glyph_id=glyph_id,
             tags=tags,
             data={"color": color} if color is not None else None,
-            t=GulpCollabType.NOTE,
+            type=GulpCollabType.NOTE,
             private=private,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))

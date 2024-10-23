@@ -26,9 +26,9 @@ class GulpUserSession(GulpCollabBase):
         UniqueConstraint('user_id', name='uq_session_user_id'),
     )
 
-    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
+    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True, unique=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), unique=True)
-    user: Mapped["User"] = relationship("User", back_populates="sessions") # mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    user: Mapped["User"] = relationship("User", back_populates="session")
     time_expire: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
     
     __mapper_args__ = {
@@ -42,28 +42,6 @@ class GulpUserSession(GulpCollabBase):
             self.time_expire=0
         else:
             self.time_expire = time_expire if time_expire is not None else 0
-
-    # Existing methods.        
-    @staticmethod
-    async def check_expired(engine: AsyncEngine, user_session: "GulpUserSession") -> None:
-        """
-        Check if the user session has expired and delete the token if it has.
-
-        Args:
-            engine (AsyncEngine): The database engine.
-            user_session (UserSession): The user session object.
-
-        Raises:
-            SessionExpired: If the session token has expired.
-        """
-        if not config.debug_no_token_expiration():
-            if user_session.time_expire > 0:
-                if muty.time.now_msec() > user_session.time_expire:
-                    # delete this token
-                    await GulpUserSession.delete(engine, user_session.id)
-                    raise SessionExpired(
-                        "session token %s expired !" % (user_session.id)
-                    )
 
     @staticmethod
     async def get_by_user_id(

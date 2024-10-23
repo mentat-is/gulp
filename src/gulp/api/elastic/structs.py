@@ -84,14 +84,6 @@ class GulpBaseFilter(BaseModel):
     if no filter is specified, all events are considered.
     """
 
-    category: Optional[list[str]] = Field(
-        None,
-        description="filter to include events of certain (plugin dependent) categories.",
-    )
-    gulp_log_level: Optional[list[GulpLogLevel]] = Field(
-        None,
-        description="filter to include events of certain GULP loglevels (the original level mapped to GULP numeric GulpLogLevel, which may be different).",
-    )
     event_code: Optional[list[str]] = Field(
         None,
         description="filter to include events of certain (plugin dependent) event codes.",
@@ -140,9 +132,7 @@ class GulpIngestionFilter(GulpBaseFilter):
 
     def to_dict(self) -> dict:
         d = {
-            "event.category": self.category,
             "event.code": self.event_code,
-            "log.level": self.gulp_log_level,
             "start_msec": self.start_msec,
             "end_msec": self.end_msec,
             "extra": self.extra,
@@ -282,43 +272,28 @@ class GulpQueryFilter(GulpBaseFilter):
         return json.loads(data)
 
 class GulpBaseDocument(BaseModel):
-    id: str = Field(None, description="the event ID")
-    timestamp: int = Field(None, description="the event timestamp")
-    operation: Optional[int] = Field(
-        None, description="operation ID the event is associated with."
+    """
+    base class for Gulp documents.
+    """
+    id: str = Field(..., description='document ID')
+    timestamp: int = Field(..., description='document "@timestamp" in milliseconds from unix epoch')
+    operation: str = Field(
+        ..., description='"gulp.operation" the document is associated with.'
     )
-    context: Optional[str] = Field(
-        None, description="context the event is associated with."
+    context: str = Field(
+        ..., description='"gulp.context" the document is associated with.'
     )
-    src_file: Optional[str] = Field(
-        None, description="source file the event is associated with."
+    source: str = Field(
+        ..., description='"gulp.source.file" the document is associated with.'
     )
     
-class GulpDocument:
+class GulpDocument(GulpBaseDocument):
     """
     represents a Gulp document.
     """
-    __slots__ = (
-        "idx",
-        "operation_id",
-        "context",
-        "plugin",
-        "client_id",
-        "original_id",
-        "src_file",
-        "event_code",
-        "gulp_event_code",
-        "cat",
-        "duration_nsec",
-        "original_event",
-        "gulp_log_level",
-        "original_log_level",
-        "timestamp",
-        "timestamp_nsec",
-        "extra",
-        "hash",
-    )
-
+    plugin: str = Field(..., description='"agent.type" the document is associated with.')
+    event_original: str = Field(..., description='"event.original" the document is associated with.')
+    
     def __init__(
         self,
         fme: list[FieldMappingEntry],
@@ -326,7 +301,6 @@ class GulpDocument:
         operation_id: int,
         context: str,
         plugin: str,
-        client_id: int,
         raw_event: str,
         original_id: str,
         src_file: str,

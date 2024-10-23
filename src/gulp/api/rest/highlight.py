@@ -223,7 +223,7 @@ async def highlight_update_handler(
             description=description,
             glyph_id=glyph_id,
             data={"color": color} if color is not None else None,
-            t=GulpCollabType.HIGHLIGHT,
+            type=GulpCollabType.HIGHLIGHT,
             private=private,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))

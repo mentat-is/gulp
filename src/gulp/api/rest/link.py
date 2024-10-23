@@ -202,7 +202,7 @@ async def link_update_handler(
             events=events,
             glyph_id=glyph_id,
             data=data if len(data) > 0 else None,
-            t=GulpCollabType.LINK,
+            type=GulpCollabType.LINK,
             private=private,
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l.to_dict()))

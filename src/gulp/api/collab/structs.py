@@ -130,14 +130,14 @@ class GulpCollabFilter(BaseModel):
     type: list[GulpCollabType] = Field(
         None, unique=True, description="filter by the given type/s."
     )
-    owner_id: list[str] = Field(None, description="filter by the given owner id/s.")
     operation: list[str] = Field(None, description="filter by the given operation/s.")
-    tags: list[str] = Field(None, unique=True, description="filter by the given tag/s.")
-    title:list[str] = Field(None, description="filter by the given title/s.")
     context: list[str] = Field(None, description="filter by the given context/s.")
     source: list[str] = Field(
         None, unique=True, description="filter by the given source file/s."
     )
+    user: list[str] = Field(None, description="filter by the given user(owner) id/s.")
+    tags: list[str] = Field(None, unique=True, description="filter by the given tag/s.")
+    title:list[str] = Field(None, description="filter by the given title/s.")
     text: list[str] = Field(
         None, unique=True, description="filter by the given object text."
     )
@@ -150,15 +150,15 @@ class GulpCollabFilter(BaseModel):
         None,
         description="timestamp range relative to CollabObj.events (milliseconds from unix epoch).",
     )
-    private_only: bool = Field(
+    opt_private: bool = Field(
         False,
         description="if True, return only private objects. Default=False (return all).",
     )
-    limit: int = Field(
+    opt_limit: int = Field(
         None,
         description='to be used together with "offset", maximum number of results to return. default=return all.',
     )
-    offset: int = Field(
+    opt_offset: int = Field(
         None,
         description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
     )
