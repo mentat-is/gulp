@@ -210,7 +210,7 @@ async def lifespan_handler(app: FastAPI):
     if _reset_collab_on_start:
         logger().warning("--reset-collab is set!")
     try:
-        await collab_api.setup(force_recreate=_reset_collab_on_start)
+        await collab_db.setup(force_recreate=_reset_collab_on_start)
     except Exception as ex:
         if _is_first_run:
             # on first run, we delete the first run file as well, to allow the server to start again for the first time
