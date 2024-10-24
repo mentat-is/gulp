@@ -134,7 +134,7 @@ class GulpEventFilterResult(IntEnum):
     SKIP = 1
 
 
-class SortOrder(StrEnum):
+class GulpSortOrder(StrEnum):
     """
     specifies the sort types for API accepting the "sort" parameter
     """

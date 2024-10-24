@@ -360,7 +360,7 @@ async def elastic_get_mapping_by_source_handler(
         str, Query(description='the "gulp.context" to return the mapping for.')
     ],
     src: Annotated[
-        str, Query(description='the "gulp.source.file" to return the mapping for.')
+        str, Query(description='the "log.file.path" to return the mapping for.')
     ],
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:

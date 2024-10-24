@@ -178,10 +178,7 @@ async def build_and_set_index_template(
         "properties": {
             "event": {"properties": {"code": {"type": "long"}}},
             "context": {"type": "keyword"},
-            "operation": {"properties": {"id": {"type": "integer"}}},
-            "source": {"properties": {"file": {"type": "keyword"}}},
-            "log": {"properties": {"level": {"type": "integer"}}},
-            "timestamp": {"properties": {"nsec": {"type": "long"}}},
+            "operation": {"type": "keyword"},
         }
     }
     dtt = []
@@ -203,9 +200,15 @@ async def build_and_set_index_template(
         # mappings['date_detection'] = True
         # mappings['numeric_detection'] = True
         # mappings['dynamic'] = False
+        mappings["properties"]["@timestamp"] = {"type": "date_nanos"}
+
+        # support for original event both as keyword and text
         mappings["properties"]["event"]["properties"]["original"] = {
-            "type": "text",
-            "analyzer": "standard",
+            "type": "keyword",
+            "fields": {
+                "type": "text",
+                "analyzer": "standard",
+            },
         }
         settings["index"]["mapping"]["total_fields"] = {
             "limit": config.index_template_default_total_fields_limit()
@@ -296,7 +299,7 @@ async def index_get_mapping_by_src(
     el: AsyncElasticsearch, index_name: str, context: str, src_file: str
 ) -> dict:
     """
-    Get and parse mappings for the given index, considering only "gulp.context"=context and "gulp.source.file"=src_file.
+    Get and parse mappings for the given index, considering only "gulp.context"=context and "log.file.path"=src_file.
 
     The return type is the same as index_get_mapping with return_raw_result=False.
 
@@ -988,71 +991,6 @@ async def index_refresh(el: AsyncElasticsearch, index: str) -> None:
     logger().debug("refreshed index: %s" % (res))
 
 
-async def query_time_histograms(
-    el: AsyncElasticsearch,
-    index: str,
-    interval: str,
-    flt: GulpQueryFilter = None,
-    options: GulpQueryOptions = None,
-    group_by: str = None,
-    include_hits: bool = False,
-) -> dict:
-    """
-    Queries Elasticsearch for time histograms based on a given time interval.
-
-    Args:
-        el (AsyncElasticsearch): The Elasticsearch client.
-        index (str): Name of the index (or datastream) to query.
-        interval (str): The interval for the date histogram, i.e 1s.
-        flt (GulpQueryFilter, optional): The query filter. Defaults to None.
-        options (GulpQueryOptions, optional): The query options. Defaults to None.
-        group_by (str, optional): The field to subaggregate by. Defaults to None.
-        include_hits: bool, optional: Whether to include hits in the response. Defaults to False.
-    Returns:
-        dict: The parsed Elasticsearch response.
-
-    """
-    from gulp.api.elastic.query_utils import build_elastic_query_options
-
-    q = gulpqueryflt_to_elastic_dsl(flt)
-    opts = build_elastic_query_options(options)
-
-    # clear options
-    aggregations = {
-        "histograms": {
-            "date_histogram": {
-                "field": "@timestamp",
-                "fixed_interval": interval,
-                "min_doc_count": 1,
-                "keyed": False,
-            }
-        }
-    }
-    if group_by is not None:
-        aggregations["histograms"]["aggs"] = {"by_type": {"terms": {"field": group_by}}}
-
-    body = {
-        "track_total_hits": True,
-        "query": q["query"],
-        "aggregations": aggregations,
-    }
-    if opts["source"] is not None:
-        body["_source"] = opts["source"]
-    if opts["search_after"] is not None:
-        body["search_after"] = opts["search_after"]
-    if opts["sort"] is not None:
-        body["sort"] = opts["sort"]
-    if opts["size"] is not None:
-        body["size"] = opts["size"]
-
-    headers = {
-        "content-type": "application/json",
-    }
-    # print(json.dumps(body, indent=2))
-    res = await el.search(body=body, index=index, headers=headers)
-    return _parse_elastic_res(res, include_hits=include_hits, options=options)
-
-
 async def query_operations(el: AsyncElasticsearch, index: str):
     """
     Queries the Elasticsearch index for operations and returns the aggregations.
@@ -1083,7 +1021,7 @@ async def query_operations(el: AsyncElasticsearch, index: str):
                             "aggs": {
                                 "src_file": {
                                     "terms": {
-                                        "field": "gulp.source.file",
+                                        "field": "log.file.path",
                                         "size": max_buckets,
                                     },
                                     "aggs": {

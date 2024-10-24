@@ -59,35 +59,48 @@ class PluginBase(ABC):
     def __init__(
         self,
         path: str,
-        **kwargs,
+        ws_id: str,
+        req_id: str,
+        operation: str = None,
+        context: str = None,
+        source: str = None,
+        user: str = None,
+        index: str = None,
     ) -> None:
         """
-        Initializes a new instance of the PluginBase class.
-
+        Initialize a new instance of the class.
         Args:
-            path (str): The path to the plugin.
-            kwargs: additional arguments if any
+            path (str): The file path associated with the plugin.
+            ws_id (str): The workspace ID.
+            req_id (str): The request ID.
+            operation (str, optional): The operation type. Defaults to None.
+            context (str, optional): The context information. Defaults to None.
+            source (str, optional): The source information. Defaults to None.
+            user (str, optional): The user information. Defaults to None.
+            index (str, optional): The index information. Defaults to None.
+        Returns:
+            None
         """
-        self._pickled = False
-        self.req_id: str = None
-        self.index: str = None
-        self.client_id: str = None
-        self.operation_id: str = None
-        self.context: str = None
-        self.ws_id: str = None
-        self.path = path
-
-        self.buffer: list[GulpDocument] = []
-        for k, v in kwargs.items():
-            self.__dict__[k] = v
-
         super().__init__()
+        self.ws_id: str = ws_id
+        self.req_id: str = req_id
+        self.operation: str = operation
+        self.context: str = context
+        self.source: str = source
+        self.user: str = user
+        self.index: str = index
+        self.path = path
+        s = os.path.basename(self.path)
+        s = os.path.splitext(s)[0]
+        self.plugin_file = (
+            s  # to have faster access to the plugin file name (without ext)
+        )
+        self.plugin_name = self.name()  # to have faster access to the plugin name
 
-    def options(self) -> list[GulpPluginOption]:
-        """
-        return available GulpPluginOption list (plugin specific parameters)
-        """
-        return []
+        self._pickled = False
+
+        # to bufferize gulpdocuments
+        self.buffer: list[GulpDocument] = []
 
     @abstractmethod
     def type(self) -> GulpPluginType:
@@ -110,28 +123,14 @@ class PluginBase(ABC):
     @abstractmethod
     def name(self) -> str:
         """
-        Returns the name of the plugin.
+        Returns the plugin display name.
         """
 
-    def filename(self, strip_ext: bool = True) -> str:
+    def options(self) -> list[GulpPluginOption]:
         """
-        Returns the source filename of the plugin.
-
-        Args:
-            strip_ext (bool, optional): Whether to strip the extension from the filename. Defaults to True.
-        Returns:
-            str: The source filename of the plugin.
+        return available GulpPluginOption list (plugin specific parameters)
         """
-        s = os.path.basename(self.path)
-        if strip_ext:
-            s = os.path.splitext(s)[0]
-        return s
-
-    def event_type_field(self) -> str:
-        """
-        Returns the field name for the event type.
-        """
-        return "event.code"
+        return []
 
     def depends_on(self) -> list[str]:
         """
@@ -954,7 +953,7 @@ class PluginBase(ABC):
             {
                 "_id": doc["_id"],
                 "@timestamp": doc["@timestamp"],
-                "gulp.source.file": doc["gulp.source.file"],
+                "log.file.path": doc["log.file.path"],
                 "event.duration": doc["event.duration"],
                 "gulp.context": doc["gulp.context"],
                 "gulp.log.level": doc.get("gulp.log.level", int(GulpLogLevel.INFO)),

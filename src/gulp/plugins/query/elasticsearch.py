@@ -1,4 +1,3 @@
-
 import muty.dict
 import muty.jsend
 import muty.log
@@ -10,9 +9,13 @@ import muty.xml
 from gulp.api import elastic_api
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.elastic.query import QueryResult
-from gulp.api.elastic.query_utils import adjust_fields_filter, check_canceled_or_failed, process_event_timestamp
+from gulp.api.elastic.query_utils import (
+    adjust_fields_filter,
+    check_canceled_or_failed,
+    process_event_timestamp,
+)
 from gulp.api.elastic.structs import (
-    FIELDS_FILTER_MANDATORY,
+    QUERY_DEFAULT_FIELDS,
     GulpQueryFilter,
     GulpQueryOptions,
     gulpqueryflt_to_elastic_dsl,
@@ -80,7 +83,10 @@ class Plugin(PluginBase):
     def options(self) -> list[GulpPluginOption]:
         return [
             GulpPluginOption(
-                "url", "str", "opensearch/elasticsearch server URL, i.e. http://localhost:9200.", default=None
+                "url",
+                "str",
+                "opensearch/elasticsearch server URL, i.e. http://localhost:9200.",
+                default=None,
             ),  # TODO
             GulpPluginOption(
                 "is_elasticsearch",
@@ -121,7 +127,7 @@ class Plugin(PluginBase):
             GulpPluginOption(
                 "timestamp_is_string",
                 "bool",
-                'if set, timestamp is a string (not numeric).',
+                "if set, timestamp is a string (not numeric).",
                 default=None,
             ),
             GulpPluginOption(
@@ -133,13 +139,13 @@ class Plugin(PluginBase):
             GulpPluginOption(
                 "timestamp_day_first",
                 "bool",
-                'if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with dayfirst=True.',
+                "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with dayfirst=True.",
                 default=False,
             ),
             GulpPluginOption(
                 "timestamp_year_first",
                 "bool",
-                'if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with yearfirst=True.',
+                "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with yearfirst=True.",
                 default=True,
             ),
             GulpPluginOption(
@@ -150,7 +156,11 @@ class Plugin(PluginBase):
             ),
         ]
 
-    def _get_parameters(self, plugin_params: GulpPluginParams) -> tuple[str, bool, str, str, str, bool, str, bool, str, str, str, str, int, dict]:
+    def _get_parameters(
+        self, plugin_params: GulpPluginParams
+    ) -> tuple[
+        str, bool, str, str, str, bool, str, bool, str, str, str, str, int, dict
+    ]:
         """
         get elasticsearch parameters from plugin_params
 
@@ -167,11 +177,17 @@ class Plugin(PluginBase):
         is_elasticsearch: bool = plugin_params.extra.get("is_elasticsearch", True)
         elastic_user: str = plugin_params.extra.get("username")
         password: str = plugin_params.extra.get("password")
-        index:str = plugin_params.extra.get("index")
+        index: str = plugin_params.extra.get("index")
         timestamp_is_string: bool = plugin_params.extra.get("timestamp_is_string", True)
-        timestamp_format_string: str = plugin_params.extra.get("timestamp_format_string", None)
-        timestamp_day_first: bool = plugin_params.extra.get("timestamp_day_first", False)
-        timestamp_year_first: bool = plugin_params.extra.get("timestamp_year_first", True)
+        timestamp_format_string: str = plugin_params.extra.get(
+            "timestamp_format_string", None
+        )
+        timestamp_day_first: bool = plugin_params.extra.get(
+            "timestamp_day_first", False
+        )
+        timestamp_year_first: bool = plugin_params.extra.get(
+            "timestamp_year_first", True
+        )
         timestamp_unit: str = plugin_params.extra.get("timestamp_unit", "ms")
         timestamp_field: str = plugin_params.extra.get("timestamp_field", "@timestamp")
         timestamp_offset_msec: int = plugin_params.extra.get("timestamp_offset_msec", 0)
@@ -179,16 +195,38 @@ class Plugin(PluginBase):
 
         # TODO: add support for client and CA certificates, i.e. dumping the certificates to temporary files and using them
         if not url or not index or not elastic_user:
-            raise InvalidArgument("missing required parameters (url=%s, username=%s, index=%s)" % (url, elastic_user, index))
+            raise InvalidArgument(
+                "missing required parameters (url=%s, username=%s, index=%s)"
+                % (url, elastic_user, index)
+            )
         if not url.startswith("http"):
             # default to http
-            logger().warning("url does not start with http, adding default http:// prefix!")
+            logger().warning(
+                "url does not start with http, adding default http:// prefix!"
+            )
             url = "http://" + url
 
-        return url, is_elasticsearch, elastic_user, password, index, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, timestamp_offset_msec, mapping
+        return (
+            url,
+            is_elasticsearch,
+            elastic_user,
+            password,
+            index,
+            timestamp_is_string,
+            timestamp_format_string,
+            timestamp_day_first,
+            timestamp_year_first,
+            timestamp_unit,
+            timestamp_field,
+            timestamp_offset_msec,
+            mapping,
+        )
 
     def _gulpqueryflt_to_elastic_dsl_generic(
-        self, flt: GulpQueryFilter, options: GulpQueryOptions=None, timestamp_field: str="@timestamp"
+        self,
+        flt: GulpQueryFilter,
+        options: GulpQueryOptions = None,
+        timestamp_field: str = "@timestamp",
     ) -> tuple[dict, GulpQueryOptions]:
         """
         Build a generic Elasticsearch query based on the provided filter and options.
@@ -212,12 +250,25 @@ class Plugin(PluginBase):
         # only these options are supported
         o.limit = options.limit
         o.sort = options.sort
-        o.fields_filter = adjust_fields_filter(FIELDS_FILTER_MANDATORY, options.fields_filter)
+        o.fields_filter = adjust_fields_filter(
+            QUERY_DEFAULT_FIELDS, options.fields_filter
+        )
 
         q = gulpqueryflt_to_elastic_dsl(f, options, timestamp_field)
         return q, o
 
-    def _process_event(self, e: dict, timestamp_offset_msec: int, timestamp_is_string: bool, timestamp_format_string: str, timestamp_day_first: bool, timestamp_year_first: bool, timestamp_unit: str, timestamp_field: str, mapping: dict) -> dict:
+    def _process_event(
+        self,
+        e: dict,
+        timestamp_offset_msec: int,
+        timestamp_is_string: bool,
+        timestamp_format_string: str,
+        timestamp_day_first: bool,
+        timestamp_year_first: bool,
+        timestamp_unit: str,
+        timestamp_field: str,
+        mapping: dict,
+    ) -> dict:
         """
         process an event from elasticsearch: adjust timestamp, map fields using the mapping.
 
@@ -235,20 +286,26 @@ class Plugin(PluginBase):
         Returns:
             dict: the processed event.
         """
-        ts = process_event_timestamp(e, timestamp_offset_msec,
-            timestamp_is_string, timestamp_format_string,
-            timestamp_day_first, timestamp_year_first,
-            timestamp_unit, timestamp_field)
-        e['gulp.timestamp.nsec'] = ts
-        e['@timestamp'] = ts / muty.time.MILLISECONDS_TO_NANOSECONDS
-        e['_source_plugin'] = self.filename()
+        ts = process_event_timestamp(
+            e,
+            timestamp_offset_msec,
+            timestamp_is_string,
+            timestamp_format_string,
+            timestamp_day_first,
+            timestamp_year_first,
+            timestamp_unit,
+            timestamp_field,
+        )
+        e["gulp.timestamp.nsec"] = ts
+        e["@timestamp"] = ts / muty.time.MILLISECONDS_TO_NANOSECONDS
+        e["_source_plugin"] = self.filename()
         if mapping is not None:
             # map source keys using the mapping
             self._remap_event_fields(e, mapping)
 
-        if 'event.duration' not in e:
+        if "event.duration" not in e:
             # default
-            e['event.duration'] = 1
+            e["event.duration"] = 1
         return e
 
     async def query_single(
@@ -257,7 +314,21 @@ class Plugin(PluginBase):
         event: dict,
     ) -> dict:
         # get parameters
-        url, is_elasticsearch, elastic_user, password, index, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, timestamp_offset_msec, mapping = self._get_parameters(plugin_params)
+        (
+            url,
+            is_elasticsearch,
+            elastic_user,
+            password,
+            index,
+            timestamp_is_string,
+            timestamp_format_string,
+            timestamp_day_first,
+            timestamp_year_first,
+            timestamp_unit,
+            timestamp_field,
+            timestamp_offset_msec,
+            mapping,
+        ) = self._get_parameters(plugin_params)
         if is_elasticsearch:
             # connect to elastic
             cl: AsyncElasticsearch = AsyncElasticsearch(
@@ -276,10 +347,19 @@ class Plugin(PluginBase):
             logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
 
         # get the event from elasticsearch
-        e = await elastic_api.query_single_event(cl, index, event['_id'])
-        e = self._process_event(e, timestamp_offset_msec, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, mapping)
+        e = await elastic_api.query_single_event(cl, index, event["_id"])
+        e = self._process_event(
+            e,
+            timestamp_offset_msec,
+            timestamp_is_string,
+            timestamp_format_string,
+            timestamp_day_first,
+            timestamp_year_first,
+            timestamp_unit,
+            timestamp_field,
+            mapping,
+        )
         return e
-
 
     async def query(
         self,
@@ -298,11 +378,25 @@ class Plugin(PluginBase):
         )
 
         # get parameters
-        url, is_elasticsearch, elastic_user, password, index, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, timestamp_offset_msec, mapping = self._get_parameters(plugin_params)
+        (
+            url,
+            is_elasticsearch,
+            elastic_user,
+            password,
+            index,
+            timestamp_is_string,
+            timestamp_format_string,
+            timestamp_day_first,
+            timestamp_year_first,
+            timestamp_unit,
+            timestamp_field,
+            timestamp_offset_msec,
+            mapping,
+        ) = self._get_parameters(plugin_params)
 
         # convert basic filter and options to a raw query, ensure only start_msec, end_msec, extra is present
         q, o = self._gulpqueryflt_to_elastic_dsl_generic(flt, options, timestamp_field)
-        raw_query_dict = q['query']
+        raw_query_dict = q["query"]
         if is_elasticsearch:
             # connect to elastic
             cl: AsyncElasticsearch = AsyncElasticsearch(
@@ -328,17 +422,17 @@ class Plugin(PluginBase):
         query_res.req_id = req_id
         if o.include_query_in_result:
             query_res.query_raw = raw_query_dict
-        processed: int=0
-        chunk: int=0
+        processed: int = 0
+        chunk: int = 0
         status = GulpRequestStatus.DONE
 
         try:
             while True:
                 logger().debug("querying, query=%s, options=%s" % (q, o))
                 try:
-                    r = await api(cl,index, raw_query_dict, o)
+                    r = await api(cl, index, raw_query_dict, o)
                 except ObjectNotFound as ex:
-                    logger().error('no more data found!')
+                    logger().error("no more data found!")
                     break
                 except Exception as ex:
                     raise ex
@@ -350,7 +444,17 @@ class Plugin(PluginBase):
 
                 for e in evts:
                     # process the event (timestamp, mapping, ...)
-                    e = self._process_event(e, timestamp_offset_msec, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, mapping)
+                    e = self._process_event(
+                        e,
+                        timestamp_offset_msec,
+                        timestamp_is_string,
+                        timestamp_format_string,
+                        timestamp_day_first,
+                        timestamp_year_first,
+                        timestamp_unit,
+                        timestamp_field,
+                        mapping,
+                    )
 
                 # fill query result
                 query_res.search_after = r.get("search_after", None)

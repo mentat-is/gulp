@@ -32,11 +32,12 @@ from gulp.defs import InvalidArgument, ObjectAlreadyExists, ObjectNotFound
 from gulp.utils import logger
 from gulp.api.collab.structs import GulpCollabFilter
 
-T = TypeVar("T", bound="GulpCollabBase")
 class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
     """
     base for everything on the collab database
     """
+    T = TypeVar("T", bound="GulpCollabBase")
+    
     __tablename__ = "collab_base"
 
     id: Mapped[str] = mapped_column(String(COLLAB_MAX_NAME_LENGTH), primary_key=True, unique=True, doc="The id of the object.")
@@ -51,11 +52,16 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
     async def store(self, sess: AsyncSession = None) -> None:
         """
-        stores in the database
+        Asynchronously stores the current instance in the database session.
+        If no session is provided, a new session is created. The instance is added
+        to the session and committed to the database.
 
         Args:
-            sess (AsyncSession, optional): The session to use. Defaults to None (creates a new session).
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created.
+        Returns:
+            None
         """
+        
         if sess is None:
             sess = await session()
         async with sess:
@@ -69,19 +75,23 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @staticmethod
     async def delete(obj_id: str, type: T, throw_if_not_exists: bool = True) -> None:
         """
-        deletes from database
-
+        Asynchronously deletes an object from the database.
         Args:
-            obj_id (str): The id of the object.
-            type (T): The class of the object, derived from CollabBase.
-            throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
+            obj_id (str): The ID of the object to be deleted.
+            type (T): The type of the object to be deleted.
+            throw_if_not_exists (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
+        Raises:
+            ObjectNotFoundError: If throw_if_not_exists is True and the object does not exist.
+        Returns:
+            None
         """
+
         logger().debug("---> delete: obj_id=%s, type=%s" % (obj_id, type))
         async with await session() as sess:
-            q = select(T).where(T.id == obj_id).with_for_update()
+            q = select(type).where(type.id == obj_id).with_for_update()
             res = await sess.execute(q)
             c = GulpCollabObject.get_one_result_or_throw(
-                res, obj_id=obj_id, t=type, throw_if_not_exists=throw_if_not_exists
+                res, obj_id=obj_id, type=type, throw_if_not_exists=throw_if_not_exists
             )
             if c is not None:
                 sess.delete(c)
@@ -93,22 +103,22 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @staticmethod
     async def update(obj_id: str, type: T, d: dict) -> T:
         """
-        updates an object in the database
-
+        Asynchronously updates an object of the specified type with the given data.
         Args:
-            obj_id (str): The id of the object.
-            type (T): The type of the object.
-            d (dict): The data to update.
-            done (bool, optional): If True, sets the object as done. Defaults to False.
-
+            obj_id (str): The ID of the object to update.
+            type (T): The type of the object to update.
+            d (dict): A dictionary containing the fields to update and their new values.
         Returns:
             T: The updated object.
+        Raises:
+            Exception: If the object with the specified ID is not found.
         """
+
         logger().debug("---> update: obj_id=%s, type=%s, d=%s" % (obj_id, type, d))
         async with await session() as sess:
-            q = select(T).where(T.id == obj_id).with_for_update()
+            q = select(type).where(type.id == obj_id).with_for_update()
             res = await sess.execute(q)
-            c = GulpCollabObject.get_one_result_or_throw(res, obj_id=obj_id, t=type)
+            c = GulpCollabObject.get_one_result_or_throw(res, obj_id=obj_id, type=type)
 
             # update
             for k, v in d.items():
@@ -130,33 +140,33 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             flt = GulpCollabFilter()
 
         async with await session() as sess:
-            q = select(T)
+            q = select(type)
             if flt is not None:
                 if flt.id is not None:
-                    q = q.where(T.id.in_(flt.id))
+                    q = q.where(type.id.in_(flt.id))
                 if flt.type is not None:
-                    q = q.where(T.type.in_(flt.type))
-                if flt.operation is not None and hasattr(T, "operation"):
-                    q = q.where(T.operation.in_(flt.operation))
-                if flt.context is not None and hasattr(T, "context"):
-                    q = q.where(T.context.in_(flt.context))
-                if flt.source is not None and hasattr(T, "source"):
-                    q = q.where(T.source.in_(flt.source))
-                if flt.user is not None and hasattr(T, "user"):
-                    q = q.where(T.user.in_(flt.user))
-                if flt.tags is not None and hasattr(T, "tags"):
+                    q = q.where(type.type.in_(flt.type))
+                if flt.operation is not None and 'operation' in type.__annotations__:
+                    q = q.where(type.operation.in_(flt.operation))
+                if flt.context is not None and hasattr(type, "context"):
+                    q = q.where(type.context.in_(flt.context))
+                if flt.log_file_path is not None and hasattr(type, "log_file_path"):
+                    q = q.where(type.log_file_path.in_(flt.log_file_path))
+                if flt.user is not None and hasattr(type, "user"):
+                    q = q.where(type.user.in_(flt.user))
+                if flt.tags is not None and hasattr(type, "tags"):
                     if flt.opt_tags_and:
                         # all tags must match (CONTAINS operator)
-                        q = q.filter(T.tags.op("@>")(flt.tags))
+                        q = q.filter(type.tags.op("@>")(flt.tags))
                     else:
                         # at least one tag must match (OVERLAP operator)
-                        q = q.filter(T.tags.op("&&")(flt.tags))
-                if flt.title is not None and hasattr(T, "title"):
-                    q = q.where(T.title.in_(flt.title))
-                if flt.text is not None and hasattr(T, "text"):
-                    qq = [T.text.ilike(x) for x in flt.text]
+                        q = q.filter(type.tags.op("&&")(flt.tags))
+                if flt.title is not None and hasattr(type, "title"):
+                    q = q.where(type.title.in_(flt.title))
+                if flt.text is not None and hasattr(type, "text"):
+                    qq = [type.text.ilike(x) for x in flt.text]
                     q = q.filter(or_(*qq))
-                if flt.events is not None and hasattr(T, "events"):
+                if flt.events is not None and hasattr(type, "events"):
 
 
 
@@ -300,7 +310,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def get_one_result_or_throw(
         res: Result,
         obj_id: str = None,
-        t: GulpCollabType = None,
+        type: GulpCollabType = None,
         throw_if_not_exists: bool = True,
     ) -> T:
         """
@@ -309,12 +319,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Args:
             res (Result): The result.
             obj_id (str, optional): The id of the object, just for the debug print. Defaults to None.
-            t (GulpCollabType, optional): The type of the object, just for the debug print. Defaults to None.
+            type (GulpCollabType, optional): The type of the object, just for the debug print. Defaults to None.
             throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
         """
         c = res.scalar_one_or_none()
         if c is None:
-            msg = "collab type=%s, id=%s not found!" % (t, obj_id)
+            msg = "collab type=%s, id=%s not found!" % (type, obj_id)
             if throw_if_not_exists:
                 raise ObjectNotFound(msg)
             else:

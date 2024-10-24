@@ -5,13 +5,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api import collab_api
-from gulp.api.collab.structs import GulpCollabFilter
-from gulp.api.collab_api import CollabBase
+from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpCollabFilter
+from gulp.api.collab.base import GulpCollabBase
 from gulp.defs import ObjectNotFound
 from gulp.utils import logger
 
 
-class GulpContext(CollabBase):
+class GulpContext(GulpCollabBase):
     """
     Represents a context object: in gulp terms, a context is used to group a set of data coming from the same host.
 
@@ -22,7 +22,11 @@ class GulpContext(CollabBase):
     """
 
     __tablename__ = "context"
-    id: Mapped[str] = mapped_column(String(gulp.api.COLLAB_MAX_NAME_LENGTH.COLLAB_MAX_NAME_LENGTH), unique=True, primary_key=True)
+    id: Mapped[str] = mapped_column(
+        String(COLLAB_MAX_NAME_LENGTH),
+        unique=True,
+        primary_key=True,
+    )
     color: Mapped[Optional[str]] = mapped_column(String(32), default="#ffffff")
 
     def __init__(self, name: str, color: str) -> None:
@@ -30,7 +34,16 @@ class GulpContext(CollabBase):
         self.color = color
         logger().debug("---> GulpContext: name=%s, color=%s" % (name, color))
 
-    async def store(self, sess: AsyncSession=None) -> None:
+    async def store(self, sess: AsyncSession = None) -> None:
+        """
+        Asynchronously stores the current context in the database.
+        If no session is provided, a new session is created using `collab_api.session()`.
+        Args:
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created.
+        Returns:
+            None
+        """
+
         if sess is None:
             sess = await collab_api.session()
         async with sess:
@@ -38,11 +51,10 @@ class GulpContext(CollabBase):
             await sess.commit()
             logger().info("---> store: stored context=%s" % (self.id))
 
-
     @staticmethod
     async def update(name: str, d: dict) -> "GulpContext":
 
-        logger().debug("---> update: name=%s, color=%s" % (name, color))
+        logger().debug("---> update: name=%s, d=%s" % (name, color))
         async with await collab_api.session() as sess:
             q = select(GulpContext).where(GulpContext.id == name).with_for_update()
             res = await sess.execute(q)

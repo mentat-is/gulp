@@ -215,7 +215,7 @@ async def query_multi_handler(
 
     if options.fields_filter is None:
         # use default fields filter
-        options.fields_filter = ",".join(query_utils.FIELDS_FILTER_MANDATORY)
+        options.fields_filter = ",".join(query_utils.QUERY_DEFAULT_FIELDS)
 
     logger().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
@@ -683,7 +683,6 @@ async def query_sigma_files_handler(
     '*flt* may be used to restrict the query to only a subset of the data, i.e. *flt.context=["machine1"]* only.<br>.'
     "*options* is intended **per single query**.",
 )
-
 @_app.post(
     "/query_stored",
     response_model=JSendResponse,
@@ -970,7 +969,7 @@ async def query_operations_handler(
                             "event.id": "1447406958",
                             "log.level": 5,
                             "gulp.log.level": 5,
-                            "gulp.source.file": "Archive-ForwardedEvents-test.evtx",
+                            "log.file.path": "Archive-ForwardedEvents-test.evtx",
                             "event.category": "System",
                             "event.code": "4624",
                             "event.duration": 0,
@@ -1084,7 +1083,7 @@ async def query_external_handler(
                 }
             ]
         ),
-    ]=None,
+    ] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -1188,7 +1187,7 @@ async def query_external_single_handler(
                         "username": "...",
                         "password": "...",
                         "url": "http://localhost:9200",
-                        "index": "testidx"
+                        "index": "testidx",
                     }
                 }
             ]

@@ -32,7 +32,7 @@ from gulp.api.elastic.query import (
     gulpqueryflt_to_elastic_dsl,
 )
 from gulp.api.elastic.structs import (
-    FIELDS_FILTER_MANDATORY,
+    QUERY_DEFAULT_FIELDS,
     GulpQueryFilter,
     GulpQueryOptions,
     GulpQueryParameter,
@@ -294,7 +294,7 @@ async def _create_notes_on_match(
         ev_ts = e.get("@timestamp")
         ev_operation_id = e.get("gulp.operation.id")
         ev_context = e.get("gulp.context")
-        ev_logfile_path = e.get("gulp.source.file")
+        ev_logfile_path = e.get("log.file.path")
 
         # add a note pinned on event time start, with name=matching rule name, description=query dsl (and the other usual stuff...)
         text = query_res.query_name
@@ -1122,7 +1122,7 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
         ]
 
     # fields filter
-    n["source"] = adjust_fields_filter(FIELDS_FILTER_MANDATORY, opt.fields_filter)
+    n["source"] = adjust_fields_filter(QUERY_DEFAULT_FIELDS, opt.fields_filter)
 
     if opt.limit is not None:
         # use provided
