@@ -15,7 +15,6 @@ class GulpHighlight(GulpCollabObject):
 
     __tablename__ = "highlight"
 
-    id: Mapped[str] = mapped_column(ForeignKey("collab_obj.id"), primary_key=True)
     time_start: Mapped[int] = mapped_column(BIGINT)
     time_end: Mapped[int] = mapped_column(BIGINT)
     log_file_path: Mapped[Optional[str]] = mapped_column(String, default=None)

@@ -21,11 +21,6 @@ class GulpGlyph(GulpCollabBase):
     """
 
     __tablename__ = "glyph"
-    id: Mapped[str] = mapped_column(
-        ForeignKey("collab_base.id"),
-        primary_key=True,
-        doc="The unique identifier (name) of the glyph.",
-    )
     img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
@@ -35,18 +30,19 @@ class GulpGlyph(GulpCollabBase):
     }
 
     @override
-    def __init__(self, id: str, img: bytes | str) -> None:
+    def __init__(self, id: str, user: str, img: bytes | str) -> None:
         """
         Initialize a GulpGlyph instance.
         Args:
             id (str): The identifier for the glyph.
+            user (str): The object's owner.
             img (bytes | str): The image data as bytes or a file path as a string.
         Raises:
             FileNotFoundError: If the file path provided in img does not exist.
             IOError: If there is an error reading the file.
         """
 
-        super().__init__(id, GulpCollabType.GLYPH)
+        super().__init__(id, GulpCollabType.GLYPH, user)
         if isinstance(img, str):
             # load from file path
             with open(img, "rb") as f:

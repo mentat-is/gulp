@@ -295,9 +295,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         String(COLLAB_MAX_NAME_LENGTH),
         primary_key=True,
         unique=True,
-        doc="The id of the object.",
+        doc="The unque id/name of the object.",
     )
     type: Mapped[GulpCollabType] = mapped_column(String, doc="The type of the object.")
+    user: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"),
+        doc="The user who created (the owner of) the object.",
+    )
     time_created: Mapped[int] = mapped_column(
         BIGINT,
         doc="The time the object was created, in milliseconds from unix epoch.",
@@ -313,19 +317,64 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     }
 
     @override
-    def __init__(self, id: str, type: GulpCollabType) -> None:
+    def __init__(self, id: str, type: GulpCollabType, user: str) -> None:
         """
         Initialize a GulpCollabBase instance.
         Args:
             id (str): The identifier for the object.
             type (GulpCollabType): The type of the object.
+            user (str): The user associated with the object.
         """
         super().__init__()
         self.id = id
         self.type = type
+        self.user = user
         self.time_created = muty.time.now_msec()
         self.time_updated = self.time_created
-        logger().debug("---> GulpCollabBase: id=%s, type=%s" % (id, type))
+        logger().debug(
+            "---> GulpCollabBase: id=%s, type=%s, user(owner)=%s" % (id, type, user)
+        )
+
+    @staticmethod
+    async def check_token_owner(
+        requestor_token: str,
+        permission: GulpUserPermission = None,
+    ) -> "GulpUser":
+        """
+        Checks if the requestor token is the owner of the specified user ID (is the user's token or it is an admin token)
+
+        Args:
+            engine (AsyncEngine): The database engine.
+            requestor_token (str): The token of the requestor.
+            user_id (int, optional): The ID of the user to check ownership for. Defaults to None (use user from requestor's token).
+            permission (GulpUserPermission, optional): setting this to any value other than None forces the requestor to be checked for ADMIN rights. Defaults to None.
+
+        Raises:
+            MissingPermission: If the requestor token does not have the required permission.
+
+        Returns:
+            User: The user object.
+        """
+
+        requestor, _ = await GulpUserSession.check_token(engine, requestor_token)
+        req_user: GulpUser = requestor
+        if permission is not None and not req_user.is_admin():
+            raise MissingPermission(
+                "token %s does not have permission to change this user permission"
+                % (req_user)
+            )
+
+        if user_id is None:
+            # use token's user_id (default)
+            user_id = req_user.id
+
+        if user_id != req_user.id and not req_user.is_admin():
+            # if user_id is set, it must be the same as token's user_id (or token must be an admin token)
+            raise MissingPermission(
+                "%s (userid=%d) does not have permission to access user_id=%d"
+                % (req_user.id, req_user.id, user_id)
+            )
+        return req_user
 
     async def store(self, sess: AsyncSession = None) -> None:
         """
@@ -507,10 +556,6 @@ class GulpCollabObject(GulpCollabBase):
 
     # the following are present in all collab objects regardless of type
     id: Mapped[str] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
-    user: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"),
-        doc="The user who created (the owner of) the object.",
-    )
     operation: Mapped[str] = mapped_column(
         ForeignKey(
             "operation.id",
@@ -579,44 +624,3 @@ class GulpCollabObject(GulpCollabBase):
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s, data=%s"
             % (id, type, user, operation, glyph, tags, title, private, data)
         )
-
-    @staticmethod
-    async def check_token_owner(
-        requestor_token: str,
-        permission: GulpUserPermission = None,
-    ) -> "GulpUser":
-        """
-        Checks if the requestor token is the owner of the specified user ID (is the user's token or it is an admin token)
-
-        Args:
-            engine (AsyncEngine): The database engine.
-            requestor_token (str): The token of the requestor.
-            user_id (int, optional): The ID of the user to check ownership for. Defaults to None (use user from requestor's token).
-            permission (GulpUserPermission, optional): setting this to any value other than None forces the requestor to be checked for ADMIN rights. Defaults to None.
-
-        Raises:
-            MissingPermission: If the requestor token does not have the required permission.
-
-        Returns:
-            User: The user object.
-        """
-
-        requestor, _ = await GulpUserSession.check_token(engine, requestor_token)
-        req_user: GulpUser = requestor
-        if permission is not None and not req_user.is_admin():
-            raise MissingPermission(
-                "token %s does not have permission to change this user permission"
-                % (req_user)
-            )
-
-        if user_id is None:
-            # use token's user_id (default)
-            user_id = req_user.id
-
-        if user_id != req_user.id and not req_user.is_admin():
-            # if user_id is set, it must be the same as token's user_id (or token must be an admin token)
-            raise MissingPermission(
-                "%s (userid=%d) does not have permission to access user_id=%d"
-                % (req_user.id, req_user.id, user_id)
-            )
-        return req_user

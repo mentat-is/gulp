@@ -17,12 +17,6 @@ class GulpStory(GulpCollabObject):
 
     __tablename__ = "story"
 
-    # the following must be refactored for specific tables
-    id: Mapped[int] = mapped_column(
-        ForeignKey("collab_obj.id"),
-        primary_key=True,
-        doc="The unique identifier (name) of the story.",
-    )
     events: Mapped[list[GulpAssociatedDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
     )

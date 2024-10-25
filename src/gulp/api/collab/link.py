@@ -14,7 +14,6 @@ class GulpLink(GulpCollabObject):
     """
 
     __tablename__ = "link"
-    id: Mapped[str] = mapped_column(ForeignKey("collab_obj.id"), primary_key=True)
 
     # the source event
     document_from: Mapped[str] = mapped_column(String, doc="The source document.")

@@ -18,11 +18,6 @@ class GulpContext(GulpCollabBase):
     """
 
     __tablename__ = "context"
-    id: Mapped[str] = mapped_column(
-        ForeignKey("collab_base.id"),
-        primary_key=True,
-        doc="The unique identifier (name) of the context.",
-    )
     color: Mapped[Optional[str]] = mapped_column(
         String(32), default="#ffffff", doc="The color of the context."
     )
@@ -32,14 +27,15 @@ class GulpContext(GulpCollabBase):
     }
 
     @override
-    def __init__(self, id: str, color: str = None) -> None:
+    def __init__(self, id: str, user: str, color: str = None) -> None:
         """
         Initialize a GulpContext instance.
         Args:
             id (str): The unique identifier for the context.
+            user (str): The object's owner.
             color (str, optional): The color associated with the context. Defaults to None.
         """
 
-        super().__init__(id, GulpCollabType.CONTEXT)
+        super().__init__(id, GulpCollabType.CONTEXT, user)
         self.color = color
         logger().debug("---> GulpContext: id=%s, color=%s" % (id, color))

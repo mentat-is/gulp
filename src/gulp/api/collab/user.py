@@ -25,11 +25,6 @@ class GulpUser(GulpCollabBase):
     """
 
     __tablename__ = "user"
-    id: Mapped[str] = mapped_column(
-        ForeignKey("collab_base.id"),
-        primary_key=True,
-        doc="The user name.",
-    )
     pwd_hash: Mapped[str] = mapped_column(String)
     permission: Mapped[Optional[GulpUserPermission]] = mapped_column(
         String, default=GulpUserPermission.READ

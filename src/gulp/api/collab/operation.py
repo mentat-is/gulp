@@ -13,11 +13,6 @@ class GulpOperation(GulpCollabBase):
     """
 
     __tablename__ = "operation"
-    id: Mapped[str] = mapped_column(
-        ForeignKey("collab_base.id"),
-        primary_key=True,
-        doc="The unique identifier (name) of the operation.",
-    )
     index: Mapped[Optional[str]] = mapped_column(
         String(),
         default=None,
@@ -32,10 +27,11 @@ class GulpOperation(GulpCollabBase):
     }
 
     @override
-    def __init__(self, index: str = None, description: str = None) -> None:
+    def __init__(self, id: str, index: str = None, description: str = None) -> None:
         """
         Initialize a GulpOperation instance.
         Args:
+            id (str): The unique identifier for the operation.
             index (str, optional): The opensearch index to associate the operation with.
             description (str, optional): The description of the operation. Defaults to None.
         """

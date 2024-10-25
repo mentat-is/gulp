@@ -16,12 +16,6 @@ class GulpNote(GulpCollabObject):
 
     __tablename__ = "note"
 
-    # the following must be refactored for specific tables
-    id: Mapped[str] = mapped_column(
-        ForeignKey("collab_obj.id"),
-        primary_key=True,
-        doc="The unique identifier (name) of the note.",
-    )
     context: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
         doc="The context associated with the note.",

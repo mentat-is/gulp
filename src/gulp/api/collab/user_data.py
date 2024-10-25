@@ -16,11 +16,6 @@ class GulpUserData(GulpCollabBase):
     """
 
     __tablename__ = "user_data"
-    id: Mapped[str] = mapped_column(
-        ForeignKey("collab_base.id"),
-        primary_key=True,
-        doc="The unique identifier (name) of the user data.",
-    )
     user = relationship("GulpUser", back_populates="user_data")
     data: Mapped[dict] = mapped_column(JSONB, doc="The data.")
 
@@ -38,7 +33,7 @@ class GulpUserData(GulpCollabBase):
             user (str): The user associated with the data.
             data (dict): The data.
         """
-        super().__init__(id, GulpCollabType.USER_DATA)
+        super().__init__(id, GulpCollabType.USER_DATA, user)
         self.user = user
         self.data = data
         logger().debug("---> UserData: user=%s, data=%s" % (user, data))
