@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api import collab_api
-from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission, MissingPermission, SessionExpired, WrongUsernameOrPassword
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpUserPermission,
+    MissingPermission,
+    SessionExpired,
+    WrongUsernameOrPassword,
+)
 from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH
 from gulp.utils import logger
 import gulp.config as config
@@ -19,27 +25,30 @@ class GulpUserSession(GulpCollabBase):
     """
     Represents a user session (logged user).
     """
+
     __tablename__ = "session"
 
     # ensure that the user_id is unique
-    __table_args__ = (
-        UniqueConstraint('user_id', name='uq_session_user_id'),
-    )
+    __table_args__ = (UniqueConstraint("user_id", name="uq_session_user_id"),)
 
-    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True, unique=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), unique=True)
+    id: Mapped[int] = mapped_column(
+        ForeignKey("collab_base.id"), primary_key=True, unique=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), unique=True
+    )
     user: Mapped["User"] = relationship("User", back_populates="session")
     time_expire: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    
+
     __mapper_args__ = {
         "polymorphic_identity": "session",
-    }    
+    }
 
     def __init__(self, user: str, time_expire: Optional[int] = None, **kwargs):
         super().__init__(**kwargs)
         self.user = user
         if config.debug_no_token_expiration():
-            self.time_expire=0
+            self.time_expire = 0
         else:
             self.time_expire = time_expire if time_expire is not None else 0
 
@@ -71,9 +80,7 @@ class GulpUserSession(GulpCollabBase):
             if user_session is None:
                 raise ObjectNotFound("session not found for user_id=%d !" % (user_id))
 
-            logger().debug(
-                "get: token for user_id %d=%s" % (user_id, user_session.id)
-            )
+            logger().debug("get: token for user_id %d=%s" % (user_id, user_session.id))
 
             # check if token is expired
             await GulpUserSession.check_expired(engine, user_session)
@@ -106,9 +113,7 @@ class GulpUserSession(GulpCollabBase):
             user_session: GulpUserSession = res.scalar_one_or_none()
             if user_session is None:
                 raise ObjectNotFound("session token %s not found !" % (token))
-            logger().debug(
-                "get: user_session for token %s=%s" % (token, user_session)
-            )
+            logger().debug("get: user_session for token %s=%s" % (token, user_session))
 
             # check if token is expired
             await GulpUserSession.check_expired(engine, user_session)
@@ -121,7 +126,11 @@ class GulpUserSession(GulpCollabBase):
         engine: AsyncEngine, sess: AsyncSession, user, impersonated: bool = False
     ) -> "GulpUserSession":
         # check if session exists
-        q = select(GulpUserSession).where(GulpUserSession.user_id == user.id).with_for_update()
+        q = (
+            select(GulpUserSession)
+            .where(GulpUserSession.user_id == user.id)
+            .with_for_update()
+        )
         res = await sess.execute(q)
         user_session = res.scalar_one_or_none()
 
@@ -193,7 +202,7 @@ class GulpUserSession(GulpCollabBase):
         Returns:
             tuple['User', 'UserSession']: A tuple containing the created User and UserSession objects.
         """
-        from gulp.api.collab.user import User
+        from gulp.api.collab.user import GulpUser
 
         if not __debug__:
             allow_any_password = False
@@ -205,12 +214,12 @@ class GulpUserSession(GulpCollabBase):
             # get user
             if allow_any_password:
                 # debugging only
-                q = select(User).where((User.id == username)).with_for_update()
+                q = select(GulpUser).where((GulpUser.id == username)).with_for_update()
                 res = await sess.execute(q)
             else:
                 q = (
-                    select(User)
-                    .where((User.id == username) & (User.pwd_hash == h))
+                    select(GulpUser)
+                    .where((GulpUser.id == username) & (GulpUser.pwd_hash == h))
                     .with_for_update()
                 )
                 res = await sess.execute(q)
@@ -258,10 +267,10 @@ class GulpUserSession(GulpCollabBase):
 
     @staticmethod
     async def _get_admin() -> tuple[any, "GulpUserSession"]:
-        from gulp.api.collab.user import User
+        from gulp.api.collab.user import GulpUser
 
         logger().debug("---> _get_admin")
-        
+
         async with await collab_api.session() as sess:
             q = select(GulpUserSession).where(GulpUserSession.user_id == user.id)
             res = await sess.execute(q)
@@ -294,13 +303,13 @@ class GulpUserSession(GulpCollabBase):
         Returns:
             UserSession: The new user session object.
         """
-        from gulp.api.collab.user import User
+        from gulp.api.collab.user import GulpUser
 
         logger().debug("---> impersonate: user_id=%s" % (user_id))
         await GulpUserSession.check_token(engine, token, GulpUserPermission.ADMIN)
 
         async with AsyncSession(engine, expire_on_commit=False) as sess:
-            q = select(User).where(User.id == user_id).with_for_update()
+            q = select(GulpUser).where(GulpUser.id == user_id).with_for_update()
             res = await sess.execute(q)
             user = res.scalar_one_or_none()
             if user is None:
@@ -313,9 +322,9 @@ class GulpUserSession(GulpCollabBase):
     @staticmethod
     async def check_token(
         token: str,
-        requested_permission: GulpUserPermission = GulpUserPermission.READ,        
+        requested_permission: GulpUserPermission = GulpUserPermission.READ,
     ) -> tuple[any, "GulpUserSession"]:
-        from gulp.api.collab.user import User
+        from gulp.api.collab.user import GulpUser
 
         logger().debug("---> check_token: token=%s" % (token))
         if config.debug_allow_any_token_as_admin():
@@ -329,7 +338,7 @@ class GulpUserSession(GulpCollabBase):
         # get user
         async with AsyncSession(engine) as sess:
             res = await sess.execute(
-                select(User).where((User.id == user_session.user_id))
+                select(GulpUser).where((GulpUser.id == user_session.user_id))
             )
 
             user = res.scalar_one_or_none()

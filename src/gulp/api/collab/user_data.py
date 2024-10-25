@@ -1,18 +1,16 @@
 from typing import override
-from sqlalchemy import ForeignKey, String, select
+from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.asyncio.engine import AsyncEngine
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from gulp.api.collab.base import CollabBase, GulpCollabFilter
-from gulp.api.collab.user import User
-from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpCollabType
-from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabType,
+)
 from gulp.utils import logger
 
 
-class UserData(CollabBase):
+class GulpUserData(GulpCollabBase):
     """
     defines data associated with an user
     """
@@ -23,10 +21,7 @@ class UserData(CollabBase):
         primary_key=True,
         doc="The unique identifier (name) of the user data.",
     )
-    user: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"),
-        doc="The user associated with the data.",
-    )
+    user = relationship("GulpUser", back_populates="user_data")
     data: Mapped[dict] = mapped_column(JSONB, doc="The data.")
 
     __mapper_args__ = {

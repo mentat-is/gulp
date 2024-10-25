@@ -22,8 +22,8 @@ import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
-from gulp.api.collab.user import User
-from gulp.api.collab.user_data import UserData
+from gulp.api.collab.user import GulpUser
+from gulp.api.collab.user_data import GulpUserData
 from gulp.defs import InvalidArgument
 
 _app: APIRouter = APIRouter()
@@ -78,7 +78,7 @@ async def user_data_update_handler(
         if name is None and data is None:
             raise InvalidArgument("at least one of name, data must be specified.")
 
-        ud = await UserData.update(
+        ud = await GulpUserData.update(
             await collab_api.session(),
             token,
             user_data_id,
@@ -137,7 +137,7 @@ async def user_data_list_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        user_datas = await UserData.get(await collab_api.session(), flt)
+        user_datas = await GulpUserData.get(await collab_api.session(), flt)
         l = []
         for u in user_datas:
             l.append(u.to_dict())
@@ -188,8 +188,8 @@ async def user_data_get_by_id_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         # get the specified user data
-        user = await User.check_token_owner(await collab_api.session(), token)
-        user_datas = await UserData.get(
+        user = await GulpUser.check_token_owner(await collab_api.session(), token)
+        user_datas = await GulpUserData.get(
             await collab_api.session(),
             GulpCollabFilter(id=[user_data_id], owner_id=[user.id]),
         )
@@ -250,7 +250,7 @@ async def user_data_create_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        ud = await UserData.create(
+        ud = await GulpUserData.create(
             await collab_api.session(), token, name, operation_id, data, user_id
         )
     except Exception as ex:
@@ -303,7 +303,9 @@ async def user_data_delete_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await UserData.delete(await collab_api.session(), token, user_data_id, user_id)
+        await GulpUserData.delete(
+            await collab_api.session(), token, user_data_id, user_id
+        )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"id": user_data_id})
         )

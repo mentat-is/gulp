@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import Flag, StrEnum, auto
 import json
 from typing import ClassVar, Optional, TypeVar, override
 import muty.time
@@ -47,28 +47,33 @@ COLLAB_MAX_NAME_LENGTH = 128
 class GulpRequestStatus(StrEnum):
     """Gulp request status codes (used by the stats API)."""
 
-    ONGOING = "ongoing"
-    DONE = "done"
-    FAILED = "failed"
-    CANCELED = "canceled"
-    DONE_WITH_ERRORS = "done_with_errors"
+    @override
+    def _generate_next_value_(name, start, count, last_values):
+        """
+        generates the next value for the enum, ensuring it is lowercase.
+        """
+        return name.lower()
+
+    ONGOING = auto()
+    DONE = auto()
+    FAILED = auto()
+    CANCELED = auto()
+    DONE_WITH_ERRORS = auto()
 
 
-class GulpUserPermission(StrEnum):
+class GulpUserPermission(Flag):
     """represent the permission of a user in the Gulp platform."""
 
     # can read only
-    READ = "read"
+    READ = auto()
     # can edit own highlights, notes, stories, links
-    EDIT = "edit"
+    EDIT = auto()
     # can delete highlights, notes, stories, links
-    DELETE = "delete"
+    DELETE = auto()
     # can ingest files
-    INGEST = "ingest"
+    INGEST = auto()
     # can do anything, including creating new users and change permissions
-    ADMIN = "admin"
-    # can monitor the system (READ + monitor)
-    MONITOR = "monitor"
+    ADMIN = auto()
 
 
 PERMISSION_EDIT = [GulpUserPermission.READ, GulpUserPermission.EDIT]
@@ -96,21 +101,27 @@ class GulpCollabType(StrEnum):
     defines the type of collaboration object
     """
 
-    NOTE = "note"
-    HIGHLIGHT = "highlight"
-    STORY = "story"
-    LINK = "link"
-    STORED_QUERY = "query"
-    STATS_INGESTION = "stats_ingestion"
-    STATS_QUERY = "stats_query"
-    SIGMA_FILTER = "sigma_filter"
-    SHARED_DATA_GENERIC = "shared_data_generic"
-    CONTEXT = "context"
-    USER = "user"
-    GLYPH = "glyph"
-    OPERATION = "operation"
-    CLIENT = "client"
-    SESSION = "session"
+    @override
+    def _generate_next_value_(name, start, count, last_values):
+        """
+        generates the next value for the enum, ensuring it is lowercase.
+        """
+        return name.lower()
+
+    NOTE = auto()
+    HIGHLIGHT = auto()
+    STORY = auto()
+    LINK = auto()
+    STORED_QUERY = auto()
+    STATS_INGESTION = auto()
+    STATS_QUERY = auto()
+    SIGMA_FILTER = auto()
+    SHARED_DATA_GENERIC = auto()
+    CONTEXT = auto()
+    USER = auto()
+    GLYPH = auto()
+    OPERATION = auto()
+    SESSION = auto()
 
 
 class GulpCollabFilter(BaseModel):
@@ -568,3 +579,44 @@ class GulpCollabObject(GulpCollabBase):
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s, data=%s"
             % (id, type, user, operation, glyph, tags, title, private, data)
         )
+
+    @staticmethod
+    async def check_token_owner(
+        requestor_token: str,
+        permission: GulpUserPermission = None,
+    ) -> "GulpUser":
+        """
+        Checks if the requestor token is the owner of the specified user ID (is the user's token or it is an admin token)
+
+        Args:
+            engine (AsyncEngine): The database engine.
+            requestor_token (str): The token of the requestor.
+            user_id (int, optional): The ID of the user to check ownership for. Defaults to None (use user from requestor's token).
+            permission (GulpUserPermission, optional): setting this to any value other than None forces the requestor to be checked for ADMIN rights. Defaults to None.
+
+        Raises:
+            MissingPermission: If the requestor token does not have the required permission.
+
+        Returns:
+            User: The user object.
+        """
+
+        requestor, _ = await GulpUserSession.check_token(engine, requestor_token)
+        req_user: GulpUser = requestor
+        if permission is not None and not req_user.is_admin():
+            raise MissingPermission(
+                "token %s does not have permission to change this user permission"
+                % (req_user)
+            )
+
+        if user_id is None:
+            # use token's user_id (default)
+            user_id = req_user.id
+
+        if user_id != req_user.id and not req_user.is_admin():
+            # if user_id is set, it must be the same as token's user_id (or token must be an admin token)
+            raise MissingPermission(
+                "%s (userid=%d) does not have permission to access user_id=%d"
+                % (req_user.id, req_user.id, user_id)
+            )
+        return req_user

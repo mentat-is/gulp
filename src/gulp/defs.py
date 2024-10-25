@@ -1,7 +1,8 @@
 """Gulp global definitions."""
 
 import json
-from enum import IntEnum, StrEnum
+from enum import IntEnum, StrEnum, auto
+from typing import override
 
 import muty.jsend
 from pydantic import BaseModel, Field, model_validator
@@ -99,10 +100,17 @@ class IngestionFailed(Exception):
 class GulpPluginType(StrEnum):
     """plugin types"""
 
-    INGESTION = "ingestion"
-    SIGMA = "sigma"
-    EXTENSION = "extension"
-    QUERY = "query"
+    @override
+    def _generate_next_value_(name, start, count, last_values):
+        """
+        generates the next value for the enum, ensuring it is lowercase.
+        """
+        return name.lower()
+
+    INGESTION = auto()
+    SIGMA = auto()
+    EXTENSION = auto()
+    QUERY = auto()
 
 
 class GulpLogLevel(IntEnum):
@@ -139,8 +147,15 @@ class GulpSortOrder(StrEnum):
     specifies the sort types for API accepting the "sort" parameter
     """
 
-    ASCENDING = "asc"
-    DESCENDING = "desc"
+    @override
+    def _generate_next_value_(name, start, count, last_values):
+        """
+        generates the next value for the enum, ensuring it is lowercase.
+        """
+        return name.lower()
+
+    ASC = "asc"
+    DESC = "desc"
 
 
 class GulpAPIContext(BaseModel):

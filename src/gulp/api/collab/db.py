@@ -84,7 +84,7 @@ async def _create_default_data() -> None:
     from gulp.api.collab.context import GulpContext
     from gulp.api.collab.glyph import Glyph
     from gulp.api.collab.operation import Operation
-    from gulp.api.collab.user import User
+    from gulp.api.collab.user import GulpUser
 
     assets_path = impresources.files("gulp.api.collab.assets")
 
@@ -136,7 +136,7 @@ async def _create_default_data() -> None:
             the_op = the_op[0]
     # users
     try:
-        admin_user = await User.create(
+        admin_user = await GulpUser.create(
             engine,
             "admin",
             "admin",
@@ -144,11 +144,11 @@ async def _create_default_data() -> None:
             glyph_id=the_user.id,
         )
     except ObjectAlreadyExists:
-        admin_user = await User.get(engine, GulpCollabFilter(name=["admin"]))
+        admin_user = await GulpUser.get(engine, GulpCollabFilter(name=["admin"]))
         admin_user = admin_user[0]
 
     try:
-        await User.create(
+        await GulpUser.create(
             engine,
             "guest",
             "guest",
@@ -161,7 +161,7 @@ async def _create_default_data() -> None:
     if __debug__:
         # also create these additional data on debug builds
         try:
-            await User.create(
+            await GulpUser.create(
                 engine,
                 "ingest",
                 "ingest",
@@ -172,7 +172,7 @@ async def _create_default_data() -> None:
             pass
 
         try:
-            await User.create(
+            await GulpUser.create(
                 engine,
                 "test1",
                 "test",
@@ -183,7 +183,7 @@ async def _create_default_data() -> None:
             pass
 
         try:
-            await User.create(
+            await GulpUser.create(
                 engine,
                 "test2",
                 "test",

@@ -31,7 +31,7 @@ from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.client import Client
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
-from gulp.api.collab.user import User
+from gulp.api.collab.user import GulpUser
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.plugin_internal import GulpPluginParams
 from gulp.utils import logger
@@ -57,7 +57,7 @@ async def _check_parameters(
     permission: GulpUserPermission = GulpUserPermission.READ,
     operation_id: int = None,
     client_id: int = None,
-) -> tuple[User, Operation, Client]:
+) -> tuple[GulpUser, Operation, Client]:
     """
     A helper function to check the parameters of the request (token permission, operation and client) and raise a JSendException on error.
 

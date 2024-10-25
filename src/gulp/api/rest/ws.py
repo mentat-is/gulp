@@ -1,8 +1,9 @@
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from enum import IntEnum, StrEnum
+from enum import IntEnum, StrEnum, auto
 from queue import Empty, Queue
+from typing import override
 
 import muty.crypto
 import muty.file
@@ -32,51 +33,80 @@ _app: APIRouter = APIRouter()
 _connected_ws: dict[str, "ConnectedWs"] = {}
 _global_shared_q: Queue = None
 
+
 class WsQueueDataType(StrEnum):
     """
     The type of data into the websocket queue.
     """
-    STATS_UPDATE = 'stats_update'
-    COLLAB_UPDATE = 'collab_update'
-    QUERY_DONE = 'query_done'
-    REBASE_DONE = 'rebase_done'
-    CHUNK = 'chunk'
+
+    @override
+    def _generate_next_value_(name, start, count, last_values):
+        """
+        generates the next value for the enum, ensuring it is lowercase.
+        """
+        return name.lower()
+
+    STATS_UPDATE = auto()
+    COLLAB_UPDATE = auto()
+    QUERY_DONE = auto()
+    REBASE_DONE = auto()
+    CHUNK = auto()
+
 
 class WsParameters(BaseModel):
     token: str = Field(..., description="user token")
-    operation: list[str] = Field(None,description="The operation/s on which this websocket is registered to receive data for, defaults to None(=all).")
-    types: list[WsQueueDataType] = Field(None,description="The types of data this websocket is interested in, defaults to None(=all).")
-    
+    operation: list[str] = Field(
+        None,
+        description="The operation/s on which this websocket is registered to receive data for, defaults to None(=all).",
+    )
+    types: list[WsQueueDataType] = Field(
+        None,
+        description="The types of data this websocket is interested in, defaults to None(=all).",
+    )
+
     @staticmethod
     def from_dict(d: dict) -> "WsParameters":
         return WsParameters(**d)
-    
+
+
 class ConnectedWs(BaseModel):
     """
     a connected and active websocket
     """
-    ws: WebSocket = Field(...,description="The WebSocket instance.")
-    ws_id: str = Field(...,description="The WebSocket ID.")
-    q: asyncio.Queue = Field(...,description="The asyncio queue associated with this websocket.")
+
+    ws: WebSocket = Field(..., description="The WebSocket instance.")
+    ws_id: str = Field(..., description="The WebSocket ID.")
+    q: asyncio.Queue = Field(
+        ..., description="The asyncio queue associated with this websocket."
+    )
     user = Field(..., description="user associated with this websocket.")
-    params: WsParameters = Field(..., description="creation parameters for this websocket.")
+    params: WsParameters = Field(
+        ..., description="creation parameters for this websocket."
+    )
+
 
 class WsData(BaseModel):
     """
     data carried by the websocket
     """
-    type: WsQueueDataType = Field(...,description="The type of data carried by the websocket.")
-    operation: str = Field(...,description="The operation this data belongs to.")
-    user: str = Field(...,description="The user who issued the request.")
-    ws_id: str = Field(...,description="The WebSocket ID.")
-    req_id: str = Field(...,description="The request ID.")
-    private: bool = Field(False,description="If the data is private(=only ws with ws_id=ws_id can receive it).")
-    timestamp: int = Field(None,description="The timestamp of the data.")
-    data: dict = Field(None,description="The data carried by the websocket.")
+
+    type: WsQueueDataType = Field(
+        ..., description="The type of data carried by the websocket."
+    )
+    operation: str = Field(..., description="The operation this data belongs to.")
+    user: str = Field(..., description="The user who issued the request.")
+    ws_id: str = Field(..., description="The WebSocket ID.")
+    req_id: str = Field(..., description="The request ID.")
+    private: bool = Field(
+        False,
+        description="If the data is private(=only ws with ws_id=ws_id can receive it).",
+    )
+    timestamp: int = Field(None, description="The timestamp of the data.")
+    data: dict = Field(None, description="The data carried by the websocket.")
 
     def __init__(self, **kwargs):
-        if 'timestamp' not in kwargs:
-            kwargs['timestamp'] = muty.time.now_nsec()
+        if "timestamp" not in kwargs:
+            kwargs["timestamp"] = muty.time.now_nsec()
         super().__init__(**kwargs)
 
     def to_dict(self) -> dict:
@@ -87,7 +117,7 @@ class WsData(BaseModel):
             dict: The object as a dictionary.
         """
         return self.model_dump()
-    
+
     @staticmethod
     def from_dict(d: dict) -> "WsData":
         """
@@ -100,7 +130,7 @@ class WsData(BaseModel):
             WsData: The WsData object.
         """
         return WsData(**d)
-    
+
 
 def init(ws_queue: Queue, main_process: bool = False):
     """
@@ -161,7 +191,10 @@ async def _fill_ws_queues_from_shared_queue(q: Queue):
                 cws = _find_target_ws(entry.ws_id)
                 if cws is None:
                     # no websocket found for this entry, skip (this WsData entry will be lost)
-                    logger().warning("no websocket found for ws_id=%s, skipping entry!" % (entry.ws_id))
+                    logger().warning(
+                        "no websocket found for ws_id=%s, skipping entry!"
+                        % (entry.ws_id)
+                    )
                     continue
 
                 # broadcast
@@ -169,14 +202,20 @@ async def _fill_ws_queues_from_shared_queue(q: Queue):
                     if cws.types is not None:
                         # check types
                         if not entry.type in cws.types:
-                            logger().warning("skipping entry type=%s for ws_id=%s, cws.types=%s" % (entry.type, cws.ws_id, cws.types))
+                            logger().warning(
+                                "skipping entry type=%s for ws_id=%s, cws.types=%s"
+                                % (entry.type, cws.ws_id, cws.types)
+                            )
                             continue
                     if cws.operation is not None:
                         # check operation/s
                         if not entry.operation in cws.operation:
-                            logger().warning("skipping entry type=%s for ws_id=%s, cws.operation=%s" % (entry.type, cws.ws_id, cws.operation))
+                            logger().warning(
+                                "skipping entry type=%s for ws_id=%s, cws.operation=%s"
+                                % (entry.type, cws.ws_id, cws.operation)
+                            )
                             continue
-                        
+
                     if cws.ws_id == entry.ws_id:
                         # always relay to the ws async queue for the target websocket
                         await cws.q.put(d)
@@ -184,13 +223,16 @@ async def _fill_ws_queues_from_shared_queue(q: Queue):
                         # not target websocket
                         if entry.private:
                             # do not broadcast
-                            logger().warning("skipping entry type=%s for ws_id=%s, private=True" % (entry.type, cws.ws_id))
+                            logger().warning(
+                                "skipping entry type=%s for ws_id=%s, private=True"
+                                % (entry.type, cws.ws_id)
+                            )
                             continue
-                        
+
                         # only relay collab updates to other ws
-                        if entry.type not in [ WsQueueDataType.COLLAB_UPDATE ]:
+                        if entry.type not in [WsQueueDataType.COLLAB_UPDATE]:
                             continue
-                        
+
                         await cws.q.put(d)
             except Empty:
                 await asyncio.sleep(1)
@@ -203,7 +245,7 @@ def shared_queue_add_data(
     user: str,
     ws_id: str,
     req_id: str,
-    data: dict=None
+    data: dict = None,
 ) -> None:
     """
     Adds data to the shared multiprocessing queue.
@@ -217,7 +259,9 @@ def shared_queue_add_data(
         data (dict, optional): The data to add. Defaults to None.
     """
     global _global_shared_q
-    wsd = WsData(type=type, operation=operation, user=user, ws_id=ws_id, req_id=req_id, data=data)
+    wsd = WsData(
+        type=type, operation=operation, user=user, ws_id=ws_id, req_id=req_id, data=data
+    )
     logger().debug("adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id))
     _global_shared_q.put(wsd.to_dict())
 
