@@ -1,6 +1,6 @@
 import json
 from enum import IntEnum, StrEnum
-from typing import Any, Optional, Union, TypeVar
+from typing import Any, Dict, Literal, Optional, Set, Union, TypeVar, override
 
 import muty.crypto
 import muty.dict
@@ -310,25 +310,36 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         # print('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
+class GulpAssociatedDocument(BaseModel):
+    """
+    base class for Gulp documents.
+    """
+    id: Optional[str] = Field(None, description='"_id": the unique identifier of the document.', alias='_id')
+    timestamp: Optional[int] = Field(None, description='"@timestamp": document original timestamp in nanoseconds from unix epoch', alias='@timestamp')
+ 
 class GulpDocument(BaseModel):
     """
     represents a Gulp document.
     """
-    timestamp: int = Field(..., description='"@timestamp": document original timestamp in nanoseconds from unix epoch')
+    id: str = Field(description='"_id": the unique identifier of the document.', alias='_id')
+    hash: str = Field(description='"event.hash": the hash of the event.', alias='event.hash')
+    gulp_event_code: int = Field(description='"gulp.event_code": the event code as an integer.', alias='gulp.event_code')
+    timestamp: int = Field(..., description='"@timestamp": document original timestamp in nanoseconds from unix epoch', alias='@timestamp')
     operation: str = Field(
-        ..., description='"gulp.operation": the operation ID the document is associated with.'
+        ..., description='"gulp.operation": the operation ID the document is associated with.', alias='gulp.operation'
     )
     context: str = Field(
-        ..., description='"gulp.context": the context (i.e. an host name) the document is associated with.'
+        ..., description='"gulp.context": the context (i.e. an host name) the document is associated with.', alias='gulp.context'
     )
-    agent_type: str = Field(..., description='"agent.type": the ingestion source, i.e. gulp plugin.name().')
-    event_original: str = Field(..., description='"event.original": the original event as text.')
-    event_sequence: int = Field(..., description='"event.sequence": the sequence number of the document in the source.')
-    event_code: str = Field('0', description='"event.code": the event code, "0" if missing.')
-    event_duration: Optional[int] = Field(1, description='"event.duration": the duration of the event in nanoseconds, defaults to 1.')
+    agent_type: str = Field(..., description='"agent.type": the ingestion source, i.e. gulp plugin.name().', alias='agent.type')
+    event_original: str = Field(..., description='"event.original": the original event as text.', alias='event.original')
+    event_sequence: int = Field(..., description='"event.sequence": the sequence number of the document in the source.', alias='event.sequence')
+    event_code: Optional[str] = Field('0', description='"event.code": the event code, "0" if missing.', alias='event.code')
+    event_duration: Optional[int] = Field(1, description='"event.duration": the duration of the event in nanoseconds, defaults to 1.', alias='event.duration')
     log_file_path: Optional[str] = Field(
-        None, description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").'
-    )
+        None, description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").', alias='log.file.path')
+
+    @override
     def __init__(
         self,
         timestamp: int,
@@ -342,6 +353,7 @@ class GulpDocument(BaseModel):
         source: str = None,
         **kwargs,
     ) -> None:
+        super().__init__()        
         self.timestamp = timestamp
         if not self.timestamp:
             # flag as invalid
@@ -382,27 +394,6 @@ class GulpDocument(BaseModel):
     
     def to_dict(self, lite: bool=False) -> dict:                
         d = self.model_dump(exclude_none=True, exclude_unset=True)
-
-        gulpdoc_mapping = {
-            'operation': 'gulp.operation',
-            'context': 'gulp.context',
-            'agent_type': 'agent.type',
-            'event_sequence': 'event.sequence',
-            'log_file_path': 'log.file.path',
-            'event_code': 'event.code',
-            'gulp_event_code': 'gulp.event_code',
-            'event_duration': 'event.duration',
-            'hash': 'event.hash',
-            'id': '_id',
-            'event_original': 'event.original',
-            'timestamp': '@timestamp',
-            'invalid_timestamp': 'gulp.invalid_timestamp'
-        }
-        for k, v in gulpdoc_mapping.items():
-            if k in d:
-                d[v] = d[k]
-                del d[k]
-        
         if lite:
             # return just this subset
             for k in list(d.keys()):

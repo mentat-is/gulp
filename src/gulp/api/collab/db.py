@@ -9,6 +9,7 @@ from gulp import config
 from gulp.api.collab.structs import (
     PERMISSION_DELETE,
     PERMISSION_EDIT,
+    GulpCollabBase,
     GulpCollabFilter,
     GulpCollabType,
     GulpUserPermission,
@@ -88,7 +89,9 @@ async def _create_default_data() -> None:
     assets_path = impresources.files("gulp.api.collab.assets")
 
     # create default context
-    context = await GulpContext.create("default", "#6fcee4")
+    context = GulpContext("default", "#6fcee4")
+    await context.store()
+    return
 
     # glyphs
     user_b = await muty.file.read_file_async(
@@ -327,7 +330,7 @@ async def setup(force_recreate: bool = False) -> None:
         async with e.begin() as conn:
             from gulp.api.collab.context import GulpContext
 
-            await conn.run_sync(CollabBase.metadata.create_all)
+            await conn.run_sync(GulpCollabBase.metadata.create_all)
         await shutdown()
         await _setup_collab_expirations()
         await _create_default_data()

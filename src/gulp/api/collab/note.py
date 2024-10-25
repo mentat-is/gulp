@@ -1,27 +1,73 @@
-from typing import Optional
-from sqlalchemy import BIGINT, ForeignKey, Index, String, ARRAY, Boolean, JSONB
+from typing import Optional, override
+from sqlalchemy import ForeignKey, String, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.base import GulpCollabObject
-from gulp.api.collab.structs import COLLAB_MAX_NAME_LENGTH, GulpCollabType
-from gulp.api.collab_api import CollabBase
+from gulp.api.collab.structs import (
+    GulpCollabObject,
+    GulpCollabType,
+)
+from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
+from gulp.utils import logger
 
 
-class GulpCollabNote(GulpCollabObject):
+class GulpNote(GulpCollabObject):
     """
     a note in the gulp collaboration system
     """
 
     __tablename__ = "note"
-    
+
     # the following must be refactored for specific tables
-    id: Mapped[int] = mapped_column(ForeignKey("collab_obj.id"), primary_key=True)
-    context: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("context.id", ondelete="CASCADE"), default=None
+    id: Mapped[str] = mapped_column(
+        ForeignKey("collab_obj.id"),
+        primary_key=True,
+        doc="The unique identifier (name) of the note.",
     )
-    source: Mapped[Optional[str]] = mapped_column(String, default=None)
-    events: Mapped[Optional[list[dict]]] = mapped_column(JSONB, default=None)
-    text: Mapped[Optional[str]] = mapped_column(String, default=None)
+    context: Mapped[str] = mapped_column(
+        ForeignKey("context.id", ondelete="CASCADE"),
+        doc="The context associated with the note.",
+    )
+    log_file_path: Mapped[str] = mapped_column(
+        String, doc="The log file path associated with the note."
+    )
+    documents: Mapped[Optional[list[GulpAssociatedDocument]]] = mapped_column(
+        JSONB, doc="One or more documents associated with the note."
+    )
+    text: Mapped[str] = mapped_column(String, doc="The text of the note.")
 
     __mapper_args__ = {
         "polymorphic_identity": "note",
-    }    
+    }
+
+    @override
+    def __init__(
+        self,
+        id: str,
+        user: str,
+        operation: str,
+        context: str,
+        log_file_path: str,
+        documents: list[GulpDocument],
+        text: str,
+        **kwargs,
+    ) -> None:
+        """
+        Initialize a GulpNote instance.
+        Args:
+            id (str): The unique identifier for the note.
+            user (str): The user associated with the note.
+            operation (str): The operation performed on the note.
+            context (str): The context in which the note is created.
+            log_file_path (str): The path to the log file.
+            documents (list[GulpDocument]): A list of associated GulpDocument objects.
+            text (str): The text content of the note.
+            **kwargs: Additional keyword arguments passed to the GulpCollabObject initializer.
+        """
+        super().__init__(id, GulpCollabType.NOTE, user, operation, **kwargs)
+        self.context = context
+        self.log_file_path = log_file_path
+        self.documents = documents
+        self.text = text
+        logger().debug(
+            "---> GulpNote: context=%s, log_file_path=%s, documents=%s, text=%s"
+            % (context, log_file_path, documents, text)
+        )

@@ -37,6 +37,7 @@ dependencies = [
     "pySigma-backend-elasticsearch",
     "pySigma-backend-opensearch",
     "pySigma",
+    "pytest-asyncio",
     "python-multipart",
     "python-pip",
     "PyYAML",
@@ -52,7 +53,7 @@ dependencies = [
     "urllib3",
     "uvicorn",
     "websockets",
-    "xmltodict"
+    "xmltodict",
 ]
 
 [project.scripts]
@@ -63,4 +64,3 @@ where = ["src"]
 
 [tool.setuptools]
 include-package-data = true
-

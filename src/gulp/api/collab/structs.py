@@ -1,6 +1,6 @@
 from enum import StrEnum
 import json
-from typing import Optional, TypeVar
+from typing import ClassVar, Optional, TypeVar, override
 import muty.time
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.dialects.postgresql import JSONB
@@ -24,6 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, MappedAsDataclass, Declarative
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins import SerializeMixin
 from gulp.api.collab_api import session
+from gulp.api.elastic.structs import GulpAssociatedDocument
 from gulp.defs import ObjectNotFound
 from gulp.utils import logger
 
@@ -117,40 +118,50 @@ class GulpCollabFilter(BaseModel):
     defines filter to be applied to all objects in the collaboration system
     """
 
-    T = TypeVar("T", bound="GulpCollabBase")
+    T: ClassVar[TypeVar] = TypeVar("T", bound="GulpCollabBase")
 
-    id: list[str] = Field(None, description="filter by the given id/s.")
-    type: list[GulpCollabType] = Field(None, description="filter by the given type/s.")
-    operation: list[str] = Field(None, description="filter by the given operation/s.")
-    context: list[str] = Field(None, description="filter by the given context/s.")
-    log_file_path: list[str] = Field(
+    id: Optional[list[str]] = Field(None, description="filter by the given id/s.")
+    type: Optional[list[GulpCollabType]] = Field(
+        None, description="filter by the given type/s."
+    )
+    operation: Optional[list[str]] = Field(
+        None, description="filter by the given operation/s."
+    )
+    context: Optional[list[str]] = Field(
+        None, description="filter by the given context/s."
+    )
+    log_file_path: Optional[list[str]] = Field(
         None, description="filter by the given source path/s or name/s."
     )
-    user: list[str] = Field(None, description="filter by the given user(owner) id/s.")
-    tags: list[str] = Field(None, description="filter by the given tag/s.")
-    title: list[str] = Field(None, description="filter by the given title/s.")
-    text: list[str] = Field(None, description="filter by the given object text.")
-    documents: list[dict] = Field(
-        None,
-        description="filter by the given event ID/s in a CollabObj.documents list of GulpDocument.",
+    user: Optional[list[str]] = Field(
+        None, description="filter by the given user(owner) id/s."
     )
-    opt_time_range: tuple[int, int] = Field(
+    tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
+    title: Optional[list[str]] = Field(None, description="filter by the given title/s.")
+    text: Optional[list[str]] = Field(
+        None, description="filter by the given object text."
+    )
+    documents: Optional[list[GulpAssociatedDocument]] = Field(
+        None,
+        description="filter by the given event ID/s in a CollabObj.documents list of GulpAssociatedDocument.",
+    )
+    opt_time_range: Optional[tuple[int, int]] = Field(
         None,
         description="if set, a `@timestamp` range [start, end] relative to CollabObject.documents, inclusive, in nanoseconds from unix epoch.",
     )
-    opt_private: bool = Field(
+    opt_private: Optional[bool] = Field(
         False,
         description="if True, return only private objects. Default=False (return all).",
     )
-    opt_limit: int = Field(
+    opt_limit: Optional[int] = Field(
         None,
         description='to be used together with "offset", maximum number of results to return. default=return all.',
     )
-    opt_offset: int = Field(
+    opt_offset: Optional[int] = Field(
         None,
         description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
     )
-    opt_tags_and: bool = Field(
+    opt_tags_and: Optional[bool] = Field(
         False,
         description="if True, all tags must match. Default=False (at least one tag must match).",
     )
@@ -246,7 +257,7 @@ class GulpCollabFilter(BaseModel):
                 raw_sql = f"""
                 EXISTS (
                     SELECT 1
-                    FROM jsonb_array_elements({table_name}.documents) AS evt
+                    FROM jsonb_array_elements({table_name}.documents) AS doc
                     WHERE {condition_str}
                 )
                 """
@@ -267,7 +278,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     base for everything on the collab database
     """
 
-    T = TypeVar("T", bound="GulpCollabBase")
+    T: ClassVar[TypeVar] = TypeVar("T", bound="GulpCollabBase")
 
     id: Mapped[str] = mapped_column(
         String(COLLAB_MAX_NAME_LENGTH),
@@ -276,14 +287,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The id of the object.",
     )
     type: Mapped[GulpCollabType] = mapped_column(String, doc="The type of the object.")
-    time_created: Mapped[Optional[int]] = mapped_column(
+    time_created: Mapped[int] = mapped_column(
         BIGINT,
-        default=0,
         doc="The time the object was created, in milliseconds from unix epoch.",
     )
-    time_updated: Mapped[Optional[int]] = mapped_column(
+    time_updated: Mapped[int] = mapped_column(
         BIGINT,
-        default=0,
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
 
@@ -291,6 +300,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
     }
+
+    @override
+    def __init__(self, id: str, type: GulpCollabType) -> None:
+        """
+        Initialize a GulpCollabBase instance.
+        Args:
+            id (str): The identifier for the object.
+            type (GulpCollabType): The type of the object.
+        """
+        super().__init__()
+        self.id = id
+        self.type = type
+        self.time_created = muty.time.now_msec()
+        self.time_updated = self.time_created
+        logger().debug("---> GulpCollabBase: id=%s, type=%s" % (id, type))
 
     async def store(self, sess: AsyncSession = None) -> None:
         """
@@ -356,6 +380,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         logger().debug("---> update: obj_id=%s, type=%s, d=%s" % (obj_id, type, d))
+
+        # ensure d has no 'id' (cannot be updated)
+        if "id" in d:
+            del d["id"]
+
         async with await session() as sess:
             q = select(type).where(type.id == obj_id).with_for_update()
             res = await sess.execute(q)
@@ -466,21 +495,76 @@ class GulpCollabObject(GulpCollabBase):
     __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
 
     # the following are present in all collab objects regardless of type
-    id: Mapped[int] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
-    user: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE")
+    id: Mapped[str] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
+    user: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"),
+        doc="The user who created (the owner of) the object.",
     )
-    operation: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("operation.id", ondelete="CASCADE")
+    operation: Mapped[str] = mapped_column(
+        ForeignKey(
+            "operation.id",
+            ondelete="CASCADE",
+        ),
+        doc="The operation associated with the object.",
     )
     glyph: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None
+        ForeignKey("glyph.id", ondelete="SET NULL"), default=None, doc="The glyph ID."
     )
-    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=None)
-    title: Mapped[Optional[str]] = mapped_column(String, default=None)
-    private: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
-    data: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
+    tags: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String), default=None, doc="The tags associated with the object."
+    )
+    title: Mapped[Optional[str]] = mapped_column(
+        String, default=None, doc="The title of the object."
+    )
+    private: Mapped[Optional[bool]] = mapped_column(
+        Boolean,
+        default=False,
+        doc="If True, the object is private (only the owner can see it).",
+    )
+    data: Mapped[Optional[dict]] = mapped_column(
+        JSONB, default=None, doc="The data associated with the object."
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "collab_obj",
     }
+
+    @override
+    def __init__(
+        self,
+        id: str,
+        type: GulpCollabType,
+        user: str,
+        operation: str,
+        glyph: str = None,
+        tags: list[str] = None,
+        title: str = None,
+        private: bool = False,
+        data: dict = None,
+    ) -> None:
+        """
+        Initialize a GulpCollabObject.
+        Args:
+            id (str): The unique identifier for the collaboration object.
+            type (GulpCollabType): The type of the collaboration object.
+            user (str): The user associated with the collaboration object.
+            operation (str): The operation performed on the collaboration object.
+            glyph (str, optional): The glyph associated with the collaboration object. Defaults to None.
+            tags (list[str], optional): A list of tags associated with the collaboration object. Defaults to None.
+            title (str, optional): The title of the collaboration object. Defaults to None.
+            private (bool, optional): Indicates if the collaboration object is private. Defaults to False.
+            data (dict, optional): Additional data associated with the collaboration object. Defaults to None.
+        """
+
+        super().__init__(id, type)
+        self.user = user
+        self.operation = operation
+        self.glyph = glyph
+        self.tags = tags
+        self.title = title
+        self.private = private
+        self.data = data
+        logger().debug(
+            "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s, data=%s"
+            % (id, type, user, operation, glyph, tags, title, private, data)
+        )
