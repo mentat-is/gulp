@@ -3,10 +3,14 @@ import json
 from typing import Optional, TypeVar
 import muty.time
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import (
+    ARRAY,
     BIGINT,
+    Boolean,
     ColumnElement,
     ForeignKey,
+    Index,
     Result,
     Select,
     String,
@@ -14,6 +18,7 @@ from sqlalchemy import (
     func,
     or_,
     select,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, MappedAsDataclass, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
@@ -125,13 +130,13 @@ class GulpCollabFilter(BaseModel):
     tags: list[str] = Field(None, description="filter by the given tag/s.")
     title: list[str] = Field(None, description="filter by the given title/s.")
     text: list[str] = Field(None, description="filter by the given object text.")
-    events: list[dict] = Field(
+    documents: list[dict] = Field(
         None,
-        description="filter by the given event ID/s in CollabObj.events list of GulpDocument.",
+        description="filter by the given event ID/s in a CollabObj.documents list of GulpDocument.",
     )
-    time_range: tuple[int, int] = Field(
+    opt_time_range: tuple[int, int] = Field(
         None,
-        description="timestamp range relative to CollabObj.events (milliseconds from unix epoch).",
+        description="if set, a `@timestamp` range [start, end] relative to CollabObject.documents, inclusive, in nanoseconds from unix epoch.",
     )
     opt_private: bool = Field(
         False,
@@ -214,94 +219,47 @@ class GulpCollabFilter(BaseModel):
         if self.text and "text" in type.columns:
             q = q.filter(self._case_insensitive_or_ilike(type.text, self.text))
 
-        if self.events and "events" in type.columns:
-            if self.opt_private:
-                q = q.where(GulpCollabObject.private is True)
-            if flt.name is not None:
-                q = q.where(GulpCollabObject.name.in_(flt.name))
-            if flt.operation_id is not None:
-                q = q.where(GulpCollabObject.operation_id.in_(flt.operation_id))
-            if flt.context:
-                qq = [GulpCollabObject.context.ilike(x) for x in flt.context]
-                q = q.filter(or_(*qq))
-            if flt.src_file:
-                qq = [GulpCollabObject.source.ilike(x) for x in flt.src_file]
-                q = q.filter(or_(*qq))
-
-            if flt.time_created_start is not None:
-                q = q.where(
-                    GulpCollabObject.time_created is not None
-                    and GulpCollabObject.time_created >= flt.time_created_start
-                )
-            if flt.time_created_end is not None:
-                q = q.where(
-                    GulpCollabObject.time_created is not None
-                    and GulpCollabObject.time_created <= flt.time_created_end
-                )
-            if flt.opt_time_start_end_events:
-                # filter by collabobj.events["@timestamp"] time range
+        if self.documents and "documents" in type.columns:
+            if not self.opt_time_range:
+                # filter by collabobj.documents id
+                lower_documents = [{"_id": doc_id.lower()} for doc_id in self.documents]
+                conditions = [
+                    func.lower(type.documents).op("@>")([{"_id": doc_id}])
+                    for doc_id in lower_documents
+                ]
+                q = q.filter(or_(*conditions))
+            else:
+                # filter by time range on collabobj.documents["@timestamp"]
                 conditions = []
-                if flt.time_start is not None:
+                if self.opt_time_range[0]:
                     conditions.append(
-                        f"(evt->>'@timestamp')::bigint >= {flt.time_start}"
+                        f"(doc->>'@timestamp')::bigint >= {self.opt_time_range[0]}"
                     )
-                if flt.time_end is not None:
-                    conditions.append(f"(evt->>'@timestamp')::bigint <= {flt.time_end}")
+                if self.opt_time_range[1]:
+                    conditions.append(
+                        f"(doc->>'@timestamp')::bigint <= {self.opt_time_range[1]}"
+                    )
 
-                # use a raw query to filter for the above condition
+                # use a raw query to filter for the above conditions
+                table_name = type.__tablename__
                 condition_str = " AND ".join(conditions)
                 raw_sql = f"""
                 EXISTS (
                     SELECT 1
-                    FROM jsonb_array_elements(collab_obj.events) AS evt
+                    FROM jsonb_array_elements({table_name}.documents) AS evt
                     WHERE {condition_str}
                 )
                 """
                 q = q.filter(text(raw_sql))
-            else:
-                if flt.time_start is not None:
-                    # filter by collabobj time_start (pin)
-                    q = q.where(
-                        GulpCollabObject.time_start is not None
-                        and GulpCollabObject.time_start >= flt.time_start
-                    )
-                if flt.time_end is not None:
-                    # filter by collabobj time_end (pin)
-                    q = q.where(
-                        GulpCollabObject.time_end is not None
-                        and GulpCollabObject.time_end <= flt.time_end
-                    )
 
-            if flt.text is not None:
-                qq = [GulpCollabObject.text.ilike(x) for x in flt.text]
-                q = q.filter(or_(*qq))
+        if self.opt_limit:
+            q = q.limit(self.opt_limit)
+        if self.opt_offset:
+            q = q.offset(self.opt_offset)
+        if self.opt_private:
+            q = q.where(GulpCollabObject.private is True)
 
-            if flt.events is not None:
-                event_conditions = [
-                    GulpCollabObject.events.op("@>")([{"id": event_id}])
-                    for event_id in flt.events
-                ]
-                q = q.filter(or_(*event_conditions))
-
-            if flt.tags is not None:
-                if flt.opt_tags_and:
-                    # all tags must match (CONTAINS operator)
-                    q = q.filter(GulpCollabObject.tags.op("@>")(flt.tags))
-                else:
-                    # at least one tag must match (OVERLAP operator)
-                    q = q.filter(GulpCollabObject.tags.op("&&")(flt.tags))
-
-            if flt.data is not None:
-                # filter is a key-value dict
-                flt_data_jsonb = func.jsonb_build_object(
-                    *itertools.chain(*flt.data.items())
-                )
-                q = q.filter(GulpCollabObject.data.op("@>")(flt_data_jsonb))
-
-            if flt.limit is not None:
-                q = q.limit(flt.limit)
-            if flt.offset is not None:
-                q = q.offset(flt.offset)
+        return q
 
 
 class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
@@ -356,15 +314,15 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             # TODO: notify websocket
 
     @staticmethod
-    async def delete(obj_id: str, type: T, throw_if_not_exists: bool = True) -> None:
+    async def delete(obj_id: str, type: T, throw_if_not_found: bool = True) -> None:
         """
         Asynchronously deletes an object from the database.
         Args:
             obj_id (str): The ID of the object to be deleted.
             type (T): The type of the object to be deleted.
-            throw_if_not_exists (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
+            throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
         Raises:
-            ObjectNotFoundError: If throw_if_not_exists is True and the object does not exist.
+            ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
         Returns:
             None
         """
@@ -373,8 +331,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         async with await session() as sess:
             q = select(type).where(type.id == obj_id).with_for_update()
             res = await sess.execute(q)
-            c = GulpCollabObject.get_one_result_or_throw(
-                res, obj_id=obj_id, type=type, throw_if_not_exists=throw_if_not_exists
+            c = GulpCollabBase.get_one_result_or_throw(
+                res, obj_id=obj_id, type=type, throw_if_not_found=throw_if_not_found
             )
             if c is not None:
                 sess.delete(c)
@@ -401,68 +359,78 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         async with await session() as sess:
             q = select(type).where(type.id == obj_id).with_for_update()
             res = await sess.execute(q)
-            c = GulpCollabObject.get_one_result_or_throw(res, obj_id=obj_id, type=type)
+            c = GulpCollabBase.get_one_result_or_throw(res, obj_id=obj_id, type=type)
+            if c is not None:
+                # update
+                for k, v in d.items():
+                    setattr(c, k, v)
+                c.time_updated = muty.time.now_msec()
 
-            # update
-            for k, v in d.items():
-                setattr(c, k, v)
-            c.time_updated = muty.time.now_msec()
+                await sess.commit()
+                logger().debug("---> updated: %s" % (c))
 
-            await sess.commit()
-            logger().debug("---> updated: %s" % (c))
-
-            # TODO: notify websocket
+                # TODO: notify websocket
 
             return c
 
     @staticmethod
     async def get(type: T, flt: GulpCollabFilter = None) -> list[T]:
+        """
+        Asynchronously retrieves a list of objects of the specified type based on the provided filter.
+        Args:
+            type (T): The type of objects to retrieve.
+            flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
+        Returns:
+            list[T]: A list of objects of the specified type that match the filter criteria.
+        Raises:
+            Exception: If there is an error during the query execution or result processing.
+        """
+
         logger().debug("---> get: type=%s, filter=%s" % (type, flt))
-        if flt is None:
-            flt = GulpCollabFilter()
+        flt = flt or GulpCollabFilter()
 
         async with await session() as sess:
-            q = select(type)
-            # TODO: make q
-
+            # build query
+            q = flt.to_select_query(type)
             res = await sess.execute(q)
-            if flt is not None and flt.opt_basic_fields_only:
-                # just the selected columns
-                objs = res.fetchall()
-            else:
-                # full objects
-                objs = res.scalars().all()
-            if len(objs) == 0:
-                logger().warning("no CollabObj found (flt=%s)" % (flt))
-                return []
-                # raise ObjectNotFound("no objects found (flt=%s)" % (flt))
+            c = GulpCollabBase.get_all_results_or_throw(res, type)
+            if c is not None:
+                logger().debug("---> get: found %d objects" % (len(c)))
+                return c
+        return []
 
-            if flt is not None and flt.opt_basic_fields_only:
-                # we will return an array of dict instead of full ORM objects
-                oo = []
-                for o in objs:
-                    oo.append(
-                        {
-                            "id": o[0],
-                            "name": o[1],
-                            "type": o[2],
-                            "owner_user_id": o[3],
-                            "operation_id": o[4],
-                            "time_created": o[5],
-                            "time_updated": o[6],
-                            "edits": o[7],
-                        }
-                    )
-                objs = oo
-            logger().debug("---> get: found %d objects" % (len(objs)))
-            return objs
+    @staticmethod
+    async def get_all_results_or_throw(
+        res: Result, type: T, throw_if_not_found: bool = True
+    ) -> list[T]:
+        """
+        gets all results or throws an exception
+
+        Args:
+            res (Result): The result.
+            type (GulpCollabType): The type of the object.
+            throw_if_not_found (bool, optional): If True, throws an exception if the result is empty. Defaults to True.
+
+        Returns:
+            list[T]: The list of objects or None if not found
+        """
+        c = res.scalars().all()
+        if len(c) == 0:
+            msg = "no %s found!" % (type)
+            if throw_if_not_found:
+                raise ObjectNotFound(msg)
+            else:
+                logger().warning(msg)
+                return None
+
+        return c
 
     @staticmethod
     async def get_one_result_or_throw(
         res: Result,
         obj_id: str = None,
         type: T = None,
-        throw_if_not_exists: bool = True,
+        throw_if_not_found: bool = True,
     ) -> T:
         """
         gets one result or throws an exception
@@ -471,15 +439,19 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             res (Result): The result.
             obj_id (str, optional): The id of the object, just for the debug print. Defaults to None.
             type (GulpCollabType, optional): The type of the object, just for the debug print. Defaults to None.
-            throw_if_not_exists (bool, optional): If True, throws an exception if the object does not exist. Defaults to True.
+            throw_if_not_found (bool, optional): If True, throws an exception if the result is empty. Defaults to True.
+
+        Returns:
+            T: The object or None if not found.
         """
         c = res.scalar_one_or_none()
         if c is None:
             msg = "%s, id=%s not found!" % (type, obj_id)
-            if throw_if_not_exists:
+            if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
                 logger().warning(msg)
+                return None
         return c
 
 

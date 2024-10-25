@@ -56,9 +56,10 @@ async def test():
         __mapper_args__ = {"polymorphic_identity": "testorm"}
 
     t = TestOrm
+
+    return
     print("field1" in t.columns)
     print("time_created" in t.columns)
-
     tt = TestPydanticDerivedClass
     print("field1" in tt.model_fields)
     print("field4" in tt.model_fields)

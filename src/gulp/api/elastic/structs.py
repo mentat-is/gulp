@@ -74,18 +74,14 @@ EXAMPLE_INGESTION_FILTER = {
     }
 }
 
-class GulpBaseFilter(BaseModel):
+class GulpBaseDocumentFilter(BaseModel):
     """
-    a GulpBaseFilter defines a filter for the query/ingestion API.<br><br>
-
-    each field is optional.<br><br>
-
-    if no filter is specified, all events are considered.
+    base class for Gulp filters acting on documents.
     """
 
     time_range: Optional[tuple[int,int]] = Field(
         None,
-        description="include documents matching `timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch"
+        description="include documents matching `@timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch."
     )
 
     opt_query_string_parameters: Optional[dict] = Field(
@@ -101,24 +97,24 @@ class GulpBaseFilter(BaseModel):
 
         if isinstance(data, dict):
             return data
+        
         return json.loads(data)
 
     def to_dict(self) -> dict:
         return self.model_dump()
     
-    T = TypeVar('T', bound='GulpBaseFilter')
+    T = TypeVar('T', bound='GulpBaseDocumentFilter')
     @staticmethod
     def from_dict(type: T, d: dict) -> T:
         return type(**d)
     
-class GulpIngestionFilter(GulpBaseFilter):
+class GulpIngestionFilter(GulpBaseDocumentFilter):
     """
     a GulpIngestionFilter defines a filter for the ingestion API.<br><br>
 
     each field is optional, if no filter is specified all events are ingested.
     """
 
-    # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py
     model_config = {"json_schema_extra": EXAMPLE_INGESTION_FILTER}
 
     opt_storage_ignore_filter: Optional[bool] = Field(
@@ -128,11 +124,10 @@ class GulpIngestionFilter(GulpBaseFilter):
 
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = ["_id", "@timestamp", "gulp.operation", "gulp.context", "log.file.path", "event.duration", "event.code", "gulp.event.code"]
-class GulpQueryFilter(GulpBaseFilter):
+class GulpQueryFilter(GulpBaseDocumentFilter):
     """
     a GulpQueryFilter defines a filter for the query API.
     """
-    # TODO: openapi_examples seems not working with multipart/form-data requests, so we put the example here instead of in the Annotation in rest_api.py
     model_config = {"json_schema_extra": EXAMPLE_QUERY_FILTER}
 
     agent_type: Optional[list[str]] = Field(
@@ -189,9 +184,8 @@ class GulpQueryFilter(GulpBaseFilter):
             "default=False, uses [keyword](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
     )
 
-    def _query_string_add_or_clauses(self, qs: str, field: str, values: list) -> str:
-        qs = self._query_string_init(qs)
-        qs += "("
+    def _query_string_build_or_clauses(self, field: str, values: list) -> str:
+        qs = "("
         for v in values:
             """
             if isinstance(v, str):
@@ -207,8 +201,7 @@ class GulpQueryFilter(GulpBaseFilter):
         return qs
 
 
-    def _query_string_add_eq_clause(self, qs: str, field: str, v: int | str) -> str:
-        qs = self._query_string_init(qs)
+    def _query_string_build_eq_clause(self, field: str, v: int | str) -> str:
         """
         if isinstance(v, str):
             # only enclose if there is a space in the value
@@ -216,44 +209,31 @@ class GulpQueryFilter(GulpBaseFilter):
         else:
             vv = v
         """
-        qs += f"{field}: {v}"
+        qs = f"{field}: {v}"
         return qs
 
 
-    def _query_string_add_gte_clause(self, qs: str, field: str, v: int | str) -> str:
-        qs = self._query_string_init(qs)
-        qs += f"{field}: >={v}"
+    def _query_string_build_gte_clause(self, field: str, v: int | str) -> str:
+        qs = f"{field}: >={v}"
         return qs
 
 
-    def _query_string_add_lte_clause(self, qs: str, field: str, v: int | str) -> str:
-        qs = self._query_string_init(qs)
-        qs += f"{field}: <={v}"
+    def _query_string_build_lte_clause(self, field: str, v: int | str) -> str:
+        qs = f"{field}: <={v}"
         return qs
 
 
-    def _query_string_add_exists_clause(self, qs: str, field: str, exist: bool) -> str:
-        qs = self._query_string_init(qs)
+    def _query_string_build_exists_clause(self, field: str, exist: bool) -> str:
         if exist:
-            qs += f"_exists_: {field}"
+            qs = f"_exists_: {field}"
         else:
-            qs += f"NOT _exists_: {field}"
+            qs = f"NOT _exists_: {field}"
         return qs
 
-
-    def _query_string_init(qs: str) -> str:
-        if len(qs) > 0:
-            # add an and clause
-            qs += " AND "
-        else:
-            qs = ""
-        return qs
-
+    """
     @staticmethod
     def gulpqueryflt_dsl_dict_empty(d: dict) -> bool:
-        """
-        check if the filter is empty ('*' in the query_string query).
-        """
+        # check if the filter is empty ('*' in the query_string query).
         query = d.get("query", None)
         if query is not None:
             query_string = query.get("query_string", None)
@@ -265,9 +245,9 @@ class GulpQueryFilter(GulpBaseFilter):
                         return True
                     return False
         return True
+    """
 
-
-    def to_elastic_dsl(self, timestamp_field: str = "@timestamp") -> dict:
+    def to_opensearch_dsl(self, timestamp_field: str = "@timestamp") -> dict:
         """
         convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query    
 
@@ -285,26 +265,28 @@ class GulpQueryFilter(GulpBaseFilter):
             # build the query string
             clauses = []
             if self.agent_type:
-                clauses.append(self._query_string_add_or_clauses("", "agent.type", self.agent_type))
+                clauses.append(self._query_string_build_or_clauses("agent.type", self.agent_type))
             if self.operation:
-                clauses.append(self._query_string_add_or_clauses("", "gulp.operation", self.operation))
+                clauses.append(self._query_string_build_or_clauses("gulp.operation", self.operation))
             if self.context:
-                clauses.append(self._query_string_add_or_clauses("", "gulp.context", self.context))
+                clauses.append(self._query_string_build_or_clauses("gulp.context", self.context))
             if self.log_file_path:
-                clauses.append(self._query_string_add_or_clauses("", "log.file.path", self.log_file_path))
+                clauses.append(self._query_string_build_or_clauses("log.file.path", self.log_file_path))
             if self.id:
-                clauses.append(self._query_string_add_or_clauses("", "_id", self.id))
+                clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
                 field = "event.original.text" if self.opt_event_original_full_text_search else "event.original"
-                clauses.append(self._query_string_add_eq_clause("", field, self.event_original))
+                clauses.append(self._query_string_build_eq_clause(field, self.event_original))
             if self.event_code:
-                clauses.append(self._query_string_add_or_clauses("", "event.code", self.event_code))
+                clauses.append(self._query_string_build_or_clauses("event.code", self.event_code))
             if self.time_range:
-                clauses.append(self._query_string_add_gte_clause("", timestamp_field, self.time_range[0]))
-                clauses.append(self._query_string_add_lte_clause("", timestamp_field, self.time_range[1]))
+                if self.time_range[0]:
+                    clauses.append(self._query_string_build_gte_clause(timestamp_field, self.time_range[0]))
+                if self.time_range[1]:
+                    clauses.append(self._query_string_build_lte_clause(timestamp_field, self.time_range[1]))
             if self.extra:
                 for k, v in self.extra.items():
-                    clauses.append(self._query_string_add_or_clauses("", k, v))
+                    clauses.append(self._query_string_build_or_clauses(k, v))
 
             qs = " AND ".join(filter(None, clauses)) or "*"
 
