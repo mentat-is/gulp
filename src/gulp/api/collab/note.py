@@ -14,7 +14,7 @@ class GulpNote(GulpCollabObject):
     a note in the gulp collaboration system
     """
 
-    __tablename__ = "note"
+    __tablename__ = GulpCollabType.NOTE
 
     context: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
@@ -29,7 +29,7 @@ class GulpNote(GulpCollabObject):
     text: Mapped[str] = mapped_column(String, doc="The text of the note.")
 
     __mapper_args__ = {
-        "polymorphic_identity": "note",
+        f"polymorphic_identity": {GulpCollabType.NOTE},
     }
 
     @override

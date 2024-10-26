@@ -20,13 +20,13 @@ class GulpGlyph(GulpCollabBase):
         img (bytes): The image data of the glyph as binary blob.
     """
 
-    __tablename__ = "glyph"
+    __tablename__ = GulpCollabType.GLYPH
     img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "glyph",
+        f"polymorphic_identity": {GulpCollabType.GLYPH},
     }
 
     @override

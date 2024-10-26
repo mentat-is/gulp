@@ -1,9 +1,7 @@
 from typing import override
 from sqlalchemy import ForeignKey, String, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import (
-    GulpCollabObject,
-)
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
 from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
 from gulp.utils import logger
 
@@ -13,7 +11,7 @@ class GulpLink(GulpCollabObject):
     a link in the gulp collaboration system
     """
 
-    __tablename__ = "link"
+    __tablename__ = GulpCollabType.LINK
 
     # the source event
     document_from: Mapped[str] = mapped_column(String, doc="The source document.")
@@ -23,7 +21,7 @@ class GulpLink(GulpCollabObject):
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "link",
+        f"polymorphic_identity": {GulpCollabType.LINK},
     }
 
     @override
@@ -48,7 +46,7 @@ class GulpLink(GulpCollabObject):
         Returns:
             None
         """
-        super().__init__(id, GulpCollabObject.LINK, user, operation, **kwargs)
+        super().__init__(id, GulpCollabType.LINK, user, operation, **kwargs)
         self.document_from = document_from
         self.documents = documents
         logger().debug(

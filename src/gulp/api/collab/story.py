@@ -15,7 +15,7 @@ class GulpStory(GulpCollabObject):
     a story in the gulp collaboration system
     """
 
-    __tablename__ = "story"
+    __tablename__ = GulpCollabType.STORY
 
     events: Mapped[list[GulpAssociatedDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
@@ -25,7 +25,7 @@ class GulpStory(GulpCollabObject):
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "story",
+        f"polymorphic_identity": {GulpCollabType.STORY},
     }
 
     @override

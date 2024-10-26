@@ -12,7 +12,7 @@ class GulpOperation(GulpCollabBase):
     Represents an operation in the gulp system.
     """
 
-    __tablename__ = "operation"
+    __tablename__ = GulpCollabType.OPERATION
     index: Mapped[Optional[str]] = mapped_column(
         String(),
         default=None,
@@ -23,7 +23,7 @@ class GulpOperation(GulpCollabBase):
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "operation",
+        f"polymorphic_identity": {GulpCollabType.OPERATION},
     }
 
     @override

@@ -2,21 +2,15 @@ from typing import Optional, override
 
 import muty.crypto
 import muty.time
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Integer, String, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.asyncio.engine import AsyncEngine
+from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
-    GulpCollabFilter,
     GulpCollabType,
     GulpUserPermission,
-    MissingPermission,
+    T,
 )
-
-from gulp.defs import ObjectAlreadyExists, ObjectNotFound
-from gulp.utils import logger
 
 
 class GulpUser(GulpCollabBase):
@@ -24,8 +18,8 @@ class GulpUser(GulpCollabBase):
     Represents a user in the system.
     """
 
-    __tablename__ = "user"
-    pwd_hash: Mapped[str] = mapped_column(String)
+    __tablename__ = GulpCollabType.USER
+    password: Mapped[str] = mapped_column(String)
     permission: Mapped[Optional[GulpUserPermission]] = mapped_column(
         String, default=GulpUserPermission.READ
     )
@@ -34,14 +28,21 @@ class GulpUser(GulpCollabBase):
     )
     email: Mapped[Optional[str]] = mapped_column(String, default=None)
     time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    user_data = relationship("GulpUserData", back_populates="user")
-    session = relationship("GulpUserSession", back_populates="user")
+    user_data = relationship(
+        "GulpUserData", back_populates="user", cascade="all, delete-orphan"
+    )
+    session = relationship(
+        "GulpUserSession", back_populates="user", cascade="all, delete-orphan"
+    )
 
     """
     session: Mapped[Optional[str]] = mapped_column(
         ForeignKey("session.name", ondelete="SET NULL"), default=None
     )
     """
+    __mapper_args__ = {
+        f"polymorphic_identity": {GulpCollabType.USER},
+    }
 
     @override
     def __init__(
@@ -64,10 +65,20 @@ class GulpUser(GulpCollabBase):
             None
         """
         super().__init__(username, GulpCollabType.USER)
-        self.pwd_hash = muty.crypto.hash_sha256(password)
+        self.password = muty.crypto.hash_sha256(password)
         self.permission = permission
         self.email = email
         self.glyph = glyph
+
+    @override
+    @classmethod
+    async def update(cls, obj_id: str, d: dict | T) -> T:
+        # if d is a dict, hash the password
+        if isinstance(d, dict) and "password" in d:
+            d["password"] = muty.crypto.hash_sha256(d["password"])
+
+        # TODO: invalidate the session if the password is changed
+        return await super().update(obj_id, d)
 
     def is_admin(self) -> bool:
         """

@@ -13,14 +13,14 @@ class GulpHighlight(GulpCollabObject):
     an highlight in the gulp collaboration system
     """
 
-    __tablename__ = "highlight"
+    __tablename__ = GulpCollabType.HIGHLIGHT
 
     time_start: Mapped[int] = mapped_column(BIGINT)
     time_end: Mapped[int] = mapped_column(BIGINT)
     log_file_path: Mapped[Optional[str]] = mapped_column(String, default=None)
 
     __mapper_args__ = {
-        "polymorphic_identity": "highlight",
+        f"polymorphic_identity": {GulpCollabType.HIGHLIGHT},
     }
 
     @override

@@ -17,13 +17,13 @@ class GulpContext(GulpCollabBase):
         color (str): A color hex string (0xffffff, #ffffff)
     """
 
-    __tablename__ = "context"
+    __tablename__ = GulpCollabType.CONTEXT
     color: Mapped[Optional[str]] = mapped_column(
         String(32), default="#ffffff", doc="The color of the context."
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": "context",
+        f"polymorphic_identity": {GulpCollabType.CONTEXT},
     }
 
     @override

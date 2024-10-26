@@ -1,6 +1,6 @@
 from enum import Flag, StrEnum, auto
 import json
-from typing import ClassVar, Optional, TypeVar, override
+from typing import ClassVar, Optional, TypeVar, List, Union, override
 import muty.time
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.dialects.postgresql import JSONB
@@ -116,7 +116,7 @@ class GulpCollabType(StrEnum):
     STATS_INGESTION = auto()
     STATS_QUERY = auto()
     SIGMA_FILTER = auto()
-    SHARED_DATA_GENERIC = auto()
+    USER_DATA = auto()
     CONTEXT = auto()
     USER = auto()
     GLYPH = auto()
@@ -124,12 +124,13 @@ class GulpCollabType(StrEnum):
     SESSION = auto()
 
 
+T = TypeVar("T", bound="GulpCollabBase")
+
+
 class GulpCollabFilter(BaseModel):
     """
     defines filter to be applied to all objects in the collaboration system
     """
-
-    T: ClassVar[TypeVar] = TypeVar("T", bound="GulpCollabBase")
 
     id: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     type: Optional[list[GulpCollabType]] = Field(
@@ -289,8 +290,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     base for everything on the collab database
     """
 
-    T: ClassVar[TypeVar] = TypeVar("T", bound="GulpCollabBase")
-
     id: Mapped[str] = mapped_column(
         String(COLLAB_MAX_NAME_LENGTH),
         primary_key=True,
@@ -335,27 +334,270 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             "---> GulpCollabBase: id=%s, type=%s, user(owner)=%s" % (id, type, user)
         )
 
-    @staticmethod
-    async def check_token_owner(
-        requestor_token: str,
-        permission: GulpUserPermission = None,
-    ) -> "GulpUser":
+    @classmethod
+    async def create(
+        cls,
+        id: str,
+        user: Union[str, "GulpUser"],
+        sess: AsyncSession = None,
+        commit: bool = True,
+        **kwargs,
+    ) -> T:
         """
-        Checks if the requestor token is the owner of the specified user ID (is the user's token or it is an admin token)
+        Asynchronously creates and stores an instance of the class.
+        Args:
+            id (str): The unique identifier for the instance.
+            user (Union[str, GulpUser]): The user associated with the instance, either as a string ID or a GulpUser object.
+            sess (AsyncSession, optional): The asynchronous session to use for database operations. Defaults to None.
+            commit (bool, optional): Whether to commit the transaction after adding the instance. Defaults to True.
+            **kwargs: Additional keyword arguments to pass to the class constructor.
+        Returns:
+            T: The created instance of the class.
+        Raises:
+            Exception: If there is an error during the creation or storage process.
+        """
+
+        from gulp.api.collab.user import GulpUser
+
+        if isinstance(user, GulpUser):
+            user = user.id
+
+        # create instance
+        instance = cls(id, user, **kwargs)
+
+        # store instance
+        if sess is None:
+            sess = await session()
+        async with sess:
+            sess.add(instance)
+            if commit:
+                await sess.commit()
+            logger().info("---> create: stored %s (commit=%r)" % (instance, commit))
+
+        return instance
+
+    @classmethod
+    async def delete(
+        cls,
+        obj_id: str,
+        throw_if_not_found: bool = True,
+        sess: AsyncSession = None,
+        commit: bool = True,
+    ) -> None:
+        """
+        Asynchronously deletes an object from the database.
+        Args:
+            obj_id (str): The ID of the object to be deleted.
+            type (T): The type of the object to be deleted.
+            throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            commit (bool, optional): If True, commits the transaction. Defaults to True.
+        Raises:
+            ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
+        Returns:
+            None
+        """
+
+        logger().debug("---> delete: obj_id=%s, type=%s" % (obj_id, cls))
+        if sess is None:
+            sess = await session()
+        async with sess:
+            q = select(cls).where(cls.id == obj_id).with_for_update()
+            res = await sess.execute(q)
+            c = cls.get_one_result_or_throw(
+                res, obj_id=obj_id, throw_if_not_found=throw_if_not_found
+            )
+            if c is not None:
+                sess.delete(c)
+                if commit:
+                    await sess.commit()
+                logger().info("---> deleted: %s" % (c))
+
+                # TODO: notify websocket
+
+    @classmethod
+    async def update(
+        cls,
+        obj_id: str,
+        d: dict | T,
+        sess: AsyncSession = None,
+        commit: bool = True,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        """
+        Asynchronously updates an object of the specified type with the given data.
+        Args:
+            obj_id (str): The ID of the object to update.
+            d (Union[dict, T]): A dictionary containing the fields to update and their new values, or an instance of the class.
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            commit (bool, optional): If True, commits the transaction. Defaults to True.
+            throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
+        Returns:
+            T: The updated object.
+        Raises:
+            Exception: If the object with the specified ID is not found.
+        """
+
+        logger().debug(f"---> update: obj_id={obj_id}, type={cls.__name__}, d={d}")
+
+        if sess is None:
+            sess = await session()
+        async with sess:
+            q = select(cls).where(cls.id == obj_id).with_for_update()
+            res = await sess.execute(q)
+            c = cls.get_one_result_or_throw(
+                res, obj_id=obj_id, throw_if_not_found=throw_if_not_found
+            )
+            if c:
+                if isinstance(d, dict):
+                    # ensure d has no 'id' (cannot be updated)
+                    d.pop("id", None)
+                    # update from dict
+                    for k, v in d.items():
+                        setattr(c, k, v)
+                elif isinstance(d, cls):
+                    # update from instance
+                    for k, v in d.__dict__.items():
+                        if k != "id":
+                            setattr(c, k, v)
+
+                # update time
+                c.time_updated = muty.time.now_msec()
+
+                sess.add(c)
+                if commit:
+                    await sess.commit()
+                logger().debug(f"---> updated: {c}")
+
+                # TODO: notify websocket
+
+            return c
+
+    @classmethod
+    async def get_one(
+        cls,
+        flt: GulpCollabFilter = None,
+        sess: AsyncSession = None,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        """
+        shortcut to get one (the first found) object using get()
+        Args:
+            flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
+        Returns:
+            T: The object that matches the filter criteria or None if not found.
+        Raises:
+            Exception: If there is an error during the query execution or result processing.
+        """
+
+        logger().debug("---> get_one: type=%s, filter=%s" % (cls.__name__, flt))
+        c = await cls.get(flt, sess, throw_if_not_found)
+        if c:
+            return c[0]
+        return None
+
+    @classmethod
+    async def get(
+        cls,
+        flt: GulpCollabFilter = None,
+        sess: AsyncSession = None,
+        throw_if_not_found: bool = True,
+    ) -> list[T]:
+        """
+        Asynchronously retrieves a list of objects based on the provided filter.
+        Args:
+            flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
+        Returns:
+            list[T]: A list of objects that match the filter criteria.
+        Raises:
+            Exception: If there is an error during the query execution or result processing.
+        """
+
+        logger().debug("---> get: type=%s, filter=%s" % (cls.__name__, flt))
+        flt = flt or GulpCollabFilter()
+        if sess is None:
+            sess = await session()
+        async with sess:
+            # build query
+            q = flt.to_select_query(cls)
+            res = await sess.execute(q)
+            c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found)
+            if c is not None:
+                logger().debug("---> get: found %d objects" % (len(c)))
+                return c
+        return []
+
+    @classmethod
+    async def get_all_results_or_throw(
+        cls, res: Result, throw_if_not_found: bool = True
+    ) -> list[T]:
+        """
+        gets all results or throws an exception
 
         Args:
-            engine (AsyncEngine): The database engine.
-            requestor_token (str): The token of the requestor.
-            user_id (int, optional): The ID of the user to check ownership for. Defaults to None (use user from requestor's token).
-            permission (GulpUserPermission, optional): setting this to any value other than None forces the requestor to be checked for ADMIN rights. Defaults to None.
-
-        Raises:
-            MissingPermission: If the requestor token does not have the required permission.
+            res (Result): The result.
+            throw_if_not_found (bool, optional): If True, throws an exception if the result is empty. Defaults to True.
 
         Returns:
-            User: The user object.
+            list[T]: The list of objects or None if not found
         """
+        c = res.scalars().all()
+        if len(c) == 0:
+            msg = "no %s found!" % (cls.__name__)
+            if throw_if_not_found:
+                raise ObjectNotFound(msg)
+            else:
+                logger().warning(msg)
+                return None
 
+        return c
+
+    @classmethod
+    async def get_one_result_or_throw(
+        cls,
+        res: Result,
+        obj_id: str = None,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        """
+        gets one result or throws an exception
+
+        Args:
+            res (Result): The result.
+            obj_id (str, optional): The id of the object, just for the debug print. Defaults to None.
+            throw_if_not_found (bool, optional): If True, throws an exception if the result is empty. Defaults to True.
+
+        Returns:
+            T: The object or None if not found.
+        """
+        c = res.scalar_one_or_none()
+        if c is None:
+            msg = "%s, id=%s not found!" % (cls.__name__, obj_id)
+            if throw_if_not_found:
+                raise ObjectNotFound(msg)
+            else:
+                logger().warning(msg)
+                return None
+        return c
+
+    @staticmethod
+    async def has_ownership(obj_id: str, token: str, sess: AsyncSession = None) -> None:
+        # get the user session from the token
+        from gulp.api.collab.user_session import GulpUserSession
+
+        user_session = await GulpUserSession.get_one(
+            GulpCollabFilter(id=[token]), sess=sess
+        )
+        # get object
+        obj = await GulpCollabBase.get_one(GulpCollabFilter(id=[obj_id]), sess=sess)
+        if obj.user != user_session.user.id:
+            raise MissingPermission(
+                f"token {token} (user={user.id}) does not have permission to access object {obj_id}"
+            )
         requestor, _ = await GulpUserSession.check_token(engine, requestor_token)
         req_user: GulpUser = requestor
         if permission is not None and not req_user.is_admin():
@@ -375,173 +617,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 % (req_user.id, req_user.id, user_id)
             )
         return req_user
-
-    async def store(self, sess: AsyncSession = None) -> None:
-        """
-        Asynchronously stores the current instance in the database session.
-        If no session is provided, a new session is created. The instance is added
-        to the session and committed to the database.
-
-        Args:
-            sess (AsyncSession, optional): The database session to use. If None, a new session is created.
-        Returns:
-            None
-        """
-
-        if sess is None:
-            sess = await session()
-        async with sess:
-            sess.add(self)
-            await sess.commit()
-            logger().info("---> store: stored %s" % (self))
-
-            # TODO: notify websocket
-
-    @staticmethod
-    async def delete(obj_id: str, type: T, throw_if_not_found: bool = True) -> None:
-        """
-        Asynchronously deletes an object from the database.
-        Args:
-            obj_id (str): The ID of the object to be deleted.
-            type (T): The type of the object to be deleted.
-            throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
-        Raises:
-            ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
-        Returns:
-            None
-        """
-
-        logger().debug("---> delete: obj_id=%s, type=%s" % (obj_id, type))
-        async with await session() as sess:
-            q = select(type).where(type.id == obj_id).with_for_update()
-            res = await sess.execute(q)
-            c = GulpCollabBase.get_one_result_or_throw(
-                res, obj_id=obj_id, type=type, throw_if_not_found=throw_if_not_found
-            )
-            if c is not None:
-                sess.delete(c)
-                await sess.commit()
-                logger().info("---> deleted: %s" % (c))
-
-                # TODO: notify websocket
-
-    @staticmethod
-    async def update(obj_id: str, type: T, d: dict) -> T:
-        """
-        Asynchronously updates an object of the specified type with the given data.
-        Args:
-            obj_id (str): The ID of the object to update.
-            type (T): The type of the object to update.
-            d (dict): A dictionary containing the fields to update and their new values.
-        Returns:
-            T: The updated object.
-        Raises:
-            Exception: If the object with the specified ID is not found.
-        """
-
-        logger().debug("---> update: obj_id=%s, type=%s, d=%s" % (obj_id, type, d))
-
-        # ensure d has no 'id' (cannot be updated)
-        if "id" in d:
-            del d["id"]
-
-        async with await session() as sess:
-            q = select(type).where(type.id == obj_id).with_for_update()
-            res = await sess.execute(q)
-            c = GulpCollabBase.get_one_result_or_throw(res, obj_id=obj_id, type=type)
-            if c is not None:
-                # update
-                for k, v in d.items():
-                    setattr(c, k, v)
-                c.time_updated = muty.time.now_msec()
-
-                await sess.commit()
-                logger().debug("---> updated: %s" % (c))
-
-                # TODO: notify websocket
-
-            return c
-
-    @staticmethod
-    async def get(type: T, flt: GulpCollabFilter = None) -> list[T]:
-        """
-        Asynchronously retrieves a list of objects of the specified type based on the provided filter.
-        Args:
-            type (T): The type of objects to retrieve.
-            flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
-        Returns:
-            list[T]: A list of objects of the specified type that match the filter criteria.
-        Raises:
-            Exception: If there is an error during the query execution or result processing.
-        """
-
-        logger().debug("---> get: type=%s, filter=%s" % (type, flt))
-        flt = flt or GulpCollabFilter()
-
-        async with await session() as sess:
-            # build query
-            q = flt.to_select_query(type)
-            res = await sess.execute(q)
-            c = GulpCollabBase.get_all_results_or_throw(res, type)
-            if c is not None:
-                logger().debug("---> get: found %d objects" % (len(c)))
-                return c
-        return []
-
-    @staticmethod
-    async def get_all_results_or_throw(
-        res: Result, type: T, throw_if_not_found: bool = True
-    ) -> list[T]:
-        """
-        gets all results or throws an exception
-
-        Args:
-            res (Result): The result.
-            type (GulpCollabType): The type of the object.
-            throw_if_not_found (bool, optional): If True, throws an exception if the result is empty. Defaults to True.
-
-        Returns:
-            list[T]: The list of objects or None if not found
-        """
-        c = res.scalars().all()
-        if len(c) == 0:
-            msg = "no %s found!" % (type)
-            if throw_if_not_found:
-                raise ObjectNotFound(msg)
-            else:
-                logger().warning(msg)
-                return None
-
-        return c
-
-    @staticmethod
-    async def get_one_result_or_throw(
-        res: Result,
-        obj_id: str = None,
-        type: T = None,
-        throw_if_not_found: bool = True,
-    ) -> T:
-        """
-        gets one result or throws an exception
-
-        Args:
-            res (Result): The result.
-            obj_id (str, optional): The id of the object, just for the debug print. Defaults to None.
-            type (GulpCollabType, optional): The type of the object, just for the debug print. Defaults to None.
-            throw_if_not_found (bool, optional): If True, throws an exception if the result is empty. Defaults to True.
-
-        Returns:
-            T: The object or None if not found.
-        """
-        c = res.scalar_one_or_none()
-        if c is None:
-            msg = "%s, id=%s not found!" % (type, obj_id)
-            if throw_if_not_found:
-                raise ObjectNotFound(msg)
-            else:
-                logger().warning(msg)
-                return None
-        return c
 
 
 class GulpCollabObject(GulpCollabBase):
