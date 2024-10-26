@@ -4,7 +4,7 @@ import muty.crypto
 import muty.time
 from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabType,
@@ -19,7 +19,7 @@ class GulpUser(GulpCollabBase):
     """
 
     __tablename__ = GulpCollabType.USER
-    password: Mapped[str] = mapped_column(String)
+    pwd_hash: Mapped[str] = mapped_column(String)
     permission: Mapped[Optional[GulpUserPermission]] = mapped_column(
         String, default=GulpUserPermission.READ
     )
@@ -45,40 +45,57 @@ class GulpUser(GulpCollabBase):
     }
 
     @override
-    def __init__(
+    def _init(
         self,
-        username: str,
+        id: str,
+        user: str,
         password: str,
         permission: GulpUserPermission = GulpUserPermission.READ,
         email: str = None,
         glyph: str = None,
+        **kwargs,
     ) -> None:
         """
         Initialize a new Gulp user.
         Args:
-            username (str): The username of the user.
-            password (str): The password of the user.
+            id (str): The user identifier (name).
+            user (str): who created the user.
+            password (str): The password of the user (will be hashed before storing).
             permission (GulpUserPermission, optional): The permission level of the user. Defaults to GulpUserPermission.READ.
             email (str, optional): The email address of the user. Defaults to None.
             glyph (str, optional): The glyph associated with the user. Defaults to None.
         Returns:
             None
         """
-        super().__init__(username, GulpCollabType.USER)
-        self.password = muty.crypto.hash_sha256(password)
+        super().__init__(id, GulpCollabType.USER, user)
+        self.pwd_hash = muty.crypto.hash_sha256(password)
         self.permission = permission
         self.email = email
         self.glyph = glyph
 
     @override
     @classmethod
-    async def update(cls, obj_id: str, d: dict | T) -> T:
-        # if d is a dict, hash the password
+    async def update(
+        cls,
+        obj_id: str,
+        d: dict | T,
+        sess: AsyncSession = None,
+        commit: bool = True,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        # if d is a dict and have "password", hash it (password update)
+        pwd_changed = False
         if isinstance(d, dict) and "password" in d:
-            d["password"] = muty.crypto.hash_sha256(d["password"])
+            d["pwd_hash"] = muty.crypto.hash_sha256(d["password"])
+            del d["password"]
+            pwd_changed = True
 
-        # TODO: invalidate the session if the password is changed
-        return await super().update(obj_id, d)
+        c = await super().update(obj_id, d, sess, commit, throw_if_not_found)
+        if pwd_changed and c.session:
+            # invalidate the session if the password was changed
+            from gulp.api.collab.user_session import GulpUserSession
+
+            await GulpUserSession.delete(c.session.id)
 
     def is_admin(self) -> bool:
         """
@@ -98,20 +115,20 @@ class GulpUser(GulpCollabBase):
         """
         return self.session is not None
 
-    def has_permission(self, permission: GulpUserPermission | str) -> bool:
+    def has_permissions(self, permission: list[GulpUserPermission] | list[str]) -> bool:
         """
         Check if the user has the specified permission.
 
         Args:
-            permission (GulpUserPermission|str): The permission to check.
+            permission (list[GulpUserPermission] | list[str]): The permission(s) to check.
 
         Returns:
-            bool: True if the user has the specified permission, False otherwise.
+            bool: True if the user has the specified permissions, False otherwise.
         """
-        if isinstance(permission, str):
-            try:
-                permission = GulpUserPermission[permission]
-            except KeyError:
-                raise ValueError(f"Invalid permission: {permission}")
+        if isinstance(permission[0], str):
+            permission = [GulpUserPermission[p] for p in permission]
 
-        return bool(self.permission & permission)
+        if self.is_admin():
+            return True
+
+        return bool(self.permission & sum(permission))

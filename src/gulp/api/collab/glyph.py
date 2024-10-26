@@ -30,7 +30,7 @@ class GulpGlyph(GulpCollabBase):
     }
 
     @override
-    def __init__(self, id: str, user: str, img: bytes | str) -> None:
+    def _init(self, id: str, user: str, img: bytes | str, **kwargs) -> None:
         """
         Initialize a GulpGlyph instance.
         Args:

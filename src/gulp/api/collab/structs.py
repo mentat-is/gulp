@@ -76,24 +76,21 @@ class GulpUserPermission(Flag):
     ADMIN = auto()
 
 
-PERMISSION_EDIT = [GulpUserPermission.READ, GulpUserPermission.EDIT]
-PERMISSION_DELETE = [
-    GulpUserPermission.READ,
-    GulpUserPermission.EDIT,
-    GulpUserPermission.DELETE,
-]
-PERMISSION_INGEST = [
-    GulpUserPermission.READ,
-    GulpUserPermission.INGEST,
-    GulpUserPermission.EDIT,
-]
-PERMISSION_CLIENT = [
-    GulpUserPermission.READ,
-    GulpUserPermission.INGEST,
-    GulpUserPermission.EDIT,
-    GulpUserPermission.DELETE,
-]
-PERMISSION_MONITOR = [GulpUserPermission.READ, GulpUserPermission.MONITOR]
+PERMISSION_EDIT = GulpUserPermission.READ | GulpUserPermission.EDIT
+PERMISSION_DELETE = (
+    GulpUserPermission.READ | GulpUserPermission.EDIT | GulpUserPermission.DELETE
+)
+
+PERMISSION_INGEST = (
+    GulpUserPermission.READ | GulpUserPermission.INGEST | GulpUserPermission.EDIT
+)
+
+PERMISSION_CLIENT = (
+    GulpUserPermission.READ
+    | GulpUserPermission.INGEST
+    | GulpUserPermission.EDIT
+    | GulpUserPermission.DELETE
+)
 
 
 class GulpCollabType(StrEnum):
@@ -315,6 +312,16 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         "polymorphic_on": "type",
     }
 
+    def _init(self, id: str, user: str, **kwargs) -> None:
+        """
+        Initialize a GulpCollabBase instance, must be implemented by the subclass.
+        Args:
+            id (str): The identifier for the object.
+            user (str): The user associated with the object.
+            **kwargs: Additional keyword arguments to pass to the class constructor
+        """
+        raise NotImplementedError
+
     @override
     def __init__(self, id: str, type: GulpCollabType, user: str) -> None:
         """
@@ -338,7 +345,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        user: str | "GulpUser",
         sess: AsyncSession = None,
         commit: bool = True,
         **kwargs,
@@ -362,8 +369,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if isinstance(user, GulpUser):
             user = user.id
 
-        # create instance
-        instance = cls(id, user, **kwargs)
+        # create instance by calling the _init method of the subclass
+        instance = cls._init(id, user, **kwargs)
 
         # store instance
         if sess is None:
@@ -585,38 +592,24 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return c
 
     @staticmethod
-    async def has_ownership(obj_id: str, token: str, sess: AsyncSession = None) -> None:
+    async def check_permission(
+        obj_id: str,
+        token: str,
+        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        sess: AsyncSession = None,
+    ) -> None:
         # get the user session from the token
         from gulp.api.collab.user_session import GulpUserSession
 
-        user_session = await GulpUserSession.get_one(
-            GulpCollabFilter(id=[token]), sess=sess
-        )
-        # get object
+        # get session and object
+        user_session = await GulpUserSession.get_by_token(token, sess=sess)
         obj = await GulpCollabBase.get_one(GulpCollabFilter(id=[obj_id]), sess=sess)
         if obj.user != user_session.user.id:
-            raise MissingPermission(
-                f"token {token} (user={user.id}) does not have permission to access object {obj_id}"
-            )
-        requestor, _ = await GulpUserSession.check_token(engine, requestor_token)
-        req_user: GulpUser = requestor
-        if permission is not None and not req_user.is_admin():
-            raise MissingPermission(
-                "token %s does not have permission to change this user permission"
-                % (req_user)
-            )
-
-        if user_id is None:
-            # use token's user_id (default)
-            user_id = req_user.id
-
-        if user_id != req_user.id and not req_user.is_admin():
-            # if user_id is set, it must be the same as token's user_id (or token must be an admin token)
-            raise MissingPermission(
-                "%s (userid=%d) does not have permission to access user_id=%d"
-                % (req_user.id, req_user.id, user_id)
-            )
-        return req_user
+            # check if the user is an admin or permission is enough
+            if not user_session.user.has_permission(permission):
+                raise MissingPermission(
+                    f"token {token} (user={user_session.user.id}) does not have permission to access object {obj_id}"
+                )
 
 
 class GulpCollabObject(GulpCollabBase):

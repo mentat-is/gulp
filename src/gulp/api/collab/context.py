@@ -27,13 +27,16 @@ class GulpContext(GulpCollabBase):
     }
 
     @override
-    def __init__(self, id: str, user: str, color: str = None) -> None:
+    def _init(self, id: str, user: str, color: str = None, **kwargs) -> None:
         """
         Initialize a GulpContext instance.
         Args:
             id (str): The unique identifier for the context.
-            user (str): The object's owner.
+            user (str): The user associated with the context.
             color (str, optional): The color associated with the context. Defaults to None.
+            **kwargs: Additional keyword arguments.
+        Returns:
+            None
         """
 
         super().__init__(id, GulpCollabType.CONTEXT, user)

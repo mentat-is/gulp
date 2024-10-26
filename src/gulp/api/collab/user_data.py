@@ -24,7 +24,7 @@ class GulpUserData(GulpCollabBase):
     }
 
     @override
-    def __init__(self, id: str, user: "GulpUser", data: dict) -> None:
+    def _init(self, id: str, user: "GulpUser", data: dict, **kwargs) -> None:
         """
         Initialize a UserData instance.
 
@@ -32,6 +32,7 @@ class GulpUserData(GulpCollabBase):
             id (str): The identifier for the user data.
             user (GulpUser): The user associated with the data.
             data (dict): The data.
+            **kwargs: Additional keyword arguments.
         """
         super().__init__(id, GulpCollabType.USER_DATA, user.id)
         self.user = user
@@ -51,5 +52,7 @@ class GulpUserData(GulpCollabBase):
         if isinstance(user, str):
             from gulp.api.collab.user import GulpUser
 
-            user = await GulpUser.get_one(GulpCollabFilter(id=[user]), sess)
+            user = await GulpUser.get_one(
+                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
+            )
         return await super().create(id, user, sess, commit, **kwargs)

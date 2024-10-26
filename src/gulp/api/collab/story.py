@@ -29,7 +29,7 @@ class GulpStory(GulpCollabObject):
     }
 
     @override
-    def __init__(
+    def _init(
         self,
         id: str,
         user: str,

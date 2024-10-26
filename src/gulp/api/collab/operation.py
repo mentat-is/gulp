@@ -27,15 +27,18 @@ class GulpOperation(GulpCollabBase):
     }
 
     @override
-    def __init__(self, id: str, index: str = None, description: str = None) -> None:
+    def _init(
+        self, id: str, user: str, index: str = None, description: str = None, **kwargs
+    ) -> None:
         """
         Initialize a GulpOperation instance.
         Args:
             id (str): The unique identifier for the operation.
             index (str, optional): The opensearch index to associate the operation with.
             description (str, optional): The description of the operation. Defaults to None.
+            **kwargs: Additional keyword arguments.
         """
-        super().__init__(id, GulpCollabType.OPERATION)
+        super().__init__(id, GulpCollabType.OPERATION, user)
         self.index = index
         self.description = description
         logger().debug(
