@@ -74,14 +74,15 @@ EXAMPLE_INGESTION_FILTER = {
     }
 }
 
+
 class GulpBaseDocumentFilter(BaseModel):
     """
     base class for Gulp filters acting on documents.
     """
 
-    time_range: Optional[tuple[int,int]] = Field(
+    time_range: Optional[tuple[int, int]] = Field(
         None,
-        description="include documents matching `@timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch."
+        description="include documents matching `@timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.",
     )
 
     opt_query_string_parameters: Optional[dict] = Field(
@@ -91,23 +92,25 @@ class GulpBaseDocumentFilter(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def validate(cls, data: str | dict=None) -> dict:
+    def validate(cls, data: str | dict = None) -> dict:
         if not data:
             return {}
 
         if isinstance(data, dict):
             return data
-        
+
         return json.loads(data)
 
     def to_dict(self) -> dict:
         return self.model_dump()
-    
-    T = TypeVar('T', bound='GulpBaseDocumentFilter')
+
+    T = TypeVar("T", bound="GulpBaseDocumentFilter")
+
     @staticmethod
     def from_dict(type: T, d: dict) -> T:
         return type(**d)
-    
+
+
 class GulpIngestionFilter(GulpBaseDocumentFilter):
     """
     a GulpIngestionFilter defines a filter for the ingestion API.<br><br>
@@ -122,12 +125,25 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         description="on filtering during ingestion, websocket receives filtered results while OpenSearch stores all documents anyway (default=False=both OpenSearch and websocket receives the filtered results).",
     )
 
+
 # mandatory fields to be included in the result for queries
-QUERY_DEFAULT_FIELDS = ["_id", "@timestamp", "gulp.operation", "gulp.context", "log.file.path", "event.duration", "event.code", "gulp.event.code"]
+QUERY_DEFAULT_FIELDS = [
+    "_id",
+    "@timestamp",
+    "gulp.operation",
+    "gulp.context",
+    "log.file.path",
+    "event.duration",
+    "event.code",
+    "gulp.event.code",
+]
+
+
 class GulpQueryFilter(GulpBaseDocumentFilter):
     """
     a GulpQueryFilter defines a filter for the query API.
     """
+
     model_config = {"json_schema_extra": EXAMPLE_QUERY_FILTER}
 
     agent_type: Optional[list[str]] = Field(
@@ -157,7 +173,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     event_original: Optional[str] = Field(
         None,
         description="include documents matching the given `event.original`/s.",
-    )        
+    )
     extra: Optional[dict] = Field(
         None,
         description='include documents matching the given `extra` field/s (as OR), i.e. { "winlog.event_data.SubjectUserName": "test" }.',
@@ -176,12 +192,13 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     opt_fields: list[str] = Field(
         default=QUERY_DEFAULT_FIELDS,
         description="the set of fields to include in the returned documents.<br>"
-            "default=`%s` (which are forcefully included anyway), use `None` to return all fields." % (QUERY_DEFAULT_FIELDS),
+        "default=`%s` (which are forcefully included anyway), use `None` to return all fields."
+        % (QUERY_DEFAULT_FIELDS),
     )
     opt_event_original_full_text_search: bool = Field(
         False,
         description="if True, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.<br>"
-            "default=False, uses [keyword](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
+        "default=False, uses [keyword](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
     )
 
     def _query_string_build_or_clauses(self, field: str, values: list) -> str:
@@ -200,7 +217,6 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         qs += ")"
         return qs
 
-
     def _query_string_build_eq_clause(self, field: str, v: int | str) -> str:
         """
         if isinstance(v, str):
@@ -212,16 +228,13 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         qs = f"{field}: {v}"
         return qs
 
-
     def _query_string_build_gte_clause(self, field: str, v: int | str) -> str:
         qs = f"{field}: >={v}"
         return qs
 
-
     def _query_string_build_lte_clause(self, field: str, v: int | str) -> str:
         qs = f"{field}: <={v}"
         return qs
-
 
     def _query_string_build_exists_clause(self, field: str, exist: bool) -> str:
         if exist:
@@ -249,7 +262,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
 
     def to_opensearch_dsl(self, timestamp_field: str = "@timestamp") -> dict:
         """
-        convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query    
+        convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
 
         Args:
             timestamp_field (str, optional): The timestamp field, default="@timestamp"
@@ -265,31 +278,58 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             # build the query string
             clauses = []
             if self.agent_type:
-                clauses.append(self._query_string_build_or_clauses("agent.type", self.agent_type))
+                clauses.append(
+                    self._query_string_build_or_clauses("agent.type", self.agent_type)
+                )
             if self.operation:
-                clauses.append(self._query_string_build_or_clauses("gulp.operation", self.operation))
+                clauses.append(
+                    self._query_string_build_or_clauses(
+                        "gulp.operation", self.operation
+                    )
+                )
             if self.context:
-                clauses.append(self._query_string_build_or_clauses("gulp.context", self.context))
+                clauses.append(
+                    self._query_string_build_or_clauses("gulp.context", self.context)
+                )
             if self.log_file_path:
-                clauses.append(self._query_string_build_or_clauses("log.file.path", self.log_file_path))
+                clauses.append(
+                    self._query_string_build_or_clauses(
+                        "log.file.path", self.log_file_path
+                    )
+                )
             if self.id:
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
-                field = "event.original.text" if self.opt_event_original_full_text_search else "event.original"
-                clauses.append(self._query_string_build_eq_clause(field, self.event_original))
+                field = (
+                    "event.original.text"
+                    if self.opt_event_original_full_text_search
+                    else "event.original"
+                )
+                clauses.append(
+                    self._query_string_build_eq_clause(field, self.event_original)
+                )
             if self.event_code:
-                clauses.append(self._query_string_build_or_clauses("event.code", self.event_code))
+                clauses.append(
+                    self._query_string_build_or_clauses("event.code", self.event_code)
+                )
             if self.time_range:
                 if self.time_range[0]:
-                    clauses.append(self._query_string_build_gte_clause(timestamp_field, self.time_range[0]))
+                    clauses.append(
+                        self._query_string_build_gte_clause(
+                            timestamp_field, self.time_range[0]
+                        )
+                    )
                 if self.time_range[1]:
-                    clauses.append(self._query_string_build_lte_clause(timestamp_field, self.time_range[1]))
+                    clauses.append(
+                        self._query_string_build_lte_clause(
+                            timestamp_field, self.time_range[1]
+                        )
+                    )
             if self.extra:
                 for k, v in self.extra.items():
                     clauses.append(self._query_string_build_or_clauses(k, v))
 
             qs = " AND ".join(filter(None, clauses)) or "*"
-
 
         # default_field: _id below is an attempt to fix "field expansion matches too many fields"
         # https://discuss.elastic.co/t/no-detection-of-fields-in-query-string-query-strings-results-in-field-expansion-matches-too-many-fields/216137/2
@@ -299,7 +339,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                 "query_string": {
                     "query": qs,
                     "analyze_wildcard": True,
-                    "default_field": "_id"
+                    "default_field": "_id",
                 }
             }
         }
@@ -310,41 +350,89 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         # print('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
+
 class GulpAssociatedDocument(BaseModel):
     """
     base class for Gulp documents.
     """
-    id: Optional[str] = Field(None, description='"_id": the unique identifier of the document.', alias='_id')
-    timestamp: Optional[int] = Field(None, description='"@timestamp": document original timestamp in nanoseconds from unix epoch', alias='@timestamp')
- 
+
+    id: Optional[str] = Field(
+        None, description='"_id": the unique identifier of the document.', alias="_id"
+    )
+    timestamp: Optional[int] = Field(
+        None,
+        description='"@timestamp": document original timestamp in nanoseconds from unix epoch',
+        alias="@timestamp",
+    )
+
+
 class GulpDocument(BaseModel):
     """
     represents a Gulp document.
     """
-    id: str = Field(description='"_id": the unique identifier of the document.', alias='_id')
-    hash: str = Field(description='"event.hash": the hash of the event.', alias='event.hash')
-    gulp_event_code: int = Field(description='"gulp.event_code": the event code as an integer.', alias='gulp.event_code')
-    timestamp: int = Field(..., description='"@timestamp": document original timestamp in nanoseconds from unix epoch', alias='@timestamp')
+
+    id: str = Field(
+        description='"_id": the unique identifier of the document.', alias="_id"
+    )
+    hash: str = Field(
+        description='"event.hash": the hash of the event.', alias="event.hash"
+    )
+    gulp_event_code: int = Field(
+        description='"gulp.event_code": the event code as an integer.',
+        alias="gulp.event_code",
+    )
+    timestamp: int = Field(
+        ...,
+        description='"@timestamp": document original timestamp in nanoseconds from unix epoch',
+        alias="@timestamp",
+    )
     operation: str = Field(
-        ..., description='"gulp.operation": the operation ID the document is associated with.', alias='gulp.operation'
+        ...,
+        description='"gulp.operation": the operation ID the document is associated with.',
+        alias="gulp.operation",
     )
     context: str = Field(
-        ..., description='"gulp.context": the context (i.e. an host name) the document is associated with.', alias='gulp.context'
+        ...,
+        description='"gulp.context": the context (i.e. an host name) the document is associated with.',
+        alias="gulp.context",
     )
-    agent_type: str = Field(..., description='"agent.type": the ingestion source, i.e. gulp plugin.name().', alias='agent.type')
-    event_original: str = Field(..., description='"event.original": the original event as text.', alias='event.original')
-    event_sequence: int = Field(..., description='"event.sequence": the sequence number of the document in the source.', alias='event.sequence')
-    event_code: Optional[str] = Field('0', description='"event.code": the event code, "0" if missing.', alias='event.code')
-    event_duration: Optional[int] = Field(1, description='"event.duration": the duration of the event in nanoseconds, defaults to 1.', alias='event.duration')
+    agent_type: str = Field(
+        ...,
+        description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
+        alias="agent.type",
+    )
+    event_original: str = Field(
+        ...,
+        description='"event.original": the original event as text.',
+        alias="event.original",
+    )
+    event_sequence: int = Field(
+        ...,
+        description='"event.sequence": the sequence number of the document in the source.',
+        alias="event.sequence",
+    )
+    event_code: Optional[str] = Field(
+        "0",
+        description='"event.code": the event code, "0" if missing.',
+        alias="event.code",
+    )
+    event_duration: Optional[int] = Field(
+        1,
+        description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
+        alias="event.duration",
+    )
     log_file_path: Optional[str] = Field(
-        None, description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").', alias='log.file.path')
+        None,
+        description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").',
+        alias="log.file.path",
+    )
 
     @override
     def __init__(
         self,
         timestamp: int,
         operation: str,
-        context: str, 
+        context: str,
         agent_type: str,
         event_original: str,
         event_sequence: int,
@@ -353,7 +441,7 @@ class GulpDocument(BaseModel):
         source: str = None,
         **kwargs,
     ) -> None:
-        super().__init__()        
+        super().__init__()
         self.timestamp = timestamp
         if not self.timestamp:
             # flag as invalid
@@ -368,7 +456,9 @@ class GulpDocument(BaseModel):
         self.event_code = event_code
         self.event_duration = event_duration
         self.log_file_path = source
-        self.hash = muty.crypto.hash_blake2b(f"{self.event_original}{event_code}{self.event_sequence}")
+        self.hash = muty.crypto.hash_blake2b(
+            f"{self.event_original}{event_code}{self.event_sequence}"
+        )
         self.id = self.hash
 
         # add gulp_event_code (event code as a number)
@@ -383,25 +473,20 @@ class GulpDocument(BaseModel):
             setattr(self, k, v)
 
     def __repr__(self) -> str:
-        return f"GulpDocument(timestamp={self.timestamp}, 
-            operation={self.operation}, 
-            context={self.context}, 
-            agent_type={self.agent_type}, 
-            event_sequence={self.event_sequence}, 
-            event_code={self.event_code}, 
-            event_duration={self.event_duration}, 
-            log_file_path={self.log_file_path}"
-    
-    def to_dict(self, lite: bool=False) -> dict:                
+        return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
+
+    def to_dict(self, lite: bool = False) -> dict:
         d = self.model_dump(exclude_none=True, exclude_unset=True)
         if lite:
             # return just this subset
             for k in list(d.keys()):
-                if k not in ['_id', 
-                             '@timestamp', 
-                             'gulp.context', 
-                             'gulp.operation', 
-                             'log.file.path']:
+                if k not in [
+                    "_id",
+                    "@timestamp",
+                    "gulp.context",
+                    "gulp.operation",
+                    "log.file.path",
+                ]:
                     del d[k]
         return d
 
@@ -414,5 +499,3 @@ class GulpQueryType(IntEnum):
     RAW = 2
     GULP_FILTER = 3  # GULP filter
     INDEX = 4  # an index of a stored query
-
-
