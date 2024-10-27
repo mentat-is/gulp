@@ -288,7 +288,7 @@ class GulpCollabFilter(BaseModel):
         return q
 
 
-class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeM ixin):
+class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
     """
     base for everything on the collab database
     """
