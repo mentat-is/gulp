@@ -1,8 +1,8 @@
 from typing import Optional, override
-from sqlalchemy import BIGINT, ForeignKey, Index, String, ARRAY, Boolean, JSONB
+from sqlalchemy import String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import (
-    COLLAB_MAX_NAME_LENGTH,
     GulpCollabType,
     GulpCollabObject,
 )

@@ -14,14 +14,12 @@ class GulpUserData(GulpCollabBase):
     """
 
     __tablename__ = GulpCollabType.USER_DATA
-    user = relationship("GulpUser", back_populates="user_data")
-    data: Mapped[dict] = mapped_column(
-        JSONB, doc="The data to be associated with user."
-    )
-
     __mapper_args__ = {
         f"polymorphic_identity": {GulpCollabType.USER_DATA},
     }
+    data: Mapped[dict] = mapped_column(
+        JSONB, doc="The data to be associated with user."
+    )
 
     @override
     def _init(self, id: str, user: "GulpUser", data: dict, **kwargs) -> None:
@@ -34,25 +32,6 @@ class GulpUserData(GulpCollabBase):
             data (dict): The data.
             **kwargs: Additional keyword arguments.
         """
-        super().__init__(id, GulpCollabType.USER_DATA, user.id)
-        self.user = user
+        super().__init__(id, GulpCollabType.USER_DATA, user)
         self.data = data
         logger().debug("---> UserData: user=%s, data=%s" % (user, data))
-
-    @classmethod
-    @override
-    async def create(
-        cls,
-        id: str,
-        user: str | "GulpUser",
-        sess: AsyncSession = None,
-        commit: bool = True,
-        **kwargs,
-    ) -> T:
-        if isinstance(user, str):
-            from gulp.api.collab.user import GulpUser
-
-            user = await GulpUser.get_one(
-                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
-            )
-        return await super().create(id, user, sess, commit, **kwargs)

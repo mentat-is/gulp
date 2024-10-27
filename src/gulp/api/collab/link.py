@@ -1,5 +1,6 @@
 from typing import override
-from sqlalchemy import ForeignKey, String, JSONB
+from sqlalchemy import String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
 from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument

@@ -2,12 +2,13 @@ from typing import Optional
 import muty.log
 import muty.time
 from sqlalchemy import BIGINT, JSON, ForeignKey, Index, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api import collab_api
-from gulp.api.collab.base import CollabBase, GulpCollabType, GulpRequestStatus
+from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus, GulpCollabBase
 from gulp.utils import logger
 
 # class TmpQueryStats:
@@ -694,33 +695,76 @@ class TmpQueryStats:
     pass
 
 
-class GulpStats(CollabBase):
-    __tablename__ = "stats"
-    __table_args__ = (Index("idx_stats_operation", "operation"),)
+class IngestionErrors:
+    """
+    Represents the errors that occurred during ingestion.
+    """
 
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    type: Mapped[GulpCollabType] = mapped_column(Integer)
-    user: Mapped[str] = mapped_column(
-        ForeignKey("user.name", ondelete="CASCADE")
-    )
+    def __init__(self, source: str, ingest_errors: list[str]):
+        """
+        Initializes the IngestionErrors object.
+
+        Args:
+            source (str): The source of the errors.
+            ingest_errors (list[str]): The list of errors that occurred during ingestion (unique, duplicates are skipped).
+        """
+        self.source: str = source
+        self.ingest_errors: list[str] = ingest_errors
+
+
+class GulpStats(GulpCollabBase):
+    """
+    Represents the statistics for an ingestion or query operation.
+    the id of the stats corresponds to the request "req_id"
+    """
+
+    __tablename__ = "stats"
     operation: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("operation.name", ondelete="CASCADE"), default=None
+        ForeignKey("operation.name", ondelete="CASCADE"),
+        default=None,
+        doc="The operation associated with the stats.",
     )
     context: Mapped[str] = mapped_column(
-        ForeignKey("context.name", ondelete="CASCADE"), default=None
+        ForeignKey("context.name", ondelete="CASCADE"),
+        default=None,
+        doc="The context associated with the stats.",
     )
     status: Mapped[GulpRequestStatus] = mapped_column(
-        Integer, default=GulpRequestStatus.ONGOING
+        String,
+        default=GulpRequestStatus.ONGOING,
+        doc="The status of the stats (done, ongoing, ...).",
     )
-    time_created: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    time_expire: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    time_update: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    time_end: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    errors: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
-    failed: Mapped[Optional[int]] = mapped_column(Integer, default=0)
-    parser_failed: Mapped[Optional[int]] = mapped_column(Integer, default=0)
-    skipped: Mapped[Optional[int]] = mapped_column(Integer, default=0)
-    processed: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    time_expire: Mapped[Optional[int]] = mapped_column(
+        BIGINT, default=0, doc="The timestamp when the stats will expire."
+    )
+    time_finished: Mapped[Optional[int]] = mapped_column(
+        BIGINT, default=0, doc="The timestamp when the stats were completed."
+    )
+    errors: Mapped[Optional[IngestionErrors]] = mapped_column(
+        JSONB, default=None, doc="The errors that occurred during processing."
+    )
+    source_processed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of sources processed."
+    )
+    source_total: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The total number of sources to be processed."
+    )
+    source_failed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of sources that failed."
+    )
+    records_failed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that failed."
+    )
+    records_skipped: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that were skipped."
+    )
+    records_processed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that were processed."
+    )
+
+    __mapper_args__ = {
+        f"polymorphic_identity": {GulpCollabType.STATS_INGESTION},
+    }
 
     @staticmethod
     async def create(

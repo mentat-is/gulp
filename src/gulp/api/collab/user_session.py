@@ -3,6 +3,7 @@ import muty.crypto
 import muty.string
 import muty.time
 from sqlalchemy import BIGINT, ForeignKey
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.structs import (
@@ -13,6 +14,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 import gulp.config as config
+from gulp.defs import ObjectNotFound
 from gulp.utils import logger
 
 
@@ -22,10 +24,6 @@ class GulpUserSession(GulpCollabBase):
     """
 
     __tablename__ = GulpCollabType.SESSION
-    user_id: Mapped[str] = mapped_column(
-        str, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
-    )
-    user: Mapped["GulpUser"] = relationship("User", back_populates="session")
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
         default=0,
@@ -50,11 +48,9 @@ class GulpUserSession(GulpCollabBase):
 
         from gulp.api.collab.user import GulpUser
 
-        # id is the token
+        # id is the token, user is the user creating the session(=logging in)
         u: GulpUser = user
-        super().__init__(id, GulpCollabType.SESSION, u.id)
-        self.user = u
-        self.user_id = u.id
+        super().__init__(id, GulpCollabType.SESSION, user)
         if config.debug_no_token_expiration():
             self.time_expire = 0
         else:
@@ -84,9 +80,44 @@ class GulpUserSession(GulpCollabBase):
         )
 
     @classmethod
+    async def __create(
+        cls,
+        user: str | "GulpUser",
+        password: str,
+        sess: AsyncSession = None,
+        commit: bool = True,
+        **kwargs,
+    ) -> T:
+        if isinstance(user, str):
+            from gulp.api.collab.user import GulpUser
+
+            user = await GulpUser.get_one(
+                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
+            )
+
+        # check if user has a session already, if so invalidate
+        existing_session = await cls.get_by_user(user, sess, throw_if_not_found=False)
+        if existing_session:
+            # delete previous session (ORM will take care of the relationship)
+            logger().debug("deleting previous session for user=%s" % (user))
+            existing_session.user.session = None
+            existing_session.user.session_id = None
+
+        # check password
+        if user.pwd_hash != muty.crypto.hash_sha256(password):
+            raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
+
+        # create new session
+        token = muty.string.generate_unique()
+        s = await super().create(token, user, sess, commit, **kwargs)
+        user.session_id = token
+        user.session = s
+        return s
+
+    @classmethod
     async def login(cls, user: str, password: str, sess: AsyncSession = None) -> T:
         """
-        Asynchronously logs in a user and creates a session.
+        Asynchronously logs in a user and creates a session (=obtain token).
         Args:
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
@@ -112,39 +143,33 @@ class GulpUserSession(GulpCollabBase):
         await cls.delete(token, sess=sess)
 
     @classmethod
-    async def __create(
+    async def get_by_user(
         cls,
         user: str | "GulpUser",
-        password: str,
         sess: AsyncSession = None,
-        commit: bool = True,
-        **kwargs,
+        throw_if_not_found: bool = True,
     ) -> T:
+        """
+        Asynchronously retrieves a logged user session by user.
+        Args:
+            user (str | GulpUser): The user object or username of the user session to retrieve.
+            sess (AsyncSession, optional): An optional asynchronous session object. Defaults to None.
+            throw_if_not_found (bool, optional): Whether to raise an exception if the user session is not found. Defaults to True.
+        Returns:
+            T: the user session object.
+        Raises:
+            ObjectNotFound: if the user session is not found.
+        """
         if isinstance(user, str):
-            # get user object
             from gulp.api.collab.user import GulpUser
 
-            user: GulpUser = await GulpUser.get_one(GulpCollabFilter(id=[user]), sess)
-
-        # check if user has a session already, if so invalidate
-        if user.session:
-            # delete previous session
-            logger().debug("deleting previous session for user=%s" % (user))
-            await GulpUserSession.delete(user.session.id, sess, commit=False)
-            user.session = None
-
-        # check password
-        if user.pwd_hash != muty.crypto.hash_sha256(password):
-            raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
-
-        # create new session
-        token = muty.string.generate_unique()
-        return await super().create(token, user, sess, commit, **kwargs)
+            return await GulpUser.get_one_by_id(user, sess, throw_if_not_found)
+        return user.session
 
     @classmethod
     async def get_by_token(cls, token: str, sess: AsyncSession = None) -> T:
         """
-        Asynchronously retrieves a user session by token.
+        Asynchronously retrieves a logged user session by token.
         Args:
             token (str): The token of the user session to retrieve.
             sess (AsyncSession, optional): An optional asynchronous session object. Defaults to None.
@@ -157,19 +182,26 @@ class GulpUserSession(GulpCollabBase):
             # return an admin session
             from gulp.api.collab.user import GulpUser
 
-            c: GulpUser = await super().get_one(
-                GulpCollabFilter(id=["admin"], type=[GulpCollabType.USER]),
-                sess,
-                throw_if_not_found=False,
+            # the "admin" user always exists
+            c: GulpUser = await GulpUser.get_one_by_id(
+                "admin", sess, throw_if_not_found=False
             )
             if c.session:
                 # already exists
+                logger().debug(
+                    "debug_allow_any_token_as_admin, reusing existing admin session"
+                )
                 return c.session
             else:
                 # create a new admin session
                 token = muty.string.generate_unique()
+                s = await super().create(token, c.user, sess)
+                c.session_id = token
+                c.session = s
+                logger().debug(
+                    "debug_allow_any_token_as_admin, created new admin session"
+                )
                 return await super().create(token, c.user, sess)
 
-        return await super().get_one(
-            GulpCollabFilter(id=[token], type=[GulpCollabType.SESSION]), sess
-        )
+        c = GulpUserSession.get_one_by_id(token, sess)
+        return c

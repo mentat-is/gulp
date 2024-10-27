@@ -1,6 +1,6 @@
 from enum import Flag, StrEnum, auto
 import json
-from typing import ClassVar, Optional, TypeVar, List, Union, override
+from typing import Optional, TypeVar, override
 import muty.time
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.dialects.postgresql import JSONB
@@ -20,7 +20,13 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, MappedAsDataclass, DeclarativeBase
+from sqlalchemy.orm import (
+    Mapped,
+    mapped_column,
+    MappedAsDataclass,
+    DeclarativeBase,
+    relationship,
+)
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins import SerializeMixin
 from gulp.api.collab_api import session
@@ -294,10 +300,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The unque id/name of the object.",
     )
     type: Mapped[GulpCollabType] = mapped_column(String, doc="The type of the object.")
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"),
+        doc="The user ID who created (the owner of) the object.",
+    )
+    user: Mapped["GulpUser"] = relationship("GulpUser", back_populates="collab_objects")
+    """
     user: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The user who created (the owner of) the object.",
     )
+    """
     time_created: Mapped[int] = mapped_column(
         BIGINT,
         doc="The time the object was created, in milliseconds from unix epoch.",
@@ -307,23 +320,24 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
 
+    __abstract__ = True
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
     }
 
-    def _init(self, id: str, user: str, **kwargs) -> None:
+    def _init(self, id: str, user: "GulpUser", **kwargs) -> None:
         """
         Initialize a GulpCollabBase instance, must be implemented by the subclass.
         Args:
             id (str): The identifier for the object.
-            user (str): The user associated with the object.
+            user (GulpUser): The user (=owner) associated with the object.
             **kwargs: Additional keyword arguments to pass to the class constructor
         """
         raise NotImplementedError
 
     @override
-    def __init__(self, id: str, type: GulpCollabType, user: str) -> None:
+    def __init__(self, id: str, type: GulpCollabType, user: "GulpUser") -> None:
         """
         Initialize a GulpCollabBase instance.
         Args:
@@ -331,10 +345,16 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             type (GulpCollabType): The type of the object.
             user (str): The user associated with the object.
         """
+        if self.__class__ is GulpCollabBase:
+            raise NotImplementedError(
+                "GulpCollabBase is an abstract class and cannot be instantiated directly."
+            )
+
         super().__init__()
         self.id = id
         self.type = type
         self.user = user
+        self.user_id = user.id
         self.time_created = muty.time.now_msec()
         self.time_updated = self.time_created
         logger().debug(
@@ -353,7 +373,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously creates and stores an instance of the class.
         Args:
-            id (str): The unique identifier for the instance.
+            id (str): The unique identifier (=name) for the instance.
             user (Union[str, GulpUser]): The user associated with the instance, either as a string ID or a GulpUser object.
             sess (AsyncSession, optional): The asynchronous session to use for database operations. Defaults to None.
             commit (bool, optional): Whether to commit the transaction after adding the instance. Defaults to True.
@@ -366,8 +386,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         from gulp.api.collab.user import GulpUser
 
-        if isinstance(user, GulpUser):
-            user = user.id
+        if sess is None:
+            sess = await session()
+
+        if isinstance(user, str):
+            # fetch user by id
+            user = await GulpCollabBase.get_one(
+                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
+            )
 
         # create instance by calling the _init method of the subclass
         instance = cls._init(id, user, **kwargs)
@@ -386,7 +412,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @classmethod
     async def delete(
         cls,
-        obj_id: str,
+        id: str,
         throw_if_not_found: bool = True,
         sess: AsyncSession = None,
         commit: bool = True,
@@ -394,7 +420,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously deletes an object from the database.
         Args:
-            obj_id (str): The ID of the object to be deleted.
+            id (str): The ID of the object to be deleted.
             type (T): The type of the object to be deleted.
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
@@ -405,14 +431,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             None
         """
 
-        logger().debug("---> delete: obj_id=%s, type=%s" % (obj_id, cls))
+        logger().debug("---> delete: obj_id=%s, type=%s" % (id, cls))
         if sess is None:
             sess = await session()
         async with sess:
-            q = select(cls).where(cls.id == obj_id).with_for_update()
+            q = select(cls).where(cls.id == id).with_for_update()
             res = await sess.execute(q)
             c = cls.get_one_result_or_throw(
-                res, obj_id=obj_id, throw_if_not_found=throw_if_not_found
+                res, obj_id=id, throw_if_not_found=throw_if_not_found
             )
             if c is not None:
                 sess.delete(c)
@@ -425,7 +451,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @classmethod
     async def update(
         cls,
-        obj_id: str,
+        id: str,
         d: dict | T,
         sess: AsyncSession = None,
         commit: bool = True,
@@ -434,7 +460,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously updates an object of the specified type with the given data.
         Args:
-            obj_id (str): The ID of the object to update.
+            id (str): The ID of the object to update.
             d (Union[dict, T]): A dictionary containing the fields to update and their new values, or an instance of the class.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             commit (bool, optional): If True, commits the transaction. Defaults to True.
@@ -445,15 +471,15 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If the object with the specified ID is not found.
         """
 
-        logger().debug(f"---> update: obj_id={obj_id}, type={cls.__name__}, d={d}")
+        logger().debug(f"---> update: obj_id={id}, type={cls.__name__}, d={d}")
 
         if sess is None:
             sess = await session()
         async with sess:
-            q = select(cls).where(cls.id == obj_id).with_for_update()
+            q = select(cls).where(cls.id == id).with_for_update()
             res = await sess.execute(q)
             c = cls.get_one_result_or_throw(
-                res, obj_id=obj_id, throw_if_not_found=throw_if_not_found
+                res, obj_id=id, throw_if_not_found=throw_if_not_found
             )
             if c:
                 if isinstance(d, dict):
@@ -479,6 +505,30 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 # TODO: notify websocket
 
             return c
+
+    @classmethod
+    async def get_one_by_id(
+        cls,
+        id: str,
+        sess: AsyncSession = None,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        """
+        Asynchronously retrieves an object of the specified type by its ID.
+        Args:
+            id (str): The ID of the object to retrieve.
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
+        Returns:
+            T: The object with the specified ID or None if not found.
+        Raises:
+            ObjectNotFound: If the object with the specified ID is not found.
+        """
+        logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.type}")
+        o = cls.get_one(
+            GulpCollabFilter(id=[id], type=[cls.type]), sess, throw_if_not_found
+        )
+        return o
 
     @classmethod
     async def get_one(
@@ -593,22 +643,33 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
     @staticmethod
     async def check_permission(
-        obj_id: str,
+        id: str,
         token: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         sess: AsyncSession = None,
     ) -> None:
+        """
+        Check if the user associated with the provided token has the required permission to access the object with the given id.
+        Args:
+            id (str): The identifier of the object to check permission for.
+            token (str): The token representing the user's session.
+            permission (list[GulpUserPermission], optional): A list of required permissions. Defaults to [GulpUserPermission.READ].
+            sess (AsyncSession, optional): The database session to use. Defaults to None.
+        Raises:
+            MissingPermission: If the user does not have the required permission to access the object.
+        """
+
         # get the user session from the token
         from gulp.api.collab.user_session import GulpUserSession
 
         # get session and object
         user_session = await GulpUserSession.get_by_token(token, sess=sess)
-        obj = await GulpCollabBase.get_one(GulpCollabFilter(id=[obj_id]), sess=sess)
+        obj = await GulpCollabBase.get_one(GulpCollabFilter(id=[id]), sess=sess)
         if obj.user != user_session.user.id:
             # check if the user is an admin or permission is enough
             if not user_session.user.has_permission(permission):
                 raise MissingPermission(
-                    f"token {token} (user={user_session.user.id}) does not have permission to access object {obj_id}"
+                    f"token {token} (user={user_session.user.id}) does not have permission to access object {id}"
                 )
 
 
@@ -617,13 +678,7 @@ class GulpCollabObject(GulpCollabBase):
     base for all collaboration objects (notes, links, stories, highlights)
     """
 
-    __tablename__ = "collab_obj"
-
-    # index for operation
-    __table_args__ = (Index("idx_collab_obj_operation", "operation"),)
-
     # the following are present in all collab objects regardless of type
-    id: Mapped[str] = mapped_column(ForeignKey("collab_base.id"), primary_key=True)
     operation: Mapped[str] = mapped_column(
         ForeignKey(
             "operation.id",
@@ -649,9 +704,13 @@ class GulpCollabObject(GulpCollabBase):
         JSONB, default=None, doc="The data associated with the object."
     )
 
+    # index for operation
+    __table_args__ = (Index("idx_operation", "operation"),)
+
     __mapper_args__ = {
         "polymorphic_identity": "collab_obj",
     }
+    __abstract__ = True
 
     @override
     def __init__(
@@ -679,6 +738,10 @@ class GulpCollabObject(GulpCollabBase):
             private (bool, optional): Indicates if the collaboration object is private. Defaults to False.
             data (dict, optional): Additional data associated with the collaboration object. Defaults to None.
         """
+        if type(self) is GulpCollabObject:
+            raise NotImplementedError(
+                "GulpCollabObject is an abstract class and cannot be instantiated directly."
+            )
 
         super().__init__(id, type)
         self.user = user
@@ -692,3 +755,12 @@ class GulpCollabObject(GulpCollabBase):
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s, data=%s"
             % (id, type, user, operation, glyph, tags, title, private, data)
         )
+
+    def set_private(self, private: bool) -> None:
+        """
+        Set the private flag for the object.
+        Args:
+            private (bool): The value to set the private flag to.
+        """
+        self.private = private
+        logger().debug(f"---> set_private: id={self.id}, private={private}")
