@@ -2,7 +2,8 @@ from typing import override
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
 from gulp.utils import logger
 
@@ -26,30 +27,39 @@ class GulpLink(GulpCollabObject):
     }
 
     @override
-    def _init(
-        self,
+    @classmethod
+    async def create(
+        cls,
         id: str,
-        user: str,
+        user: str | "GulpUser",
         operation: str,
         document_from: str,
-        documents: list[GulpDocument],
+        documents: list[GulpAssociatedDocument],
+        glyph: str = None,
+        tags: list[str] = None,
+        title: str = None,
+        private: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
         **kwargs,
-    ) -> None:
-        """
-        Initialize a GulpLink object.
-        Args:
-            id (str): The unique identifier for the link.
-            user (str): The user associated with the link.
-            operation (str): The operation type for the link.
-            document_from (str): The source document for the link.
-            documents (list[GulpDocument]): A list of GulpDocument objects associated with the link.
-            **kwargs: Additional keyword arguments passed to the GulpCollabObject initializer.
-        Returns:
-            None
-        """
-        super().__init__(id, GulpCollabType.LINK, user, operation, **kwargs)
-        self.document_from = document_from
-        self.documents = documents
-        logger().debug(
-            "---> GulpLink: document_from=%s, documents=%s" % (document_from, documents)
+    ) -> T:
+        args = {
+            "operation": operation,
+            "document_from": document_from,
+            "documents": documents,
+            "glyph": glyph,
+            "tags": tags,
+            "title": title,
+            "private": private,
+        }
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
         )

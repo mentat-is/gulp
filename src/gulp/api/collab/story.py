@@ -2,10 +2,8 @@ from typing import Optional, override
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import (
-    GulpCollabType,
-    GulpCollabObject,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.structs import GulpCollabType, GulpCollabObject, T
 from gulp.api.elastic.structs import GulpAssociatedDocument
 from gulp.utils import logger
 
@@ -17,7 +15,7 @@ class GulpStory(GulpCollabObject):
 
     __tablename__ = GulpCollabType.STORY
 
-    events: Mapped[list[GulpAssociatedDocument]] = mapped_column(
+    documents: Mapped[list[GulpAssociatedDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
     )
     text: Mapped[Optional[str]] = mapped_column(
@@ -29,28 +27,39 @@ class GulpStory(GulpCollabObject):
     }
 
     @override
-    def _init(
-        self,
+    @classmethod
+    async def create(
+        cls,
         id: str,
-        user: str,
+        user: str | "GulpUser",
         operation: str,
-        events: list[GulpAssociatedDocument],
+        documents: list[GulpAssociatedDocument],
         text: str = None,
+        glyph: str = None,
+        tags: list[str] = None,
+        title: str = None,
+        private: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
         **kwargs,
-    ) -> None:
-        """
-        Initialize a GulpStory instance.
-        Args:
-            id (str): The unique identifier for the story.
-            user (str): The user associated with the story.
-            operation (str): The operation performed on the story.
-            events (list[GulpAssociatedDocument]): A list of associated document events.
-            text (str, optional): The text content of the story. Defaults to None.
-            **kwargs: Additional keyword arguments passed to the GulpCollabObject initializer.
-        Returns:
-            None
-        """
-        super().__init__(id, GulpCollabType.STORY, user, operation, **kwargs)
-        self.events = events
-        self.text = text
-        logger().debug("---> GulpStory: events=%s, text=%s" % (events, text))
+    ) -> T:
+        args = {
+            "operation": operation,
+            "documents": documents,
+            "glyph": glyph,
+            "tags": tags,
+            "title": title,
+            "text": text,
+            "private": private,
+        }
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
+        )

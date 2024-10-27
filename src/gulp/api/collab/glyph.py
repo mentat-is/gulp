@@ -1,13 +1,10 @@
 import base64
 from typing import override
-
+import muty.file
 from sqlalchemy import ForeignKey, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
-
-from gulp.api.collab.structs import (
-    GulpCollabBase,
-    GulpCollabType,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
 from gulp.utils import logger
 
 
@@ -30,26 +27,32 @@ class GulpGlyph(GulpCollabBase):
     }
 
     @override
-    def _init(self, id: str, user: str, img: bytes | str, **kwargs) -> None:
-        """
-        Initialize a GulpGlyph instance.
-        Args:
-            id (str): The identifier for the glyph.
-            user (str): The object's owner.
-            img (bytes | str): The image data as bytes or a file path as a string.
-        Raises:
-            FileNotFoundError: If the file path provided in img does not exist.
-            IOError: If there is an error reading the file.
-        """
-
-        super().__init__(id, GulpCollabType.GLYPH, user)
+    @classmethod
+    async def create(
+        cls,
+        id: str,
+        user: str | "GulpUser",
+        img: bytes | str,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
+        **kwargs,
+    ) -> T:
         if isinstance(img, str):
             # load from file path
-            with open(img, "rb") as f:
-                img = f.read()
+            img = await muty.file.read_file_async(img)
 
-        self.img = img
-        logger().debug("---> GulpGlyph: img=%s..." % (img[0:8]))
+        args = {"img": img}
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
+        )
 
     @override
     def to_dict(self, *args, **kwargs) -> dict:
@@ -59,7 +62,7 @@ class GulpGlyph(GulpCollabBase):
             *args: Variable length argument list.
             **kwargs: Arbitrary keyword arguments.
         Returns:
-            dict: A dictionary representation of the object, including a base64 encoded image.
+            dict: A dictionary representation of the object, including base64 encoded "img".
         """
         d = super().to_dict(*args, **kwargs)
         d["img"] = base64.b64encode(self.img).decode()

@@ -271,7 +271,7 @@ async def _setup_collab_expirations() -> None:
                 """
             CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
             BEGIN
-                DELETE FROM stats WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000);
+                DELETE FROM stats WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000) AND time_expire > 0;
             END;
             $$ LANGUAGE plpgsql;
         """
@@ -283,7 +283,7 @@ async def _setup_collab_expirations() -> None:
                 """
             CREATE OR REPLACE FUNCTION delete_expired_tokens_rows() RETURNS void AS $$
             BEGIN
-                DELETE FROM session WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000);
+                DELETE FROM session WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000) AND time_expire > 0;
             END;
             $$ LANGUAGE plpgsql;
         """

@@ -11,6 +11,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
     T,
 )
+from gulp.api.collab_api import session
 from gulp.utils import logger
 
 
@@ -46,33 +47,36 @@ class GulpUser(GulpCollabBase):
     }
 
     @override
-    def _init(
-        self,
+    @classmethod
+    async def create(
+        cls,
         id: str,
-        user: "GulpUser",
+        user: str | "GulpUser",
         password: str,
         permission: GulpUserPermission = GulpUserPermission.READ,
         email: str = None,
         glyph: str = None,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
         **kwargs,
-    ) -> None:
-        """
-        Initialize a new Gulp user.
-        Args:
-            id (str): The user identifier (name).
-            user (GulpUser): who created the user (=the owner).
-            password (str): The password of the user (will be hashed before storing).
-            permission (GulpUserPermission, optional): The permission level of the user. Defaults to GulpUserPermission.READ.
-            email (str, optional): The email address of the user. Defaults to None.
-            glyph (str, optional): The glyph associated with the user. Defaults to None.
-        Returns:
-            None
-        """
-        super().__init__(id, GulpCollabType.USER, user)
-        self.pwd_hash = muty.crypto.hash_sha256(password)
-        self.permission = permission
-        self.email = email
-        self.glyph = glyph
+    ) -> T:
+        args = {
+            "pwd_hash": muty.crypto.hash_sha256(password),
+            "permission": permission,
+            "email": email,
+            "glyph": glyph,
+        }
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
+        )
 
     @override
     @classmethod
@@ -80,6 +84,8 @@ class GulpUser(GulpCollabBase):
         cls,
         id: str,
         d: dict | T,
+        ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
         commit: bool = True,
         throw_if_not_found: bool = True,
@@ -91,24 +97,38 @@ class GulpUser(GulpCollabBase):
             del d["password"]
             pwd_changed = True
 
-        c = await super().update(id, d, sess, commit, throw_if_not_found)
+        if sess is None:
+            sess = await session()
+        commit = False
+
+        c = await super().update(
+            id, d, ws_id, req_id, sess, commit, throw_if_not_found=throw_if_not_found
+        )
         if pwd_changed and c.session:
             # invalidate (delete) the session if the password was changed
             logger().debug("password changed, deleting session for user=%s" % (c.id))
+            c.session.user = None
             c.session = None
+            sess.add(c)
+
+        # commit in the end
+        await sess.commit()
+        return c
 
     @override
     @classmethod
     async def delete(
         cls,
         id: str,
+        ws_id: str = None,
+        req_id: str = None,
         throw_if_not_found: bool = True,
         sess: AsyncSession = None,
         commit: bool = True,
     ) -> None:
         if id == "admin":
             raise ValueError("cannot delete the default admin user")
-        await super().delete(id, throw_if_not_found, sess, commit)
+        await super().delete(id, ws_id, req_id, throw_if_not_found, sess, commit)
 
     def is_admin(self) -> bool:
         """

@@ -2,10 +2,8 @@ from typing import Optional, override
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import (
-    GulpCollabObject,
-    GulpCollabType,
-)
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
 from gulp.utils import logger
 
@@ -34,35 +32,43 @@ class GulpNote(GulpCollabObject):
     }
 
     @override
-    def _init(
-        self,
+    @classmethod
+    async def create(
+        cls,
         id: str,
-        user: str,
+        user: str | "GulpUser",
         operation: str,
         context: str,
         log_file_path: str,
-        documents: list[GulpDocument],
+        documents: list[GulpAssociatedDocument],
         text: str,
+        glyph: str = None,
+        tags: list[str] = None,
+        title: str = None,
+        private: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
         **kwargs,
-    ) -> None:
-        """
-        Initialize a GulpNote instance.
-        Args:
-            id (str): The unique identifier for the note.
-            user (str): The user associated with the note.
-            operation (str): The operation performed on the note.
-            context (str): The context in which the note is created.
-            log_file_path (str): The path to the log file.
-            documents (list[GulpDocument]): A list of associated GulpDocument objects.
-            text (str): The text content of the note.
-            **kwargs: Additional keyword arguments passed to the GulpCollabObject initializer.
-        """
-        super().__init__(id, GulpCollabType.NOTE, user, operation, **kwargs)
-        self.context = context
-        self.log_file_path = log_file_path
-        self.documents = documents
-        self.text = text
-        logger().debug(
-            "---> GulpNote: context=%s, log_file_path=%s, documents=%s, text=%s"
-            % (context, log_file_path, documents, text)
+    ) -> T:
+        args = {
+            "operation": operation,
+            "context": context,
+            "log_file_path": log_file_path,
+            "documents": documents,
+            "glyph": glyph,
+            "tags": tags,
+            "title": title,
+            "text": text,
+            "private": private,
+        }
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
         )

@@ -22,16 +22,27 @@ class GulpUserData(GulpCollabBase):
     )
 
     @override
-    def _init(self, id: str, user: "GulpUser", data: dict, **kwargs) -> None:
-        """
-        Initialize a UserData instance.
-
-        Args:
-            id (str): The identifier for the user data.
-            user (GulpUser): The user associated with the data.
-            data (dict): The data.
-            **kwargs: Additional keyword arguments.
-        """
-        super().__init__(id, GulpCollabType.USER_DATA, user)
-        self.data = data
-        logger().debug("---> UserData: user=%s, data=%s" % (user, data))
+    @classmethod
+    async def create(
+        cls,
+        id: str,
+        user: str | "GulpUser",
+        data: dict,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
+        **kwargs,
+    ) -> T:
+        args = {
+            "data": data,
+        }
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
+        )

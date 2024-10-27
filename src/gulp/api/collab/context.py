@@ -2,8 +2,9 @@ from typing import Optional, override
 
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
 from gulp.utils import logger
 
 
@@ -19,7 +20,7 @@ class GulpContext(GulpCollabBase):
 
     __tablename__ = GulpCollabType.CONTEXT
     color: Mapped[Optional[str]] = mapped_column(
-        String(32), default="#ffffff", doc="The color of the context."
+        String, default="#ffffff", doc="The color of the context."
     )
 
     __mapper_args__ = {
@@ -27,18 +28,25 @@ class GulpContext(GulpCollabBase):
     }
 
     @override
-    def _init(self, id: str, user: str, color: str = None, **kwargs) -> None:
-        """
-        Initialize a GulpContext instance.
-        Args:
-            id (str): The unique identifier for the context.
-            user (str): The user associated with the context.
-            color (str, optional): The color associated with the context. Defaults to None.
-            **kwargs: Additional keyword arguments.
-        Returns:
-            None
-        """
-
-        super().__init__(id, GulpCollabType.CONTEXT, user)
-        self.color = color
-        logger().debug("---> GulpContext: id=%s, color=%s" % (id, color))
+    @classmethod
+    async def create(
+        cls,
+        id: str,
+        user: str | "GulpUser",
+        color: str = None,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
+        **kwargs,
+    ) -> T:
+        args = {"color": color}
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
+        )

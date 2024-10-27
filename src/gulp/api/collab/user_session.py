@@ -6,6 +6,7 @@ from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from gulp.api.collab_api import session
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpCollabBase,
@@ -34,113 +35,97 @@ class GulpUserSession(GulpCollabBase):
         f"polymorphic_identity": {GulpCollabType.SESSION},
     }
 
-    @override
-    def _init(self, id: str, user: "GulpUser", **kwargs) -> None:
-        """
-        Initialize a GulpUserSession.
-        Args:
-            id (str): The token identifier for the session.
-            user (GulpUser): The user associated with the session.
-            **kwargs: Additional keyword arguments.
-        Returns:
-            None
-        """
-
-        from gulp.api.collab.user import GulpUser
-
-        # id is the token, user is the user creating the session(=logging in)
-        u: GulpUser = user
-        super().__init__(id, GulpCollabType.SESSION, user)
-        if config.debug_no_token_expiration():
-            self.time_expire = 0
-        else:
-            if u.is_admin():
-                self.time_expire = (
-                    muty.time.now_msec() + config.token_admin_ttl() * 1000
-                )
-            else:
-                self.time_expire = muty.time.now_msec() + config.token_ttl() * 1000
-        logger().debug(
-            "---> GulpUserSession: token=%s, user=%s, time_expire=%s"
-            % (id, self.user, self.time_expire)
-        )
-
-    @classmethod
-    @override
-    async def create(
-        cls,
-        id: str,
-        user: str | "GulpUser",
-        sess: AsyncSession = None,
-        commit: bool = True,
-        **kwargs,
-    ) -> T:
-        raise NotImplementedError(
-            "Direct calls to create() are not allowed. Use login() instead."
-        )
-
     @classmethod
     async def __create(
         cls,
         user: str | "GulpUser",
         password: str,
-        sess: AsyncSession = None,
-        commit: bool = True,
+        ws_id: str = None,
+        req_id: str = None,
         **kwargs,
     ) -> T:
-        if isinstance(user, str):
-            from gulp.api.collab.user import GulpUser
 
-            user = await GulpUser.get_one(
-                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
+        sess = await session()
+        async with sess:
+            if isinstance(user, str):
+                from gulp.api.collab.user import GulpUser
+
+                user = await GulpUser.get_one(
+                    GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
+                )
+
+            # check if user has a session already, if so invalidate
+            existing_session = await cls.get_by_user(
+                user, sess, throw_if_not_found=False
             )
+            if existing_session:
+                # delete previous session (ORM will take care of the relationship)
+                logger().debug("deleting previous session for user=%s" % (user))
+                existing_session.user.session = None
+                existing_session.user.session_id = None
+                sess.add(existing_session.user)
 
-        # check if user has a session already, if so invalidate
-        existing_session = await cls.get_by_user(user, sess, throw_if_not_found=False)
-        if existing_session:
-            # delete previous session (ORM will take care of the relationship)
-            logger().debug("deleting previous session for user=%s" % (user))
-            existing_session.user.session = None
-            existing_session.user.session_id = None
+            # check password
+            if user.pwd_hash != muty.crypto.hash_sha256(password):
+                raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
 
-        # check password
-        if user.pwd_hash != muty.crypto.hash_sha256(password):
-            raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
+            # create new session
+            token = muty.string.generate_unique()
+            new_session: GulpUserSession = await super()._create(
+                token,
+                user,
+                ws_id=ws_id,
+                req_id=req_id,
+                sess=sess,
+                commit=False,
+                **kwargs,
+            )
+            if config.debug_no_token_expiration():
+                new_session.time_expire = 0
+            else:
+                if user.is_admin():
+                    new_session.time_expire = (
+                        muty.time.now_msec() + config.token_admin_ttl() * 1000
+                    )
+                else:
+                    new_session.time_expire = (
+                        muty.time.now_msec() + config.token_ttl() * 1000
+                    )
 
-        # create new session
-        token = muty.string.generate_unique()
-        s = await super().create(token, user, sess, commit, **kwargs)
-        user.session_id = token
-        user.session = s
-        return s
+            user.session_id = token
+            user.session = new_session
+            sess.add(user)
+            await sess.commit()
+            return new_session
 
     @classmethod
-    async def login(cls, user: str, password: str, sess: AsyncSession = None) -> T:
+    async def login(
+        cls, user: str, password: str, ws_id: str = None, req_id: str = None
+    ) -> T:
         """
         Asynchronously logs in a user and creates a session (=obtain token).
         Args:
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
-            sess (AsyncSession, optional): An optional asynchronous session object. Defaults to None.
         Returns:
             T: the user session object.
         """
 
         logger().debug("---> logging in user=%s ..." % (user))
-        return await cls.__create(user, password, sess)
+        return await cls.__create(user, password, ws_id=ws_id, req_id=req_id)
 
     @classmethod
-    async def logout(cls, token: str, sess: AsyncSession = None) -> None:
+    async def logout(cls, token: str, ws_id: str = None, req_id: str = None) -> None:
         """
         Logs out the specified user by deleting their session.
         Args:
             user (str): The username of the user to log out.
-            sess (AsyncSession, optional): The asynchronous session to use for the operation. Defaults to None.
+            sess (AsyncSession, optional): The asynchronous session to use for the operation (will be committed). Defaults to None.
         Returns:
             None
         """
         logger().debug("---> logging out token=%s ..." % (token))
-        await cls.delete(token, sess=sess)
+        await cls.delete(token, ws_id=ws_id, req_id=req_id)
 
     @classmethod
     async def get_by_user(

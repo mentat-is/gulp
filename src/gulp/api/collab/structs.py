@@ -288,7 +288,7 @@ class GulpCollabFilter(BaseModel):
         return q
 
 
-class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
+class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeM ixin):
     """
     base for everything on the collab database
     """
@@ -326,24 +326,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         "polymorphic_on": "type",
     }
 
-    def _init(self, id: str, user: "GulpUser", **kwargs) -> None:
-        """
-        Initialize a GulpCollabBase instance, must be implemented by the subclass.
-        Args:
-            id (str): The identifier for the object.
-            user (GulpUser): The user (=owner) associated with the object.
-            **kwargs: Additional keyword arguments to pass to the class constructor
-        """
-        raise NotImplementedError
-
     @override
-    def __init__(self, id: str, type: GulpCollabType, user: "GulpUser") -> None:
+    def __init__(
+        self, id: str, type: GulpCollabType, user: "GulpUser", **kwargs
+    ) -> None:
         """
         Initialize a GulpCollabBase instance.
         Args:
             id (str): The identifier for the object.
             type (GulpCollabType): The type of the object.
             user (str): The user associated with the object.
+            **kwargs: Additional keyword arguments.
         """
         if self.__class__ is GulpCollabBase:
             raise NotImplementedError(
@@ -355,17 +348,23 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         self.type = type
         self.user = user
         self.user_id = user.id
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
         self.time_created = muty.time.now_msec()
         self.time_updated = self.time_created
+
         logger().debug(
             "---> GulpCollabBase: id=%s, type=%s, user(owner)=%s" % (id, type, user)
         )
 
     @classmethod
-    async def create(
+    async def _create(
         cls,
         id: str,
         user: str | "GulpUser",
+        ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
         commit: bool = True,
         **kwargs,
@@ -373,39 +372,38 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously creates and stores an instance of the class.
         Args:
-            id (str): The unique identifier (=name) for the instance.
-            user (Union[str, GulpUser]): The user associated with the instance, either as a string ID or a GulpUser object.
-            sess (AsyncSession, optional): The asynchronous session to use for database operations. Defaults to None.
-            commit (bool, optional): Whether to commit the transaction after adding the instance. Defaults to True.
-            **kwargs: Additional keyword arguments to pass to the class constructor.
+            id (str): The unique identifier for the instance.
+            user (str | GulpUser): The user associated with the instance. Can be a user ID or a GulpUser object.
+            ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
+            req_id (str, optional): Request ID associated with the instance. Defaults to None.
+            sess (AsyncSession, optional): The database session to use. If None, a new session will be created. Defaults to None.
+            commit (bool, optional): Whether to commit the transaction. Defaults to True.
+            **kwargs: Additional keyword arguments to set as attributes on the instance.
         Returns:
             T: The created instance of the class.
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
 
-        from gulp.api.collab.user import GulpUser
-
         if sess is None:
             sess = await session()
 
         if isinstance(user, str):
             # fetch user by id
-            user = await GulpCollabBase.get_one(
-                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
-            )
+            from gulp.api.collab.user import GulpUser
 
-        # create instance by calling the _init method of the subclass
-        instance = cls._init(id, user, **kwargs)
+            user = await GulpUser.get_one_by_id(user, sess=sess)
+
+        instance = cls(id, cls.type, user, **kwargs)
 
         # store instance
-        if sess is None:
-            sess = await session()
         async with sess:
             sess.add(instance)
             if commit:
                 await sess.commit()
-            logger().info("---> create: stored %s (commit=%r)" % (instance, commit))
+            logger().info("---> create: %s (commit=%r)" % (instance, commit))
+
+        # TODO: notify websocket
 
         return instance
 
@@ -413,6 +411,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def delete(
         cls,
         id: str,
+        ws_id: str = None,
+        req_id: str = None,
         throw_if_not_found: bool = True,
         sess: AsyncSession = None,
         commit: bool = True,
@@ -421,7 +421,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously deletes an object from the database.
         Args:
             id (str): The ID of the object to be deleted.
-            type (T): The type of the object to be deleted.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             commit (bool, optional): If True, commits the transaction. Defaults to True.
@@ -453,6 +454,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         cls,
         id: str,
         d: dict | T,
+        ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
         commit: bool = True,
         throw_if_not_found: bool = True,
@@ -462,6 +465,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Args:
             id (str): The ID of the object to update.
             d (Union[dict, T]): A dictionary containing the fields to update and their new values, or an instance of the class.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             commit (bool, optional): If True, commits the transaction. Defaults to True.
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
@@ -510,6 +515,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def get_one_by_id(
         cls,
         id: str,
+        ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> T:
@@ -517,6 +524,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously retrieves an object of the specified type by its ID.
         Args:
             id (str): The ID of the object to retrieve.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
         Returns:
@@ -526,7 +535,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.type}")
         o = cls.get_one(
-            GulpCollabFilter(id=[id], type=[cls.type]), sess, throw_if_not_found
+            GulpCollabFilter(id=[id], type=[cls.type]),
+            ws_id,
+            req_id,
+            sess,
+            throw_if_not_found,
         )
         return o
 
@@ -534,6 +547,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def get_one(
         cls,
         flt: GulpCollabFilter = None,
+        ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> T:
@@ -541,6 +556,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         shortcut to get one (the first found) object using get()
         Args:
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
         Returns:
@@ -550,7 +567,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         logger().debug("---> get_one: type=%s, filter=%s" % (cls.__name__, flt))
-        c = await cls.get(flt, sess, throw_if_not_found)
+        c = await cls.get(flt, ws_id, req_id, sess, throw_if_not_found)
         if c:
             return c[0]
         return None
@@ -559,6 +576,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def get(
         cls,
         flt: GulpCollabFilter = None,
+        ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> list[T]:
@@ -567,6 +586,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Args:
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
         Returns:
             list[T]: A list of objects that match the filter criteria.
@@ -700,12 +721,9 @@ class GulpCollabObject(GulpCollabBase):
         default=False,
         doc="If True, the object is private (only the owner can see it).",
     )
-    data: Mapped[Optional[dict]] = mapped_column(
-        JSONB, default=None, doc="The data associated with the object."
-    )
 
     # index for operation
-    __table_args__ = (Index("idx_operation", "operation"),)
+    __table_args__ = Index("idx_operation", "operation")
 
     __mapper_args__ = {
         "polymorphic_identity": "collab_obj",
@@ -717,40 +735,38 @@ class GulpCollabObject(GulpCollabBase):
         self,
         id: str,
         type: GulpCollabType,
-        user: str,
+        user: "GulpUser",
         operation: str,
         glyph: str = None,
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
-        data: dict = None,
+        **kwargs,
     ) -> None:
         """
         Initialize a GulpCollabObject.
         Args:
             id (str): The unique identifier for the collaboration object.
             type (GulpCollabType): The type of the collaboration object.
-            user (str): The user associated with the collaboration object.
+            user (GulpUser): The user associated with the collaboration object.
             operation (str): The operation performed on the collaboration object.
             glyph (str, optional): The glyph associated with the collaboration object. Defaults to None.
             tags (list[str], optional): A list of tags associated with the collaboration object. Defaults to None.
             title (str, optional): The title of the collaboration object. Defaults to None.
             private (bool, optional): Indicates if the collaboration object is private. Defaults to False.
-            data (dict, optional): Additional data associated with the collaboration object. Defaults to None.
+            **kwargs: Additional keyword arguments passed to the GulpCollabBase initializer.
         """
         if type(self) is GulpCollabObject:
             raise NotImplementedError(
                 "GulpCollabObject is an abstract class and cannot be instantiated directly."
             )
 
-        super().__init__(id, type)
-        self.user = user
+        super().__init__(id, type, user, **kwargs)
         self.operation = operation
         self.glyph = glyph
         self.tags = tags
         self.title = title
         self.private = private
-        self.data = data
         logger().debug(
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s, data=%s"
             % (id, type, user, operation, glyph, tags, title, private, data)

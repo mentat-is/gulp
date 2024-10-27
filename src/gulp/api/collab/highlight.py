@@ -1,10 +1,9 @@
 from typing import Optional, override
 from sqlalchemy import BIGINT, ForeignKey, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import (
-    GulpCollabObject,
-    GulpCollabType,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from gulp.utils import logger
 
 
@@ -15,43 +14,52 @@ class GulpHighlight(GulpCollabObject):
 
     __tablename__ = GulpCollabType.HIGHLIGHT
 
-    time_start: Mapped[int] = mapped_column(BIGINT)
-    time_end: Mapped[int] = mapped_column(BIGINT)
-    log_file_path: Mapped[Optional[str]] = mapped_column(String, default=None)
+    time_range: Mapped[tuple[int, int]] = mapped_column(
+        JSONB,
+        doc="The time range of the highlight, in nanoseconds from unix epoch.",
+    )
+    log_file_path: Mapped[Optional[str]] = mapped_column(
+        String, default=None, doc="The associated log file path or name."
+    )
 
     __mapper_args__ = {
         f"polymorphic_identity": {GulpCollabType.HIGHLIGHT},
     }
 
     @override
-    def _init(
-        self,
+    @classmethod
+    async def create(
+        cls,
         id: str,
-        user: str,
+        user: str | "GulpUser",
         operation: str,
-        time_start: int,
-        time_end: int,
-        log_file_path: str = None,
+        time_range: tuple[int, int],
+        log_file_path: str,
+        glyph: str = None,
+        tags: list[str] = None,
+        title: str = None,
+        private: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        commit: bool = True,
         **kwargs,
-    ) -> None:
-        """
-        Initialize a GulpHighlight instance.
-        Args:
-            id (str): The identifier for the highlight.
-            user (str): The user associated with the highlight.
-            operation (str): The operation associated with the highlight.
-            time_start (int): The start time for the highlight.
-            time_end (int): The end time for the highlight.
-            log_file_path (str, optional): The path to the log file. Defaults to None.
-            **kwargs: Additional keyword arguments passed to the GulpCollabObject initializer.
-        Returns:
-            None
-        """
-        super().__init__(id, GulpCollabType.HIGHLIGHT, user, operation, **kwargs)
-        self.time_start = time_start
-        self.time_end = time_end
-        self.log_file_path = log_file_path
-        logger().debug(
-            "---> GulpHighlight: time_start=%s, time_end=%s, log_file_path=%s"
-            % (time_start, time_end, log_file_path)
+    ) -> T:
+        args = {
+            "operation": operation,
+            "time_range": time_range,
+            "log_file_path": log_file_path,
+            "glyph": glyph,
+            "tags": tags,
+            "title": title,
+            "private": private,
+        }
+        return await super()._create(
+            id,
+            user,
+            ws_id,
+            req_id,
+            sess,
+            commit,
+            **args,
         )
