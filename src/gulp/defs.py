@@ -100,17 +100,10 @@ class IngestionFailed(Exception):
 class GulpPluginType(StrEnum):
     """plugin types"""
 
-    @override
-    def _generate_next_value_(name, start, count, last_values):
-        """
-        generates the next value for the enum, ensuring it is lowercase.
-        """
-        return name.lower()
-
-    INGESTION = auto()
-    SIGMA = auto()
-    EXTENSION = auto()
-    QUERY = auto()
+    INGESTION = "ingestion"
+    SIGMA = "sigma"
+    EXTENSION = "extension"
+    QUERY = "query"
 
 
 class GulpLogLevel(IntEnum):
@@ -146,13 +139,6 @@ class GulpSortOrder(StrEnum):
     """
     specifies the sort types for API accepting the "sort" parameter
     """
-
-    @override
-    def _generate_next_value_(name, start, count, last_values):
-        """
-        generates the next value for the enum, ensuring it is lowercase.
-        """
-        return name.lower()
 
     ASC = "asc"
     DESC = "desc"

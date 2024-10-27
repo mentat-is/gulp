@@ -82,14 +82,14 @@ async def create(url: str) -> None:
 async def _create_default_data() -> None:
     # context
     from gulp.api.collab.context import GulpContext
-    from gulp.api.collab.glyph import Glyph
-    from gulp.api.collab.operation import Operation
+    from gulp.api.collab.glyph import GulpGlyph
+    from gulp.api.collab.operation import GulpOperation
     from gulp.api.collab.user import GulpUser
 
     assets_path = impresources.files("gulp.api.collab.assets")
 
     # create default context
-    context = GulpContext("default", "#6fcee4")
+    context = GulpContext.create("testcontext")
     await context.store()
     return
 

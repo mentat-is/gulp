@@ -39,18 +39,11 @@ class WsQueueDataType(StrEnum):
     The type of data into the websocket queue.
     """
 
-    @override
-    def _generate_next_value_(name, start, count, last_values):
-        """
-        generates the next value for the enum, ensuring it is lowercase.
-        """
-        return name.lower()
-
-    STATS_UPDATE = auto()
-    COLLAB_UPDATE = auto()
-    QUERY_DONE = auto()
-    REBASE_DONE = auto()
-    CHUNK = auto()
+    STATS_UPDATE = "stats_update"
+    COLLAB_UPDATE = "collab_update"
+    QUERY_DONE = "query_done"
+    REBASE_DONE = "rebase_done"
+    CHUNK = "chunk"
 
 
 class WsParameters(BaseModel):

@@ -3,7 +3,7 @@ from typing import Optional, Union, override
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
 from gulp.utils import logger
 
 

@@ -55,19 +55,11 @@ COLLAB_MAX_NAME_LENGTH = 128
 class GulpRequestStatus(StrEnum):
     """Gulp request status codes (used by the stats API)."""
 
-    @override
-    @staticmethod
-    def _generate_next_value_(name, start, count, last_values):
-        """
-        generates the next value for the enum, ensuring it is lowercase.
-        """
-        return name.lower()
-
-    ONGOING = auto()
-    DONE = auto()
-    FAILED = auto()
-    CANCELED = auto()
-    DONE_WITH_ERRORS = auto()
+    ONGOING = "ongoing"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELED = "canceled"
+    DONE_WITH_ERRORS = "done_with_errors"
 
 
 class GulpUserPermission(Flag):
@@ -107,28 +99,20 @@ class GulpCollabType(StrEnum):
     defines the type of collaboration object
     """
 
-    @override
-    @staticmethod
-    def _generate_next_value_(name, start, count, last_values):
-        """
-        generates the next value for the enum, ensuring it is lowercase.
-        """
-        return name.lower()
-
-    NOTE = auto()
-    HIGHLIGHT = auto()
-    STORY = auto()
-    LINK = auto()
-    STORED_QUERY = auto()
-    STATS_INGESTION = auto()
-    STATS_QUERY = auto()
-    SIGMA_FILTER = auto()
-    USER_DATA = auto()
-    CONTEXT = auto()
-    USER = auto()
-    GLYPH = auto()
-    OPERATION = auto()
-    SESSION = auto()
+    NOTE = "note"
+    HIGHLIGHT = "highlight"
+    STORY = "story"
+    LINK = "link"
+    STORED_QUERY = "stored_query"
+    STORED_SIGMA = "stored_sigma"
+    STATS_INGESTION = "stats_ingestion"
+    STATS_QUERY = "stats_query"
+    USER_DATA = "user_data"
+    CONTEXT = "context"
+    USER = "user"
+    GLYPH = "glyph"
+    OPERATION = "operation"
+    SESSION = "session"
 
 
 T = TypeVar("T", bound="GulpCollabBase")
@@ -305,7 +289,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     )
     type: Mapped[GulpCollabType] = mapped_column(String, doc="The type of the object.")
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"),
+        String(COLLAB_MAX_NAME_LENGTH),
         doc="The user ID who created (the owner of) the object.",
     )
     time_created: Mapped[int] = mapped_column(
@@ -336,7 +320,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Args:
             id (str): The identifier for the object.
             type (GulpCollabType): The type of the object.
-            user (str): The user associated with the object.
+            user (str): The user associated with the object(=the owner).
             **kwargs: Additional keyword arguments.
         """
         if self.__class__ is GulpCollabBase:

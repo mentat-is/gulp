@@ -20,7 +20,7 @@ class GulpUser(GulpCollabBase):
     Represents a user in the system.
     """
 
-    __tablename__ = GulpCollabType.USER
+    __tablename__ = GulpCollabType.USER.value
     pwd_hash: Mapped[str] = mapped_column(String)
     permission: Mapped[Optional[GulpUserPermission]] = mapped_column(
         String, default=GulpUserPermission.READ
@@ -34,7 +34,7 @@ class GulpUser(GulpCollabBase):
         ForeignKey("session.id", ondelete="SET NULL"), default=None
     )
     __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.USER,
+        "polymorphic_identity": GulpCollabType.USER.value,
     }
 
     @declared_attr
