@@ -1,9 +1,9 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 
 import muty.crypto
 import muty.time
 from sqlalchemy import BIGINT, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, declared_attr
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import (
     GulpCollabBase,
@@ -30,28 +30,33 @@ class GulpUser(GulpCollabBase):
     )
     email: Mapped[Optional[str]] = mapped_column(String, default=None)
     time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    user_data = relationship(
-        "GulpUserData", back_populates="user", cascade="all, delete-orphan"
-    )
-    session = relationship(
-        "GulpUserSession",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
     session_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("session.id", ondelete="SET NULL"), default=None
     )
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.USER},
+        "polymorphic_identity": GulpCollabType.USER,
     }
+
+    @declared_attr
+    def session(self):
+        return relationship(
+            "GulpUserSession",
+            back_populates="user",
+            cascade="all, delete-orphan",
+        )
+
+    @declared_attr
+    def user_data(self):
+        return relationship(
+            "GulpUserData", back_populates="user", cascade="all, delete-orphan"
+        )
 
     @override
     @classmethod
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         password: str,
         permission: GulpUserPermission = GulpUserPermission.READ,
         email: str = None,

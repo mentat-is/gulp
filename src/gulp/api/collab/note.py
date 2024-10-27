@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -13,7 +13,7 @@ class GulpNote(GulpCollabObject):
     a note in the gulp collaboration system
     """
 
-    __tablename__ = GulpCollabType.NOTE
+    __tablename__ = GulpCollabType.NOTE.value
 
     context: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
@@ -28,7 +28,7 @@ class GulpNote(GulpCollabObject):
     text: Mapped[str] = mapped_column(String, doc="The text of the note.")
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.NOTE},
+        "polymorphic_identity": GulpCollabType.NOTE.value,
     }
 
     @override
@@ -36,7 +36,7 @@ class GulpNote(GulpCollabObject):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str,
         context: str,
         log_file_path: str,

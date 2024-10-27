@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -13,7 +13,7 @@ class GulpStory(GulpCollabObject):
     a story in the gulp collaboration system
     """
 
-    __tablename__ = GulpCollabType.STORY
+    __tablename__ = GulpCollabType.STORY.value
 
     documents: Mapped[list[GulpAssociatedDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
@@ -22,16 +22,14 @@ class GulpStory(GulpCollabObject):
         String, default=None, doc="The description of the story."
     )
 
-    __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.STORY},
-    }
+    __mapper_args__ = {"polymorphic_identity": GulpCollabType.STORY.value}
 
     @override
     @classmethod
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str,
         documents: list[GulpAssociatedDocument],
         text: str = None,

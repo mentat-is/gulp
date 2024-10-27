@@ -1,10 +1,11 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 import muty.log
 import muty.time
 from sqlalchemy import BIGINT, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import Enum as SQLEnum
 from gulp import config
 from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus, GulpCollabBase, T
 from gulp.utils import logger
@@ -28,7 +29,7 @@ class GulpStatsBase(GulpCollabBase):
     )
     status: Mapped[GulpRequestStatus] = mapped_column(
         String,
-        default=GulpRequestStatus.ONGOING,
+        default=GulpRequestStatus.ONGOING.value,
         doc="The status of the stats (done, ongoing, ...).",
     )
     time_expire: Mapped[Optional[int]] = mapped_column(
@@ -80,7 +81,7 @@ class GulpStatsBase(GulpCollabBase):
     async def _create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str = None,
         context: str = None,
         ws_id: str = None,
@@ -113,7 +114,7 @@ class GulpStatsBase(GulpCollabBase):
     async def create_or_get(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str = None,
         context: str = None,
         sess: AsyncSession = None,
@@ -155,10 +156,10 @@ class GulpQueryStats(GulpStatsBase):
     TODO: is this really needed ?
     """
 
-    __tablename__ = GulpCollabType.STATS_QUERY
+    __tablename__ = GulpCollabType.STATS_QUERY.value
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.STATS_QUERY},
+        "polymorphic_identity": GulpCollabType.STATS_QUERY.value,
     }
 
     async def update(
@@ -186,7 +187,7 @@ class GulpIngestionStats(GulpStatsBase):
     Represents the statistics for an ingestion operation.
     """
 
-    __tablename__ = GulpCollabType.STATS_INGESTION
+    __tablename__ = GulpCollabType.STATS_INGESTION.value
     errors: Mapped[Optional[dict]] = mapped_column(
         JSONB, default=None, doc="The errors that occurred during processing."
     )
@@ -210,7 +211,7 @@ class GulpIngestionStats(GulpStatsBase):
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.STATS_INGESTION},
+        "polymorphic_identity": GulpCollabType.STATS_INGESTION.value,
     }
 
     def _reset_buffer(self):
@@ -233,7 +234,7 @@ class GulpIngestionStats(GulpStatsBase):
     async def _create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str = None,
         context: str = None,
         source_total: int = 0,
@@ -270,7 +271,7 @@ class GulpIngestionStats(GulpStatsBase):
         Updates the buffered statistics with the provided values.
         Parameters:
         errors (dict[str, list[str]], optional): A dictionary of errors where the key is a string (the source)
-                                                    and the value is a list of error messages. Defaults to None.
+                                                    and the vue is a list of error messages. Defaults to None.
         source_processed (int, optional): The number of sources processed. Defaults to 0.
         source_total (int, optional): The total number of sources. Defaults to 0.
         source_failed (int, optional): The number of sources that failed. Defaults to 0.
@@ -296,7 +297,7 @@ class GulpIngestionStats(GulpStatsBase):
 
     async def update(
         self,
-        status: GulpRequestStatus = None,
+        status: GulpRequestStatus = GulpRequestStatus.ONGOING,
         errors: dict[str, list[str]] = None,
         source_processed: int = 0,
         source_total: int = 0,
@@ -320,7 +321,7 @@ class GulpIngestionStats(GulpStatsBase):
             records_skipped=records_skipped,
             records_processed=records_processed,
         )
-        self.status = status
+        self.status = status.value
         done: bool = False
 
         # check threshold

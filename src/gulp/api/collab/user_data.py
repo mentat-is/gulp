@@ -1,4 +1,4 @@
-from typing import override
+from typing import Union, override
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +13,9 @@ class GulpUserData(GulpCollabBase):
     defines data associated with an user
     """
 
-    __tablename__ = GulpCollabType.USER_DATA
+    __tablename__ = GulpCollabType.USER_DATA.value
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.USER_DATA},
+        "polymorphic_identity": GulpCollabType.USER_DATA.value,
     }
     data: Mapped[dict] = mapped_column(
         JSONB, doc="The data to be associated with user."
@@ -26,7 +26,7 @@ class GulpUserData(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         data: dict,
         ws_id: str = None,
         req_id: str = None,

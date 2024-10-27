@@ -1,4 +1,4 @@
-from typing import override
+from typing import Union, override
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -13,7 +13,7 @@ class GulpLink(GulpCollabObject):
     a link in the gulp collaboration system
     """
 
-    __tablename__ = GulpCollabType.LINK
+    __tablename__ = GulpCollabType.LINK.value
 
     # the source event
     document_from: Mapped[str] = mapped_column(String, doc="The source document.")
@@ -23,7 +23,7 @@ class GulpLink(GulpCollabObject):
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.LINK},
+        "polymorphic_identity": GulpCollabType.LINK.value,
     }
 
     @override
@@ -31,7 +31,7 @@ class GulpLink(GulpCollabObject):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str,
         document_from: str,
         documents: list[GulpAssociatedDocument],

@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,7 +12,7 @@ class GulpHighlight(GulpCollabObject):
     an highlight in the gulp collaboration system
     """
 
-    __tablename__ = GulpCollabType.HIGHLIGHT
+    __tablename__ = GulpCollabType.HIGHLIGHT.value
 
     time_range: Mapped[tuple[int, int]] = mapped_column(
         JSONB,
@@ -23,7 +23,7 @@ class GulpHighlight(GulpCollabObject):
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.HIGHLIGHT},
+        "polymorphic_identity": GulpCollabType.HIGHLIGHT.value,
     }
 
     @override
@@ -31,7 +31,7 @@ class GulpHighlight(GulpCollabObject):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         operation: str,
         time_range: tuple[int, int],
         log_file_path: str,

@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,7 +12,7 @@ class GulpOperation(GulpCollabBase):
     Represents an operation in the gulp system.
     """
 
-    __tablename__ = GulpCollabType.OPERATION
+    __tablename__ = GulpCollabType.OPERATION.value
     index: Mapped[Optional[str]] = mapped_column(
         String(),
         default=None,
@@ -23,7 +23,7 @@ class GulpOperation(GulpCollabBase):
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.OPERATION},
+        "polymorphic_identity": GulpCollabType.OPERATION.value,
     }
 
     @override
@@ -50,7 +50,7 @@ class GulpOperation(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         index: str = None,
         description: str = None,
         ws_id: str = None,

@@ -8,6 +8,7 @@ from gulp.api import collab_api
 import muty.json
 from gulp import config
 from typing import Optional, TypeVar
+from gulp.api.collab.structs import GulpCollabType
 from gulp.utils import logger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
@@ -63,6 +64,16 @@ async def testbed():
 
     # t = TestOrm()
     # t.to_dict()
+    print(
+        GulpCollabType.CONTEXT,
+        type(GulpCollabType.CONTEXT),
+        str(GulpCollabType.CONTEXT),
+        type(str(GulpCollabType.CONTEXT)),
+    )
+    print(GulpCollabType.CONTEXT == "context")
+    print(GulpCollabType.CONTEXT.value, type(GulpCollabType.CONTEXT.value))
+    return
+
     TestOrm.print_name()
     return
     print("field1" in t.columns)

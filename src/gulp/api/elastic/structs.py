@@ -74,6 +74,8 @@ EXAMPLE_INGESTION_FILTER = {
     }
 }
 
+T = TypeVar("T", bound="GulpBaseDocumentFilter")
+
 
 class GulpBaseDocumentFilter(BaseModel):
     """
@@ -103,8 +105,6 @@ class GulpBaseDocumentFilter(BaseModel):
 
     def to_dict(self) -> dict:
         return self.model_dump()
-
-    T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
     @staticmethod
     def from_dict(type: T, d: dict) -> T:

@@ -1,5 +1,5 @@
 import base64
-from typing import override
+from typing import Union, override
 import muty.file
 from sqlalchemy import ForeignKey, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,13 +17,13 @@ class GulpGlyph(GulpCollabBase):
         img (bytes): The image data of the glyph as binary blob.
     """
 
-    __tablename__ = GulpCollabType.GLYPH
+    __tablename__ = GulpCollabType.GLYPH.value
     img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.GLYPH},
+        "polymorphic_identity": GulpCollabType.GLYPH.value,
     }
 
     @override
@@ -31,7 +31,7 @@ class GulpGlyph(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         img: bytes | str,
         ws_id: str = None,
         req_id: str = None,

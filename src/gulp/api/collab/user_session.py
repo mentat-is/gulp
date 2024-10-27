@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 import muty.crypto
 import muty.string
 import muty.time
@@ -24,7 +24,7 @@ class GulpUserSession(GulpCollabBase):
     Represents a user session (logged user).
     """
 
-    __tablename__ = GulpCollabType.SESSION
+    __tablename__ = GulpCollabType.SESSION.value
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
         default=0,
@@ -32,13 +32,13 @@ class GulpUserSession(GulpCollabBase):
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.SESSION},
+        "polymorphic_identity": GulpCollabType.SESSION.value,
     }
 
     @classmethod
     async def __create(
         cls,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         password: str,
         ws_id: str = None,
         req_id: str = None,
@@ -130,7 +130,7 @@ class GulpUserSession(GulpCollabBase):
     @classmethod
     async def get_by_user(
         cls,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> T:

@@ -11,6 +11,7 @@ import pytest_asyncio
 import muty.json
 from gulp import config
 from typing import Optional, TypeVar
+from gulp.api.collab.structs import GulpCollabType
 from gulp.utils import logger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin

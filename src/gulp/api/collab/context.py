@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, Union, override
 
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,13 +18,13 @@ class GulpContext(GulpCollabBase):
         color (str): A color hex string (0xffffff, #ffffff)
     """
 
-    __tablename__ = GulpCollabType.CONTEXT
+    __tablename__ = GulpCollabType.CONTEXT.value
     color: Mapped[Optional[str]] = mapped_column(
         String, default="#ffffff", doc="The color of the context."
     )
 
     __mapper_args__ = {
-        f"polymorphic_identity": {GulpCollabType.CONTEXT},
+        "polymorphic_identity": GulpCollabType.CONTEXT.value,
     }
 
     @override
@@ -32,7 +32,7 @@ class GulpContext(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         color: str = None,
         ws_id: str = None,
         req_id: str = None,

@@ -1,9 +1,10 @@
 from enum import Flag, StrEnum, auto
 import json
-from typing import Optional, TypeVar, override
+from typing import Optional, TypeVar, Union, override
 import muty.time
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy import (
     ARRAY,
     BIGINT,
@@ -23,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import (
     Mapped,
     mapped_column,
+    declared_attr,
     MappedAsDataclass,
     DeclarativeBase,
     relationship,
@@ -54,6 +56,7 @@ class GulpRequestStatus(StrEnum):
     """Gulp request status codes (used by the stats API)."""
 
     @override
+    @staticmethod
     def _generate_next_value_(name, start, count, last_values):
         """
         generates the next value for the enum, ensuring it is lowercase.
@@ -105,6 +108,7 @@ class GulpCollabType(StrEnum):
     """
 
     @override
+    @staticmethod
     def _generate_next_value_(name, start, count, last_values):
         """
         generates the next value for the enum, ensuring it is lowercase.
@@ -304,13 +308,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The user ID who created (the owner of) the object.",
     )
-    user: Mapped["GulpUser"] = relationship("GulpUser", back_populates="collab_objects")
-    """
-    user: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"),
-        doc="The user who created (the owner of) the object.",
-    )
-    """
     time_created: Mapped[int] = mapped_column(
         BIGINT,
         doc="The time the object was created, in milliseconds from unix epoch.",
@@ -325,6 +322,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
     }
+
+    @declared_attr
+    def user(self):
+        return relationship("GulpUser", back_populates="collab_objects")
 
     @override
     def __init__(
@@ -345,7 +346,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         super().__init__()
         self.id = id
-        self.type = type
+        self.type = type.value
         self.user = user
         self.user_id = user.id
         for k, v in kwargs.items():
@@ -362,7 +363,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def _create(
         cls,
         id: str,
-        user: str | "GulpUser",
+        user: Union[str, "GulpUser"],
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
@@ -595,6 +596,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
 
+        # TODO: handle websocket
         logger().debug("---> get: type=%s, filter=%s" % (cls.__name__, flt))
         flt = flt or GulpCollabFilter()
         if sess is None:
