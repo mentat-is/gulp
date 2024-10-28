@@ -20,9 +20,15 @@ class GulpUserData(GulpCollabBase):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The user ID associated with this data.",
+        unique=True,
     )
     user: Mapped["GulpUser"] = relationship(
-        "GulpUser", back_populates="user_data", foreign_keys=[user_id]
+        "GulpUser",
+        back_populates="user_data",
+        foreign_keys="[GulpUser.user_data_id]",
+        cascade="all,delete-orphan",
+        single_parent=True,
+        uselist=False,
     )
     data: Mapped[dict] = mapped_column(
         JSONB, doc="The data to be associated with user."
@@ -37,8 +43,6 @@ class GulpUserData(GulpCollabBase):
         data: dict,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {
@@ -46,10 +50,9 @@ class GulpUserData(GulpCollabBase):
         }
         return await super()._create(
             id,
+            GulpCollabType.USER_DATA,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )

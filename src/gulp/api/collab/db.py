@@ -1,17 +1,16 @@
 import asyncio
+import importlib
+import pkgutil
 from importlib import resources as impresources
-
 from sqlalchemy import text
 from sqlalchemy.sql import text
 from sqlalchemy_utils import create_database, database_exists, drop_database
 import muty.file
 from gulp import config
 from gulp.api.collab.structs import (
-    PERMISSION_DELETE,
-    PERMISSION_EDIT,
+    PERMISSION_MASK_DELETE,
+    PERMISSION_MASK_EDIT,
     GulpCollabBase,
-    GulpCollabFilter,
-    GulpCollabType,
     GulpUserPermission,
 )
 from gulp.api.collab_api import (
@@ -19,7 +18,7 @@ from gulp.api.collab_api import (
     session,
     shutdown,
 )
-from gulp.defs import ObjectAlreadyExists, ObjectNotFound
+from gulp.defs import ObjectNotFound
 from gulp.utils import logger
 
 
@@ -55,6 +54,7 @@ async def drop(url: str, raise_if_not_exists: bool = False) -> None:
         internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
         """
         if database_exists(url):
+            logger().info("--> drop: dropping database %s ..." % (url))
             drop_database(url)
             logger().info("--> drop: database %s dropped ..." % (url))
         else:
@@ -77,185 +77,6 @@ async def create(url: str) -> None:
     """
     logger().debug("---> create: url=%s" % (url))
     await asyncio.to_thread(create_database, url=url)
-
-
-async def _create_default_data() -> None:
-    # context
-    from gulp.api.collab.context import GulpContext
-    from gulp.api.collab.glyph import GulpGlyph
-    from gulp.api.collab.operation import GulpOperation
-    from gulp.api.collab.user import GulpUser
-
-    assets_path = impresources.files("gulp.api.collab.assets")
-
-    # create default context
-    # context = GulpContext.create("testcontext")
-    # await context.store()
-    return
-
-    # glyphs
-    user_b = await muty.file.read_file_async(
-        muty.file.safe_path_join(assets_path, "user.png")
-    )
-    client_b = await muty.file.read_file_async(
-        muty.file.safe_path_join(assets_path, "client.png")
-    )
-    operation_b = await muty.file.read_file_async(
-        muty.file.safe_path_join(assets_path, "operation.png")
-    )
-    user_glyph = await Glyph.create(user_b, "user")
-
-    d = os.path.dirname(__file__)
-    with open(
-        muty.file.safe_path_join(d, "assets/user.png", allow_relative=True), "rb"
-    ) as f:
-        img = f.read()
-        try:
-            the_user = await Glyph.create(engine, img, "user")
-        except ObjectAlreadyExists:
-            # already exists
-            the_user = await Glyph.get(engine, GulpCollabFilter(name=["user"]))
-            the_user = the_user[0]
-    with open(
-        muty.file.safe_path_join(d, "assets/client.png", allow_relative=True), "rb"
-    ) as f:
-        img = f.read()
-        try:
-            the_client = await Glyph.create(engine, img, "client")
-        except ObjectAlreadyExists:
-            the_client = await Glyph.get(engine, GulpCollabFilter(name=["client"]))
-            the_client = the_client[0]
-    with open(
-        muty.file.safe_path_join(d, "assets/operation.png", allow_relative=True), "rb"
-    ) as f:
-        img = f.read()
-        try:
-            the_op = await Glyph.create(engine, img, "operation")
-        except ObjectAlreadyExists:
-            the_op = await Glyph.get(engine, GulpCollabFilter(name=["operation"]))
-            the_op = the_op[0]
-    # users
-    try:
-        admin_user = await GulpUser.create(
-            engine,
-            "admin",
-            "admin",
-            permission=GulpUserPermission.ADMIN,
-            glyph_id=the_user.id,
-        )
-    except ObjectAlreadyExists:
-        admin_user = await GulpUser.get(engine, GulpCollabFilter(name=["admin"]))
-        admin_user = admin_user[0]
-
-    try:
-        await GulpUser.create(
-            engine,
-            "guest",
-            "guest",
-            permission=GulpUserPermission.READ,
-            glyph_id=the_user.id,
-        )
-    except ObjectAlreadyExists:
-        pass
-
-    if __debug__:
-        # also create these additional data on debug builds
-        try:
-            await GulpUser.create(
-                engine,
-                "ingest",
-                "ingest",
-                permission=GulpUserPermission.INGEST,
-                glyph_id=the_user.id,
-            )
-        except ObjectAlreadyExists:
-            pass
-
-        try:
-            await GulpUser.create(
-                engine,
-                "test1",
-                "test",
-                permission=PERMISSION_EDIT,
-                glyph_id=the_user.id,
-            )
-        except ObjectAlreadyExists:
-            pass
-
-        try:
-            await GulpUser.create(
-                engine,
-                "test2",
-                "test",
-                permission=PERMISSION_DELETE,
-                glyph_id=the_user.id,
-            )
-        except ObjectAlreadyExists:
-            pass
-
-        # operation
-        try:
-            testop = await Operation.create(
-                engine, "testoperation", "testidx", "testdesc", the_op.id
-            )
-        except ObjectAlreadyExists:
-            testop = await Operation.get(
-                engine, GulpCollabFilter(name=["testoperation"])
-            )
-            testop = testop[0]
-
-        # client
-        try:
-            testclient = await Client.create(
-                engine,
-                "testclient",
-                GulpClientType.SLURP,
-                version="1.0.0",
-                glyph_id=the_client.id,
-            )
-        except ObjectAlreadyExists:
-            testclient = await Client.get(engine, GulpCollabFilter(name=["testclient"]))
-            testclient = testclient[0]
-
-        # stored query
-        try:
-            sigma_matchcontext = "dGl0bGU6IFRlc3RTaWdtYQppZDogMmRjY2E3YjQtNGIzYS00ZGI2LTkzNjQtYTAxOWQ1NDkwNGJmCnN0YXR1czogdGVzdApkZXNjcmlwdGlvbjogVGhpcyBpcyBhIHRlc3QKcmVmZXJlbmNlczoKICAtIHJlZjEKICAtIHJlZjIKdGFnczoKICAtIGF0dGFjay5leGVjdXRpb24KICAtIGF0dGFjay50MTA1OQphdXRob3I6IEd1bHAgVGVhbQpkYXRlOiAyMDIwLTA3LTEyCmxvZ3NvdXJjZToKICBjYXRlZ29yeTogcHJvY2Vzc19jcmVhdGlvbgogIHByb2R1Y3Q6IHdpbmRvd3MKZGV0ZWN0aW9uOgogIHNlbGVjdGlvbjoKICAgIEV2ZW50SUQ6IDQ3MzIKICAgIFNvdXJjZUhvc3RuYW1lfGVuZHN3aXRoOiBjb250ZXh0CiAgY29uZGl0aW9uOiBzZWxlY3Rpb24KZmllbGRzOgogIC0gRXZlbnRJZAogIC0gU291cmNlSG9zdG5hbWUKZmFsc2Vwb3NpdGl2ZXM6CiAgLSBFdmVyeXRoaW5nCmxldmVsOiBtZWRpdW0KCg=="
-            gqp = GulpQueryParameter(
-                type=GulpQueryType.SIGMA_YAML,
-                rule=base64.b64decode(sigma_matchcontext).decode(),
-                pysigma_plugin="windows",
-            )
-            r = await query_utils.gulpqueryparam_to_gulpquery(engine, gqp)
-            await CollabObj.create(
-                engine,
-                None,
-                None,
-                GulpCollabType.STORED_QUERY,
-                None,
-                name="test_stored_query",
-                data=r.to_dict(),
-                internal_user_id=admin_user.id,
-                skip_ws=True,
-            )
-        except ObjectAlreadyExists:
-            pass
-
-        # shared data (sigma group filter)
-        try:
-            expr = "((66d31e5f-52d6-40a4-9615-002d3789a119 AND 0d7a9363-af70-4e7b-a3b7-1a176b7fbe84) AND (0d7a9363-af70-4e7b-a3b7-1a176b7fbe84 AFTER 66d31e5f-52d6-40a4-9615-002d3789a119)) OR 0f06a3a5-6a09-413f-8743-e6cf35561297"
-            await CollabObj.create(
-                engine,
-                None,
-                None,
-                GulpCollabType.SHARED_DATA_GENERIC,
-                None,
-                name="test APT",
-                data={"type": "sigma_group_filter", "name": "test APT", "expr": expr},
-                internal_user_id=admin_user.id,
-                skip_ws=True,
-            )
-        except ObjectAlreadyExists:
-            pass
 
 
 async def _setup_collab_expirations() -> None:
@@ -308,6 +129,91 @@ async def _setup_collab_expirations() -> None:
         await sess.commit()
 
 
+async def _create_default_data() -> None:
+    """
+    Initializes the default data for the application.
+    This function performs the following tasks:
+    1. Dynamically imports all modules under the `gulp.api.collab` package.
+    2. Imports necessary classes from the `gulp.api.collab` package.
+    3. Creates database tables and functions.
+    4. Reads glyph assets from the specified path.
+    5. Creates an admin user with administrative permissions.
+    6. Creates glyphs for user and operation.
+    7. Updates the admin user with the created user glyph.
+    8. Creates a default context.
+    9. Creates a default operation.
+    10. Creates additional users with varying permissions: guest(read), editor(edit), and power(delete).
+    Raises:
+        Any exceptions that occur during the execution of the function.
+    """
+
+    # import everything under gulp.api.collab
+    package_name = "gulp.api.collab"
+    package = importlib.import_module(package_name)
+    for _, module_name, _ in pkgutil.iter_modules(package.__path__):
+        importlib.import_module(f"{package_name}.{module_name}")
+
+    from gulp.api.collab.user import GulpUser
+    from gulp.api.collab.glyph import GulpGlyph
+    from gulp.api.collab.operation import GulpOperation
+    from gulp.api.collab.context import GulpContext
+
+    # create database tables and functions
+    e = await engine()
+    async with e.begin() as conn:
+        from gulp.api.collab.context import GulpContext
+
+        await conn.run_sync(GulpCollabBase.metadata.create_all)
+    await shutdown()
+    await _setup_collab_expirations()
+
+    # read glyphs
+    assets_path = impresources.files("gulp.api.collab.assets")
+    user_b = await muty.file.read_file_async(
+        muty.file.safe_path_join(assets_path, "user.png")
+    )
+    operation_b = await muty.file.read_file_async(
+        muty.file.safe_path_join(assets_path, "operation.png")
+    )
+
+    # create admin user, which is the root of everything else
+    admin_user: GulpUser = await GulpUser.create(
+        "admin",
+        "admin",
+        permission=GulpUserPermission.ADMIN,
+    )
+
+    # create glyphs
+    user_glyph = await GulpGlyph.create("user", admin_user.id, user_b)
+    operation_glyph = await GulpGlyph.create("operation", admin_user.id, operation_b)
+    await admin_user.update({"glyph": user_glyph.id})
+
+    # create default context
+    context = await GulpContext.create("test_context", admin_user.id)
+
+    # create default operation
+    operation = await GulpOperation.create(
+        "test_operation", admin_user.id, index="testidx", glyph=operation_glyph.id
+    )
+
+    # create other users
+    guest_user = await GulpUser.create(
+        "guest",
+        "guest",
+        permission=GulpUserPermission.READ,
+        glyph=user_glyph.id,
+    )
+    editor_user = await GulpUser.create(
+        "editor",
+        "editor",
+        permission=PERMISSION_MASK_EDIT,
+        glyph=user_glyph.id,
+    )
+    power_user = await GulpUser.create(
+        "power", "power", permission=PERMISSION_MASK_DELETE, glyph=user_glyph.id
+    )
+
+
 async def setup(force_recreate: bool = False) -> None:
     """
     Sets up the collab database, creating tables and default data if needed.
@@ -321,18 +227,12 @@ async def setup(force_recreate: bool = False) -> None:
     """
 
     async def _recreate_internal(url: str):
+        # drop and recreate database
         await shutdown()
         await drop(url)
         await create(url)
 
         # recreate tables and default data
-        e = await engine()
-        async with e.begin() as conn:
-            from gulp.api.collab.context import GulpContext
-
-            await conn.run_sync(GulpCollabBase.metadata.create_all)
-        await shutdown()
-        await _setup_collab_expirations()
         await _create_default_data()
 
     url = config.postgres_url()

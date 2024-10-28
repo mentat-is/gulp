@@ -1,9 +1,8 @@
 from enum import Flag, StrEnum, auto
 import json
-from typing import Optional, TypeVar, Union, override
+from typing import Optional, TypeVar, override
 import muty.time
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy import (
     ARRAY,
@@ -11,7 +10,6 @@ from sqlalchemy import (
     Boolean,
     ColumnElement,
     ForeignKey,
-    Index,
     Result,
     Select,
     String,
@@ -24,10 +22,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import (
     Mapped,
     mapped_column,
-    declared_attr,
     MappedAsDataclass,
     DeclarativeBase,
-    relationship,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins import SerializeMixin
@@ -67,30 +63,17 @@ class GulpUserPermission(Flag):
 
     # can read only
     READ = auto()
-    # can edit own highlights, notes, stories, links
+    # can edit own highlights, notes, stories, links + ingest data
     EDIT = auto()
-    # can delete highlights, notes, stories, links
+    # can delete others highlights, notes, stories, links + ingest data
     DELETE = auto()
-    # can ingest files
-    INGEST = auto()
     # can do anything, including creating new users and change permissions
     ADMIN = auto()
 
 
-PERMISSION_EDIT = GulpUserPermission.READ | GulpUserPermission.EDIT
-PERMISSION_DELETE = (
+PERMISSION_MASK_EDIT = GulpUserPermission.READ | GulpUserPermission.EDIT
+PERMISSION_MASK_DELETE = (
     GulpUserPermission.READ | GulpUserPermission.EDIT | GulpUserPermission.DELETE
-)
-
-PERMISSION_INGEST = (
-    GulpUserPermission.READ | GulpUserPermission.INGEST | GulpUserPermission.EDIT
-)
-
-PERMISSION_CLIENT = (
-    GulpUserPermission.READ
-    | GulpUserPermission.INGEST
-    | GulpUserPermission.EDIT
-    | GulpUserPermission.DELETE
 )
 
 
@@ -106,7 +89,6 @@ class GulpCollabType(StrEnum):
     STORED_QUERY = "stored_query"
     STORED_SIGMA = "stored_sigma"
     STATS_INGESTION = "stats_ingestion"
-    STATS_QUERY = "stats_query"
     USER_DATA = "user_data"
     CONTEXT = "context"
     USER = "user"
@@ -136,8 +118,8 @@ class GulpCollabFilter(BaseModel):
     log_file_path: Optional[list[str]] = Field(
         None, description="filter by the given source path/s or name/s."
     )
-    user: Optional[list[str]] = Field(
-        None, description="filter by the given user(owner) id/s."
+    owner: Optional[list[str]] = Field(
+        None, description="filter by the given owner id/s."
     )
     tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
     title: Optional[list[str]] = Field(None, description="filter by the given title/s.")
@@ -218,8 +200,8 @@ class GulpCollabFilter(BaseModel):
             q = q.filter(
                 self._case_insensitive_or_ilike(type.log_file_path, self.log_file_path)
             )
-        if self.user and "user" in type.columns:
-            q = q = q.filter(self._case_insensitive_or_ilike(type.owner, self.user))
+        if self.owner and "owner" in type.columns:
+            q = q = q.filter(self._case_insensitive_or_ilike(type.owner, self.owner))
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
             if self.opt_tags_and:
@@ -287,10 +269,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         unique=True,
         doc="The unque id/name of the object.",
     )
-    type: Mapped[GulpCollabType] = mapped_column(String, doc="The type of the object.")
-    owner_id: Mapped[str] = mapped_column(
-        ForeignKey("collab_base.id", ondelete="SET NULL"),
-        doc="The user(owner) id associated with the object.",
+    type: Mapped[GulpCollabType] = mapped_column(
+        SqlEnum(GulpCollabType), doc="The type of the object."
+    )
+    owner: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"),
+        doc="The user who 'owns' the object. If None, this is a root object which cannot be deleted.",
+        nullable=True,
     )
     time_created: Mapped[int] = mapped_column(
         BIGINT,
@@ -301,7 +286,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
 
-    # __abstract__ = True
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
@@ -323,7 +307,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             )
         super().__init__()
         self.id = id
-        self.type = type.value
+        self.type = type
         self.owner = owner
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -339,22 +323,24 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def _create(
         cls,
         id: str,
+        type: GulpCollabType,
         owner: str,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class.
         Args:
             id (str): The unique identifier for the instance.
+            type (GulpCollabType): The type of the instance.
             owner (str): The ID of the user associated with the instance.
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
-            sess (AsyncSession, optional): The database session to use. If None, a new session will be created. Defaults to None.
-            commit (bool, optional): Whether to commit the transaction. Defaults to True.
+            sess (AsyncSession, optional): The database session to use.<br>
+                If None, a new session is created and committed in a transaction.<br>
+                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             **kwargs: Additional keyword arguments to set as attributes on the instance.
         Returns:
             T: The created instance of the class.
@@ -362,47 +348,60 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the creation or storage process.
         """
 
-        if sess is None:
-            sess = await session()
-
-        # fetch user by id
-        from gulp.api.collab.user import GulpUser
-
-        owner = await GulpUser.get_one_by_id(owner, sess=sess)
-
         # create instance
-        instance = cls(id, cls.type, owner, **kwargs)
-
-        # store instance
-        async with sess:
-            sess.add(instance)
-            if commit:
+        instance = cls(id, type, owner, 0, 0, **kwargs)
+        committed = False
+        if sess is not None:
+            # just add
+            await sess.add(instance)
+        else:
+            sess = await session()
+            committed = True
+            async with sess:
+                sess.add(instance)
                 await sess.commit()
-            logger().info("---> create: %s (commit=%r)" % (instance, commit))
 
         # TODO: notify websocket
-
+        logger().info("---> create: %s, committed=%r" % (instance, committed))
         return instance
 
-    @classmethod
     async def delete(
+        self,
+        ws_id: str = None,
+        req_id: str = None,
+        throw_if_not_found: bool = True,
+    ) -> None:
+        """
+        Asynchronously deletes an object from the database.
+        Args:
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
+            throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
+        Raises:
+            ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
+        Returns:
+            None
+        """
+        # use the class method
+        return await self.__class__.delete_by_id(
+            self.id, ws_id, req_id, throw_if_not_found
+        )
+
+    @classmethod
+    async def delete_by_id(
         cls,
         id: str,
         ws_id: str = None,
         req_id: str = None,
         throw_if_not_found: bool = True,
-        sess: AsyncSession = None,
-        commit: bool = True,
     ) -> None:
         """
-        Asynchronously deletes an object from the database.
+        Asynchronously deletes an object of the specified type by its ID.
         Args:
             id (str): The ID of the object to be deleted.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
-            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
-            commit (bool, optional): If True, commits the transaction. Defaults to True.
         Raises:
             ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
         Returns:
@@ -410,42 +409,41 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         logger().debug("---> delete: obj_id=%s, type=%s" % (id, cls))
-        if sess is None:
-            sess = await session()
+        sess = await session()
+
         async with sess:
             q = select(cls).where(cls.id == id).with_for_update()
             res = await sess.execute(q)
-            c = cls.get_one_result_or_throw(
+            obj = cls.get_one_result_or_throw(
                 res, obj_id=id, throw_if_not_found=throw_if_not_found
             )
-            if c is not None:
-                sess.delete(c)
-                if commit:
-                    await sess.commit()
-                logger().info("---> deleted: %s" % (c))
+            if obj is not None:
+                sess.delete(obj)
+                await sess.commit()
+                logger().info("---> deleted: %s" % (obj))
 
                 # TODO: notify websocket
 
     @classmethod
-    async def update(
+    async def update_by_id(
         cls,
         id: str,
-        d: dict | T,
+        d: dict,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> T:
         """
         Asynchronously updates an object of the specified type with the given data.
         Args:
             id (str): The ID of the object to update.
-            d (Union[dict, T]): A dictionary containing the fields to update and their new values, or an instance of the class.
+            d (dict): A dictionary containing the fields to update and their new values.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
-            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
-            commit (bool, optional): If True, commits the transaction. Defaults to True.
+            sess (AsyncSession, optional): The database session to use.<br>
+                If None, a new session is created and committed in a transaction.<br>
+                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
         Returns:
             T: The updated object.
@@ -453,40 +451,76 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If the object with the specified ID is not found.
         """
 
-        logger().debug(f"---> update: obj_id={id}, type={cls.__name__}, d={d}")
-
-        if sess is None:
-            sess = await session()
-        async with sess:
-            q = select(cls).where(cls.id == id).with_for_update()
+        async def _update_internal(
+            the_class, id, d, throw_if_not_found, commit: bool = False
+        ) -> T:
+            q = select(the_class).where(the_class.id == id).with_for_update()
             res = await sess.execute(q)
-            c = cls.get_one_result_or_throw(
+            obj = await the_class.get_one_result_or_throw(
                 res, obj_id=id, throw_if_not_found=throw_if_not_found
             )
-            if c:
-                if isinstance(d, dict):
-                    # ensure d has no 'id' (cannot be updated)
-                    d.pop("id", None)
-                    # update from dict
-                    for k, v in d.items():
-                        setattr(c, k, v)
-                elif isinstance(d, cls):
-                    # update from instance
-                    for k, v in d.__dict__.items():
-                        if k != "id":
-                            setattr(c, k, v)
+            if obj:
+                # ensure d has no 'id' (cannot be updated)
+                d.pop("id", None)
+                # update from dict
+                for k, v in d.items():
+                    setattr(obj, k, v)
 
                 # update time
-                c.time_updated = muty.time.now_msec()
+                obj.time_updated = muty.time.now_msec()
 
-                sess.add(c)
+                sess.add(obj)
                 if commit:
                     await sess.commit()
-                logger().debug(f"---> updated: {c}")
+                logger().debug("---> updated: %s, committed=%r" % (obj, commit))
 
-                # TODO: notify websocket
+            return obj
 
-            return c
+        logger().debug(f"---> update: obj_id={id}, type={cls.__name__}, d={d}")
+        if sess is None:
+            # create a new session
+            sess = await session()
+            async with sess:
+                obj = await _update_internal(
+                    cls, id, d, throw_if_not_found, commit=True
+                )
+        else:
+            # use existing
+            obj = await _update_internal(cls, id, d, throw_if_not_found, commit=True)
+
+        if obj is not None:
+            # TODO: handle websocket
+            pass
+
+        return obj
+
+    async def update(
+        self,
+        d: dict,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        """
+        Asynchronously updates the object with the specified fields and values.
+        Args:
+            d (dict): A dictionary containing the fields to update and their new values.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
+            sess (AsyncSession, optional): The database session to use.<br>
+                If None, a new session is created and committed in a transaction.<br>
+                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
+            throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
+        Returns:
+            T: The updated object.
+        Raises:
+            Exception: If the object with the specified ID is not found.
+        """
+        # use the class method
+        return await self.__class__.update_by_id(
+            self.id, d, ws_id, req_id, sess, throw_if_not_found
+        )
 
     @classmethod
     async def get_one_by_id(
@@ -565,6 +599,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
+            sess(AsyncSession, optional): The database session to use. If None, a new session is created and used as a transaction. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
         Returns:
             list[T]: A list of objects that match the filter criteria.
@@ -575,9 +610,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         # TODO: handle websocket
         logger().debug("---> get: type=%s, filter=%s" % (cls.__name__, flt))
         flt = flt or GulpCollabFilter()
+        created: bool = False
         if sess is None:
             sess = await session()
-        async with sess:
+            created = True
+        try:
             # build query
             q = flt.to_select_query(cls)
             res = await sess.execute(q)
@@ -585,7 +622,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if c is not None:
                 logger().debug("---> get: found %d objects" % (len(c)))
                 return c
-        return []
+
+            return []
+        finally:
+            if created:
+                await sess.close()
 
     @classmethod
     async def get_all_results_or_throw(
@@ -700,22 +741,16 @@ class GulpCollabObject(GulpCollabBase):
         doc="The operation associated with the object.",
     )
     glyph: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None, doc="The glyph ID."
+        ForeignKey("glyph.id", ondelete="SET NULL"), doc="The glyph ID."
     )
     tags: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String), default=None, doc="The tags associated with the object."
+        ARRAY(String), doc="The tags associated with the object."
     )
-    title: Mapped[Optional[str]] = mapped_column(
-        String, default=None, doc="The title of the object."
-    )
+    title: Mapped[Optional[str]] = mapped_column(String, doc="The title of the object.")
     private: Mapped[Optional[bool]] = mapped_column(
         Boolean,
-        default=False,
         doc="If True, the object is private (only the owner can see it).",
     )
-
-    # index for operation
-    __table_args__ = Index("idx_operation", "operation")
 
     __mapper_args__ = {
         "polymorphic_identity": "collab_obj",

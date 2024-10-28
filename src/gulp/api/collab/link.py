@@ -1,5 +1,5 @@
 from typing import Union, override
-from sqlalchemy import String
+from sqlalchemy import Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,8 +41,6 @@ class GulpLink(GulpCollabObject):
         private: bool = False,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {
@@ -56,10 +54,9 @@ class GulpLink(GulpCollabObject):
         }
         return await super()._create(
             id,
+            GulpCollabType.LINK,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )

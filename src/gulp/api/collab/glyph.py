@@ -27,6 +27,10 @@ class GulpGlyph(GulpCollabBase):
     }
 
     @override
+    def __repr__(self) -> str:
+        return super().__repr__() + f" img={self.img[:10]}[...]"
+
+    @override
     @classmethod
     async def create(
         cls,
@@ -35,8 +39,6 @@ class GulpGlyph(GulpCollabBase):
         img: bytes | str,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         if isinstance(img, str):
@@ -46,11 +48,10 @@ class GulpGlyph(GulpCollabBase):
         args = {"img": img}
         return await super()._create(
             id,
+            GulpCollabType.GLYPH,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )
 

@@ -41,8 +41,6 @@ class GulpHighlight(GulpCollabObject):
         private: bool = False,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {
@@ -56,10 +54,9 @@ class GulpHighlight(GulpCollabObject):
         }
         return await super()._create(
             id,
+            GulpCollabType.HIGHLIGHT,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )

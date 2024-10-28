@@ -122,7 +122,7 @@ async def user_update_handler(
                 "at least one of password, permission, email or glyph_id must be specified."
             )
 
-        user = await GulpUser.update(
+        user = await GulpUser.update_by_id(
             await collab_api.session(),
             token,
             user_id,

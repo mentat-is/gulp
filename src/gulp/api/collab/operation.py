@@ -21,29 +21,15 @@ class GulpOperation(GulpCollabBase):
     description: Mapped[Optional[str]] = mapped_column(
         String(), default=None, doc="The description of the operation."
     )
+    glyph: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.id", ondelete="SET NULL"),
+        default=None,
+        doc="The glyph associated with the operation.",
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": GulpCollabType.OPERATION.value,
     }
-
-    @override
-    def _init(
-        self, id: str, user: str, index: str = None, description: str = None, **kwargs
-    ) -> None:
-        """
-        Initialize a GulpOperation instance.
-        Args:
-            id (str): The unique identifier for the operation.
-            index (str, optional): The opensearch index to associate the operation with.
-            description (str, optional): The description of the operation. Defaults to None.
-            **kwargs: Additional keyword arguments.
-        """
-        super().__init__(id, GulpCollabType.OPERATION, user)
-        self.index = index
-        self.description = description
-        logger().debug(
-            "---> GulpOperation: index=%s, description=%s" % (index, description)
-        )
 
     @override
     @classmethod
@@ -52,23 +38,22 @@ class GulpOperation(GulpCollabBase):
         id: str,
         owner: str,
         index: str = None,
+        glyph: str = None,
         description: str = None,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {
             "index": index,
             "description": description,
+            "glyph": glyph,
         }
         return await super()._create(
             id,
+            GulpCollabType.OPERATION,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )

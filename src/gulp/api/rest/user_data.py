@@ -78,7 +78,7 @@ async def user_data_update_handler(
         if name is None and data is None:
             raise InvalidArgument("at least one of name, data must be specified.")
 
-        ud = await GulpUserData.update(
+        ud = await GulpUserData.update_by_id(
             await collab_api.session(),
             token,
             user_data_id,
@@ -303,7 +303,7 @@ async def user_data_delete_handler(
 
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
-        await GulpUserData.delete(
+        await GulpUserData.delete_by_id(
             await collab_api.session(), token, user_data_id, user_id
         )
         return JSONResponse(

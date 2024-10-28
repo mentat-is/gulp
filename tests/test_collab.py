@@ -22,12 +22,16 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.db import setup, session
 
 
-@pytest_asyncio.fixture(scope="module")
-async def init():
+async def _init():
     configure_logger()
     logger().debug("---> init")
     config.init()
     await setup(force_recreate=True)
+
+
+@pytest_asyncio.fixture(scope="module")
+async def init():
+    await _init()
 
 
 @pytest.mark.asyncio
@@ -45,3 +49,9 @@ class TestCollab:
 
     async def test_testbed(self, init):
         return
+
+
+####################
+# Test
+####################
+asyncio.run(_init())

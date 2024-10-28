@@ -4,8 +4,9 @@ import muty.crypto
 import muty.time
 import muty.string
 from sqlalchemy import BIGINT, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship, declared_attr
+from sqlalchemy.orm import Mapped, mapped_column, relationship, declared_attr, remote
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabFilter,
@@ -27,7 +28,7 @@ class GulpUser(GulpCollabBase):
     __tablename__ = GulpCollabType.USER.value
     pwd_hash: Mapped[str] = mapped_column(String)
     permission: Mapped[Optional[GulpUserPermission]] = mapped_column(
-        String, default=GulpUserPermission.READ.value
+        SQLEnum(GulpUserPermission), default=GulpUserPermission.READ
     )
     glyph: Mapped[Optional[str]] = mapped_column(
         ForeignKey("glyph.id", ondelete="SET NULL"), default=None
@@ -35,24 +36,23 @@ class GulpUser(GulpCollabBase):
     email: Mapped[Optional[str]] = mapped_column(String, default=None)
     time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
     session_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("session.id", ondelete="SET NULL"), default=None
+        ForeignKey("session.id", ondelete="SET NULL"), default=None, unique=True
     )
     session: Mapped[Optional["GulpUserSession"]] = relationship(
         "GulpUserSession",
         back_populates="user",
         foreign_keys=[session_id],
-        cascade="all,delete-orphan",
         default=None,
     )
 
     user_data_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("user_data.id", ondelete="SET NULL"), default=None
+        ForeignKey("user_data.id", ondelete="SET NULL"), default=None, unique=True
     )
     user_data: Mapped[Optional["GulpUserData"]] = relationship(
         "GulpUserData",
         back_populates="user",
         foreign_keys=[user_data_id],
-        cascade="all,delete-orphan",
+        uselist=False,
         default=None,
     )
     __mapper_args__ = {
@@ -63,15 +63,13 @@ class GulpUser(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        owner: str,
         password: str,
         permission: GulpUserPermission = GulpUserPermission.READ,
+        owner: str = None,
         email: str = None,
         glyph: str = None,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {
@@ -82,24 +80,22 @@ class GulpUser(GulpCollabBase):
         }
         return await super()._create(
             id,
+            GulpCollabType.USER,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )
 
     @override
     @classmethod
-    async def update(
+    async def update_by_id(
         cls,
         id: str,
-        d: dict | T,
+        d: dict,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> T:
         # if d is a dict and have "password", hash it (password update)
@@ -109,39 +105,43 @@ class GulpUser(GulpCollabBase):
             del d["password"]
             pwd_changed = True
 
-        if sess is None:
-            sess = await session()
-        commit = False
+        sess = await session()
+        async with sess:
+            user: GulpUser = await super().update_by_id(
+                id,
+                d,
+                ws_id=ws_id,
+                req_id=req_id,
+                sess=sess,
+                throw_if_not_found=throw_if_not_found,
+            )
+            if pwd_changed and user.session:
+                # invalidate (delete) the session if the password was changed
+                logger().debug(
+                    "password changed, deleting session for user=%s" % (user.id)
+                )
+                sess.add(user.session)
+                user.session_id = None
+                user.session = None
 
-        user: GulpUser = await super().update(
-            id, d, ws_id, req_id, sess, commit, throw_if_not_found=throw_if_not_found
-        )
-        if pwd_changed and user.session:
-            # invalidate (delete) the session if the password was changed
-            logger().debug("password changed, deleting session for user=%s" % (user.id))
-            sess.add(user.session)
-            user.session_id = None
-            user.session = None
-
-        # commit in the end
-        sess.add(user)
-        await sess.commit()
-        return user
+            # commit in the end
+            sess.add(user)
+            await sess.commit()
+            return user
 
     @override
     @classmethod
-    async def delete(
+    async def delete_by_id(
         cls,
         id: str,
         ws_id: str = None,
         req_id: str = None,
         throw_if_not_found: bool = True,
         sess: AsyncSession = None,
-        commit: bool = True,
     ) -> None:
         if id == "admin":
             raise ValueError("cannot delete the default admin user")
-        await super().delete(id, ws_id, req_id, throw_if_not_found, sess, commit)
+        await super().delete_by_id(id, ws_id, req_id, throw_if_not_found, sess)
 
     def is_admin(self) -> bool:
         """
@@ -201,7 +201,12 @@ class GulpUser(GulpCollabBase):
             # create new session
             token = muty.string.generate_unique()
             new_session: GulpUserSession = await super()._create(
-                token, user, ws_id=ws_id, req_id=req_id, sess=sess, commit=False
+                token,
+                GulpCollabType.SESSION,
+                user,
+                ws_id=ws_id,
+                req_id=req_id,
+                sess=sess,
             )
             if config.debug_no_token_expiration():
                 new_session.time_expire = 0
@@ -235,7 +240,7 @@ class GulpUser(GulpCollabBase):
         logger().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
 
-        await GulpUserSession.delete(token, ws_id=ws_id, req_id=req_id)
+        await GulpUserSession.delete_by_id(token, ws_id=ws_id, req_id=req_id)
 
     def has_permissions(self, permission: list[GulpUserPermission] | list[str]) -> bool:
         """

@@ -22,7 +22,11 @@ class GulpContext(GulpCollabBase):
     color: Mapped[Optional[str]] = mapped_column(
         String, default="#ffffff", doc="The color of the context."
     )
-
+    glyph: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.id", ondelete="SET NULL"),
+        default=None,
+        doc="The glyph associated with the context.",
+    )
     __mapper_args__ = {
         "polymorphic_identity": GulpCollabType.CONTEXT.value,
     }
@@ -33,19 +37,17 @@ class GulpContext(GulpCollabBase):
         id: str,
         owner: str,
         color: str = None,
+        glyph: str = None,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
-        args = {"color": color}
+        args = {"color": color, "glyph": glyph}
         return await super()._create(
             id,
+            GulpCollabType.CONTEXT,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )

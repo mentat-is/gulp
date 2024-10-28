@@ -23,18 +23,24 @@ class GulpUserSession(GulpCollabBase):
     """
 
     __tablename__ = GulpCollabType.SESSION.value
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"),
+        doc="The user ID associated with the session.",
+        unique=True,
+    )
+
+    user: Mapped["GulpUser"] = relationship(
+        "GulpUser",
+        back_populates="session",
+        foreign_keys="[GulpUser.session_id]",
+        cascade="all,delete-orphan",
+        single_parent=True,
+        uselist=False,
+    )
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
         default=0,
         doc="The time when the session expires, in milliseconds from unix epoch.",
-    )
-    user_id: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"),
-        doc="The user ID associated with the session.",
-    )
-
-    user: Mapped["GulpUser"] = relationship(
-        "GulpUser", back_populates="session", foreign_keys=[user_id]
     )
 
     __mapper_args__ = {
@@ -49,7 +55,6 @@ class GulpUserSession(GulpCollabBase):
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         raise NotImplementedError("use GulpUser.login() to create a session.")
@@ -95,25 +100,28 @@ class GulpUserSession(GulpCollabBase):
             from gulp.api.collab.user import GulpUser
 
             # the "admin" user always exists
-            c: GulpUser = await GulpUser.get_one_by_id(
+            admin_user: GulpUser = await GulpUser.get_one_by_id(
                 "admin", sess, throw_if_not_found=False
             )
-            if c.session:
+            if admin_user.session:
                 # already exists
                 logger().debug(
                     "debug_allow_any_token_as_admin, reusing existing admin session"
                 )
-                return c.session
+                return admin_user.session
             else:
                 # create a new admin session
                 token = muty.string.generate_unique()
-                s = await super().create(token, c.owner, sess)
-                c.session_id = token
-                c.session = s
+                admin_session = await super()._create(
+                    token, GulpCollabType.SESSION, admin_user.owner
+                )
+                admin_user.session_id = token
+                admin_user.session = admin_session
                 logger().debug(
                     "debug_allow_any_token_as_admin, created new admin session"
                 )
-                return await super().create(token, c.owner, sess)
+                return await super().create(token, admin_user.owner)
 
-        c = GulpUserSession.get_one_by_id(token, sess)
-        return c
+        # default, get token if exists
+        admin_user = GulpUserSession.get_one_by_id(token, sess)
+        return admin_user

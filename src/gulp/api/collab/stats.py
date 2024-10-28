@@ -13,23 +13,23 @@ from gulp.utils import logger
 
 class GulpStatsBase(GulpCollabBase):
     """
-    Represents the base class for statistics for ingestion or query operations.
+    Represents the base class for statistics
     the id of the stats corresponds to the request "req_id" (unique per request).
     """
 
     operation: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("operation.name", ondelete="CASCADE"),
+        ForeignKey("operation.id", ondelete="CASCADE"),
         default=None,
         doc="The operation associated with the stats.",
     )
     context: Mapped[str] = mapped_column(
-        ForeignKey("context.name", ondelete="CASCADE"),
+        ForeignKey("context.id", ondelete="CASCADE"),
         default=None,
         doc="The context associated with the stats.",
     )
     status: Mapped[GulpRequestStatus] = mapped_column(
-        String,
-        default=GulpRequestStatus.ONGOING.value,
+        SQLEnum(GulpRequestStatus),
+        default=GulpRequestStatus.ONGOING,
         doc="The status of the stats (done, ongoing, ...).",
     )
     time_expire: Mapped[Optional[int]] = mapped_column(
@@ -38,9 +38,6 @@ class GulpStatsBase(GulpCollabBase):
     time_finished: Mapped[Optional[int]] = mapped_column(
         BIGINT, default=0, doc="The timestamp when the stats were completed."
     )
-
-    # index for operation
-    __table_args__ = (Index("idx_operation", "operation"),)
 
     __mapper_args__ = {
         "polymorphic_identity": "stats_base",
@@ -53,30 +50,28 @@ class GulpStatsBase(GulpCollabBase):
 
     @override
     @classmethod
-    async def update(
+    async def update_by_id(
         cls,
         id: str,
         d: dict | T,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> T:
         raise NotImplementedError(
-            "update @classmethod not implemented, use instance method instead"
+            "update_by_id @classmethod not implemented, use instance method instead"
         )
 
     @override
     @classmethod
-    async def delete(
+    async def delete_by_id(
         cls,
         id: str,
         sess: AsyncSession = None,
-        commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> None:
-        raise NotImplementedError("delete @classmethod not implemented")
+        raise NotImplementedError("delete_by_id @classmethod not implemented")
 
     @override
     @classmethod
@@ -88,8 +83,6 @@ class GulpStatsBase(GulpCollabBase):
         context: str = None,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
 
@@ -106,11 +99,10 @@ class GulpStatsBase(GulpCollabBase):
         }
         return await super()._create(
             id,
+            GulpCollabType.STATS_INGESTION,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )
 
@@ -132,7 +124,6 @@ class GulpStatsBase(GulpCollabBase):
             operation (str, optional): The operation associated with the stats. Defaults to None.
             context (str, optional): The context associated with the stats. Defaults to None.
             sess (AsyncSession, optional): The database session. Defaults to None.
-            commit (bool, optional): Whether to commit the transaction. Defaults to True.
             kwargs: Additional keyword arguments.
         Returns:
             GulpStats: The created CollabStats object.
@@ -150,40 +141,6 @@ class GulpStatsBase(GulpCollabBase):
             id=id, owner=owner, operation=operation, context=context, **kwargs
         )
         return stats
-
-
-class GulpQueryStats(GulpStatsBase):
-    """
-    Represents the statistics for a query operation.
-
-    TODO: is this really needed ?
-    """
-
-    __tablename__ = GulpCollabType.STATS_QUERY.value
-
-    __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.STATS_QUERY.value,
-    }
-
-    async def update(
-        self,
-        status: GulpRequestStatus = None,
-        ws_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
-        throw_if_not_found: bool = True,
-    ) -> None:
-        # for query stats, we write directly
-        self.status = status
-        await super().update(
-            self.id,
-            self.to_dict(),
-            ws_id,
-            self.id,
-            sess,
-            commit,
-            throw_if_not_found,
-        )
 
 
 class GulpIngestionStats(GulpStatsBase):
@@ -218,6 +175,8 @@ class GulpIngestionStats(GulpStatsBase):
         "polymorphic_identity": GulpCollabType.STATS_INGESTION.value,
     }
 
+    __table_args__ = (Index("idx_stats_operation", "operation"),)
+
     def _reset_buffer(self):
         self._buffer = {
             "errors": {},
@@ -245,7 +204,6 @@ class GulpIngestionStats(GulpStatsBase):
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {"source_total": source_total}
@@ -257,7 +215,6 @@ class GulpIngestionStats(GulpStatsBase):
             ws_id,
             req_id,
             sess,
-            commit,
             **args,
         )
 
@@ -299,10 +256,24 @@ class GulpIngestionStats(GulpStatsBase):
         records_skipped: int = 0,
         records_processed: int = 0,
         ws_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> None:
+        """
+        Asynchronously updates the status and statistics of a Gulp request.
+        Args:
+            status (GulpRequestStatus, optional): The current status of the request. Defaults to GulpRequestStatus.ONGOING.
+            errors (dict[str, list[str]], optional): A dictionary of errors encountered during processing. Defaults to None.
+            source_processed (int, optional): The number of sources processed. Defaults to 0.
+            source_total (int, optional): The total number of sources. Defaults to 0.
+            source_failed (int, optional): The number of sources that failed. Defaults to 0.
+            records_failed (int, optional): The number of records that failed. Defaults to 0.
+            records_skipped (int, optional): The number of records that were skipped. Defaults to 0.
+            records_processed (int, optional): The number of records that were processed. Defaults to 0.
+            ws_id (str, optional): The workspace ID. Defaults to None.
+            throw_if_not_found (bool, optional): Whether to throw an exception if the request is not found. Defaults to True.
+        Returns:
+            None
+        """
 
         # update buffer and status
         self._update_buffered(
@@ -339,18 +310,17 @@ class GulpIngestionStats(GulpStatsBase):
             GulpRequestStatus.DONE,
         ]:
             self.time_finished = muty.time.now_msec()
+            done = True
             logger().debug("request finished, setting final status: %s" % (self))
 
         if self.source_processed % threshold == 0 or done:
             # write on db
             del self.buffer
-            await super().update(
+            await super().update_by_id(
                 self.id,
                 self.to_dict(),
                 ws_id,
                 self.id,
-                sess,
-                commit,
-                throw_if_not_found,
+                throw_if_not_found=throw_if_not_found,
             )
             self._reset_buffer()

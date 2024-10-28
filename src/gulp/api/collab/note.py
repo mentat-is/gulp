@@ -1,5 +1,5 @@
 from typing import Optional, Union, override
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
@@ -30,6 +30,7 @@ class GulpNote(GulpCollabObject):
     __mapper_args__ = {
         "polymorphic_identity": GulpCollabType.NOTE.value,
     }
+    __table_args__ = (Index("idx_note_operation", "operation"),)
 
     @override
     @classmethod
@@ -48,8 +49,6 @@ class GulpNote(GulpCollabObject):
         private: bool = False,
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
-        commit: bool = True,
         **kwargs,
     ) -> T:
         args = {
@@ -65,10 +64,9 @@ class GulpNote(GulpCollabObject):
         }
         return await super()._create(
             id,
+            GulpCollabType.NOTE,
             owner,
             ws_id,
             req_id,
-            sess,
-            commit,
             **args,
         )
