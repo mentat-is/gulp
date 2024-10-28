@@ -63,7 +63,9 @@ class GulpStatsBase(GulpCollabBase):
         commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> T:
-        raise NotImplementedError("update method not implemented")
+        raise NotImplementedError(
+            "update @classmethod not implemented, use instance method instead"
+        )
 
     @override
     @classmethod
@@ -74,14 +76,14 @@ class GulpStatsBase(GulpCollabBase):
         commit: bool = True,
         throw_if_not_found: bool = True,
     ) -> None:
-        raise NotImplementedError("delete method not implemented")
+        raise NotImplementedError("delete @classmethod not implemented")
 
     @override
     @classmethod
     async def _create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         operation: str = None,
         context: str = None,
         ws_id: str = None,
@@ -91,6 +93,7 @@ class GulpStatsBase(GulpCollabBase):
         **kwargs,
     ) -> T:
 
+        # configure expiration
         time_expire = config.stats_ttl() * 1000
         if time_expire > 0:
             time_expire = muty.time.now_msec() + time_expire
@@ -103,7 +106,7 @@ class GulpStatsBase(GulpCollabBase):
         }
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,
@@ -114,18 +117,18 @@ class GulpStatsBase(GulpCollabBase):
     async def create_or_get(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         operation: str = None,
         context: str = None,
         sess: AsyncSession = None,
         **kwargs,
     ) -> T:
         """
-        Create new or get a GulpStats record.
+        Create new or get an existing GulpStats record.
 
         Args:
             id (str): The unique identifier of the stats.
-            user (str | GulpUser): The user associated with the stats.
+            owner (str): The owner of the stats.
             operation (str, optional): The operation associated with the stats. Defaults to None.
             context (str, optional): The context associated with the stats. Defaults to None.
             sess (AsyncSession, optional): The database session. Defaults to None.
@@ -144,7 +147,7 @@ class GulpStatsBase(GulpCollabBase):
 
         # create new
         stats = await cls._create(
-            id=id, user=user, operation=operation, context=context, **kwargs
+            id=id, owner=owner, operation=operation, context=context, **kwargs
         )
         return stats
 
@@ -171,6 +174,7 @@ class GulpQueryStats(GulpStatsBase):
         throw_if_not_found: bool = True,
     ) -> None:
         # for query stats, we write directly
+        self.status = status
         await super().update(
             self.id,
             self.to_dict(),
@@ -234,7 +238,7 @@ class GulpIngestionStats(GulpStatsBase):
     async def _create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         operation: str = None,
         context: str = None,
         source_total: int = 0,
@@ -247,7 +251,7 @@ class GulpIngestionStats(GulpStatsBase):
         args = {"source_total": source_total}
         return await super()._create(
             id,
-            user,
+            owner,
             operation,
             context,
             ws_id,
@@ -266,20 +270,9 @@ class GulpIngestionStats(GulpStatsBase):
         records_failed: int = 0,
         records_skipped: int = 0,
         records_processed: int = 0,
-    ):
+    ) -> None:
         """
         Updates the buffered statistics with the provided values.
-        Parameters:
-        errors (dict[str, list[str]], optional): A dictionary of errors where the key is a string (the source)
-                                                    and the vue is a list of error messages. Defaults to None.
-        source_processed (int, optional): The number of sources processed. Defaults to 0.
-        source_total (int, optional): The total number of sources. Defaults to 0.
-        source_failed (int, optional): The number of sources that failed. Defaults to 0.
-        records_failed (int, optional): The number of records that failed. Defaults to 0.
-        records_skipped (int, optional): The number of records that were skipped. Defaults to 0.
-        records_processed (int, optional): The number of records that were processed. Defaults to 0.
-        Returns:
-        None
         """
         self.buffer["source_processed"] += source_processed
         self.buffered["source_total"] += source_total
@@ -321,7 +314,7 @@ class GulpIngestionStats(GulpStatsBase):
             records_skipped=records_skipped,
             records_processed=records_processed,
         )
-        self.status = status.value
+        self.status = status
         done: bool = False
 
         # check threshold

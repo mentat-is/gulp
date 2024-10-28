@@ -31,7 +31,7 @@ class GulpGlyph(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         img: bytes | str,
         ws_id: str = None,
         req_id: str = None,
@@ -46,7 +46,7 @@ class GulpGlyph(GulpCollabBase):
         args = {"img": img}
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,

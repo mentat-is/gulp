@@ -31,7 +31,7 @@ class GulpHighlight(GulpCollabObject):
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         operation: str,
         time_range: tuple[int, int],
         log_file_path: str,
@@ -56,7 +56,7 @@ class GulpHighlight(GulpCollabObject):
         }
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,

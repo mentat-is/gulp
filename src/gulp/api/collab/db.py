@@ -89,8 +89,8 @@ async def _create_default_data() -> None:
     assets_path = impresources.files("gulp.api.collab.assets")
 
     # create default context
-    context = GulpContext.create("testcontext")
-    await context.store()
+    # context = GulpContext.create("testcontext")
+    # await context.store()
     return
 
     # glyphs

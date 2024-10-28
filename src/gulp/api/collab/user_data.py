@@ -17,6 +17,13 @@ class GulpUserData(GulpCollabBase):
     __mapper_args__ = {
         "polymorphic_identity": GulpCollabType.USER_DATA.value,
     }
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"),
+        doc="The user ID associated with this data.",
+    )
+    user: Mapped["GulpUser"] = relationship(
+        "GulpUser", back_populates="user_data", foreign_keys=[user_id]
+    )
     data: Mapped[dict] = mapped_column(
         JSONB, doc="The data to be associated with user."
     )
@@ -26,7 +33,7 @@ class GulpUserData(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         data: dict,
         ws_id: str = None,
         req_id: str = None,
@@ -39,7 +46,7 @@ class GulpUserData(GulpCollabBase):
         }
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,

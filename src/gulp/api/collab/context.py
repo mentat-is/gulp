@@ -27,12 +27,11 @@ class GulpContext(GulpCollabBase):
         "polymorphic_identity": GulpCollabType.CONTEXT.value,
     }
 
-    @override
     @classmethod
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         color: str = None,
         ws_id: str = None,
         req_id: str = None,
@@ -43,7 +42,7 @@ class GulpContext(GulpCollabBase):
         args = {"color": color}
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,

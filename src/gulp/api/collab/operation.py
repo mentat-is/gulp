@@ -50,7 +50,7 @@ class GulpOperation(GulpCollabBase):
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         index: str = None,
         description: str = None,
         ws_id: str = None,
@@ -65,7 +65,7 @@ class GulpOperation(GulpCollabBase):
         }
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,

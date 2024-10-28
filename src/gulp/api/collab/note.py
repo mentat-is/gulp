@@ -36,7 +36,7 @@ class GulpNote(GulpCollabObject):
     async def create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         operation: str,
         context: str,
         log_file_path: str,
@@ -65,7 +65,7 @@ class GulpNote(GulpCollabObject):
         }
         return await super()._create(
             id,
-            user,
+            owner,
             ws_id,
             req_id,
             sess,

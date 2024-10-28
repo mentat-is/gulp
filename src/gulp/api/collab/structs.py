@@ -219,7 +219,7 @@ class GulpCollabFilter(BaseModel):
                 self._case_insensitive_or_ilike(type.log_file_path, self.log_file_path)
             )
         if self.user and "user" in type.columns:
-            q = q = q.filter(self._case_insensitive_or_ilike(type.user, self.user))
+            q = q = q.filter(self._case_insensitive_or_ilike(type.owner, self.user))
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
             if self.opt_tags_and:
@@ -288,9 +288,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The unque id/name of the object.",
     )
     type: Mapped[GulpCollabType] = mapped_column(String, doc="The type of the object.")
-    user_id: Mapped[str] = mapped_column(
-        String(COLLAB_MAX_NAME_LENGTH),
-        doc="The user ID who created (the owner of) the object.",
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("collab_base.id", ondelete="SET NULL"),
+        doc="The user(owner) id associated with the object.",
     )
     time_created: Mapped[int] = mapped_column(
         BIGINT,
@@ -301,38 +301,30 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
 
-    __abstract__ = True
+    # __abstract__ = True
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
     }
 
-    @declared_attr
-    def user(self):
-        return relationship("GulpUser", back_populates="collab_objects")
-
     @override
-    def __init__(
-        self, id: str, type: GulpCollabType, user: "GulpUser", **kwargs
-    ) -> None:
+    def __init__(self, id: str, type: GulpCollabType, owner: str, **kwargs) -> None:
         """
         Initialize a GulpCollabBase instance.
         Args:
             id (str): The identifier for the object.
             type (GulpCollabType): The type of the object.
-            user (str): The user associated with the object(=the owner).
+            owner (str): The user ID of the owner of the object.
             **kwargs: Additional keyword arguments.
         """
         if self.__class__ is GulpCollabBase:
             raise NotImplementedError(
                 "GulpCollabBase is an abstract class and cannot be instantiated directly."
             )
-
         super().__init__()
         self.id = id
         self.type = type.value
-        self.user = user
-        self.user_id = user.id
+        self.owner = owner
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -340,14 +332,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         self.time_updated = self.time_created
 
         logger().debug(
-            "---> GulpCollabBase: id=%s, type=%s, user(owner)=%s" % (id, type, user)
+            "---> GulpCollabBase: id=%s, type=%s, owner=%s" % (id, type, owner)
         )
 
     @classmethod
     async def _create(
         cls,
         id: str,
-        user: Union[str, "GulpUser"],
+        owner: str,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
@@ -358,7 +350,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously creates and stores an instance of the class.
         Args:
             id (str): The unique identifier for the instance.
-            user (str | GulpUser): The user associated with the instance. Can be a user ID or a GulpUser object.
+            owner (str): The ID of the user associated with the instance.
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
             sess (AsyncSession, optional): The database session to use. If None, a new session will be created. Defaults to None.
@@ -373,13 +365,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if sess is None:
             sess = await session()
 
-        if isinstance(user, str):
-            # fetch user by id
-            from gulp.api.collab.user import GulpUser
+        # fetch user by id
+        from gulp.api.collab.user import GulpUser
 
-            user = await GulpUser.get_one_by_id(user, sess=sess)
+        owner = await GulpUser.get_one_by_id(owner, sess=sess)
 
-        instance = cls(id, cls.type, user, **kwargs)
+        # create instance
+        instance = cls(id, cls.type, owner, **kwargs)
 
         # store instance
         async with sess:
@@ -670,14 +662,28 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
 
         # get session and object
-        user_session = await GulpUserSession.get_by_token(token, sess=sess)
+        user_session: GulpUserSession = await GulpUserSession.get_by_token(
+            token, sess=sess
+        )
         obj = await GulpCollabBase.get_one(GulpCollabFilter(id=[id]), sess=sess)
-        if obj.user != user_session.user.id:
+        if obj.user != user_session.user_id:
             # check if the user is an admin or permission is enough
             if not user_session.user.has_permission(permission):
                 raise MissingPermission(
-                    f"token {token} (user={user_session.user.id}) does not have permission to access object {id}"
+                    f"token {token} (user={user_session.user_id}) does not have permission to access object {id}"
                 )
+
+
+class GulpCollabConcreteBase(GulpCollabBase):
+    """
+    Concrete base class for GulpCollabBase to ensure a table is created.
+    """
+
+    __tablename__ = "collab_base"
+
+    __mapper_args__ = {
+        "polymorphic_identity": "collab_base",
+    }
 
 
 class GulpCollabObject(GulpCollabBase):
@@ -721,7 +727,7 @@ class GulpCollabObject(GulpCollabBase):
         self,
         id: str,
         type: GulpCollabType,
-        user: "GulpUser",
+        owner: str,
         operation: str,
         glyph: str = None,
         tags: list[str] = None,
@@ -734,7 +740,7 @@ class GulpCollabObject(GulpCollabBase):
         Args:
             id (str): The unique identifier for the collaboration object.
             type (GulpCollabType): The type of the collaboration object.
-            user (GulpUser): The user associated with the collaboration object.
+            owner (str): The user ID of the owner of the collaboration object.
             operation (str): The operation performed on the collaboration object.
             glyph (str, optional): The glyph associated with the collaboration object. Defaults to None.
             tags (list[str], optional): A list of tags associated with the collaboration object. Defaults to None.
@@ -747,15 +753,15 @@ class GulpCollabObject(GulpCollabBase):
                 "GulpCollabObject is an abstract class and cannot be instantiated directly."
             )
 
-        super().__init__(id, type, user, **kwargs)
+        super().__init__(id, type, owner, **kwargs)
         self.operation = operation
         self.glyph = glyph
         self.tags = tags
         self.title = title
         self.private = private
         logger().debug(
-            "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s, data=%s"
-            % (id, type, user, operation, glyph, tags, title, private, data)
+            "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s"
+            % (id, type, owner, operation, glyph, tags, title, private)
         )
 
     def set_private(self, private: bool) -> None:
