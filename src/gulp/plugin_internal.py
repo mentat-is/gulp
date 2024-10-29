@@ -9,6 +9,10 @@ class GulpPluginParams(BaseModel):
     parameters for a plugin, to be passed to ingest and query API
     """
 
+    class Config:
+        # allow extra fields in the model
+        extra = "allow"
+
     mapping_file: Optional[str] = Field(
         None,
         description='mapping file name (in gulp/mapping_files directory) to read "mappings" array from, if any.',
@@ -26,19 +30,6 @@ class GulpPluginParams(BaseModel):
         None,
         description="The timestamp field (for, i.e. to use in a generic plugin without any mapping)",
     )
-    record_to_gulp_document_fun: SkipValidation[Any] = Field(
-        [],
-        description="INTERNAL USAGE ONLY, to get mapping from (for stacked plugins).",
-    )
-    pipeline: SkipValidation[Any] = Field(
-        None,
-        description="INTERNAL USAGE ONLY, the sigma ProcessingPipeline to get mapping from.",
-    )
-    extra: Optional[dict[str, Any]] = Field(
-        {},
-        description="any extra custom options, i.e. the ones listed in plugin.options().",
-    )
-
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -50,34 +41,10 @@ class GulpPluginParams(BaseModel):
         }
     }
 
-    def to_dict(self) -> dict:
-        d = {
-            "mapping_file": self.mapping_file,
-            "mapping_id": self.mapping_id,
-            "config_override": self.config_override,
-            "extra": self.extra,
-            "timestamp_field": self.timestamp_field,
-            "record_to_gulp_document_fun": self.record_to_gulp_document_fun,
-            "pipeline": self.pipeline,
-        }
-        return d
-
-    @staticmethod
-    def from_dict(d: dict) -> "GulpPluginParams":
-        return GulpPluginParams(
-            mapping_file=d.get("mapping_file", None),
-            mapping_id=d.get("mapping_id", None),
-            timestamp_field=d.get("timestamp_field", None),
-            config_override=d.get("config_override", {}),
-            extra=d.get("extra", {}),
-            record_to_gulp_document_fun=d.get("record_to_gulp_document_fun", []),
-            pipeline=d.get("pipeline", None),
-        )
-
     @model_validator(mode="before")
     @classmethod
-    def to_py_dict(cls, data: str | dict):
-        if data is None or len(data) == 0:
+    def validate(cls, data: str | dict = None):
+        if not data:
             return {}
 
         if isinstance(data, dict):
@@ -90,22 +57,17 @@ class GulpPluginOption:
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
     """
 
-    def __init__(self, name: str, t: str, desc: str, default: any = None):
+    def __init__(self, name: str, type: str, desc: str, default: any = None):
         """
         :param name: option name
-        :param t: option type (use "bool", "str", "int", "float", "dict", "list" for the types.)
+        :param type: option type (use "bool", "str", "int", "float", "dict", "list" for the types.)
         :param desc: option description
         :param default: default value
         """
         self.name = name
-        self.t = t
+        self.type = type
         self.default = default
         self.desc = desc
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "type": self.t,
-            "default": self.default,
-            "desc": self.desc,
-        }
+        return self.__dict__

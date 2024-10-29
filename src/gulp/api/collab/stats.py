@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 from gulp import config
 from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus, GulpCollabBase, T
+from gulp.api.collab_api import session
 from gulp.utils import logger
 
 
@@ -231,19 +232,50 @@ class GulpIngestionStats(GulpStatsBase):
         """
         Updates the buffered statistics with the provided values.
         """
-        self.buffer["source_processed"] += source_processed
-        self.buffered["source_total"] += source_total
-        self.buffered["source_failed"] += source_failed
-        self.buffered["records_failed"] += records_failed
-        self.buffered["records_skipped"] += records_skipped
-        self.buffered["records_processed"] += records_processed
+        target_buffer = self._buffer
+        target_buffer["source_processed"] += source_processed
+        target_buffer["source_total"] += source_total
+        target_buffer["source_failed"] += source_failed
+        target_buffer["records_failed"] += records_failed
+        target_buffer["records_skipped"] += records_skipped
+        target_buffer["records_processed"] += records_processed
         if errors:
             for k, v in errors:
-                if k not in self.buffer["errors"]:
-                    self.buffer["errors"][k] = []
+                if k not in target_buffer["errors"]:
+                    target_buffer["errors"][k] = []
                 for e in v:
-                    if e not in self.buffer["errors"][k]:
-                        self.buffered["errors"][k].append(e)
+                    if e not in target_buffer["errors"][k]:
+                        target_buffer["errors"][k].append(e)
+
+    @classmethod
+    async def cancel_by_id(cls, id: str, ws_id: str = None) -> None:
+        """
+        Cancels a running request.
+
+        Args:
+            id (str): The request ID.
+            ws_id (str, optional): The workspace ID. Defaults to None.
+        """
+        await cls.update_by_id(
+            id,
+            status=GulpRequestStatus.CANCELED,
+            ws_id=ws_id,
+            throw_if_not_found=False,
+        )
+
+    async def cancel(self, ws_id: str = None) -> None:
+        """
+        Camcels the current request.
+        Args:
+            ws_id (str, optional): The workspace ID. Defaults to None.
+        Returns:
+            None
+        """
+        await self.update(
+            status=GulpRequestStatus.CANCELED,
+            ws_id=ws_id,
+            throw_if_not_found=False,
+        )
 
     async def update(
         self,
@@ -314,13 +346,31 @@ class GulpIngestionStats(GulpStatsBase):
             logger().debug("request finished, setting final status: %s" % (self))
 
         if self.source_processed % threshold == 0 or done:
-            # write on db
-            del self.buffer
-            await super().update_by_id(
-                self.id,
-                self.to_dict(),
-                ws_id,
-                self.id,
-                throw_if_not_found=throw_if_not_found,
-            )
-            self._reset_buffer()
+            # time to update on the storage
+            async with await session() as sess:
+                # be sure to read the latest version from db
+                sess.add(self)
+                await sess.refresh(self)
+
+                # add totals
+                self._update_buffered(
+                    errors=self.errors,
+                    source_processed=self.source_processed,
+                    source_total=self.source_total,
+                    source_failed=self.source_failed,
+                    records_failed=self.records_failed,
+                    records_skipped=self.records_skipped,
+                    records_processed=self.records_processed,
+                )
+
+                # write on db
+                del self._buffer
+                await super().update_by_id(
+                    self.id,
+                    self.to_dict(),
+                    ws_id,
+                    self.id,
+                    sess,
+                    throw_if_not_found=throw_if_not_found,
+                )
+                self._reset_buffer()

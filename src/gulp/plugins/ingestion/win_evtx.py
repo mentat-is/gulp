@@ -191,7 +191,7 @@ class Plugin(PluginBase):
                     # none/empty text
                     # logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
                     continue
-                #1637340783836
+                # 1637340783836
                 # logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
                 entries = self._map_source_key(
                     plugin_params,
@@ -251,7 +251,6 @@ class Plugin(PluginBase):
         self,
         index: str,
         req_id: str,
-        client_id: int,
         operation_id: int,
         context: str,
         source: str | list[dict],

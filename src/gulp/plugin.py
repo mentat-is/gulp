@@ -59,36 +59,15 @@ class PluginBase(ABC):
     def __init__(
         self,
         path: str,
-        ws_id: str,
-        req_id: str,
-        operation: str = None,
-        context: str = None,
-        source: str = None,
-        user: str = None,
-        index: str = None,
     ) -> None:
         """
         Initialize a new instance of the class.
         Args:
             path (str): The file path associated with the plugin.
-            ws_id (str): The workspace ID.
-            req_id (str): The request ID.
-            operation (str, optional): The operation type. Defaults to None.
-            context (str, optional): The context information. Defaults to None.
-            source (str, optional): The source information. Defaults to None.
-            user (str, optional): The user information. Defaults to None.
-            index (str, optional): The index information. Defaults to None.
         Returns:
             None
         """
         super().__init__()
-        self.ws_id: str = ws_id
-        self.req_id: str = req_id
-        self.operation: str = operation
-        self.context: str = context
-        self.source: str = source
-        self.user: str = user
-        self.index: str = index
         self.path = path
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
@@ -134,7 +113,7 @@ class PluginBase(ABC):
 
     def depends_on(self) -> list[str]:
         """
-        Returns a list of plugins this plugin depends on.
+        Returns a list of plugin "name" this plugin depends on.
         """
         return []
 
@@ -185,12 +164,6 @@ class PluginBase(ABC):
             dict: the event found
         """
         return {}
-
-    def internal(self) -> bool:
-        """
-        Returns whether the plugin is for internal use only
-        """
-        return False
 
     def tags(self) -> list[str]:
         """
@@ -287,8 +260,7 @@ class PluginBase(ABC):
         my_record_to_gulp_document_fun: Callable,
         ws_id: str,
         req_id: str,
-        operation_id: int,
-        client_id: int,
+        operation: str,
         context: str,
         source: str,
         fs: TmpIngestStats,
@@ -301,31 +273,11 @@ class PluginBase(ABC):
     ) -> tuple[TmpIngestStats, bool]:
         """
         Process a record for ingestion, updating ingestion stats.
-        Args:
-            index (str): The index to ingest the record into.
-            record (any): The record to process.
-            record_idx (int): The index of the record as in the source.
-            my_record_to_gulp_document_fun (Callable): The function (for this plugin) to convert the record to one or more GulpDocument/s.
-            ws_id (str): The websocket ID
-            req_id (str): The request ID.
-            operation_id (int): The operation ID.
-            client_id (int): The client ID.
-            context (str): The context of the record.
-            source (str): The source of the record.
-            fs (TmpIngestStats): The temporary ingestion statistics.
-            custom_mapping (GulpMapping, optional): The custom mapping for the record. Defaults to None.
-            index_type_mapping (dict, optional): The elastic index type mapping. Defaults to None.
-            plugin (str, optional): The plugin name. Defaults to None.
-            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
-            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
-            **kwargs: Additional keyword arguments.
-        Returns:
-            tuple[TmpIngestStats, bool]: A tuple containing the updated temporary ingestion statistics and a flag indicating whether to break the ingestion process.
         """
 
         # convert record to one or more GulpDocument objects
         docs = await self._call_record_to_gulp_document_funcs(
-            operation_id=operation_id,
+            operation_id=operation,
             client_id=client_id,
             context=context,
             source=source,
@@ -544,41 +496,21 @@ class PluginBase(ABC):
     async def ingest(
         self,
         index: str,
-        req_id: str,
-        client_id: int,
-        operation_id: int,
+        operation: str,
         context: str,
-        source: str | list[dict],
+        log_file_path: str,
+        req_id: str,
         ws_id: str,
         plugin_params: GulpPluginParams = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
         """
         Ingests a file using the plugin.
 
         NOTE: implementers should call super().ingest() in their implementation.
         NOTE: this function *SHOULD NOT* raise exceptions
-
-        Args:
-            index (str): name of the elasticsearch index to ingest the document into.
-            req_id (str): The request ID related to this ingestion (must exist on the collab db).
-            client_id (int): The client ID performing the ingestion.
-            operation_id (int): The operation ID related to this ingestion.
-            context (str): Context related to this ingestion.
-            source (str|list[dict]): The path to the file to ingest, or a list of events dicts.
-            ws_id (str): The websocket ID
-            plugin_params (GulpPluginParams): additional parameters to pass to the ingestion function. Defaults to None.
-            flt (GulpIngestionFilter, optional): filter to apply to this ingestion, if any. Defaults to None.
-            kwargs: additional arguments if any
         """
-        self.req_id = req_id
-        self.client_id = client_id
-        self.operation_id = operation_id
-        self.context = context
-        self.ws_id = ws_id
-        self.index = index
-        # raise NotImplementedError("not implemented!")
+        raise NotImplementedError("not implemented!")
 
     async def pipeline(
         self, plugin_params: GulpPluginParams = None, **kwargs
@@ -1248,7 +1180,7 @@ def load_plugin(
             this is ignored if the plugin is an absolute path or if "plugin_cache" is enabled and the plugin is already cached.
         ignore_cache (bool, optional): Whether to ignore the plugin cache. Defaults to False.
         from_reduce (bool, optional): Whether the plugin is being loaded from a reduce call. Defaults to False.
-        **kwargs (dict, optional): Additional keyword arguments.
+        **kwargs (dict, optional): Additional keyword arguments:
     Returns:
         PluginBase: The loaded plugin.
 
@@ -1322,7 +1254,6 @@ async def list_plugins() -> list[dict]:
                         "paid": "/paid/" in f.lower(),
                         "desc": p.desc(),
                         "filename": os.path.basename(p.path),
-                        "internal": p.internal(),
                         "options": [o.to_dict() for o in p.options()],
                         "depends_on": p.depends_on(),
                         "tags": p.tags(),
