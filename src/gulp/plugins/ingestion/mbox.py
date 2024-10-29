@@ -56,7 +56,7 @@ class Plugin(PluginBase):
 
         fs = TmpIngestStats(source)
         # initialize mapping
-        index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+        index_type_mapping, custom_mapping = await self.initialize()(
             index, source, plugin_params=plugin_params
         )
 

@@ -61,7 +61,7 @@ class Plugin(PluginBase):
         )
 
         fs = TmpIngestStats("raw")
-        await self.ingest_plugin_initialize(index, source, skip_mapping=True)
+        await self.initialize()(index, source, skip_mapping=True)
 
         events: list[dict] = source
         for evt in events:

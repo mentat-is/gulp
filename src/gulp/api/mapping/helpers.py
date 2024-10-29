@@ -6,7 +6,7 @@ from sigma.processing.conditions import LogsourceCondition
 from sigma.processing.pipeline import ProcessingItem, ProcessingPipeline
 from sigma.processing.transformations import FieldMappingTransformation
 
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.utils import logger
 
 
@@ -242,8 +242,8 @@ async def get_enriched_mapping_for_ingestion(
             pipeline_mapping.fields[m] = v
         else:
             # merge
-            pipeline_v: FieldMappingEntry = pipeline_mapping[m]
-            file_v: FieldMappingEntry = v
+            pipeline_v: GulpMappingField = pipeline_mapping[m]
+            file_v: GulpMappingField = v
             if file_v.is_variable_mapping:
                 # "map_to" is a list[list[str]]
                 # where each member of the inner list is a variable mapping with 3 strings(logsourcename, logsource, mapped)
@@ -334,7 +334,7 @@ async def get_enriched_pipeline(
     std_mapping = {}
     var_mapping = {}
     for k, v in mapping.fields.items():
-        vv: FieldMappingEntry = v
+        vv: GulpMappingField = v
         if isinstance(vv.map_to, str):
             # single, map k to vv.map_to
             std_mapping[k] = [vv.map_to]

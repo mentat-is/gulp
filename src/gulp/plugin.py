@@ -26,7 +26,7 @@ from gulp.api.elastic.structs import (
     GulpQueryFilter,
 )
 from gulp.api.mapping import helpers as mapping_helpers
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
+from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
 from gulp.api.rest import ws as ws_api
 from gulp.api.rest.ws import WsQueueDataType
 from gulp.defs import (
@@ -81,6 +81,8 @@ class PluginBase(ABC):
         self.operation = None
         self.context = None
         self.owner = None
+        self.mapping: dict[str, GulpMapping] = {}
+        self.mapping_id: str = None
 
         # to have faster access to the plugin file name (without ext)
         s = os.path.basename(self.path)
@@ -142,7 +144,10 @@ class PluginBase(ABC):
         """
         return []
 
-    async def query(
+    async def query_sigma(self) -> tuple[int, GulpRequestStatus]:
+        return 0, GulpRequestStatus.FAILED
+
+    async def query_external(
         self,
         operation_id: int,
         client_id: int,
@@ -152,7 +157,6 @@ class PluginBase(ABC):
         req_id: str,
         plugin_params: GulpPluginParams,
         flt: GulpQueryFilter,
-        options: GulpQueryOptions = None,
     ) -> tuple[int, GulpRequestStatus]:
         """
         used in query plugins to query data directly from external sources.
@@ -173,7 +177,7 @@ class PluginBase(ABC):
         """
         return 0, GulpRequestStatus.FAILED
 
-    async def query_single(
+    async def query_external_single(
         self,
         plugin_params: GulpPluginParams,
         event: dict,
@@ -190,79 +194,45 @@ class PluginBase(ABC):
         """
         return {}
 
-    def _process_plugin_params(
-        self, custom_mapping: GulpMapping, plugin_params: GulpPluginParams = None
-    ) -> tuple[GulpMapping, GulpPluginParams]:
-        """
-        Process the plugin parameters checking parameters as `timestamp_field`, ... and update the custom mapping accordingly.
-
-        Args:
-            custom_mapping (GulpMapping): The custom mapping provided: if it is not empty, it will be used as is (plugin_params will be ignored)
-            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
-
-        Returns:
-            tuple[GulpMapping, GulpPluginParams]: The updated custom mapping and plugin parameters.
-        """
-        if plugin_params is None:
-            plugin_params = GulpPluginParams()
-
-        if len(custom_mapping.fields) > 0:
-            # custom_mapping provided
-            return custom_mapping, plugin_params
-
-        logger().warning("no custom mapping provided")
-
-        tf = plugin_params.timestamp_field
-        if tf is not None:
-            logger().debug("using timestamp_field=%s" % (tf))
-            # build a proper custom_mapping with just timestamp
-            custom_mapping.fields[tf] = FieldMappingEntry(is_timestamp=True)
-        # logger().debug(custom_mapping)
-        return custom_mapping, plugin_params
-
-    async def sigma_plugin_initialize(
+    async def ingest(
         self,
-        pipeline: ProcessingPipeline = None,
-        mapping_file: str = None,
-        mapping_id: str = None,
-        product: str = None,
+        req_id: str,
+        ws_id: str,
+        user: str,
+        index: str,
+        operation: str,
+        context: str,
+        log_file_path: str,
         plugin_params: GulpPluginParams = None,
-    ) -> ProcessingPipeline:
+        flt: GulpIngestionFilter = None,
+    ) -> GulpRequestStatus:
         """
-        Initializes the Sigma plugin to convert sigma rules YAML to elasticsearch DSL query.
+        Ingests a file using the plugin.
 
         Args:
-            pipeline (ProcessingPipeline, optional): The processing pipeline. Defaults to None (empty pipeline, plugin must fill it).
-            mapping_file (str, optional): The name of the mapping file (i.e. 'windows.json') in the gulp/mapping_files directory. Defaults to None (use pipeline mapping only).
-            mapping_id (str, optional): The mapping ID (["options"]["mapping_id"] in the mapping file, to get a specific mapping). Defaults to None (use first).
-            product (str, optional): The product. Defaults to None.
-            plugin_params (GulpPluginParams, optional): The plugin parameters, to override i.e. mapping_file_path, mapping_id, ... Defaults to None.
+            req_id (str): The request ID.
+            ws_id (str): The websocket ID.
+            user (str): The user performing the ingestion.
+            index (str): The name of the targeet opensearch/elasticsearch index.
+            operation (str): The operation.
+            context (str): The context.
+            log_file_path (str): The path to the log file.
+            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
+            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+
         Returns:
-            ProcessingPipeline: The initialized processing pipeline.
+            GulpRequestStatus: The status of the ingestion.
+
+        Notes:
+            - implementers should call super().ingest() first.<br>
+            - this function *MUST NOT* raise exceptions.
         """
-        logger().debug("INITIALIZING SIGMA plugin=%s" % (self.display_name()))
-
-        mapping_file_path = None
-        if mapping_file is not None:
-            # get path in mapping directory
-            mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
-
-        if plugin_params is not None:
-            # override with plugin_params
-            if plugin_params.mapping_file is not None:
-                mapping_file_path = gulp_utils.build_mapping_file_path(
-                    plugin_params.mapping_file
-                )
-            if plugin_params.mapping_id is not None:
-                mapping_id = plugin_params.mapping_id
-
-        p = await mapping_helpers.get_enriched_pipeline(
-            pipeline=pipeline,
-            mapping_file_path=mapping_file_path,
-            mapping_id=mapping_id,
-            product=product,
+        # create/get the ingestion stats
+        stats = GulpIngestionStats.create_or_get(
+            req_id, user, operation=operation, context=context
         )
-        return p
+        self._
+        raise NotImplementedError("not implemented!")
 
     async def _process_record(
         self,
@@ -319,45 +289,40 @@ class PluginBase(ABC):
 
         return fs, must_break
 
-    async def ingest_plugin_initialize(
+    async def initialize(
         self,
-        index: str,
-        source: str | dict,
-        skip_mapping: bool = False,
-        pipeline: ProcessingPipeline = None,
         mapping_file: str = None,
         mapping_id: str = None,
         plugin_params: GulpPluginParams = None,
-    ) -> tuple[dict, GulpMapping]:
-        """
-        Initializes the ingestion plugin.
+    ) -> dict[str, GulpMapping]:
 
-        Args:
-            index (str): The name of the elasticsearch index.
-            source (str|dict): The source of the record (source file name or path, usually. may also be a dictionary or a list of dicts).
-            skip_mapping (bool, optional): Whether to skip mapping initialization (just prints source and plugin name, and return empty index mapping and custom mapping). Defaults to False.
-            pipeline (ProcessingPipeline, optional): The psyigma pipeline to borrow the mapping from, if any. Defaults to None (use mapping file only).
-            mapping_file (str, optional): name of the mapping file (i.e. 'windows.json') in the gulp/mapping_files directory. Defaults to None (use pipeline mapping only).
-            mapping_id (str, optional): The mapping ID (options.mapping_id) in the mapping file, to get a specific mapping. Defaults to None (use first).
-            plugin_params (GulpPluginParams, optional): The plugin parameters (i.e. to override mapping_file, mapping_id, ...). Defaults to None.
-        Returns:
-            tuple[dict, GulpMapping]: A tuple containing the elasticsearch index type mappings and the enriched GulpMapping (or an empty GulpMapping is no valid pipeline and/or mapping_file are provided).
+        # check if mapping_file and mapping_id are set in PluginParams
+        # if so, override the values
+        if plugin_params:
+            if plugin_params.mapping_file:
+                mapping_file = plugin_params.mapping_file
+                logger().debug(
+                    "overriding, plugin_params.mapping_file=%s"
+                    % (plugin_params.mapping_file)
+                )
+            if plugin_params.mapping_id:
+                mapping_id = plugin_params.mapping_id
+                logger().debug(
+                    "overriding, plugin_params.mapping_id=%s"
+                    % (plugin_params.mapping_id)
+                )
 
-        """
-        # logger().debug("ingest_plugin_initialize: index=%s, pipeline=%s, mapping_file=%s, mapping_id=%s, plugin_params=%s" % (index, pipeline, mapping_file, mapping_id, plugin_params))
-        if isinstance(source, list) or isinstance(source, dict):
-            # source is a dictionary
-            logger().debug(
-                "INITIALIZING INGESTION for raw source, plugin=%s"
-                % (self.display_name())
-            )
-        else:
-            logger().debug(
-                "INITIALIZING INGESTION for source=%s, plugin=%s"
-                % (muty.string.make_shorter(source, 260), self.display_name())
-            )
-        if skip_mapping:
-            return {}, GulpMapping()
+        if mapping_file is None and mapping_id is None:
+            logger().warning("mapping_file and mapping_id are both None!")
+            return {}
+        if mapping_id is not None and mapping_file is None:
+            raise ValueError("mapping_id is set but mapping_file is not!")
+
+        self.mapping_id = mapping_id
+
+        # read mapping file
+        mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
+        js = await muty.file.read_file(mapping_file_path)
 
         # get path of the mapping file in gulp/mapping_files folder
         mapping_file_path = None
@@ -506,83 +471,6 @@ class PluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
-    async def ingest_raw(
-        self,
-        req_id: str,
-        ws_id: str,
-        user: str,
-        index: str,
-        operation: str,
-        context: str,
-        docs: dict,
-        plugin_params: GulpPluginParams = None,
-        flt: GulpIngestionFilter = None,
-    ) -> GulpRequestStatus:
-        """
-        Ingests raw GulpDocument objects.
-
-        Args:
-            req_id (str): The request ID.
-            ws_id (str): The websocket ID.
-            index (str): The name of the target opensearch/elasticsearch index.
-            user (str): The user performing the ingestion.
-            operation (str): The operation.
-            context (str): The context.
-            docs (dict): The GulpDocument objects to ingest.
-            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
-            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
-        Returns:
-            GulpRequestStatus: The status of the ingestion.
-
-        Notes:
-            - implementers should call super().ingest_raw() first.<br>
-            - this function *MUST NOT* raise exceptions.
-        """
-        self._raw = True
-        return await self.ingest(
-            req_id, ws_id, index, operation, context, docs, plugin_params, flt
-        )
-
-    async def ingest(
-        self,
-        req_id: str,
-        ws_id: str,
-        user: str,
-        index: str,
-        operation: str,
-        context: str,
-        log_file_path: str,
-        plugin_params: GulpPluginParams = None,
-        flt: GulpIngestionFilter = None,
-    ) -> GulpRequestStatus:
-        """
-        Ingests a file using the plugin.
-
-        Args:
-            req_id (str): The request ID.
-            ws_id (str): The websocket ID.
-            user (str): The user performing the ingestion.
-            index (str): The name of the targeet opensearch/elasticsearch index.
-            operation (str): The operation.
-            context (str): The context.
-            log_file_path (str): The path to the log file.
-            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
-            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
-
-        Returns:
-            GulpRequestStatus: The status of the ingestion.
-
-        Notes:
-            - implementers should call super().ingest() first.<br>
-            - this function *MUST NOT* raise exceptions.
-        """
-        # create/get the ingestion stats
-        stats = GulpIngestionStats.create_or_get(
-            req_id, user, operation=operation, context=context
-        )
-        self._
-        raise NotImplementedError("not implemented!")
-
     async def pipeline(
         self, plugin_params: GulpPluginParams = None
     ) -> ProcessingPipeline:
@@ -602,7 +490,7 @@ class PluginBase(ABC):
 
     def _build_gulpdocuments(
         self,
-        fme: list[FieldMappingEntry],
+        fme: list[GulpMappingField],
         idx: int,
         operation_id: int,
         context: str,
@@ -832,7 +720,7 @@ class PluginBase(ABC):
         index_type_mapping: dict = None,
         ignore_custom_mapping: bool = False,
         **kwargs,
-    ) -> list[FieldMappingEntry]:
+    ) -> list[GulpMappingField]:
         """
         map source key to a field mapping entry with "result": {mapped_key: v}
 
@@ -872,29 +760,29 @@ class PluginBase(ABC):
         # fix value if needed, and add to extra
         if ignore_custom_mapping:
             # direct mapping, no need to check custom_mappings
-            return [FieldMappingEntry(result={source_key: v})]
+            return [GulpMappingField(result={source_key: v})]
 
         if source_key not in mapping_dict:
             # logger().error('key "%s" not found in custom mapping, mapping_dict=%s!' % (source_key, muty.string.make_shorter(str(mapping_dict))))
             # key not found in custom_mapping, check if we have to map it anyway
             if not mapping_options.ignore_unmapped:
                 return [
-                    FieldMappingEntry(
+                    GulpMappingField(
                         result={self.get_unmapped_field_name(source_key): str(v)}
                     )
                 ]
 
         # there is a mapping defined to be processed
-        fm: FieldMappingEntry = mapping_dict[source_key]
+        fm: GulpMappingField = mapping_dict[source_key]
         map_to_list = (
             [fm.map_to] if isinstance(fm.map_to, (str, type(None))) else fm.map_to
         )
 
         # in the end, this function will return a list of FieldMappingEntry objects with "result" set: these results will be used to create the GulpDocument object
-        fme_list: list[FieldMappingEntry] = []
+        fme_list: list[GulpMappingField] = []
         for k in map_to_list:
             # make a copy of fme without using deepcopy)
-            dest_fm = FieldMappingEntry(
+            dest_fm = GulpMappingField(
                 is_timestamp=fm.is_timestamp,
                 event_code=fm.event_code,
                 do_multiply=fm.do_multiply,

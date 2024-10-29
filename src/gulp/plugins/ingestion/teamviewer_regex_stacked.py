@@ -8,7 +8,7 @@ import gulp.plugin as gulp_plugin
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
@@ -49,7 +49,7 @@ class Plugin(PluginBase):
 
         for r in record:
             event: GulpDocument = r
-            fme: list[FieldMappingEntry] = []
+            fme: list[GulpMappingField] = []
             for k, v in event.extra.items():
                 e = self._map_source_key(
                     plugin_params,
@@ -105,7 +105,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            await self.ingest_plugin_initialize(index, source, skip_mapping=True)
+            await self.initialize()(index, source, skip_mapping=True)
             mod = gulp_plugin.load_plugin("regex", **kwargs)
         except Exception as ex:
             fs = self._parser_failed(fs, source, ex)

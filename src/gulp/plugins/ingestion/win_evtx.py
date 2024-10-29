@@ -15,7 +15,7 @@ from sigma.pipelines.elasticsearch.windows import ecs_windows
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginParams
@@ -112,8 +112,8 @@ class Plugin(PluginBase):
         cat_tree = data_elem[0]
 
         # extra mapping from event code
-        fme: list[FieldMappingEntry] = []
-        entry = FieldMappingEntry(result={})
+        fme: list[GulpMappingField] = []
+        entry = GulpMappingField(result={})
 
         evt_code = str(muty.xml.child_node_text(cat_tree, "EventID"))
         try:
@@ -159,7 +159,7 @@ class Plugin(PluginBase):
             # logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
 
             # map attrs and values
-            entries: list[FieldMappingEntry] = []
+            entries: list[GulpMappingField] = []
             if len(e.attrib) == 0:
                 # no attribs, i.e. <Opcode>0</Opcode>
                 if not e.text or not e.text.strip():
@@ -240,7 +240,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+            index_type_mapping, custom_mapping = await self.initialize()(
                 index,
                 source=source,
                 pipeline=ecs_windows(),

@@ -12,7 +12,7 @@ from gulp.utils import logger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
@@ -134,7 +134,7 @@ class Plugin(PluginBase):
 
         # self.logger().debug("VALUES: ",values)
         # apply mappings for each value
-        fme: list[FieldMappingEntry] = []
+        fme: list[GulpMappingField] = []
         for k, v in muty.json.flatten_json(regkey).items():
             # self.logger().debug(f"MAPPING: path:{d['path']} subkey_name:{d['subkey_name']} type:{d['type']} {k}={v}")
             e = self._map_source_key(plugin_params, custom_mapping, k, v, **kwargs)
@@ -194,7 +194,7 @@ class Plugin(PluginBase):
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+        index_type_mapping, custom_mapping = await self.initialize()(
             index, source=source, plugin_params=plugin_params
         )
 

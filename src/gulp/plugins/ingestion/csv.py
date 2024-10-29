@@ -9,7 +9,7 @@ import muty.xml
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
@@ -105,7 +105,7 @@ class Plugin(PluginBase):
         del event["__line__"]
 
         # map all keys for this record
-        fme: list[FieldMappingEntry] = []
+        fme: list[GulpMappingField] = []
         for k, v in event.items():
             e = self._map_source_key(
                 plugin_params,
@@ -171,7 +171,7 @@ class Plugin(PluginBase):
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+        index_type_mapping, custom_mapping = await self.initialize()(
             index, source, plugin_params=plugin_params
         )
 

@@ -7,7 +7,7 @@ import muty.dict
 import muty.string
 from pydantic import BaseModel, Field, model_validator
 
-from gulp.api.mapping.models import FieldMappingEntry
+from gulp.api.mapping.models import GulpMappingField
 from gulp.defs import GulpLogLevel, GulpSortOrder
 from gulp.plugin_internal import GulpPluginParams
 

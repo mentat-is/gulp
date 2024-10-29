@@ -26,7 +26,7 @@ except Exception:
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
@@ -159,7 +159,7 @@ class Plugin(PluginBase):
         event_code = str(muty.crypto.hash_crc24(last_layer))
 
         flattened = muty.json.flatten_json(evt_json)
-        fme: list[FieldMappingEntry] = []
+        fme: list[GulpMappingField] = []
         for k, v in flattened.items():
             e = self._map_source_key(
                 plugin_params,
@@ -233,7 +233,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+            index_type_mapping, custom_mapping = await self.initialize()(
                 index,
                 source=source,
                 # mapping_file="pcap.json",

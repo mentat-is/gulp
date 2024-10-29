@@ -14,7 +14,7 @@ from gulp.utils import logger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping
+from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
@@ -135,7 +135,7 @@ class Plugin(PluginBase):
         evt_code = event["status"] or "unknown"
 
         # map
-        fme: list[FieldMappingEntry] = []
+        fme: list[GulpMappingField] = []
         for k, v in event.items():
             # each event item is a list[str]
 
@@ -221,7 +221,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+            index_type_mapping, custom_mapping = await self.initialize()(
                 index,
                 source,
                 mapping_file="apache_access_clf.json",

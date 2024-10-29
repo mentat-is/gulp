@@ -19,6 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 
 async def testbed():
     class TestPydanticClass(BaseModel):
+        class Config:
+            extra = "allow"
+
         field2: str = Field(None, description="test field1")
         field1: int = Field(None, description="test field2")
 
@@ -64,14 +67,14 @@ async def testbed():
 
     # t = TestOrm()
     # t.to_dict()
-    print(
-        GulpCollabType.CONTEXT,
-        type(GulpCollabType.CONTEXT),
-        str(GulpCollabType.CONTEXT),
-        type(str(GulpCollabType.CONTEXT)),
-    )
-    print(GulpCollabType.CONTEXT == "context")
-    print(GulpCollabType.CONTEXT.value, type(GulpCollabType.CONTEXT.value))
+    p = TestPydanticClass(field1=1, field2="test", missing_field="aaa")
+    print(p)
+    d = p.model_dump()
+    print(d)
+    pp = TestPydanticClass(**d)
+    print(pp)
+    dd = pp.model_dump()
+    print(dd)
     return
 
     TestOrm.print_name()

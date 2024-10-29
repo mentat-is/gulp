@@ -12,7 +12,7 @@ import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
+from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
@@ -111,10 +111,10 @@ class Plugin(PluginBase):
                 custom_mapping, plugin_params
             )
 
-        fme: list[FieldMappingEntry] = []
+        fme: list[GulpMappingField] = []
 
         # add passed extras if any
-        e = FieldMappingEntry(result=extra)
+        e = GulpMappingField(result=extra)
         fme.append(e)
 
         # map
@@ -224,7 +224,7 @@ class Plugin(PluginBase):
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
+        index_type_mapping, custom_mapping = await self.initialize()(
             index, source, plugin_params=plugin_params
         )
 

@@ -15,31 +15,17 @@ class GulpPluginParams(BaseModel):
 
     mapping_file: Optional[str] = Field(
         None,
-        description='mapping file name (in gulp/mapping_files directory) to read "mappings" array from, if any.',
+        description='mapping file name (in gulp/mapping_files directory) to read "mappings" array from.',
     )
 
-    mapping_id: Optional[str] = Field(
+    mapping_id: Optional[list[str]] = Field(
         None,
-        description="mapping identifier, i.e. to select this mapping via GulpMappingOptions.",
+        description="one or more mapping IDs to read mappings .",
     )
 
     config_override: Optional[dict[str, Any]] = Field(
         {}, description="allow to override gulp configuration parameters."
     )
-    timestamp_field: Optional[str] = Field(
-        None,
-        description="The timestamp field (for, i.e. to use in a generic plugin without any mapping)",
-    )
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "mapping_file": "my_mapping.json",
-                "mapping_id": "my_mapping_id",
-                "config_override": {"parallel_processes_respawn_after_tasks": 500},
-                "extra": {"my_custom_option": "my_custom_value"},
-            }
-        }
-    }
 
     @model_validator(mode="before")
     @classmethod
