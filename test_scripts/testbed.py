@@ -71,6 +71,9 @@ async def testbed():
     print(p)
     d = p.model_dump()
     print(d)
+    pp = TestPydanticClass.model_validate(d)
+    print(pp)
+    return
     pp = TestPydanticClass(**d)
     print(pp)
     dd = pp.model_dump()

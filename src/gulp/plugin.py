@@ -295,6 +295,27 @@ class PluginBase(ABC):
         mapping_id: str = None,
         plugin_params: GulpPluginParams = None,
     ) -> dict[str, GulpMapping]:
+        """
+        Asynchronously initializes the plugin with the provided mapping file and ID.
+        This method reads a mapping file and validates its contents, storing the
+        resulting mappings in the instance. If `plugin_params` is provided, it can
+        override the `mapping_file` and `mapping_id` values.
+        Args:
+            mapping_file (str, optional): The path to the mapping file. Defaults to None.
+            mapping_id (str, optional): The ID of the mapping. Defaults to None.
+            plugin_params (GulpPluginParams, optional): Parameters that may override
+                `mapping_file` and `mapping_id`. Defaults to None.
+        Returns:
+            dict[str, GulpMapping]: A dictionary of mappings read from the file.
+        Raises:
+            ValueError: If `mapping_id` is set but `mapping_file` is not.
+            ValidationError: If the mapping file is invalid.
+        Notes:
+            - If both `mapping_file` and `mapping_id` are None, a warning is logged
+              and an empty dictionary is returned.
+            - The method logs debug information if `plugin_params` overrides the
+              `mapping_file` or `mapping_id`.
+        """
 
         # check if mapping_file and mapping_id are set in PluginParams
         # if so, override the values
@@ -323,33 +344,12 @@ class PluginBase(ABC):
         # read mapping file
         mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
         js = await muty.file.read_file(mapping_file_path)
+        mapping_dict = {}
+        for k, v in js.items():
+            mapping_dict[k] = GulpMapping.model_validate(v)
 
-        # get path of the mapping file in gulp/mapping_files folder
-        mapping_file_path = None
-        if mapping_file is not None:
-            mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
-
-        if plugin_params is not None:
-            # override with plugin_params
-            if plugin_params.mapping_file is not None:
-                mapping_file_path = gulp_utils.build_mapping_file_path(
-                    plugin_params.mapping_file
-                )
-            if plugin_params.mapping_id is not None:
-                mapping_id = plugin_params.mapping_id
-            if plugin_params.pipeline is not None:
-                pipeline = plugin_params.pipeline
-
-        index_type_mappings = await elastic_api.index_get_key_value_mapping(
-            elastic_api.elastic(), index, False
-        )
-        # index_type_mappings = await elastic_api.datastream_get_mapping(self.elastic, index + '-template')
-        m: GulpMapping = await mapping_helpers.get_enriched_mapping_for_ingestion(
-            pipeline=pipeline,
-            mapping_file_path=mapping_file_path,
-            mapping_id=mapping_id,
-        )
-        return index_type_mappings, m
+        self.mapping = mapping_dict
+        return mapping_dict
 
     async def _call_record_to_gulp_document_funcs(
         self,

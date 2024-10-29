@@ -15,12 +15,12 @@ class GulpPluginParams(BaseModel):
 
     mapping_file: Optional[str] = Field(
         None,
-        description='mapping file name (in gulp/mapping_files directory) to read "mappings" array from.',
+        description="mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from.",
     )
 
-    mapping_id: Optional[list[str]] = Field(
+    mapping_id: Optional[str] = Field(
         None,
-        description="one or more mapping IDs to read mappings .",
+        description="the target GulpMapping in the `mapping_file`.",
     )
 
     config_override: Optional[dict[str, Any]] = Field(
