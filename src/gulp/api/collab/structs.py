@@ -382,10 +382,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        # use the class method
-        return await self.__class__.delete_by_id(
-            self.id, ws_id, req_id, throw_if_not_found
-        )
+        logger().debug("---> delete: obj_id=%s, type=%s" % (id, self.__class__))
+        sess = await session()
+
+        async with sess:
+            q = select(self.__class__).where(self.__class__.id == id).with_for_update()
+            res = await sess.execute(q)
+            obj = self.__class__.get_one_result_or_throw(
+                res, obj_id=id, throw_if_not_found=throw_if_not_found
+            )
+            if obj is not None:
+                sess.delete(obj)
+                await sess.commit()
+                logger().info("---> deleted: %s" % (obj))
+
+                # TODO: notify websocket
 
     @classmethod
     async def delete_by_id(
@@ -407,22 +418,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-
-        logger().debug("---> delete: obj_id=%s, type=%s" % (id, cls))
-        sess = await session()
-
-        async with sess:
-            q = select(cls).where(cls.id == id).with_for_update()
-            res = await sess.execute(q)
-            obj = cls.get_one_result_or_throw(
-                res, obj_id=id, throw_if_not_found=throw_if_not_found
-            )
-            if obj is not None:
-                sess.delete(obj)
-                await sess.commit()
-                logger().info("---> deleted: %s" % (obj))
-
-                # TODO: notify websocket
+        obj = await cls.get_one_by_id(id, ws_id, req_id, throw_if_not_found)
+        if obj:
+            return await obj.delete(ws_id, req_id, throw_if_not_found)
+        return None
 
     @classmethod
     async def update_by_id(
@@ -433,6 +432,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         req_id: str = None,
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
+        **kwargs,
     ) -> T:
         """
         Asynchronously updates an object of the specified type with the given data.
@@ -445,6 +445,39 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 If None, a new session is created and committed in a transaction.<br>
                 either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
+            **kwargs (dict, optional): Additional keyword arguments, these will be sent over the websocket only. Defaults to None.
+        Returns:
+            T: The updated object.
+        Raises:
+            Exception: If the object with the specified ID is not found.
+        """
+        obj = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
+        if obj:
+            return await obj.update(
+                d, ws_id, req_id, sess, throw_if_not_found, **kwargs
+            )
+        return None
+
+    async def update(
+        self,
+        d: dict,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        throw_if_not_found: bool = True,
+        **kwargs,
+    ) -> T:
+        """
+        Asynchronously updates the object with the specified fields and values.
+        Args:
+            d (dict): A dictionary containing the fields to update and their new values.
+            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
+            req_id (str, optional): The ID of the request. Defaults to None.
+            sess (AsyncSession, optional): The database session to use.<br>
+                If None, a new session is created and committed in a transaction.<br>
+                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
+            throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
+            **kwargs (dict, optional): Additional keyword arguments, these will be sent over the websocket only. Defaults to None.
         Returns:
             T: The updated object.
         Raises:
@@ -452,16 +485,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         async def _update_internal(
-            the_class, id, d, throw_if_not_found, commit: bool = False
+            id, d, throw_if_not_found, commit: bool = False
         ) -> T:
-            q = select(the_class).where(the_class.id == id).with_for_update()
+            q = select(self.__class__).where(self.__class__.id == id).with_for_update()
             res = await sess.execute(q)
-            obj = await the_class.get_one_result_or_throw(
+            obj = await self.__class__.get_one_result_or_throw(
                 res, obj_id=id, throw_if_not_found=throw_if_not_found
             )
             if obj:
                 # ensure d has no 'id' (cannot be updated)
                 d.pop("id", None)
+
                 # update from dict
                 for k, v in d.items():
                     setattr(obj, k, v)
@@ -476,51 +510,24 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return obj
 
-        logger().debug(f"---> update: obj_id={id}, type={cls.__name__}, d={d}")
+        logger().debug(f"---> update: obj_id={id}, type={self.__class__}, d={d}")
         if sess is None:
             # create a new session
             sess = await session()
             async with sess:
                 obj = await _update_internal(
-                    cls, id, d, throw_if_not_found, commit=True
+                    self.id, d, throw_if_not_found, commit=True
                 )
         else:
-            # use existing
-            obj = await _update_internal(cls, id, d, throw_if_not_found, commit=True)
+            # use existing session
+            obj = await _update_internal(self.id, d, throw_if_not_found, commit=True)
 
         if obj is not None:
-            # TODO: handle websocket
+            # TODO: handle websocket, add each **kwargs too
+
             pass
 
         return obj
-
-    async def update(
-        self,
-        d: dict,
-        ws_id: str = None,
-        req_id: str = None,
-        sess: AsyncSession = None,
-        throw_if_not_found: bool = True,
-    ) -> T:
-        """
-        Asynchronously updates the object with the specified fields and values.
-        Args:
-            d (dict): A dictionary containing the fields to update and their new values.
-            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
-            req_id (str, optional): The ID of the request. Defaults to None.
-            sess (AsyncSession, optional): The database session to use.<br>
-                If None, a new session is created and committed in a transaction.<br>
-                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
-            throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
-        Returns:
-            T: The updated object.
-        Raises:
-            Exception: If the object with the specified ID is not found.
-        """
-        # use the class method
-        return await self.__class__.update_by_id(
-            self.id, d, ws_id, req_id, sess, throw_if_not_found
-        )
 
     @classmethod
     async def get_one_by_id(

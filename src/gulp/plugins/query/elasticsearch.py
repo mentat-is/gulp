@@ -74,7 +74,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return "Query data from elasticsearch."
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "query_elasticsearch"
 
     def version(self) -> str:

@@ -49,7 +49,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return "PCAP log file processor."
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "pcap"
 
     def version(self) -> str:
@@ -190,7 +190,7 @@ class Plugin(PluginBase):
             timestamp_nsec=t_ns,
             operation_id=operation_id,
             context=context,
-            plugin=self.name(),
+            plugin=self.display_name(),
             client_id=client_id,
             raw_event=raw,
             original_id=str(record_idx),

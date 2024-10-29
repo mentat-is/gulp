@@ -74,7 +74,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return "Systemd journal log file processor."
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "systemd_journal"
 
     def version(self) -> str:
@@ -125,7 +125,7 @@ class Plugin(PluginBase):
             timestamp=time_msec,
             operation_id=operation_id,
             context=context,
-            plugin=self.name(),
+            plugin=self.display_name(),
             client_id=client_id,
             raw_event=raw_text,
             original_id=record_idx,
@@ -170,27 +170,41 @@ class Plugin(PluginBase):
         # initialize mapping
         try:
             index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
-                index, source, mapping_file="systemd_journal.json", plugin_params=plugin_params
+                index,
+                source,
+                mapping_file="systemd_journal.json",
+                plugin_params=plugin_params,
             )
 
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         try:
             with journal.Reader(None, files=[source]) as log_file:
                 log_file.log_level(journal.LOG_DEBUG)
                 for rr in log_file:
                     try:
-                        fs, must_break = await self._process_record(index, rr, ev_idx,
-                                                                    self.record_to_gulp_document,
-                                                                    ws_id, req_id, operation_id, client_id,
-                                                                    context, source, fs,
-                                                                    custom_mapping=custom_mapping,
-                                                                    index_type_mapping=index_type_mapping,
-                                                                    plugin_params=plugin_params,
-                                                                    flt=flt,
-                                                                    **kwargs)
+                        fs, must_break = await self._process_record(
+                            index,
+                            rr,
+                            ev_idx,
+                            self.record_to_gulp_document,
+                            ws_id,
+                            req_id,
+                            operation_id,
+                            client_id,
+                            context,
+                            source,
+                            fs,
+                            custom_mapping=custom_mapping,
+                            index_type_mapping=index_type_mapping,
+                            plugin_params=plugin_params,
+                            flt=flt,
+                            **kwargs,
+                        )
                         ev_idx += 1
                         if must_break:
                             break
@@ -198,7 +212,9 @@ class Plugin(PluginBase):
                         fs = self._record_failed(fs, rr, source, ex)
 
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
+            fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+        )

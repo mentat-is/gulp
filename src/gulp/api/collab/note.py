@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab_api import session
 from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
 from gulp.utils import logger
 
@@ -31,6 +32,45 @@ class GulpNote(GulpCollabObject):
         "polymorphic_identity": GulpCollabType.NOTE.value,
     }
     __table_args__ = (Index("idx_note_operation", "operation"),)
+
+    @override
+    @classmethod
+    async def update_by_id(
+        cls,
+        id: str,
+        d: dict,
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        throw_if_not_found: bool = True,
+    ) -> T:
+        sess = await session()
+        async with sess:
+            # get note first
+            note: GulpNote = await cls.get_one_by_id(
+                id,
+                ws_id=ws_id,
+                req_id=req_id,
+                sess=sess,
+                throw_if_not_found=throw_if_not_found,
+            )
+
+            # save old text
+            old_text = note.text
+
+            # update note, websocket will also receive the old text
+            obj = await note.update(
+                d,
+                ws_id=ws_id,
+                req_id=req_id,
+                sess=sess,
+                throw_if_not_found=throw_if_not_found,
+                old_text=old_text,
+            )
+
+            # commit in the end
+            await sess.commit()
+            return obj
 
     @override
     @classmethod

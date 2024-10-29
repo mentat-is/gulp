@@ -22,7 +22,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """generic MBOX file processor"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "mbox"
 
     def version(self) -> str:
@@ -88,7 +88,7 @@ class Plugin(PluginBase):
                         fs,
                         custom_mapping=custom_mapping,
                         index_type_mapping=index_type_mapping,
-                        plugin=self.name(),
+                        plugin=self.display_name(),
                         plugin_params=plugin_params,
                         flt=flt,
                         **kwargs,

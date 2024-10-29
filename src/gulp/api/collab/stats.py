@@ -107,8 +107,8 @@ class GulpStatsBase(GulpCollabBase):
             **args,
         )
 
+    @staticmethod
     async def create_or_get(
-        cls,
         id: str,
         owner: str,
         operation: str = None,
@@ -120,7 +120,7 @@ class GulpStatsBase(GulpCollabBase):
         Create new or get an existing GulpStats record.
 
         Args:
-            id (str): The unique identifier of the stats.
+            id (str): The unique identifier of the stats (= "req_id" from the request)
             owner (str): The owner of the stats.
             operation (str, optional): The operation associated with the stats. Defaults to None.
             context (str, optional): The context associated with the stats. Defaults to None.
@@ -129,16 +129,14 @@ class GulpStatsBase(GulpCollabBase):
         Returns:
             GulpStats: The created CollabStats object.
         """
-        if cls.__class__ is GulpStatsBase:
-            raise NotImplementedError(
-                "GulpStatsBase is an abstract class, use GulpIngestionStats or GulpQueryStats."
-            )
-        existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
+        existing = await GulpIngestionStats.get_one_by_id(
+            id, sess=sess, throw_if_not_found=False
+        )
         if existing:
             return existing
 
         # create new
-        stats = await cls._create(
+        stats = await GulpIngestionStats._create(
             id=id, owner=owner, operation=operation, context=context, **kwargs
         )
         return stats

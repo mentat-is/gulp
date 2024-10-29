@@ -18,13 +18,12 @@ from sigma.processing.pipeline import ProcessingPipeline
 from gulp import config
 from gulp import utils as gulp_utils
 from gulp.api import collab_api, elastic_api
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import GulpStats, TmpIngestStats
+from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.elastic.structs import (
     GulpDocument,
     GulpIngestionFilter,
     GulpQueryFilter,
-    GulpQueryOptions,
 )
 from gulp.api.mapping import helpers as mapping_helpers
 from gulp.api.mapping.models import FieldMappingEntry, GulpMapping, GulpMappingOptions
@@ -48,38 +47,57 @@ class PluginBase(ABC):
     Base class for all Gulp plugins.
     """
 
-    def _check_pickled(self):
-        if self._pickled:
-            return True
-        return False
-
     def __reduce__(self):
+        """
+        This method is automatically used by the pickle module to serialize the object when it is passed to the multiprocessing module.
+
+        Returns:
+            tuple: A tuple containing the callable, its arguments, and the object's state.
+        """
+
+        # load the plugin module setting the pickled flag to True
         return (load_plugin, (self.path, self.type(), True, True), self.__dict__)
 
     def __init__(
         self,
         path: str,
+        pickled: bool = False,
+        **kwargs,
     ) -> None:
         """
         Initialize a new instance of the class.
+
         Args:
             path (str): The file path associated with the plugin.
+            pickled (bool, optional, INTERNAL): Whether the plugin is pickled. Defaults to False.
+                this should not be changed, as it is used by the pickle module to serialize the object when it is passed to the multiprocessing module.
         Returns:
             None
+
         """
         super().__init__()
+        self.pickled = pickled
         self.path = path
+        self.operation = None
+        self.context = None
+        self.owner = None
+
+        # to have faster access to the plugin file name (without ext)
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
-        self.plugin_file = (
-            s  # to have faster access to the plugin file name (without ext)
-        )
-        self.plugin_name = self.name()  # to have faster access to the plugin name
+        self.plugin_file = s
 
-        self._pickled = False
+        # to have faster access to the plugin name
+        self.name = self.display_name()
 
         # to bufferize gulpdocuments
         self.buffer: list[GulpDocument] = []
+
+    @abstractmethod
+    def display_name(self) -> str:
+        """
+        Returns the plugin display name.
+        """
 
     @abstractmethod
     def type(self) -> GulpPluginType:
@@ -87,23 +105,17 @@ class PluginBase(ABC):
         Returns the plugin type.
         """
 
-    @abstractmethod
     def version(self) -> str:
         """
         Returns plugin version.
         """
+        return "1.0"
 
-    @abstractmethod
     def desc(self) -> str:
         """
         Returns a description of the plugin.
         """
-
-    @abstractmethod
-    def name(self) -> str:
-        """
-        Returns the plugin display name.
-        """
+        return ""
 
     def options(self) -> list[GulpPluginOption]:
         """
@@ -114,6 +126,19 @@ class PluginBase(ABC):
     def depends_on(self) -> list[str]:
         """
         Returns a list of plugin "name" this plugin depends on.
+        """
+        return []
+
+    def tags(self) -> list[str]:
+        """
+        returns a list of tags for the plugin. Tags are used to aid filtering of plugins/query filters in the UI.
+        - "event"
+        - "network"
+        - "file"
+        - "process"
+        - "threat"
+        - "threat.enrichments"
+        - ...
         """
         return []
 
@@ -165,19 +190,6 @@ class PluginBase(ABC):
         """
         return {}
 
-    def tags(self) -> list[str]:
-        """
-        returns a list of tags for the plugin. Tags are used to aid filtering of plugins/query filters in the UI.
-        - "event"
-        - "network"
-        - "file"
-        - "process"
-        - "threat"
-        - "threat.enrichments"
-        - ...
-        """
-        return []
-
     def _process_plugin_params(
         self, custom_mapping: GulpMapping, plugin_params: GulpPluginParams = None
     ) -> tuple[GulpMapping, GulpPluginParams]:
@@ -228,7 +240,7 @@ class PluginBase(ABC):
         Returns:
             ProcessingPipeline: The initialized processing pipeline.
         """
-        logger().debug("INITIALIZING SIGMA plugin=%s" % (self.name()))
+        logger().debug("INITIALIZING SIGMA plugin=%s" % (self.display_name()))
 
         mapping_file_path = None
         if mapping_file is not None:
@@ -336,12 +348,13 @@ class PluginBase(ABC):
         if isinstance(source, list) or isinstance(source, dict):
             # source is a dictionary
             logger().debug(
-                "INITIALIZING INGESTION for raw source, plugin=%s" % (self.name())
+                "INITIALIZING INGESTION for raw source, plugin=%s"
+                % (self.display_name())
             )
         else:
             logger().debug(
                 "INITIALIZING INGESTION for source=%s, plugin=%s"
-                % (muty.string.make_shorter(source, 260), self.name())
+                % (muty.string.make_shorter(source, 260), self.display_name())
             )
         if skip_mapping:
             return {}, GulpMapping()
@@ -493,34 +506,89 @@ class PluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
+    async def ingest_raw(
+        self,
+        req_id: str,
+        ws_id: str,
+        user: str,
+        index: str,
+        operation: str,
+        context: str,
+        docs: dict,
+        plugin_params: GulpPluginParams = None,
+        flt: GulpIngestionFilter = None,
+    ) -> GulpRequestStatus:
+        """
+        Ingests raw GulpDocument objects.
+
+        Args:
+            req_id (str): The request ID.
+            ws_id (str): The websocket ID.
+            index (str): The name of the target opensearch/elasticsearch index.
+            user (str): The user performing the ingestion.
+            operation (str): The operation.
+            context (str): The context.
+            docs (dict): The GulpDocument objects to ingest.
+            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
+            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+        Returns:
+            GulpRequestStatus: The status of the ingestion.
+
+        Notes:
+            - implementers should call super().ingest_raw() first.<br>
+            - this function *MUST NOT* raise exceptions.
+        """
+        self._raw = True
+        return await self.ingest(
+            req_id, ws_id, index, operation, context, docs, plugin_params, flt
+        )
+
     async def ingest(
         self,
+        req_id: str,
+        ws_id: str,
+        user: str,
         index: str,
         operation: str,
         context: str,
         log_file_path: str,
-        req_id: str,
-        ws_id: str,
         plugin_params: GulpPluginParams = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         """
         Ingests a file using the plugin.
 
-        NOTE: implementers should call super().ingest() in their implementation.
-        NOTE: this function *SHOULD NOT* raise exceptions
+        Args:
+            req_id (str): The request ID.
+            ws_id (str): The websocket ID.
+            user (str): The user performing the ingestion.
+            index (str): The name of the targeet opensearch/elasticsearch index.
+            operation (str): The operation.
+            context (str): The context.
+            log_file_path (str): The path to the log file.
+            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
+            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+
+        Returns:
+            GulpRequestStatus: The status of the ingestion.
+
+        Notes:
+            - implementers should call super().ingest() first.<br>
+            - this function *MUST NOT* raise exceptions.
         """
+        # create/get the ingestion stats
+        stats = GulpIngestionStats.create_or_get(
+            req_id, user, operation=operation, context=context
+        )
+        self._
         raise NotImplementedError("not implemented!")
 
     async def pipeline(
-        self, plugin_params: GulpPluginParams = None, **kwargs
+        self, plugin_params: GulpPluginParams = None
     ) -> ProcessingPipeline:
         """
-        Returns the pysigma processing pipeline for the plugin, if any.
+        Returns the pysigma processing pipeline implemented in the plugin, if any
 
-        Args:
-            plugin_params (GulpPluginParams, optional): additional parameters to pass to the pipeline. Defaults to None.
-            kwargs: additional arguments if any.
         Returns:
             ProcessingPipeline: The processing pipeline.
         """
@@ -729,6 +797,31 @@ class PluginBase(ABC):
                     mapped_ev["%s.%s" % (elastic_api.UNMAPPED_PREFIX, k)] = str(v)
 
         return mapped_ev
+
+    def _map_source_key_lite(self, event: dict, fields: dict) -> dict:
+        """
+        handles special cases for:
+
+        - event code (always map to "event.code" and "gulp.event.code")
+        """
+        # for each field, check if key exist: if so, map it using "map_to"
+        for k, field in fields.items():
+            if k in event:
+                map_to = field.get("map_to", None)
+                if map_to is not None:
+                    event[map_to] = event[k]
+                elif field.get("is_event_code", False):
+                    # event code is a special case:
+                    # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
+                    v = event[k]
+                    event["event.code"] = str(v)
+                    if isinstance(v, int) or str(v).isnumeric():
+                        # already numeric
+                        event["gulp.event.code"] = int(v)
+                    else:
+                        # string, hash it
+                        event["gulp.event.code"] = muty.crypto.hash_crc24(v)
+        return event
 
     def _map_source_key(
         self,
@@ -1007,7 +1100,7 @@ class PluginBase(ABC):
             ws_api.shared_queue_add_data(
                 WsQueueDataType.INGESTION_CHUNK,
                 req_id,
-                {"plugin": self.name(), "events": ws_docs},
+                {"plugin": self.display_name(), "events": ws_docs},
                 ws_id=ws_id,
             )
 
@@ -1179,7 +1272,7 @@ def load_plugin(
         plugin_type (GulpPluginType, optional): The type of the plugin to load. Defaults to GulpPluginType.INGESTION.
             this is ignored if the plugin is an absolute path or if "plugin_cache" is enabled and the plugin is already cached.
         ignore_cache (bool, optional): Whether to ignore the plugin cache. Defaults to False.
-        from_reduce (bool, optional): Whether the plugin is being loaded from a reduce call. Defaults to False.
+        from_reduce (bool, optional, INTERNAL): Whether the plugin is being loaded from a __reduce__ call, defaults to False
         **kwargs (dict, optional): Additional keyword arguments:
     Returns:
         PluginBase: The loaded plugin.
@@ -1220,8 +1313,10 @@ def load_plugin(
     except Exception as ex:
         raise Exception(f"Failed to load plugin {path}: {str(ex)}") from ex
 
-    mod: PluginBase = m.Plugin(path, _pickled=from_reduce, **kwargs)
-    logger().debug("loaded plugin m=%s, mod=%s, name()=%s" % (m, mod, mod.name()))
+    mod: PluginBase = m.Plugin(path, pickled=from_reduce, **kwargs)
+    logger().debug(
+        "loaded plugin m=%s, mod=%s, name()=%s" % (m, mod, mod.display_name())
+    )
     plugin_cache_add(m, plugin_bare_name)
     return mod
 
@@ -1249,7 +1344,7 @@ async def list_plugins() -> list[dict]:
                         ignore_cache=True,
                     )
                     n = {
-                        "display_name": p.name(),
+                        "display_name": p.display_name(),
                         "type": str(p.type()),
                         "paid": "/paid/" in f.lower(),
                         "desc": p.desc(),
@@ -1307,7 +1402,7 @@ def unload_plugin(mod: PluginBase) -> None:
         # delete from cache if any
         # plugin_cache_delete(mod)
 
-        logger().debug("unloading plugin: %s" % (mod.name()))
+        logger().debug("unloading plugin: %s" % (mod.display_name()))
         mod.cleanup()
         del mod
 

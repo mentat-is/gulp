@@ -25,6 +25,7 @@ except Exception:
 
 from construct.core import EnumInteger
 
+
 class Plugin(PluginBase):
     """
     Windows Registry
@@ -54,7 +55,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """Windows registry file processor"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "win_reg"
 
     def version(self) -> str:
@@ -100,7 +101,6 @@ class Plugin(PluginBase):
 
         # logger().debug(custom_mapping"record: %s" % record)
         event: Subkey = record
-
 
         regkey = {
             "path": event.path,
@@ -205,8 +205,10 @@ class Plugin(PluginBase):
                 custom_mapping, plugin_params
             )
         except InvalidArgument as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         logger().debug("custom_mapping=%s" % (custom_mapping))
         logger().debug(plugin_params)
@@ -218,7 +220,7 @@ class Plugin(PluginBase):
         extra: dict = {}
 
         if custom_mapping.options.agent_type is None:
-            plugin = self.name()
+            plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
             logger().warning("using plugin name=%s" % (plugin))
@@ -239,17 +241,26 @@ class Plugin(PluginBase):
                 if len(entry.values) < 1:
                     continue
                 try:
-                    fs, must_break = await self._process_record(index, entry, ev_idx,
-                                                                self.record_to_gulp_document,
-                                                                ws_id, req_id, operation_id, client_id,
-                                                                context, source, fs,
-                                                                custom_mapping=custom_mapping,
-                                                                index_type_mapping=index_type_mapping,
-                                                                plugin_params=plugin_params,
-                                                                plugin=plugin,
-                                                                flt=flt,
-                                                                extra=deepcopy(extra),
-                                                                **kwargs)
+                    fs, must_break = await self._process_record(
+                        index,
+                        entry,
+                        ev_idx,
+                        self.record_to_gulp_document,
+                        ws_id,
+                        req_id,
+                        operation_id,
+                        client_id,
+                        context,
+                        source,
+                        fs,
+                        custom_mapping=custom_mapping,
+                        index_type_mapping=index_type_mapping,
+                        plugin_params=plugin_params,
+                        plugin=plugin,
+                        flt=flt,
+                        extra=deepcopy(extra),
+                        **kwargs,
+                    )
 
                     ev_idx += 1
                     if must_break:
@@ -259,7 +270,9 @@ class Plugin(PluginBase):
                     fs = self._record_failed(fs, entry, source, ex)
 
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
+            fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+        )

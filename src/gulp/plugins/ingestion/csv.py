@@ -14,6 +14,7 @@ from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
+
 try:
     from aiocsv import AsyncDictReader
 except Exception:
@@ -74,7 +75,7 @@ class Plugin(PluginBase):
             )
         ]
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "csv"
 
     def version(self) -> str:
@@ -121,9 +122,11 @@ class Plugin(PluginBase):
         # this is the global event code for this mapping, but it may be overridden
         # at field level, anyway
         event_code = (
-            custom_mapping.options.default_event_code if custom_mapping is not None else None
+            custom_mapping.options.default_event_code
+            if custom_mapping is not None
+            else None
         )
-        #logger().error(f"**** SET FROM PLUGIN ev_code: {event_code}, custom_mapping: {custom_mapping}")
+        # logger().error(f"**** SET FROM PLUGIN ev_code: {event_code}, custom_mapping: {custom_mapping}")
         events = self._build_gulpdocuments(
             fme,
             idx=record_idx,
@@ -179,14 +182,16 @@ class Plugin(PluginBase):
             )
         except InvalidArgument as ex:
             fs = self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         logger().debug("custom_mapping=%s" % (custom_mapping))
 
         delimiter = plugin_params.extra.get("delimiter", ",")
 
         if custom_mapping.options.agent_type is None:
-            plugin = self.name()
+            plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
             logger().warning("using plugin name=%s" % (plugin))
@@ -216,16 +221,25 @@ class Plugin(PluginBase):
 
                     # convert record to gulp document
                     try:
-                        fs, must_break = await self._process_record(index, fixed_dict, ev_idx,
-                                                                    self.record_to_gulp_document,
-                                                                    ws_id, req_id, operation_id, client_id,
-                                                                    context, source, fs,
-                                                                    custom_mapping=custom_mapping,
-                                                                    index_type_mapping=index_type_mapping,
-                                                                    plugin=self.name(),
-                                                                    plugin_params=plugin_params,
-                                                                    flt=flt,
-                                                                    **kwargs)
+                        fs, must_break = await self._process_record(
+                            index,
+                            fixed_dict,
+                            ev_idx,
+                            self.record_to_gulp_document,
+                            ws_id,
+                            req_id,
+                            operation_id,
+                            client_id,
+                            context,
+                            source,
+                            fs,
+                            custom_mapping=custom_mapping,
+                            index_type_mapping=index_type_mapping,
+                            plugin=self.display_name(),
+                            plugin_params=plugin_params,
+                            flt=flt,
+                            **kwargs,
+                        )
                         ev_idx += 1
                         if must_break:
                             break
@@ -238,4 +252,6 @@ class Plugin(PluginBase):
             fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs, flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs, flt
+        )

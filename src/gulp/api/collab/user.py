@@ -97,6 +97,7 @@ class GulpUser(GulpCollabBase):
         req_id: str = None,
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
+        **kwargs,
     ) -> T:
         # if d is a dict and have "password", hash it (password update)
         pwd_changed = False

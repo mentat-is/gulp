@@ -27,7 +27,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return "Raw events ingestion plugin."
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "raw"
 
     def version(self) -> str:
@@ -61,21 +61,20 @@ class Plugin(PluginBase):
         )
 
         fs = TmpIngestStats("raw")
-        await self.ingest_plugin_initialize(
-            index, source, skip_mapping=True)
+        await self.ingest_plugin_initialize(index, source, skip_mapping=True)
 
         events: list[dict] = source
         for evt in events:
-            #logger().debug("processing event: %s" % json.dumps(evt, indent=2))
+            # logger().debug("processing event: %s" % json.dumps(evt, indent=2))
             # ensure these are set
             if "@timestamp" not in evt:
-                #logger().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
-                fs = self._record_failed(fs, evt, source, 'no @timestamp, skipping')
+                # logger().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
+                fs = self._record_failed(fs, evt, source, "no @timestamp, skipping")
                 continue
-            
+
             # operation_id, client_id, context should already be set inside the event.
             # only if not, we set them here.
-            
+
             if "event.original" not in evt:
                 ori = str(evt)
                 evt["event.original"] = ori
@@ -86,11 +85,11 @@ class Plugin(PluginBase):
             if "gulp.context" not in evt:
                 evt["gulp.context"] = context
             if "agent.type" not in evt:
-                evt["agent.type"] = self.name()
+                evt["agent.type"] = self.display_name()
             if "event.hash" not in evt:
                 # set event hash in the end
                 evt["event.hash"] = muty.crypto.hash_blake2b(str(evt))
-            
+
             fs = fs.update(processed=1)
             try:
                 # bufferize, we will flush in the end
@@ -106,4 +105,6 @@ class Plugin(PluginBase):
                 fs = self._record_failed(fs, evt, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+        )

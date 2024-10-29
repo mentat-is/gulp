@@ -38,7 +38,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return "Apache error.log CLF file processor."
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "apache_error_clf"
 
     def version(self) -> str:
@@ -104,7 +104,7 @@ class Plugin(PluginBase):
             idx=record_idx,
             operation_id=operation_id,
             context=context,
-            plugin=self.name(),
+            plugin=self.display_name(),
             client_id=client_id,
             raw_event=raw_text,
             # we do not have an original id from the logs, so we reuse the index
@@ -150,11 +150,16 @@ class Plugin(PluginBase):
         # initialize mapping
         try:
             index_type_mapping, custom_mapping = await self.ingest_plugin_initialize(
-                index, source, mapping_file="apache_error_clf.json", plugin_params=plugin_params
+                index,
+                source,
+                mapping_file="apache_error_clf.json",
+                plugin_params=plugin_params,
             )
         except Exception as ex:
             fs = self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         try:
             async with aiofiles.open(source, "r", encoding="utf8") as log_src:
@@ -164,18 +169,26 @@ class Plugin(PluginBase):
                             continue
 
                         # process (ingest + update stats)
-                        fs, must_break = await self._process_record(index, l, ev_idx,
-                                                                    self.record_to_gulp_document,
-                                                                    ws_id, req_id, operation_id, client_id,
-                                                                    context, source, fs,
-                                                                    custom_mapping=custom_mapping,
-                                                                    index_type_mapping=index_type_mapping,
-                                                                    plugin_params=plugin_params,
-                                                                    flt=flt,
-                                                                    **kwargs)
+                        fs, must_break = await self._process_record(
+                            index,
+                            l,
+                            ev_idx,
+                            self.record_to_gulp_document,
+                            ws_id,
+                            req_id,
+                            operation_id,
+                            client_id,
+                            context,
+                            source,
+                            fs,
+                            custom_mapping=custom_mapping,
+                            index_type_mapping=index_type_mapping,
+                            plugin_params=plugin_params,
+                            flt=flt,
+                            **kwargs,
+                        )
                         if must_break:
                             break
-
 
                         # next
                         ev_idx += 1
@@ -186,4 +199,6 @@ class Plugin(PluginBase):
             fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs, flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs, flt
+        )

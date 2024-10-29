@@ -1,4 +1,5 @@
 import os
+from typing import override
 
 import muty.dict
 import muty.file
@@ -26,41 +27,15 @@ class Plugin(PluginBase):
     windows evtx log file processor.
     """
 
-    def _normalize_loglevel(self, l: int | str) -> GulpLogLevel:
-        ll = int(l)
-        if ll == 0:
-            return GulpLogLevel.ALWAYS
-        if ll == 1:
-            return GulpLogLevel.CRITICAL
-        if ll == 2:
-            return GulpLogLevel.ERROR
-        if ll == 3:
-            return GulpLogLevel.WARNING
-        if ll == 4:
-            return GulpLogLevel.INFO
-        if ll == 5:
-            return GulpLogLevel.VERBOSE
-        if ll > 5:
-            # maps directly to GulpLogLevel.CUSTOM_n
-            try:
-                return GulpLogLevel(ll)
-            except:
-                return GulpLogLevel.UNEXPECTED
-
-        # wtf ?!
-        return GulpLogLevel.VERBOSE
-
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
-    def desc(self) -> str:
-        return "Windows EVTX log file processor."
-
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "win_evtx"
 
-    def version(self) -> str:
-        return "1.0"
+    @override
+    def desc(self) -> str:
+        return "Windows EVTX log file processor."
 
     def _map_evt_code(self, ev_code: str) -> dict:
         """
@@ -234,7 +209,7 @@ class Plugin(PluginBase):
             idx=record_idx,
             operation_id=operation_id,
             context=context,
-            plugin=self.name(),
+            plugin=self.display_name(),
             client_id=client_id,
             raw_event=raw_text,
             original_id=evt_id,
@@ -249,29 +224,15 @@ class Plugin(PluginBase):
 
     async def ingest(
         self,
-        index: str,
         req_id: str,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation: str,
+        context: str,
+        log_file_path: str,
         plugin_params: GulpPluginParams = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-
-        await super().ingest(
-            index=index,
-            req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context=context,
-            source=source,
-            ws_id=ws_id,
-            plugin_params=plugin_params,
-            flt=flt,
-            **kwargs,
-        )
 
         parser = None
 

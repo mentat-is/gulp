@@ -53,7 +53,7 @@ class Plugin(PluginBase):
             logger().debug(
                 "%s extension plugin initialized, aiopool=%s, executor=%s, fastapi_app=%s"
                 % (
-                    self.name(),
+                    self.display_name(),
                     rest_api.aiopool(),
                     rest_api.process_executor(),
                     rest_api.fastapi_app(),
@@ -61,7 +61,7 @@ class Plugin(PluginBase):
             )
         else:
             # in the re-init, we are in the worker process here
-            logger().debug("%s extension plugin re-initialized" % self.name())
+            logger().debug("%s extension plugin re-initialized" % self.display_name())
 
     async def _run_in_worker(
         self,
@@ -193,7 +193,7 @@ class Plugin(PluginBase):
     def type(self) -> gulp.defs.GulpPluginType:
         return gulp.defs.GulpPluginType.EXTENSION
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "extension_example"
 
     def version(self) -> str:

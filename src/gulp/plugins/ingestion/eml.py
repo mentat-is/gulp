@@ -23,7 +23,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """generic EML file processor"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "eml"
 
     def version(self) -> str:
@@ -163,7 +163,7 @@ class Plugin(PluginBase):
         logger().debug("custom_mapping=%s" % (custom_mapping))
 
         if custom_mapping.options.agent_type is None:
-            plugin = self.name()
+            plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
             logger().warning("using plugin name=%s" % (plugin))
@@ -193,7 +193,7 @@ class Plugin(PluginBase):
                         fs,
                         custom_mapping=custom_mapping,
                         index_type_mapping=index_type_mapping,
-                        plugin=self.name(),
+                        plugin=self.display_name(),
                         plugin_params=plugin_params,
                         flt=flt,
                         **kwargs,

@@ -21,7 +21,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """chrome based browsers history sqlite stacked plugin"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "chrome_history_sqlite_stacked"
 
     def version(self) -> str:
@@ -118,7 +118,11 @@ class Plugin(PluginBase):
 
         plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
         plugin_params.mapping_file = "chrome_history.json"
-        plugin_params.extra = { "queries": {"visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"} }
+        plugin_params.extra = {
+            "queries": {
+                "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
+            }
+        }
         return await mod.ingest(
             index,
             req_id,

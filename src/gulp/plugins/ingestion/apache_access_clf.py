@@ -19,7 +19,8 @@ from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import PluginBase
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 
-#TODO support gzipped logs from rotated configurations, same for error logs
+# TODO support gzipped logs from rotated configurations, same for error logs
+
 
 class Plugin(PluginBase):
     """
@@ -31,7 +32,7 @@ class Plugin(PluginBase):
         r"\S+",  # indent %l (unused)
         r"(?P<user>\S+)",  # user %u
         # date and timezone %t
-        r"\[(?P<datetime>(?P<date>.*?)(?= ) (?P<timezone>.*?))\]", #TODO: group timezone sould be optional
+        r"\[(?P<datetime>(?P<date>.*?)(?= ) (?P<timezone>.*?))\]",  # TODO: group timezone sould be optional
         # request "%r"
         r"\"(?P<request_method>.*?) (?P<path>.*?)(?P<request_version> HTTP\/.*)?\"",
         r"(?P<status>[0-9]+)",  # status %>s
@@ -66,16 +67,23 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return "Apache access.log CLF file processor."
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "apache_access_clf"
 
     def version(self) -> str:
         return "1.0"
 
-    def options(self)  -> list[GulpPluginOption]:
+    def options(self) -> list[GulpPluginOption]:
         return [
-            GulpPluginOption("locale", "str", "original server's locale", default=None), #TODO
-            GulpPluginOption("date_format", "str", "server date log format", default="%d/%b/%Y:%H:%M:%S %z")
+            GulpPluginOption(
+                "locale", "str", "original server's locale", default=None
+            ),  # TODO
+            GulpPluginOption(
+                "date_format",
+                "str",
+                "server date log format",
+                default="%d/%b/%Y:%H:%M:%S %z",
+            ),
         ]
 
     async def record_to_gulp_document(
@@ -115,7 +123,9 @@ class Plugin(PluginBase):
 
         # TODO: split netloc into user, pass, port and assign to event
         time_str = event["datetime"]
-        time = datetime.datetime.strptime(time_str, plugin_params.extra.get("date_format", "%d/%b/%Y:%H:%M:%S %z"))
+        time = datetime.datetime.strptime(
+            time_str, plugin_params.extra.get("date_format", "%d/%b/%Y:%H:%M:%S %z")
+        )
         time_nanosec = muty.time.datetime_to_epoch_nsec(time)
         time_msec = muty.time.nanos_to_millis(time_nanosec)
 
@@ -132,7 +142,14 @@ class Plugin(PluginBase):
             # since we are treating the timestamp ourselves, do not attempt convertion automatically from _map_source_key
             if k == "datetime":
                 continue
-            e = self._map_source_key(plugin_params, custom_mapping, k, v, index_type_mapping=index_type_mapping, **kwargs)
+            e = self._map_source_key(
+                plugin_params,
+                custom_mapping,
+                k,
+                v,
+                index_type_mapping=index_type_mapping,
+                **kwargs,
+            )
             for f in e:
                 fme.append(f)
 
@@ -156,7 +173,7 @@ class Plugin(PluginBase):
             idx=record_idx,
             operation_id=operation_id,
             context=context,
-            plugin=self.name(),
+            plugin=self.display_name(),
             client_id=client_id,
             raw_event=raw_text,
             # we do not have an original id from the logs, so we reuse the index
@@ -212,7 +229,9 @@ class Plugin(PluginBase):
             )
         except Exception as ex:
             fs = self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         try:
             async with aiofiles.open(source, "r", encoding="utf8") as log_src:
@@ -224,15 +243,24 @@ class Plugin(PluginBase):
                             continue
 
                         # process (ingest + update stats)
-                        fs, must_break = await self._process_record(index, l, ev_idx,
+                        fs, must_break = await self._process_record(
+                            index,
+                            l,
+                            ev_idx,
                             self.record_to_gulp_document,
-                            ws_id, req_id, operation_id, client_id,
-                            context, source, fs,
+                            ws_id,
+                            req_id,
+                            operation_id,
+                            client_id,
+                            context,
+                            source,
+                            fs,
                             custom_mapping=custom_mapping,
                             index_type_mapping=index_type_mapping,
                             plugin_params=plugin_params,
                             flt=flt,
-                            **kwargs)
+                            **kwargs,
+                        )
 
                         ev_idx += 1
                         if must_break:
@@ -244,4 +272,6 @@ class Plugin(PluginBase):
             fs = self._parser_failed(fs, source, ex)
 
         # done
-        return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs, flt)
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs, flt
+        )

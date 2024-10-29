@@ -64,7 +64,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """generic SQLITE file processor"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "sqlite"
 
     def version(self) -> str:
@@ -76,7 +76,9 @@ class Plugin(PluginBase):
                 "encryption_key", "str", "DB encryption key", default=None
             ),
             GulpPluginOption("key_type", "str", "DB encryption key type", default=None),
-            GulpPluginOption("queries", "dict", "query to run for each table", default={})
+            GulpPluginOption(
+                "queries", "dict", "query to run for each table", default={}
+            ),
         ]
 
     async def record_to_gulp_document(
@@ -182,9 +184,9 @@ class Plugin(PluginBase):
         query = "SELECT 1 FROM sqlite_master WHERE type='table' and name = ?"
         return db.execute(query, (name,)).fetchone() is not None
 
-    def sanitize_value(self, value:str) -> str:
+    def sanitize_value(self, value: str) -> str:
         # allowed charset: A-Za-z0-9_-
-        charset = string.ascii_lowercase+string.ascii_uppercase+string.digits+"_-"
+        charset = string.ascii_lowercase + string.ascii_uppercase + string.digits + "_-"
         for c in value:
             if c not in charset:
                 value = value.replace(c, "")
@@ -285,12 +287,10 @@ class Plugin(PluginBase):
                     )
                     logger().info("custom mapping for table %s found" % (table,))
                 except ValueError:
-                    logger().error(
-                        "custom mapping for table %s NOT found" % (table,)
-                    )
+                    logger().error("custom mapping for table %s NOT found" % (table,))
 
         if custom_mapping.options.agent_type is None:
-            plugin = self.name()
+            plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
             logger().warning("using plugin name=%s" % (plugin))
@@ -334,15 +334,19 @@ class Plugin(PluginBase):
                         continue
 
                     # Parametrized queries are not supported for "FROM {}",
-                    table=self.sanitize_value(table)
+                    table = self.sanitize_value(table)
 
-                    data_query:str = queries.get(table, None)
-                    metadata_query = None # TODO: which metadata to get and what to map it to
+                    data_query: str = queries.get(table, None)
+                    metadata_query = (
+                        None  # TODO: which metadata to get and what to map it to
+                    )
 
                     if data_query is None:
                         data_query = f"SELECT * FROM {table}"
                     if metadata_query is None:
-                        metadata_query = f'SELECT name FROM pragma_table_info("{table}") WHERE pk=1'
+                        metadata_query = (
+                            f'SELECT name FROM pragma_table_info("{table}") WHERE pk=1'
+                        )
 
                     data_query = str(data_query).format(table=table)
 

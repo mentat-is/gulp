@@ -14,7 +14,7 @@ class Plugin(PluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.SIGMA
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "sigma_pipeline_windows_ecs"
 
     def version(self) -> str:

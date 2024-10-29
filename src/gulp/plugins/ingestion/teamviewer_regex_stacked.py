@@ -1,4 +1,3 @@
-
 import muty.os
 import muty.string
 import muty.xml
@@ -26,7 +25,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """teamviewer connections_incoming.txt regex stacked plugin"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "teamviewer_regex_stacked"
 
     def version(self) -> str:
@@ -63,11 +62,13 @@ class Plugin(PluginBase):
                 fme.extend(e)
 
             # we receive nanos from the regex plugin
-            #event.timestamp_nsec = event.timestamp
-            #event.timestamp = muty.time.nanos_to_millis(event.timestamp)
-            endtime=muty.time.string_to_epoch_nsec(event.extra.get("gulp.unmapped.endtime", None))
+            # event.timestamp_nsec = event.timestamp
+            # event.timestamp = muty.time.nanos_to_millis(event.timestamp)
+            endtime = muty.time.string_to_epoch_nsec(
+                event.extra.get("gulp.unmapped.endtime", None)
+            )
 
-            event.duration_nsec = endtime-event.timestamp_nsec
+            event.duration_nsec = endtime - event.timestamp_nsec
 
         return record
 
@@ -104,29 +105,32 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            await self.ingest_plugin_initialize(
-                index, source, skip_mapping=True)
+            await self.ingest_plugin_initialize(index, source, skip_mapping=True)
             mod = gulp_plugin.load_plugin("regex", **kwargs)
         except Exception as ex:
-            fs=self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(index, source, req_id, client_id, ws_id, fs=fs, flt=flt)
+            fs = self._parser_failed(fs, source, ex)
+            return await self._finish_ingestion(
+                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            )
 
         # parse connections_incoming.txt
         # TODO: instead get regexes form mapping file based on mapping_id
         plugin_params.extra = {}
-        regex = r"\s+".join([
-            r"(?P<userid>[0-9]+)",
-            r"(?P<username>[^\s]+)",
-            r"(?P<timestamp>([0-9]+-[0-9]+-[0-9]+ [0-9]+\:[0-9]+\:[0-9]+))",
-            r"(?P<endtime>([0-9]+-[0-9]+-[0-9]+ [0-9]+\:[0-9]+\:[0-9]+))",
-            r"(?P<local_user>[^\s]+)",
-            r"(?P<session_type>[^\s]+)",
-            r"(?P<guid>{.*})"
-        ])
+        regex = r"\s+".join(
+            [
+                r"(?P<userid>[0-9]+)",
+                r"(?P<username>[^\s]+)",
+                r"(?P<timestamp>([0-9]+-[0-9]+-[0-9]+ [0-9]+\:[0-9]+\:[0-9]+))",
+                r"(?P<endtime>([0-9]+-[0-9]+-[0-9]+ [0-9]+\:[0-9]+\:[0-9]+))",
+                r"(?P<local_user>[^\s]+)",
+                r"(?P<session_type>[^\s]+)",
+                r"(?P<guid>{.*})",
+            ]
+        )
 
         plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
         plugin_params.extra["regex"] = regex
-        #plugin_params.extra["flags"] = re.MULTILINE
+        # plugin_params.extra["flags"] = re.MULTILINE
 
         return await mod.ingest(
             index,

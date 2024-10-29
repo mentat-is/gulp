@@ -21,7 +21,7 @@ class Plugin(PluginBase):
     def desc(self) -> str:
         return """chrome based browser web data sqlite stacked plugin"""
 
-    def name(self) -> str:
+    def display_name(self) -> str:
         return "chrome_webdata_sqlite_stacked"
 
     def version(self) -> str:

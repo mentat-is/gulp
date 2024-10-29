@@ -30,18 +30,6 @@ class GulpMappingOptions(BaseModel):
         True,
         description="if True, remove blank (string) fields from the event (default: True).",
     )
-    timestamp_yearfirst: Optional[bool] = Field(
-        True,
-        description="to convert timestamp string, indicating if the year comes first in the timestamp string (default: True).",
-    )
-    timestamp_dayfirst: Optional[bool] = Field(
-        False,
-        description="to convert timestamp string, indicating if the day comes first in the timestamp string (default: False).",
-    )
-    timestamp_utc: Optional[bool] = Field(
-        True,
-        description="to convert timestamp string, indicating if the converted timestamp should be UTC (default: True).",
-    )
 
     model_config = {
         "json_schema_extra": {
@@ -89,6 +77,9 @@ class FieldMappingEntry(BaseModel):
     FieldMappingEntry defines how to map a single field, including field-specific options.
     """
 
+    class Config:
+        extra = "allow"
+
     map_to: Optional[str | list[str] | list[list[str]]] = Field(
         None,
         description="""str for single mapping (field: mapped_field),<br>
@@ -102,20 +93,10 @@ class FieldMappingEntry(BaseModel):
          map_to may also not be set: in such case, the field is mapped as gulp.unmapped.fieldname.
         """,
     )
-    is_timestamp: Optional[bool] = Field(
-        False,
-        description='if True, this field refer to a timestamp and will generate "@timestamp" and "gulp.timestamp_nsec" fields.<br>'
-        'NOTE: if more than one "is_timestamp" is set in the mapping, multiple events with such "@timestamp" and, possibly, "event.code" are generated.',
-    )
     is_timestamp_chrome: Optional[bool] = Field(
         False,
         description="if set and if value is a number, or string representing a number, it is interpreted as a chrome/webkit timestamp (with epoch 01/01/1601) and converted to **nanoseconds from unix epoch**.<br>"
         'NOTE: ignored if "do_multiply" is set, if set together with "is_timestamp" will generate converted chrome "@timestamp" and "gulp.timestamp_nsec".',
-    )
-    do_multiply: Optional[float] = Field(
-        None,
-        description="if set and if value is a number, or string representing a number, multiply it by this value (to divide, i.e. multiply by 0.5 to divide by 2).<br>"
-        'NOTE: ignored if "is_timestamp_chrome" is set, result of the multiply/divide must be **nanoseconds**.',
     )
     event_code: Optional[str] = Field(
         None,
