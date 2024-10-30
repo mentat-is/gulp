@@ -484,10 +484,21 @@ class GulpDocument(BaseModel):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
+        
     def __repr__(self) -> str:
         return f"GulpDocument(timestamp={self.timestamp}, gulp.timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
 
     def to_dict(self, lite: bool = False) -> dict:
+        """
+        Convert the model instance to a dictionary.
+        Args:
+            lite (bool): If True, return a subset of the dictionary with specific keys.
+                         Defaults to False.
+        Returns:
+            dict: A dictionary representation of the model instance. If `lite` is True,
+                  only includes the keys: "_id", "@timestamp", "gulp.timestamp",
+                  "gulp.context", "gulp.operation", and "log.file.path".
+        """
         d = self.model_dump(exclude_none=True, exclude_unset=True)
         if lite:
             # return just this subset

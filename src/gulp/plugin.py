@@ -97,7 +97,7 @@ class PluginBase(ABC):
         self.name = self.display_name()
 
         # to bufferize gulpdocuments
-        self.buffer: list[GulpDocument] = []
+        self.buffer: list[dict] = []
 
     @abstractmethod
     def display_name(self) -> str:
@@ -240,16 +240,11 @@ class PluginBase(ABC):
         self,
         stats: GulpIngestionStats,
         ws_id: str,
-        user: str, 
         index: str,
-        operation: str,
-        context: str,
-        log_file_path: str,
         record: any,
         record_idx: int,
-        my_record_to_gulp_document_fun: Callable,
         flt: GulpIngestionFilter = None,
-    ) -> tuple[TmpIngestStats, bool]:
+    ) -> GulpRequestStatus:
         """
         Process a record for ingestion, updating ingestion stats.
 
@@ -274,16 +269,22 @@ class PluginBase(ABC):
             record_to_gulp_document_fun=my_record_to_gulp_document_fun,
             **kwargs,
         )
-        # ingest record
-        for d in docs:
-            fs = await self._ingest_record(index, d, fs, ws_id, req_id, flt, **kwargs)
+        ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
 
-        status, _ = await GulpStats.update(
-            await collab_api.session(),
-            req_id,
-            ws_id,
-            fs=fs.update(processed=len(docs)),
-        )
+        # ingest record        
+        for d in docs:
+            self.buffer.append(d)
+            if len(self.buffer) >= ingestion_buffer_size:
+                # time to flush
+                fs = await self._flush_buffer(index, fs, ws_id, req_id, flt)
+
+
+                status, _ = await GulpStats.update(
+                    await collab_api.session(),
+                    req_id,
+                    ws_id,
+                    fs=fs.update(processed=len(docs)),
+                )
         must_break = False
         if status in [GulpRequestStatus.FAILED, GulpRequestStatus.CANCELED]:
             must_break = True
@@ -960,12 +961,11 @@ class PluginBase(ABC):
     async def _flush_buffer(
         self,
         index: str,
-        fs: TmpIngestStats,
+        stats: GulpIngestionStats,
         ws_id: str,
-        req_id: str,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> TmpIngestStats:
+    ) -> GulpIngestionStats:
         """
         NOTE: errors appended by this function are intended as INGESTION errors:
         it means something wrong with the format of the event, and must be fixed ASAP if this happens.
@@ -976,7 +976,7 @@ class PluginBase(ABC):
             return fs
 
         # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-
+        processed = len(self.buffer)
         skipped, failed, failed_ar, ingested_docs = await elastic_api.ingest_bulk(
             elastic_api.elastic(),
             index,
@@ -992,6 +992,8 @@ class PluginBase(ABC):
                     "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
                 )
 
+        # update stats
+        stats = await stats.update()
         self.buffer = []
 
         # build ingestion chunk
@@ -1087,7 +1089,7 @@ class PluginBase(ABC):
         """
         try:
             # finally flush ingestion buffer
-            fs = await self._flush_buffer(
+            fs = await self.        _flush_buffer(
                 index, fs, ws_id, req_id, flt, wait_for_refresh=True
             )
             logger().info(

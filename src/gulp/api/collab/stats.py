@@ -220,7 +220,7 @@ class GulpIngestionStats(GulpStatsBase):
 
     def _update_buffered(
         self,
-        error: str | Exception = None,
+        error: str | list[str] | Exception = None,
         source_processed: int = 0,
         source_failed: int = 0,
         records_failed: int = 0,
@@ -311,7 +311,6 @@ class GulpIngestionStats(GulpStatsBase):
             records_processed=records_processed,
         )
         self.status = status
-        done: bool = force_flush
 
         if self.source_processed == self.source_total:
             logger().debug(
@@ -320,7 +319,6 @@ class GulpIngestionStats(GulpStatsBase):
             self.status = GulpRequestStatus.DONE
 
         # check threshold
-        threshold = config.stats_update_threshold()
         failure_threshold = config.ingestion_evt_failure_threshold()
 
         if (
@@ -342,10 +340,10 @@ class GulpIngestionStats(GulpStatsBase):
             GulpRequestStatus.DONE,
         ]:
             self.time_finished = muty.time.now_msec()
-            done = True
+            force_flush = True
             logger().debug("request is finished: %s" % (self))
 
-        if self.records_processed % threshold == 0 or done:
+        if force_flush:
             # time to update on the storage
             async with await session() as sess:
                 # be sure to read the latest version from db

@@ -461,8 +461,7 @@ async def datastream_create(
 
 def filter_doc_for_ingestion(
     doc: GulpDocument | dict,
-    flt: GulpIngestionFilter = None,
-    ignore_store_all_documents: bool = False,
+    flt: GulpIngestionFilter = None
 ) -> GulpEventFilterResult:
     """
     Check if a document is eligible for ingestion based on a filter.
@@ -470,145 +469,28 @@ def filter_doc_for_ingestion(
     Args:
         doc (GulpDocument|dict): The document to check.
         flt (GulpIngestionFilter): The filter parameters, if any.
-        ignore_store_all_documents (bool, optional): Whether to ignore the store_all_documents flag. Defaults to False.
-
+    
     Returns:
         GulpEventFilterResult: The result of the filter check.
     """
     # logger().error(flt)
-    if (
-        flt is None
-        or flt.store_all_documents
-        and not ignore_store_all_documents
-        or (
-            flt.category is None
-            and flt.event_code is None
-            and flt.gulp_log_level is None
-            and flt.start_msec is None
-            and flt.end_msec is None
-            and flt.extra is None
-        )
-    ):
+    if not flt or flt.opt_storage_ignore_filter:
         # empty filter or store_all_documents is set
         return GulpEventFilterResult.ACCEPT
 
     is_gulp_doc = isinstance(doc, GulpDocument)
-    filter_res = GulpEventFilterResult.SKIP
     if is_gulp_doc:
         # turn to dict
         dd = doc.to_dict()
     else:
         dd = doc
 
-    if flt.category is not None:
-        doc_category = set(dd.get("event.category", []))
-        if doc_category.intersection(flt.category):
-            filter_res = GulpEventFilterResult.ACCEPT
-        else:
+    if flt.time_range is not None:
+        ts = dd["gulp.timestamp"]
+        if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
             return GulpEventFilterResult.SKIP
-
-    if flt.event_code is not None:
-        event_code = dd.get("event.code", None)
-        if event_code is None:
-            event_code = dd.get("gulp.event.code", None)
-
-        res = str(event_code) in flt.event_code
-        if res:
-            filter_res = GulpEventFilterResult.ACCEPT
-        else:
-            return GulpEventFilterResult.SKIP
-
-    if flt.gulp_log_level is not None:
-        ll = dd.get("gulp.log.level", None)
-        if ll is not None:
-            res = int(ll) in flt.gulp_log_level
-        else:
-            # accept
-            res = True
-        if res:
-            filter_res = GulpEventFilterResult.ACCEPT
-        else:
-            return GulpEventFilterResult.SKIP
-
-    if flt.start_msec is not None:
-        res = dd["@timestamp"] >= flt.start_msec
-        if res:
-            filter_res = GulpEventFilterResult.ACCEPT
-        else:
-            return GulpEventFilterResult.SKIP
-
-    if flt.end_msec is not None:
-        res = dd["@timestamp"] <= flt.end_msec
-        if res:
-            filter_res = GulpEventFilterResult.ACCEPT
-        else:
-            return GulpEventFilterResult.SKIP
-
-    if flt.extra and not flt.store_all_documents:
-        extra_res = GulpEventFilterResult.SKIP
-        for k, v in flt.extra.items():
-            if k in dd:
-                if dd[k] == v:
-                    extra_res = GulpEventFilterResult.ACCEPT
-
-        if extra_res == GulpEventFilterResult.ACCEPT:
-            filter_res = GulpEventFilterResult.ACCEPT
-
-    # filtered out
-    return filter_res
-
-
-def _build_bulk_docs(
-    docs: list[GulpDocument | dict], flt: GulpIngestionFilter = None
-) -> list[dict]:
-    """
-    Build a list of documents for Elasticsearch bulk indexing.
-
-    Args:
-        docs (list[GulpDocument | dict]): The list of documents to be indexed.
-        flt (GulpIngestionFilter, optional): The filter parameters to apply. Defaults to None.
-
-    Returns:
-        list[dict]: The list of bulk documents ready to be ingested.
-
-    """
-
-    def process_doc(d):
-        is_gulp_doc = isinstance(d, GulpDocument)
-        if is_gulp_doc:
-            # we may have event.code in extra, to override
-            if d.extra.get("event.code", None) is not None:
-                d.event_code = d.extra["event.code"]
-
-            # print('*******ev_code=%s' % (d.event_code))
-            ev_id = muty.crypto.hash_blake2b(
-                str(d.event_code)
-                + str(d.operation_id)
-                + d.context
-                + str(d.extra)
-                + d.hash[:32]
-            )
-        else:
-            # check if _id is already set
-            dd: dict = d
-            _id = dd.get("_id", None)
-            if _id is None:
-                # create a new id
-                _id = muty.crypto.hash_blake2b(str(dd.values()))
-                ev_id = _id
-            else:
-                ev_id = _id
-                # delete _id from dict
-                del dd["_id"]
-
-        return {"create": {"_id": ev_id}}, (d.to_dict() if is_gulp_doc else d)
-
-    return [
-        item
-        for d in docs
-        if filter_doc_for_ingestion(d, flt) == GulpEventFilterResult.ACCEPT
-        for item in process_doc(d)
-    ]
+    
+    return GulpEventFilterResult.ACCEPT
 
 
 def _bulk_docs_result_to_ingest_chunk(
@@ -617,27 +499,15 @@ def _bulk_docs_result_to_ingest_chunk(
     """
     Extracts the ingested documents from a bulk ingestion result.
     """
-    # create a set of _id values from the errors list
     if errors is None:
-        # no errors
-        errors = []
-        error_ids = []
-    else:
-        error_ids = {error["create"]["_id"] for error in errors}
+        return [doc for _, doc in bulk_docs]
 
-    result = []
-
-    # iterate through bulk_docs in steps of 2, since bulk_docs is a list of tuples (create, doc)
-    for i in range(0, len(bulk_docs), 2):
-        create_doc = bulk_docs[i]
-        data_doc = bulk_docs[i + 1]
-
-        _id = create_doc["create"]["_id"]
-
-        # check if _id is not in error_ids
-        if _id not in error_ids:
-            data_doc["_id"] = _id
-            result.append(data_doc)
+    error_ids = {error["create"]["_id"] for error in errors}
+    result = [
+        {**doc, "_id": create_doc["create"]["_id"]}
+        for create_doc, doc in zip(bulk_docs[::2], bulk_docs[1::2])
+        if create_doc["create"]["_id"] not in error_ids
+    ]
 
     return result
 
@@ -645,7 +515,7 @@ def _bulk_docs_result_to_ingest_chunk(
 async def ingest_bulk(
     el: AsyncElasticsearch,
     index: str,
-    docs: list[GulpDocument | dict],
+    docs: list[dict],
     flt: GulpIngestionFilter = None,
     wait_for_refresh: bool = False,
 ) -> tuple[int, int, list[str], list[dict]]:
@@ -655,7 +525,7 @@ async def ingest_bulk(
     Args:
         el (AsyncElasticsearch): The Elasticsearch client.
         index (str): Name of the index (or datastream) to ingest documents to.
-        doc (GulpDocument|dict): The documents to be ingested.
+        doc (dict): The documents to be ingested
         flt (GulpIngestionFilter, optional): The filter parameters. Defaults to None.
         wait_for_refresh (bool, optional): Whether to wait for the refresh(=refreshed index is available for searching) to complete. Defaults to False.
 
@@ -665,12 +535,16 @@ async def ingest_bulk(
         - number of failed events
         - failed (errors) array: here, failed means "failed ingesting": this means the event format is wrong for ingestion into elasticsearch and should be fixed
         - list of ingested documents
-        - list of filtered documents (in case flt.store_all_documents is True), either None
     """
 
     # filter documents first
     # len_first = len(docs)
-    bulk_docs = _build_bulk_docs(docs, flt)
+    bulk_docs = [
+        ({"create": {"_id": item["_id"]}}, item)
+        for item in docs
+        if not flt or filter_doc_for_ingestion(item, flt) != GulpEventFilterResult.SKIP
+    ]
+
     # logger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
     if len(bulk_docs) == 0:
         logger().warning("no document to ingest (flt=%s)" % (flt))
@@ -701,32 +575,18 @@ async def ingest_bulk(
     # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
 
     if res["errors"]:
-        # logger().error(
-        #     "to ingest=%d but errors happened, res=%s"
-        #     % (len(docs) / 2, json.dumps(res["items"], indent=2))
-        # )
-        # print(json.dumps(res["items"], indent=2))
-
-        for r in res["items"]:
-            op_result = r["create"]
-            error = op_result.get("error", None)
-            status = op_result["status"]
-            if status == 409:
-                # document already exists !
-                skipped += 1
-                # logger().error(r)
-            elif status not in [201, 200]:
-                failed += 1
-                logger().error(
-                    "failed to ingest document: %s, docs=%s"
-                    % (r, muty.string.make_shorter(str(bulk_docs), max_len=10000))
-                )
-                msg = "elastic.bulk.errors.items.create.status=%s" % (op_result)
-                if error is not None:
-                    msg += ", error=%s" % (error)
-                if msg not in failed_ar:
-                    # add only once
-                    failed_ar.append(msg)
+        skipped = sum(1 for r in res["items"] if r["create"]["status"] == 409)
+        failed_items = [r for r in res["items"] if r["create"]["status"] not in [201, 200, 409]]
+        failed = len(failed_items)
+        failed_ar = [
+            f"elastic.bulk.errors.items.create.status={item['create']}, error={item['create'].get('error', None)}"
+            for item in failed_items
+        ]
+        if failed > 0:
+            logger().error(
+                "failed to ingest documents: %s, docs=%s"
+                % (failed_items, muty.string.make_shorter(str(bulk_docs), max_len=10000))
+            )
 
         # take only the documents with no ingest errors
         ingested = _bulk_docs_result_to_ingest_chunk(bulk_docs, res["items"])
