@@ -2,7 +2,7 @@ import json
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, SkipValidation, model_validator
-
+from gulp.api.mapping.models import GulpMapping
 
 class GulpPluginParams(BaseModel):
     """
@@ -15,7 +15,7 @@ class GulpPluginParams(BaseModel):
 
     mapping_file: Optional[str] = Field(
         None,
-        description="mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from.",
+        description="mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
 
     mapping_id: Optional[str] = Field(
@@ -23,8 +23,9 @@ class GulpPluginParams(BaseModel):
         description="the target GulpMapping in the `mapping_file`.",
     )
 
-    config_override: Optional[dict[str, Any]] = Field(
-        {}, description="allow to override gulp configuration parameters."
+    mappings: Optional[dict[str, GulpMapping]] = Field(
+        None,
+        description="a dictionary of GulpMapping objects to use directly (`mapping_file` is ignored if set).",
     )
 
     @model_validator(mode="before")

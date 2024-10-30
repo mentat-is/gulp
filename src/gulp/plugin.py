@@ -2,6 +2,7 @@
 """
 
 import ipaddress
+import json
 import os
 from abc import ABC, abstractmethod
 from types import ModuleType
@@ -26,7 +27,7 @@ from gulp.api.elastic.structs import (
     GulpQueryFilter,
 )
 from gulp.api.mapping import helpers as mapping_helpers
-from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
+from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingFile, GulpMappingOptions
 from gulp.api.rest import ws as ws_api
 from gulp.api.rest.ws import WsQueueDataType
 from gulp.defs import (
@@ -76,17 +77,20 @@ class PluginBase(ABC):
 
         """
         super().__init__()
-        self.pickled = pickled
-        self.path = path
-        self.operation = None
-        self.context = None
-        self.owner = None
-        self.mapping: dict[str, GulpMapping] = {}
-        self.mapping_id: str = None
 
-        # to have faster access to the plugin file name (without ext)
+        # tell if the plugin has been pickled by the multiprocessing module (internal)
+        self.pickled = pickled
+        # plugin file path
+        self.path = path
+        # for ingestion, the mappings to apply
+        self.mappings: dict[str, GulpMapping] = {}
+        # for ingestion, the key in the mappings dict to be used
+        self.mapping_id: str = None
+        # for ingestion, the lower plugin record_to_gulp_document function to call (if this is a stacked plugin on top of another)
+        self.lower_record_to_gulp_document=None
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
+        # to have faster access to the plugin file name (without ext)
         self.plugin_file = s
 
         # to have faster access to the plugin name
@@ -144,7 +148,7 @@ class PluginBase(ABC):
         """
         return []
 
-    async def query_sigma(self) -> tuple[int, GulpRequestStatus]:
+    async def query_sigma(self, ) -> tuple[int, GulpRequestStatus]:
         return 0, GulpRequestStatus.FAILED
 
     async def query_external(
@@ -227,34 +231,31 @@ class PluginBase(ABC):
             - implementers should call super().ingest() first.<br>
             - this function *MUST NOT* raise exceptions.
         """
-        # create/get the ingestion stats
-        stats = GulpIngestionStats.create_or_get(
-            req_id, user, operation=operation, context=context
-        )
-        self._
         raise NotImplementedError("not implemented!")
-
+    
+    def _set_lower_record_to_gulp_document(self, fun: Callable):
+        self.lower_record_to_gulp_document=fun
+    
     async def _process_record(
         self,
+        stats: GulpIngestionStats,
+        ws_id: str,
+        user: str, 
         index: str,
+        operation: str,
+        context: str,
+        log_file_path: str,
         record: any,
         record_idx: int,
         my_record_to_gulp_document_fun: Callable,
-        ws_id: str,
-        req_id: str,
-        operation: str,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParams = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> tuple[TmpIngestStats, bool]:
         """
         Process a record for ingestion, updating ingestion stats.
+
+        stacked plugin:
+        1. call lower.record_to_gulp_document
+        2. call my record_to_gulp_document
         """
 
         # convert record to one or more GulpDocument objects
@@ -294,21 +295,20 @@ class PluginBase(ABC):
         mapping_file: str = None,
         mapping_id: str = None,
         plugin_params: GulpPluginParams = None,
-    ) -> dict[str, GulpMapping]:
+    ) -> None:
         """
         Asynchronously initializes the plugin with the provided mapping file and ID.
         This method reads a mapping file and validates its contents, storing the
-        resulting mappings in the instance. If `plugin_params` is provided, it can
-        override the `mapping_file` and `mapping_id` values.
+        resulting "mappings" and "mapping_id" in the instance. 
+        If `plugin_params` is provided, it can override the `mapping_file` and `mapping_id` values or provide
+        a full `mappings` dictionary.
         Args:
-            mapping_file (str, optional): The path to the mapping file. Defaults to None.
-            mapping_id (str, optional): The ID of the mapping. Defaults to None.
+            mapping_file (str, optional): name of the mapping file. Defaults to None.
+            mapping_id (str, optional): The ID of the mapping inside the mapping file. Defaults to None.
             plugin_params (GulpPluginParams, optional): Parameters that may override
                 `mapping_file` and `mapping_id`. Defaults to None.
-        Returns:
-            dict[str, GulpMapping]: A dictionary of mappings read from the file.
         Raises:
-            ValueError: If `mapping_id` is set but `mapping_file` is not.
+            ValueError: If the mapping file is empty or if both `mapping_file` and `mapping_id` are None.
             ValidationError: If the mapping file is invalid.
         Notes:
             - If both `mapping_file` and `mapping_id` are None, a warning is logged
@@ -317,39 +317,53 @@ class PluginBase(ABC):
               `mapping_file` or `mapping_id`.
         """
 
-        # check if mapping_file and mapping_id are set in PluginParams
+        # check if mapping_file, mappings and mapping_id are set in PluginParams
         # if so, override the values
         if plugin_params:
-            if plugin_params.mapping_file:
-                mapping_file = plugin_params.mapping_file
-                logger().debug(
-                    "overriding, plugin_params.mapping_file=%s"
-                    % (plugin_params.mapping_file)
-                )
+            if plugin_params.mappings:
+                # ignore mapping_file
+                self.mappings = {}
+                for k, v in plugin_params.mappings.items():
+                    self.mappings[k] = GulpMapping.model_validate(v)
+                logger().debug('using plugin_params.mappings="%s"' % (plugin_params.mappings))
+            else:         
+                if plugin_params.mapping_file:
+                    mapping_file = plugin_params.mapping_file
+                    logger().debug(
+                        "using plugin_params.mapping_file=%s"
+                        % (plugin_params.mapping_file)
+                    )
             if plugin_params.mapping_id:
                 mapping_id = plugin_params.mapping_id
                 logger().debug(
-                    "overriding, plugin_params.mapping_id=%s"
+                    "using plugin_params.mapping_id=%s"
                     % (plugin_params.mapping_id)
                 )
-
-        if mapping_file is None and mapping_id is None:
-            logger().warning("mapping_file and mapping_id are both None!")
-            return {}
-        if mapping_id is not None and mapping_file is None:
-            raise ValueError("mapping_id is set but mapping_file is not!")
-
+                
+        if (not mapping_file and not self.mappings) and not mapping_id:
+            logger().warning("mappings/mapping_file and mapping id are both None/empty!")
+            raise ValueError("mappings/mapping_file and mapping id are both None/empty!")
+        if mapping_id and (not mapping_file and not self.mappings):
+            raise ValueError("mapping_id is set but mappings/mapping_file is not!")
+        
         self.mapping_id = mapping_id
-
+        if not self.mapping_id:
+            self.mapping_id = list(self.mappings.keys())[0]
+            logger().warning("no mapping_id provided, using first mapping found: %s" % (self.mapping_id))
+        if self.mappings:
+            # mappings provided directly
+            return
+        
         # read mapping file
         mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
-        js = await muty.file.read_file(mapping_file_path)
-        mapping_dict = {}
-        for k, v in js.items():
-            mapping_dict[k] = GulpMapping.model_validate(v)
+        js = json.loads(await muty.file.read_file(mapping_file_path))
+        if not js:
+            raise ValueError("mapping file %s is empty!" % (mapping_file_path))
+        
+        gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
+        self.mappings= gmf.mappings
 
-        self.mapping = mapping_dict
-        return mapping_dict
+            
 
     async def _call_record_to_gulp_document_funcs(
         self,
@@ -1022,18 +1036,23 @@ class PluginBase(ABC):
 
         return fs
 
-    def _parser_failed(
-        self, fs: TmpIngestStats, source: str | dict, ex: Exception | str
-    ) -> TmpIngestStats:
+    async def _source_failed(
+        self, stats: GulpIngestionStats, err: str|Exception, ws_id: str, source: str = None,
+    ) -> GulpIngestionStats:
         """
-        whole source failed ingestion (error happened before the record parsing loop), helper to update stats
+        record source failed (in the ingestion loop), helper to update stats
+
+        Args:
+            stats (GulpIngestionStats): The ingestion statistics.
+            err (str|Exception): The error that caused the failure.
+            ws_id (str): The websocket ID.
+            source (str, optional): The source of the record. Defaults to None.
         """
-        logger().exception(
-            "PARSER FAILED: source=%s, ex=%s"
-            % (muty.string.make_shorter(str(source), 260), ex)
+        logger().error(
+            "INGESTION SOURCE FAILED: source=%s, ex=%s"
+            % (muty.string.make_shorter(str(source), 260), str(err))
         )
-        fs = fs.update(ingest_errors=[ex], parser_failed=1)
-        return fs
+        return await stats.update(error=err, source_failed=1, ws_id=ws_id, force_flush=True)
 
     def _record_failed(
         self, fs: TmpIngestStats, entry: any, source: str | dict, ex: Exception | str

@@ -12,8 +12,8 @@ from evtx import PyEvtxParser
 from lxml import etree
 from sigma.pipelines.elasticsearch.windows import ecs_windows
 
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.collab.stats import GulpIngestionStats, TmpIngestStats
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
@@ -222,10 +222,12 @@ class Plugin(PluginBase):
         )
         return docs
 
+    
     async def ingest(
         self,
         req_id: str,
         ws_id: str,
+        user: str,
         index: str,
         operation: str,
         context: str,
@@ -234,38 +236,19 @@ class Plugin(PluginBase):
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
 
-        parser = None
-
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
+        # initialize stats
+        stats: GulpIngestionStats = GulpIngestionStats.create_or_get(req_id, user, operation=operation, context=context)
         try:
-            index_type_mapping, custom_mapping = await self.initialize()(
-                index,
-                source=source,
-                pipeline=ecs_windows(),
-                # mapping_file="windows.json",
-                plugin_params=plugin_params,
-            )
-            # logger().debug("win_mappings: %s" % (win_mapping))
-        except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            # initialize plugin
+            self.initialize(mapping_file='windows.json')
 
-        # init parser
-        try:
-            parser = PyEvtxParser(source)
+            # init parser
+            parser = PyEvtxParser(log_file_path)
         except Exception as ex:
-            # cannot parse this file at all
-            fs = self._parser_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            await self._source_failed(stats, ex, ws_id, source=log_file_path)
+            return GulpRequestStatus.FAILED
 
         ev_idx = 0
-
         try:
             for rr in parser.records():
                 # process (ingest + update stats)
@@ -297,7 +280,7 @@ class Plugin(PluginBase):
                     fs = self._record_failed(fs, rr, source, ex)
 
         except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
 
         # done
         return await self._finish_ingestion(

@@ -201,7 +201,8 @@ async def build_and_set_index_template(
         # mappings['numeric_detection'] = True
         # mappings['dynamic'] = False
         mappings["properties"]["@timestamp"] = {"type": "date_nanos"}
-
+        mappings['numeric_detection'] = False
+        
         # support for original event both as keyword and text
         mappings["properties"]["event"]["properties"]["original"] = {
             "type": "keyword",

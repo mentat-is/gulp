@@ -1,29 +1,458 @@
 {
   "metadata": {
-    "plugin": ["win_evtx.py", "csv.py"]
+    "plugin": [
+      "win_evtx.py"
+    ]
   },
-  "mappings": [
-    {
-      "fields": {
-        "ProcessID": {
-          "map_to": "process.pid"
+  "mappings": {
+    "windows": {
+        "AccountDomain": {
+            "ecs": [
+                "user.domain"
+            ]
         },
-        "ThreadID": {
-          "map_to": "process.thread.id"
+        "AccountName": {
+            "ecs": [
+                "user.name"
+            ]
         },
-        "Computer": {
-          "map_to": "host.name"
+        "Application": {
+            "ecs": [
+                "process.executable"
+            ]
         },
-        "TargetUserSid": {
-          "map_to": "user.id"
+        "Archived": {
+            "ecs": [
+                "sysmon.file.archived"
+            ]
         },
-        "UserID": {
-          "map_to": "user.id"
+        "Channel": {
+            "ecs": [
+                "winlog.channel"
+            ]
         },
-        "TargetUserName": {
-          "map_to": "user.name"
+        "ClientAddress": {
+            "ecs": [
+                "source.ip"
+            ]
+        },
+        "ClientName": {
+            "ecs": [
+                "source.domain"
+            ]
+        },
+        "CommandLine": {
+            "ecs": [
+                "process.command_line",
+                "powershell.command.value"
+            ]
+        },
+        "CommandName": {
+            "ecs": [
+                "powershell.command.name"
+            ]
+        },
+        "CommandPath": {
+            "ecs": [
+                "powershell.command.path"
+            ]
+        },
+        "CommandType": {
+            "ecs": [
+                "powershell.command.type"
+            ]
+        },
+        "Company": {
+            "ecs": [
+                "process.pe.company",
+                "file.pe.company"
+            ]
+        },
+        "ComputerName": {
+            "ecs": [
+                "winlog.computer_name"
+            ]
+        },
+        "CurrentDirectory": {
+            "ecs": [
+                "process.working_directory"
+            ]
+        },
+        "Description": {
+            "ecs": [
+                "process.pe.description",
+                "file.pe.description",
+                "winlog.event_data.Description"
+            ]
+        },
+        "DestAddress": {
+            "ecs": [
+                "destination.ip"
+            ]
+        },
+        "DestPort": {
+            "ecs": [
+                "destination.port"
+            ]
+        },
+        "Destination": {
+            "ecs": [
+                "process.executable"
+            ]
+        },
+        "DestinationHostname": {
+            "ecs": [
+                "destination.domain"
+            ]
+        },
+        "DestinationIp": {
+            "ecs": [
+                "destination.ip"
+            ]
+        },
+        "DestinationPort": {
+            "ecs": [
+                "destination.port"
+            ]
+        },
+        "DestinationPortName": {
+            "ecs": [
+                "network.protocol"
+            ]
+        },
+        "Device": {
+            "ecs": [
+                "file.path"
+            ]
+        },
+        "EngineVersion": {
+            "ecs": [
+                "powershell.engine.version"
+            ]
+        },
+        "EventID": {
+            "ecs": [
+                "event.code"
+            ]
+        },
+        "FileName": {
+            "ecs": [
+                "file.path"
+            ]
+        },
+        "FileVersion": {
+            "ecs": [
+                "process.pe.file_version",
+                "file.pe.file_version"
+            ]
+        },
+        "HostApplication": {
+            "ecs": [
+                "process.command_line"
+            ]
+        },
+        "HostId": {
+            "ecs": [
+                "process.entity_id"
+            ]
+        },
+        "HostName": {
+            "ecs": [
+                "process.title"
+            ]
+        },
+        "HostVersion": {
+            "ecs": [
+                "powershell.process.executable_version"
+            ]
+        },
+        "Image": {
+            "ecs": [
+                "process.executable"
+            ]
+        },
+        "ImageLoaded": {
+            "ecs": [
+                "file.path"
+            ]
+        },
+        "Imphash": {
+            "ecs": [
+                "file.pe.imphash"
+            ]
+        },
+        "Inititated": {
+            "ecs": [
+                "network.direction"
+            ]
+        },
+        "IpAddress": {
+            "ecs": [
+                "source.ip"
+            ]
+        },
+        "IpPort": {
+            "ecs": [
+                "source.port"
+            ]
+        },
+        "IsExecutable": {
+            "ecs": [
+                "sysmon.file.is_executable"
+            ]
+        },
+        "MessageNumber": {
+            "ecs": [
+                "powershell.sequence"
+            ]
+        },
+        "MessageTotal": {
+            "ecs": [
+                "powershell.total"
+            ]
+        },
+        "NewEngineState": {
+            "ecs": [
+                "powershell.engine.new_state"
+            ]
+        },
+        "NewProcessId": {
+            "ecs": [
+                "process.pid"
+            ]
+        },
+        "NewProcessName": {
+            "ecs": [
+                "process.executable"
+            ]
+        },
+        "NewProviderState": {
+            "ecs": [
+                "powershell.provider.new_state"
+            ]
+        },
+        "OriginalFileName": {
+            "ecs": [
+                "process.pe.original_file_name",
+                "file.pe.original_file_name"
+            ]
+        },
+        "ParentCommandLine": {
+            "ecs": [
+                "process.parent.command_line"
+            ]
+        },
+        "ParentImage": {
+            "ecs": [
+                "process.parent.executable"
+            ]
+        },
+        "ParentProcessGuid": {
+            "ecs": [
+                "process.parent.entity_id"
+            ]
+        },
+        "ParentProcessId": {
+            "ecs": [
+                "process.parent.pid"
+            ]
+        },
+        "ParentProcessName": {
+            "ecs": [
+                "process.parent.name"
+            ]
+        },
+        "PipeName": {
+            "ecs": [
+                "file.name"
+            ]
+        },
+        "PipelineId": {
+            "ecs": [
+                "powershell.pipeline_id"
+            ]
+        },
+        "ProcessGuid": {
+            "ecs": [
+                "process.entity_id"
+            ]
+        },
+        "ProcessId": {
+            "ecs": [
+                "process.pid"
+            ]
+        },
+        "ProcessName": {
+            "ecs": [
+                "process.executable"
+            ]
+        },
+        "Product": {
+            "ecs": [
+                "process.pe.product",
+                "file.pe.product"
+            ]
+        },
+        "Protocol": {
+            "ecs": [
+                "network.transport"
+            ]
+        },
+        "ProviderName": {
+            "ecs": [
+                "powershell.provider.name"
+            ]
+        },
+        "Provider_Name": {
+            "ecs": [
+                "winlog.provider_name"
+            ]
+        },
+        "QueryName": {
+            "ecs": [
+                "dns.question.name"
+            ]
+        },
+        "QueryStatus": {
+            "ecs": [
+                "sysmon.dns.status"
+            ]
+        },
+        "RunspaceId": {
+            "ecs": [
+                "powershell.runspace_id"
+            ]
+        },
+        "ScriptBlockId": {
+            "ecs": [
+                "powershell.file.script_block_id"
+            ]
+        },
+        "ScriptBlockText": {
+            "ecs": [
+                "powershell.file.script_block_text"
+            ]
+        },
+        "ScriptName": {
+            "ecs": [
+                "file.path"
+            ]
+        },
+        "SequenceNumber": {
+            "ecs": [
+                "event.sequence"
+            ]
+        },
+        "ServiceName": {
+            "ecs": [
+                "service.name"
+            ]
+        },
+        "Signed": {
+            "ecs": [
+                "file.code_signature.signed"
+            ]
+        },
+        "Signature": {
+            "ecs": [
+                "file.code_signature.subject_name"
+            ]
+        },
+        "SignatureStatus": {
+            "ecs": [
+                "file.code_signature.status"
+            ]
+        },
+        "SourceAddress": {
+            "ecs": [
+                "source.ip"
+            ]
+        },
+        "SourceHostname": {
+            "ecs": [
+                "source.domain"
+            ]
+        },
+        "SourceImage": {
+            "ecs": [
+                "process.executable"
+            ]
+        },
+        "SourceIp": {
+            "ecs": [
+                "source.ip"
+            ]
+        },
+        "SourcePort": {
+            "ecs": [
+                "source.port"
+            ]
+        },
+        "SourceProcessGuid": {
+            "ecs": [
+                "process.entity_id"
+            ]
+        },
+        "SourceProcessId": {
+            "ecs": [
+                "process.pid"
+            ]
+        },
+        "SourceThreadId": {
+            "ecs": [
+                "process.thread.id"
+            ]
+        },
+        "SubjectDomainName": {
+            "ecs": [
+                "user.domain"
+            ]
+        },
+        "SubjectLogonId": {
+            "ecs": [
+                "winlog.logon.id"
+            ]
+        },
+        "SubjectUserName": {
+            "ecs": [
+                "user.name"
+            ]
+        },
+        "SubjectUserSid": {
+            "ecs": [
+                "user.id"
+            ]
+        },
+        "TargetDomainName": {
+            "ecs": [
+                "user.domain"
+            ]
+        },
+        "TargetFilename": {
+            "ecs": [
+                "file.path"
+            ]
+        },
+        "TargetLogonId": {
+            "ecs": [
+                "winlog.logon.id"
+            ]
+        },
+        "TargetObject": {
+            "ecs": [
+                "registry.path"
+            ]
+        },
+        "User": {
+            "ecs": [
+                "user.name"
+            ]
+        },
+        "WorkstationName": {
+            "ecs": [
+                "source.domain"
+            ]
         }
-      }
     }
-  ]
+  }
 }

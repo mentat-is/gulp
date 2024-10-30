@@ -49,13 +49,12 @@ COLLAB_MAX_NAME_LENGTH = 128
 
 
 class GulpRequestStatus(StrEnum):
-    """Gulp request status codes (used by the stats API)."""
+    """Gulp request status codes."""
 
     ONGOING = "ongoing"
     DONE = "done"
     FAILED = "failed"
     CANCELED = "canceled"
-    DONE_WITH_ERRORS = "done_with_errors"
 
 
 class GulpUserPermission(Flag):

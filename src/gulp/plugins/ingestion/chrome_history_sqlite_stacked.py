@@ -111,7 +111,7 @@ class Plugin(PluginBase):
             await self.initialize()(index, source, skip_mapping=True)
             mod = gulp_plugin.load_plugin("sqlite", **kwargs)
         except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
             return await self._finish_ingestion(
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )

@@ -101,7 +101,7 @@ class Plugin(PluginBase):
                     fs = self._record_failed(fs, message, source, ex)
 
         except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
 
         # done
         return await self._finish_ingestion(

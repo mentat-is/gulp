@@ -46,6 +46,7 @@ class GulpStatsBase(GulpCollabBase):
     __abstract__ = True
 
     def __init__(self, *args, **kwargs):
+        self._buffer = {}
         if type(self) is GulpStatsBase:
             raise TypeError("GulpStatsBase cannot be instantiated directly")
 
@@ -178,7 +179,7 @@ class GulpIngestionStats(GulpStatsBase):
 
     def _reset_buffer(self):
         self._buffer = {
-            "errors": {},
+            "errors": [],
             "source_processed": 0,
             "source_total": 0,
             "source_failed": 0,
@@ -219,9 +220,8 @@ class GulpIngestionStats(GulpStatsBase):
 
     def _update_buffered(
         self,
-        errors: dict[str, list[str]] = None,
+        error: str | Exception = None,
         source_processed: int = 0,
-        source_total: int = 0,
         source_failed: int = 0,
         records_failed: int = 0,
         records_skipped: int = 0,
@@ -230,20 +230,16 @@ class GulpIngestionStats(GulpStatsBase):
         """
         Updates the buffered statistics with the provided values.
         """
-        target_buffer = self._buffer
-        target_buffer["source_processed"] += source_processed
-        target_buffer["source_total"] += source_total
-        target_buffer["source_failed"] += source_failed
-        target_buffer["records_failed"] += records_failed
-        target_buffer["records_skipped"] += records_skipped
-        target_buffer["records_processed"] += records_processed
-        if errors:
-            for k, v in errors:
-                if k not in target_buffer["errors"]:
-                    target_buffer["errors"][k] = []
-                for e in v:
-                    if e not in target_buffer["errors"][k]:
-                        target_buffer["errors"][k].append(e)
+        self._buffer["source_processed"] += source_processed
+        self._buffer["source_failed"] += source_failed
+        self._buffer["records_failed"] += records_failed
+        self._buffer["records_skipped"] += records_skipped
+        self._buffer["records_processed"] += records_processed
+        if error:
+            if isinstance(error, Exception):
+                error = str(error)
+            if error not in self._buffer["errors"]:
+                self._buffer["errors"].append(error)
 
     @classmethod
     async def cancel_by_id(cls, id: str, ws_id: str = None) -> None:
@@ -278,15 +274,15 @@ class GulpIngestionStats(GulpStatsBase):
     async def update(
         self,
         status: GulpRequestStatus = GulpRequestStatus.ONGOING,
-        errors: dict[str, list[str]] = None,
+        error: str | Exception = None,
         source_processed: int = 0,
-        source_total: int = 0,
         source_failed: int = 0,
         records_failed: int = 0,
         records_skipped: int = 0,
         records_processed: int = 0,
         ws_id: str = None,
         throw_if_not_found: bool = True,
+        force_flush: bool = False,
     ) -> None:
         """
         Asynchronously updates the status and statistics of a Gulp request.
@@ -294,29 +290,34 @@ class GulpIngestionStats(GulpStatsBase):
             status (GulpRequestStatus, optional): The current status of the request. Defaults to GulpRequestStatus.ONGOING.
             errors (dict[str, list[str]], optional): A dictionary of errors encountered during processing. Defaults to None.
             source_processed (int, optional): The number of sources processed. Defaults to 0.
-            source_total (int, optional): The total number of sources. Defaults to 0.
             source_failed (int, optional): The number of sources that failed. Defaults to 0.
             records_failed (int, optional): The number of records that failed. Defaults to 0.
             records_skipped (int, optional): The number of records that were skipped. Defaults to 0.
             records_processed (int, optional): The number of records that were processed. Defaults to 0.
             ws_id (str, optional): The workspace ID. Defaults to None.
             throw_if_not_found (bool, optional): Whether to throw an exception if the request is not found. Defaults to True.
+            force_flush (bool, optional): Whether to force the flush of the buffered statistics. Defaults to False.
         Returns:
             None
         """
 
         # update buffer and status
         self._update_buffered(
-            errors=errors,
+            error=error,
             source_processed=source_processed,
-            source_total=source_total,
             source_failed=source_failed,
             records_failed=records_failed,
             records_skipped=records_skipped,
             records_processed=records_processed,
         )
         self.status = status
-        done: bool = False
+        done: bool = force_flush
+
+        if self.source_processed == self.source_total:
+            logger().debug(
+                "source_processed == source_total, setting status to DONE: %s" % (self)
+            )
+            self.status = GulpRequestStatus.DONE
 
         # check threshold
         threshold = config.stats_update_threshold()
@@ -334,6 +335,7 @@ class GulpIngestionStats(GulpStatsBase):
             )
             self.status = GulpRequestStatus.FAILED
 
+        
         if status in [
             GulpRequestStatus.CANCELED,
             GulpRequestStatus.FAILED,
@@ -341,28 +343,26 @@ class GulpIngestionStats(GulpStatsBase):
         ]:
             self.time_finished = muty.time.now_msec()
             done = True
-            logger().debug("request finished, setting final status: %s" % (self))
+            logger().debug("request is finished: %s" % (self))
 
-        if self.source_processed % threshold == 0 or done:
+        if self.records_processed % threshold == 0 or done:
             # time to update on the storage
             async with await session() as sess:
                 # be sure to read the latest version from db
                 sess.add(self)
                 await sess.refresh(self)
 
-                # add totals
-                self._update_buffered(
-                    errors=self.errors,
-                    source_processed=self.source_processed,
-                    source_total=self.source_total,
-                    source_failed=self.source_failed,
-                    records_failed=self.records_failed,
-                    records_skipped=self.records_skipped,
-                    records_processed=self.records_processed,
-                )
+                # add buffered values to the instance
+                self.source_processed += self._buffer["source_processed"]
+                self.source_failed += self._buffer["source_failed"]
+                self.records_failed += self._buffer["records_failed"]
+                self.records_skipped += self._buffer["records_skipped"]
+                self.records_processed += self._buffer["records_processed"]
+                for e in self._buffer["errors"]:
+                    if e not in self.errors:
+                        self.errors.append(e)
 
-                # write on db
-                del self._buffer
+                # update the instance
                 await super().update_by_id(
                     self.id,
                     self.to_dict(),
@@ -371,4 +371,7 @@ class GulpIngestionStats(GulpStatsBase):
                     sess,
                     throw_if_not_found=throw_if_not_found,
                 )
+
+                # TODO: update ws
+                
                 self._reset_buffer()

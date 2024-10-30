@@ -5,6 +5,7 @@ from typing import Any, Dict, Literal, Optional, Set, Union, TypeVar, override
 import muty.crypto
 import muty.dict
 import muty.string
+import muty.time
 from pydantic import BaseModel, Field, model_validator
 
 from gulp.api.mapping.models import GulpMappingField
@@ -353,7 +354,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
 
 class GulpAssociatedDocument(BaseModel):
     """
-    base class for Gulp documents.
+    a stripped down version of a Gulp document, used to associate documents with a note/link
     """
 
     id: Optional[str] = Field(
@@ -372,19 +373,20 @@ class GulpDocument(BaseModel):
     """
 
     id: str = Field(
-        description='"_id": the unique identifier of the document.', alias="_id"
+        None, description='"_id": the unique identifier of the document.', alias="_id"
     )
     hash: str = Field(
-        description='"event.hash": the hash of the event.', alias="event.hash"
+        None, description='"event.hash": the hash of the event.', alias="event.hash"
     )
-    gulp_event_code: int = Field(
-        description='"gulp.event_code": the event code as an integer.',
-        alias="gulp.event_code",
-    )
-    timestamp: int = Field(
+    timestamp: str = Field(
         ...,
-        description='"@timestamp": document original timestamp in nanoseconds from unix epoch',
+        description='"@timestamp": document original timestamp.',
         alias="@timestamp",
+    )
+    gulp_timestamp: int = Field(
+        0,
+        description='"gulp.timestamp": "@timestamp" as nanoseconds from unix epoch (this is used by the UI only).',
+        alias="gulp.timestamp",
     )
     operation: str = Field(
         ...,
@@ -416,6 +418,10 @@ class GulpDocument(BaseModel):
         description='"event.code": the event code, "0" if missing.',
         alias="event.code",
     )
+    gulp_event_code: Optional[int] = Field(
+        0, description='"gulp.event_code": "event.code" as integer.',
+        alias="gulp.event_code",
+    )
     event_duration: Optional[int] = Field(
         1,
         description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
@@ -430,7 +436,7 @@ class GulpDocument(BaseModel):
     @override
     def __init__(
         self,
-        timestamp: int,
+        timestamp: str,
         operation: str,
         context: str,
         agent_type: str,
@@ -442,12 +448,18 @@ class GulpDocument(BaseModel):
         **kwargs,
     ) -> None:
         super().__init__()
-        self.timestamp = timestamp
+        self.timestamp = str(timestamp)
         if not self.timestamp:
             # flag as invalid
             self.invalid_timestamp = True
-            self.timestamp = 0
-
+            self.timestamp = None
+            self.gulp_timestamp = 0
+        else:
+            # convert to nanosec
+            if self.timestamp.isnumeric():
+                self.gulp_timestamp = int(self.timestamp)
+            else:
+                self.gulp_timestamp = muty.time.string_to_epoch_nsec(self.timestamp)
         self.operation = operation
         self.context = context
         self.agent_type = agent_type
@@ -473,7 +485,7 @@ class GulpDocument(BaseModel):
             setattr(self, k, v)
 
     def __repr__(self) -> str:
-        return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
+        return f"GulpDocument(timestamp={self.timestamp}, gulp.timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
 
     def to_dict(self, lite: bool = False) -> dict:
         d = self.model_dump(exclude_none=True, exclude_unset=True)
@@ -483,6 +495,7 @@ class GulpDocument(BaseModel):
                 if k not in [
                     "_id",
                     "@timestamp",
+                    "gulp.timestamp"
                     "gulp.context",
                     "gulp.operation",
                     "log.file.path",

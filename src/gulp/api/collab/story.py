@@ -1,11 +1,9 @@
-from typing import Optional, Union, override
-from sqlalchemy import Index, String
+from typing import Optional, override
+from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabType, GulpCollabObject, T
 from gulp.api.elastic.structs import GulpAssociatedDocument
-from gulp.utils import logger
 
 
 class GulpStory(GulpCollabObject):

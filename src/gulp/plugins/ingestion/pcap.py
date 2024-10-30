@@ -240,7 +240,7 @@ class Plugin(PluginBase):
                 plugin_params=plugin_params,
             )
         except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
             return await self._finish_ingestion(
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
@@ -272,7 +272,7 @@ class Plugin(PluginBase):
             # TODO: support other scapy file readers like ERF?
         except Exception as ex:
             # cannot parse this file at all
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
             return await self._finish_ingestion(
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
@@ -308,7 +308,7 @@ class Plugin(PluginBase):
                     fs = self._record_failed(fs, pkt, source, ex)
 
         except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
 
         # done
         return await self._finish_ingestion(

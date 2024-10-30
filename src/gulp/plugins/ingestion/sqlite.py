@@ -234,7 +234,7 @@ class Plugin(PluginBase):
                 custom_mapping, plugin_params
             )
         except InvalidArgument as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
             return await self._finish_ingestion(
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
@@ -248,7 +248,7 @@ class Plugin(PluginBase):
                 )
             )
         except Exception as e:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
             return await self._finish_ingestion(
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
@@ -397,7 +397,7 @@ class Plugin(PluginBase):
                                 fs = self._record_failed(fs, row, source, ex)
 
         except Exception as ex:
-            fs = self._parser_failed(fs, source, ex)
+            fs = self._source_failed(fs, source, ex)
 
         # done
         return await self._finish_ingestion(

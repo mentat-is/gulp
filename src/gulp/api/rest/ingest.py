@@ -39,18 +39,6 @@ from gulp.utils import logger
 _app: APIRouter = APIRouter()
 
 
-def _handle_plugin_params(plugin_params: GulpPluginParams) -> None:
-    logger().debug("plugin_params: %s" % (plugin_params))
-
-    if plugin_params is None:
-        return
-
-    if plugin_params.config_override is not None:
-        # apply cfg overrides
-        for k, v in plugin_params.config_override.items():
-            config.override_runtime_parameter(k, v)
-
-
 async def _check_parameters(
     token: str,
     req_id: str,
@@ -231,12 +219,6 @@ def _get_ingest_payload(
         plugin_params = GulpPluginParams()
     else:
         plugin_params = GulpPluginParams.from_dict(plugin_params)
-    _handle_plugin_params(plugin_params)
-
-    if plugin_params.config_override is not None:
-        # apply cfg overrides
-        for k, v in plugin_params.config_override.items():
-            config.override_runtime_parameter(k, v)
 
     logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
     return plugin_params, flt
@@ -632,9 +614,6 @@ if __debug__:
             operation_id=operation_id,
             client_id=client_id,
         )
-
-        if plugin_params is not None:
-            _handle_plugin_params(plugin_params)
 
         # process in background (may need to wait for pool space)
         coro = workers.ingest_directory_task(

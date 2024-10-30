@@ -21,10 +21,14 @@ async def testbed():
     class TestPydanticClass(BaseModel):
         class Config:
             extra = "allow"
-
-        field2: str = Field(None, description="test field1")
-        field1: int = Field(None, description="test field2")
-
+        field_required: dict = Field(..., description="required field", min_length=1)
+        field2: str = Field("default", description="test field1")
+        field1: int = Field("default", description="test field2")
+        
+        def __init__(self, **data):
+            super().__init__(**data)
+            self.field2 = "changed"
+            
     class TestPydanticDerivedClass(TestPydanticClass):
         field3: str = Field(None, description="test field3")
 
@@ -67,10 +71,13 @@ async def testbed():
 
     # t = TestOrm()
     # t.to_dict()
-    p = TestPydanticClass(field1=1, field2="test", missing_field="aaa")
+    p = TestPydanticClass(field1=1, another_field="aaa", field_required={"a": 1})
     print(p)
+    return
     d = p.model_dump()
     print(d)
+    d={}
+    print('validating...')
     pp = TestPydanticClass.model_validate(d)
     print(pp)
     return
