@@ -494,10 +494,17 @@ def filter_doc_for_ingestion(
 
 
 def _bulk_docs_result_to_ingest_chunk(
-    bulk_docs: list[dict], errors: list[dict] = None
+    bulk_docs: list[tuple[dict, dict]], errors: list[dict] = None
 ) -> list[dict]:
     """
     Extracts the ingested documents from a bulk ingestion result.
+
+    Args:
+        bulk_docs (list[tuple[dict, dict]]): The bulk ingestion documents.
+        errors (list[dict], optional): The errors from the bulk ingestion. Defaults to None.
+
+    Returns:
+        list[dict]: The ingested documents.
     """
     if errors is None:
         return [doc for _, doc in bulk_docs]
@@ -518,7 +525,7 @@ async def ingest_bulk(
     docs: list[dict],
     flt: GulpIngestionFilter = None,
     wait_for_refresh: bool = False,
-) -> tuple[int, int, list[str], list[dict]]:
+) -> tuple[int, int, list[dict]]:
     """
     ingests a list of GulpDocument into Elasticsearch.
 
@@ -533,7 +540,6 @@ async def ingest_bulk(
         tuple:
         - number of skipped (because already existing=duplicated) events
         - number of failed events
-        - failed (errors) array: here, failed means "failed ingesting": this means the event format is wrong for ingestion into elasticsearch and should be fixed
         - list of ingested documents
     """
 
@@ -569,23 +575,19 @@ async def ingest_bulk(
     res = await el.bulk(body=bulk_docs, index=index, params=params, headers=headers)
     skipped = 0
     failed = 0
-    failed_ar = []
+    ingestion_errors = []
     ingested: list[dict] = []
 
-    # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
-
+    # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)            
     if res["errors"]:
+        # count skipped
         skipped = sum(1 for r in res["items"] if r["create"]["status"] == 409)
-        failed_items = [r for r in res["items"] if r["create"]["status"] not in [201, 200, 409]]
-        failed = len(failed_items)
-        failed_ar = [
-            f"elastic.bulk.errors.items.create.status={item['create']}, error={item['create'].get('error', None)}"
-            for item in failed_items
-        ]
+        # count failed
+        failed = sum(1 for r in res["items"] if r["create"]["status"] not in [201, 200, 409])
         if failed > 0:
             logger().error(
-                "failed to ingest documents: %s, docs=%s"
-                % (failed_items, muty.string.make_shorter(str(bulk_docs), max_len=10000))
+                "failed to ingest documents: %s"
+                % (muty.string.make_shorter(str(res["items"]), max_len=10000))
             )
 
         # take only the documents with no ingest errors
@@ -601,7 +603,7 @@ async def ingest_bulk(
         )
     if failed > 0:
         logger().critical("failed is set, ingestion format needs to be fixed!")
-    return skipped, failed, failed_ar, ingested
+    return skipped, failed, ingested
 
 
 async def rebase(
@@ -611,18 +613,28 @@ async def rebase(
     msec_offset: int,
     flt: GulpQueryFilter = None,
 ) -> dict:
+    """
+    Rebase documents from one Elasticsearch index to another with a timestamp offset.
+    Args:
+        el (AsyncElasticsearch): The Elasticsearch client instance.
+        index (str): The source index name.
+        dest_index (str): The destination index name.
+        msec_offset (int): The offset in milliseconds to adjust the '@timestamp' field.
+        flt (GulpQueryFilter, optional): A filter to apply to the query. Defaults to None.
+    Returns:
+        dict: The response from the Elasticsearch reindex operation.
+    
+    """    
     logger().debug(
         "rebase index %s to %s with offset=%d, flt=%s ..."
         % (index, dest_index, msec_offset, flt)
     )
     q = gulpqueryflt_to_elastic_dsl(flt)
     convert_script = """
-        if ( ctx._source["@timestamp"] != 0 ) {
-            ctx._source["@timestamp"] = ctx._source["@timestamp"] + params.msec_offset;
-            long nsec_offset = (long)params.msec_offset * params.multiplier;
-            long nsec = ctx._source["gulp.timestamp.nsec"] + nsec_offset;
-            ctx._source["gulp.timestamp.nsec"] = (long)nsec;
-        }
+        if (ctx._source['@timestamp'] != 0) {
+            ctx._source['@timestamp'] += params.nsec_offset;
+            ctx._source['gulp.timestamp'] += params.nsec_offset;
+        }    
     """
 
     body: dict = {
@@ -632,8 +644,7 @@ async def rebase(
             "lang": "painless",
             "source": convert_script,
             "params": {
-                "msec_offset": msec_offset,
-                "multiplier": muty.time.MILLISECONDS_TO_NANOSECONDS,
+                "nsec_offset": msec_offset*muty.time.MILLISECONDS_TO_NANOSECONDS,
             },
         },
     }

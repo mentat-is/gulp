@@ -966,18 +966,13 @@ class PluginBase(ABC):
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
     ) -> GulpIngestionStats:
-        """
-        NOTE: errors appended by this function are intended as INGESTION errors:
-        it means something wrong with the format of the event, and must be fixed ASAP if this happens.
-        ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
-        """
         if len(self.buffer) == 0:
             # already flushed
             return fs
 
         # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
         processed = len(self.buffer)
-        skipped, failed, failed_ar, ingested_docs = await elastic_api.ingest_bulk(
+        skipped, ingestion_failed, ingested_docs = await elastic_api.ingest_bulk(
             elastic_api.elastic(),
             index,
             self.buffer,
@@ -986,17 +981,22 @@ class PluginBase(ABC):
         )
         # print(json.dumps(ingested_docs, indent=2))
 
-        if failed > 0:
+        if ingestion_failed > 0:
+            """
+            NOTE: errors appended by this function are intended as INGESTION errors:
+            it means something wrong with the format of the event, and must be fixed ASAP if this happens.
+            ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
+            """
             if config.debug_abort_on_elasticsearch_ingestion_error():
                 raise Exception(
                     "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
                 )
 
         # update stats
-        stats = await stats.update()
-        self.buffer = []
+        stats = await stats.update(records_skipped=skipped, records_failed=ingestion_failed, records_processed=ingested_docs,
+                                ws_id=ws_id, force_flush=True)
 
-        # build ingestion chunk
+        # send ingested docs to websocket
         ws_docs = self._build_ingestion_chunk_for_ws(ingested_docs, flt)
 
         # send ingested docs to websocket
@@ -1010,9 +1010,9 @@ class PluginBase(ABC):
 
         # update stats
         fs = fs.update(
-            failed=failed,
+            failed=ingestion_failed,
             skipped=skipped,
-            ingest_errors=failed_ar,
+            ingest_errors=ingestion_errors,
         )
         return fs
 
