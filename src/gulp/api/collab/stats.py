@@ -1,7 +1,9 @@
 from typing import Optional, Union, override
 import muty.log
 import muty.time
-from sqlalchemy import BIGINT, ForeignKey, Index, Integer, String
+from opensearchpy import Field
+from pydantic import BaseModel
+from sqlalchemy import BIGINT, ForeignKey, Index, Integer, String, ARRAY
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -10,7 +12,7 @@ from gulp import config
 from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus, GulpCollabBase, T
 from gulp.api.collab_api import session
 from gulp.utils import logger
-
+from dotwiz import DotWiz
 
 class GulpStatsBase(GulpCollabBase):
     """
@@ -46,7 +48,6 @@ class GulpStatsBase(GulpCollabBase):
     __abstract__ = True
 
     def __init__(self, *args, **kwargs):
-        self._buffer = {}
         if type(self) is GulpStatsBase:
             raise TypeError("GulpStatsBase cannot be instantiated directly")
 
@@ -161,8 +162,8 @@ class GulpIngestionStats(GulpStatsBase):
     """
 
     __tablename__ = GulpCollabType.STATS_INGESTION.value
-    errors: Mapped[Optional[dict]] = mapped_column(
-        JSONB, default=None, doc="The errors that occurred during processing."
+    errors: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY, default=None, doc="The errors that occurred during processing."
     )
     source_processed: Mapped[Optional[int]] = mapped_column(
         Integer, default=0, doc="The number of sources processed."
@@ -182,12 +183,18 @@ class GulpIngestionStats(GulpStatsBase):
     records_processed: Mapped[Optional[int]] = mapped_column(
         Integer, default=0, doc="The number of records that were processed."
     )
-
+    records_ingested: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that were ingested (may be more than records_processed: a single record may originate more than one record to be ingested)."
+    )
     __mapper_args__ = {
         "polymorphic_identity": GulpCollabType.STATS_INGESTION.value,
     }
 
     __table_args__ = (Index("idx_stats_operation", "operation"),)
+
+    def __init__(self, *args, **kwargs):
+        self._buffer: GulpIngestionStats = GulpIngestionStats()
+        super().__init__(*args, **kwargs)
 
     @classmethod
     async def create_or_get(
@@ -226,19 +233,11 @@ class GulpIngestionStats(GulpStatsBase):
         )
 
     def _reset_buffer(self):
-        self._buffer = {
-            "errors": [],
-            "source_processed": 0,
-            "source_total": 0,
-            "source_failed": 0,
-            "records_failed": 0,
-            "records_skipped": 0,
-            "records_processed": 0,
-        }
-
-    def __init__(self, *args, **kwargs):
-        self._reset_buffer()
-        super().__init__(*args, **kwargs)
+        self._buffer.errors = []
+        self._buffer.records_failed = 0
+        self._buffer.records_skipped = 0
+        self._buffer.records_processed = 0
+        self._buffer.records_ingested = 0
 
     def _update_buffered(
         self,
@@ -248,25 +247,29 @@ class GulpIngestionStats(GulpStatsBase):
         records_failed: int = 0,
         records_skipped: int = 0,
         records_processed: int = 0,
+        records_ingested: int = 0,
     ) -> None:
         """
         Updates the buffered statistics with the provided values.
         """
-        self._buffer["source_processed"] += source_processed
-        self._buffer["source_failed"] += source_failed
-        self._buffer["records_failed"] += records_failed
-        self._buffer["records_skipped"] += records_skipped
-        self._buffer["records_processed"] += records_processed
+        self._buffer.source_processed += source_processed
+        self._buffer.source_failed += source_failed
+        self._buffer.records_failed += records_failed
+        self._buffer.records_skipped += records_skipped
+        self._buffer.records_processed += records_processed
+        self._buffer.records_ingested += records_ingested
         if error:
             if isinstance(error, Exception):
                 error = str(error)
+                if error not in self._buffer.errors:
+                    self._buffer.errors.append(error)
             elif isinstance(error, str):
-                if error not in self._buffer["errors"]:
-                    self._buffer["errors"].append(error)
+                if error not in self._buffer.errors:
+                    self._buffer.errors.append(error)
             elif isinstance(error, list[str]):
                 for e in error:
-                    if e not in self._buffer["errors"]:
-                        self._buffer["errors"].append(e)
+                    if e not in self._buffer.errors:
+                        self._buffer.errors.append(e)
 
     @classmethod
     async def cancel_by_id(cls, id: str, ws_id: str = None) -> None:
@@ -308,7 +311,9 @@ class GulpIngestionStats(GulpStatsBase):
         source_failed: int = 0,
         records_failed: int = 0,
         records_skipped: int = 0,
-        records_processed: int = 0) -> dict:
+        records_processed: int = 0,
+        records_ingested: int = 0,
+        ) -> dict:
         """
         Builds the update dictionary for the stats, every field is optional.        
 
@@ -320,6 +325,7 @@ class GulpIngestionStats(GulpStatsBase):
             records_failed (int, optional): The number of records that failed. Defaults to 0.
             records_skipped (int, optional): The number of records that were skipped. Defaults to 0.
             records_processed (int, optional): The number of records that were processed. Defaults to 0.
+            records_ingested (int, optional): The number of records that were ingested. Defaults to 0.
         """
         d = {
             "status": status,
@@ -328,7 +334,8 @@ class GulpIngestionStats(GulpStatsBase):
             "source_failed": source_failed,
             "records_failed": records_failed,
             "records_skipped": records_skipped,
-            "records_processed": records_processed,            
+            "records_processed": records_processed,
+            "records_ingested": records_ingested,
         }
         return d
         
@@ -356,6 +363,7 @@ class GulpIngestionStats(GulpStatsBase):
         records_failed = d.get("records_failed", 0)
         records_skipped = d.get("records_skipped", 0)
         records_processed = d.get("records_processed", 0)
+        records_ingested = d.get("records_ingested", 0)
         status = d.get("status", GulpRequestStatus.ONGOING)
 
         # update buffer and status
@@ -366,6 +374,7 @@ class GulpIngestionStats(GulpStatsBase):
             records_failed=records_failed,
             records_skipped=records_skipped,
             records_processed=records_processed,
+            records_ingested=records_ingested,
         )
         self.status = status
 
@@ -407,12 +416,13 @@ class GulpIngestionStats(GulpStatsBase):
                 await sess.refresh(self)
 
                 # add buffered values to the instance
-                self.source_processed += self._buffer["source_processed"]
-                self.source_failed += self._buffer["source_failed"]
-                self.records_failed += self._buffer["records_failed"]
-                self.records_skipped += self._buffer["records_skipped"]
-                self.records_processed += self._buffer["records_processed"]
-                for e in self._buffer["errors"]:
+                self.source_processed += self._buffer.source_processed
+                self.source_failed += self._buffer.source_failed
+                self.records_failed += self._buffer.records_failed
+                self.records_skipped += self._buffer.records_skipped
+                self.records_processed += self._buffer.records_processed
+                self.records_ingested += self._buffer.records_ingested
+                for e in self._buffer.errors:
                     if e not in self.errors:
                         self.errors.append(e)
 
@@ -425,6 +435,8 @@ class GulpIngestionStats(GulpStatsBase):
                     throw_if_not_found=throw_if_not_found,
                 )
 
-                # TODO: update ws
-
+                if ws_id:
+                    # TODO: update ws
+                    pass
+                
                 self._reset_buffer()

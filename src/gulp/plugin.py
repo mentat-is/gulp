@@ -79,7 +79,7 @@ class PluginBase(ABC):
         super().__init__()
 
         # tell if the plugin has been pickled by the multiprocessing module (internal)
-        self.pickled = pickled
+        self._pickled = pickled
         # plugin file path
         self.path = path
         # for ingestion, the mappings to apply
@@ -87,7 +87,8 @@ class PluginBase(ABC):
         # for ingestion, the key in the mappings dict to be used
         self.mapping_id: str = None
         # for ingestion, the lower plugin record_to_gulp_document function to call (if this is a stacked plugin on top of another)
-        self.lower_record_to_gulp_document=None
+        self._lower_record_to_gulp_document_fun: Callable =None
+
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
         # to have faster access to the plugin file name (without ext)
@@ -97,7 +98,12 @@ class PluginBase(ABC):
         self.name = self.display_name()
 
         # to bufferize gulpdocuments
-        self.buffer: list[dict] = []
+        self._buffer: list[dict] = []
+
+        # to keep track of processed/skipped/failed records
+        self._records_skipped = 0
+        self._records_failed = 0
+        self._records_processed = 0
 
     @abstractmethod
     def display_name(self) -> str:
@@ -233,9 +239,52 @@ class PluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
-    def _set_lower_record_to_gulp_document(self, fun: Callable):
-        self.lower_record_to_gulp_document=fun
+    def _load_lower_plugin(self, plugin: str, ignore_cache: bool=False) -> "PluginBase":
+        """
+        in a stacked plugin, load the lower plugin and set the _lower_record_to_gulp_document_fun to the lower plugin record_to_gulp_document function.
 
+        Args:
+            plugin (str): the plugin to load
+            ignore_cache (bool, optional): ignore cache. Defaults to False.
+        
+        Returns:
+            PluginBase: the loaded plugin
+        """
+        p = load_plugin(plugin, ignore_cache=ignore_cache)        
+        self._lower_record_to_gulp_document_fun=p.record_to_gulp_document
+        return p
+
+    async def _postprocess_gulp_document(d: dict) -> dict:
+        """
+        to be implemented in a stacked plugin to further process a GulpDocument object before ingestion.
+
+        Args:
+            d (dict): the GulpDocument object to process
+        
+        Returns:
+            dict: the processed GulpDocument object
+        """
+        raise NotImplementedError("not implemented!")
+    
+    async def _record_to_documents(self, record: any, record_idx: int, operation: str, context: str, log_file_path: str, stats: GulpIngestionStats=None) -> list[dict]:
+        """
+        this function calls
+        """
+        # first, check if we are in a stacked plugin: 
+        # a stacked plugin have _lower_record_to_gulp_document_fun set
+        if self._lower_record_to_gulp_document_fun:
+            # call lower
+            docs = await self._lower_record_to_gulp_document_fun(record, record_idx, operation, context, log_file_path)
+
+            # post-process docs
+            for d in docs:
+                await self._postprocess_gulp_document(d)
+        else:
+            # call my record_to_gulp_document
+            docs = await self.record_to_gulp_document(record, record_idx, operation, context, log_file_path, stats)
+        
+        return docs 
+    
     async def _process_record(
         self,
         stats: GulpIngestionStats,
@@ -244,39 +293,19 @@ class PluginBase(ABC):
         record: any,
         record_idx: int,
         flt: GulpIngestionFilter = None,
+        wait_for_refresh: bool = False
     ) -> GulpRequestStatus:
-        """
-        Process a record for ingestion, updating ingestion stats.
 
-        stacked plugin:
-        1. call lower.record_to_gulp_document
-        2. call my record_to_gulp_document
-        """
-
-        # convert record to one or more GulpDocument objects
-        docs = await self._call_record_to_gulp_document_funcs(
-            operation_id=operation,
-            client_id=client_id,
-            context=context,
-            source=source,
-            fs=fs,
-            record=record,
-            record_idx=record_idx,
-            custom_mapping=custom_mapping,
-            index_type_mapping=index_type_mapping,
-            plugin=plugin,
-            plugin_params=plugin_params,
-            record_to_gulp_document_fun=my_record_to_gulp_document_fun,
-            **kwargs,
-        )
         ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
+        self._records_processed += 1
+        docs = await self._record_to_documents(record, record_idx, stats.operation, stats.context, stats.source, stats)    
 
         # ingest record
         for d in docs:
-            self.buffer.append(d)
-            if len(self.buffer) >= ingestion_buffer_size:
+            self._buffer.append(d)
+            if len(self._buffer) >= ingestion_buffer_size:
                 # time to flush
-                fs = await self._flush_buffer(index, fs, ws_id, req_id, flt)
+                fs = await self._flush_buffer(index, ws_id, stats.req_id, stats, flt, wait_for_refresh)
 
 
                 status, _ = await GulpStats.update(
@@ -964,60 +993,73 @@ class PluginBase(ABC):
         stats: GulpIngestionStats,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> GulpIngestionStats:
-        processed = len(self.buffer)
-        if len(processed) == 0:
-            # already flushed
-            return stats
+    ) -> None:
+        """
+        flushes the ingestion buffer to openssearch, updating the ingestion stats on the collab db.
 
-        # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-        skipped, ingestion_errors, ingested_docs = await elastic_api.ingest_bulk(
-            elastic_api.elastic(),
-            index,
-            self.buffer,
-            flt=flt,
-            wait_for_refresh=wait_for_refresh,
-        )
-        # print(json.dumps(ingested_docs, indent=2))
+        once updated, the ingestion stats are sent to the websocket.
 
-        if ingestion_errors > 0:
-            """
-            NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
-            ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
-            """
-            if config.debug_abort_on_elasticsearch_ingestion_error():
-                raise Exception(
-                    "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
-                )
+        Args:
+            index (str): The index to flush to.
+            ws_id (str): The websocket ID.
+            stats (GulpIngestionStats): The ingestion stats.
+            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+            wait_for_refresh (bool, optional): Tell opensearch to wait for index refresh. Defaults to False (faster).
 
-        # update stats
-        stats = await stats.update(records_skipped=skipped, records_processed=len(processed),
-                                ws_id=ws_id, force_flush=True)
-
-        # send ingested docs to websocket
-        if flt:
-            # copy filter to avoid changing the original, if any,
-            # ensure data on ws filtered
-            flt = copy(flt)
-            flt.opt_storage_ignore_filter = False
-        ws_docs = self._build_ingestion_chunk_for_ws(ingested_docs, flt)
-
-        # send ingested docs to websocket
-        if len(ws_docs) > 0:
-            ws_api.shared_queue_add_data(
-                WsQueueDataType.INGESTION_CHUNK,
-                req_id,
-                {"plugin": self.display_name(), "events": ws_docs},
-                ws_id=ws_id,
+        """
+        ingested_docs=0
+        if self._buffer:
+            # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
+            skipped, ingestion_errors, ingested_docs = await elastic_api.ingest_bulk(
+                elastic_api.elastic(),
+                index,
+                self._buffer,
+                flt=flt,
+                wait_for_refresh=wait_for_refresh,
             )
+            # print(json.dumps(ingested_docs, indent=2))
+            if ingestion_errors > 0:
+                """
+                NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
+                ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
+                """
+                if config.debug_abort_on_elasticsearch_ingestion_error():
+                    raise Exception(
+                        "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
+                    )
 
+            # update stats
+            self._records_skipped += skipped   
+
+            # send ingested docs to websocket
+            if flt:
+                # copy filter to avoid changing the original, if any,
+                # ensure data on ws filtered
+                flt = copy(flt)
+                flt.opt_storage_ignore_filter = False
+            ws_docs = self._build_ingestion_chunk_for_ws(ingested_docs, flt)
+            if len(ws_docs) > 0:
+                # TODO: send to ws
+                """ws_api.shared_queue_add_data(
+                    WsQueueDataType.INGESTION_CHUNK,
+                    req_id,
+                    {"plugin": self.display_name(), "events": ws_docs},
+                    ws_id=ws_id,
+                )"""
+        
         # update stats
-        fs = fs.update(
-            failed=ingestion_errors,
-            skipped=skipped,
-            ingest_errors=ingestion_errors,
+        d = GulpIngestionStats.build_update_dict(
+            records_skipped=self._records_skipped,
+            records_processed=self.records_processed,
+            records_ingested=len(ingested_docs),
+            records_failed=self._records_failed,
         )
-        return fs
+        
+        await stats.update(d, ws_id=ws_id, force_flush=True)
+        self._buffer = []
+        self._records_skipped = 0
+        self._records_failed = 0
+        
 
     async def _ingest_record(
         self,
@@ -1034,8 +1076,8 @@ class PluginBase(ABC):
         bufferize as much as ingestion_buffer_size, then flush (writes to elasticsearch)
         """
         ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
-        self.buffer.append(doc)
-        if len(self.buffer) >= ingestion_buffer_size and flush_enabled:
+        self._buffer.append(doc)
+        if len(self._buffer) >= ingestion_buffer_size and flush_enabled:
             # time to flush
             fs = await self._flush_buffer(index, fs, ws_id, req_id, flt)
 
@@ -1045,38 +1087,26 @@ class PluginBase(ABC):
         self, stats: GulpIngestionStats, err: str|Exception, ws_id: str, source: str = None,
     ) -> GulpIngestionStats:
         """
-        record source failed (in the ingestion loop), helper to update stats
-
-        Args:
-            stats (GulpIngestionStats): The ingestion statistics.
-            err (str|Exception): The error that caused the failure.
-            ws_id (str): The websocket ID.
-            source (str, optional): The source of the record. Defaults to None.
+        to be called whenever a whole source fails to be ingested, also flushes the ingestion stats.
         """
         logger().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s"
             % (muty.string.make_shorter(str(source), 260), str(err))
         )
-        return await stats.update(error=err, source_failed=1, ws_id=ws_id, force_flush=True)
+        d = GulpIngestionStats.build_update_dict(error=err,source_failed=1)
+        return await stats.update(d, ws_id=ws_id, force_flush=True)
 
-    def _record_failed(
-        self, fs: TmpIngestStats, entry: any, source: str | dict, ex: Exception | str
-    ) -> TmpIngestStats:
-        """
-        record failed ingestion (in the record parser loop), helper to update stats
+    async def _record_failed(
+        self, stats: GulpIngestionStats, err: str|Exception, ws_id: str, source: str = None,
+    ) -> GulpIngestionStats:
+        d = GulpIngestionStats.build_update_dict(error=err,records_failed=1, records_processed=1)
+        return await stats.update(d)
 
-        Args:
-            fs (TmpIngestStats): The temporary ingestion statistics.
-            entry (any): The entry that failed.
-            source (str): The source of the record.
-            ex (Exception|str): The exception that caused the failure.
-        Returns:
-            TmpIngestStats: The updated temporary ingestion statistics.
-        """
-        # logger().exception("RECORD FAILED: source=%s, record=%s, ex=%s" % (muty.string.make_shorter(str(source),260), muty.string.make_shorter(str(entry),260), ex))
-        fs = fs.update(failed=1, ingest_errors=[ex])
-        return fs
+    async def _record_skipped(
+        self, stats: GulpIngestionStats) -> GulpIngestionStats:
+        return await stats.update(records_skipped=1)
 
+    
     async def _finish_ingestion(
         self,
         index: str,

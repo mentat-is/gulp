@@ -248,7 +248,6 @@ class Plugin(PluginBase):
             await self._source_failed(stats, ex, ws_id, source=log_file_path)
             return GulpRequestStatus.FAILED
 
-        ev_idx = 0
         try:
             for rr in parser.records():
                 # process (ingest + update stats)

@@ -16,7 +16,7 @@ from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncAttrs
-
+from dotwiz import DotWiz
 
 async def testbed():
     class TestPydanticClass(BaseModel):
@@ -75,6 +75,13 @@ async def testbed():
             flt=GulpIngestionFilter(opt_storage_ignore_filter=False)
             print('fixed', flt)
         #flt.opt_storage_ignore_filter = False
+
+    t: DotWiz={"a": 1}
+    t.b=2
+    t.c='hello'
+    print(t)
+    return
+
 
     # t = TestOrm()
     # t.to_dict()
