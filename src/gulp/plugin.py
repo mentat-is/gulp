@@ -7,7 +7,7 @@ import os
 from abc import ABC, abstractmethod
 from types import ModuleType
 from typing import Any, Callable
-
+from copy import copy
 import muty.crypto
 import muty.dynload
 import muty.file
@@ -881,11 +881,10 @@ class PluginBase(ABC):
             {
                 "_id": doc["_id"],
                 "@timestamp": doc["@timestamp"],
+                "gulp.timestamp": doc["gulp.timestamp"],
                 "log.file.path": doc["log.file.path"],
                 "event.duration": doc["event.duration"],
                 "gulp.context": doc["gulp.context"],
-                "gulp.log.level": doc.get("gulp.log.level", int(GulpLogLevel.INFO)),
-                "event.category": doc.get("event.category", None),
                 "event.code": doc["event.code"],
                 "gulp.event.code": doc["gulp.event.code"],
             }
@@ -966,12 +965,12 @@ class PluginBase(ABC):
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
     ) -> GulpIngestionStats:
-        if len(self.buffer) == 0:
+        processed = len(self.buffer)
+        if len(processed) == 0:
             # already flushed
             return fs
 
         # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-        processed = len(self.buffer)
         skipped, ingestion_failed, ingested_docs = await elastic_api.ingest_bulk(
             elastic_api.elastic(),
             index,
@@ -993,10 +992,15 @@ class PluginBase(ABC):
                 )
 
         # update stats
-        stats = await stats.update(records_skipped=skipped, records_failed=ingestion_failed, records_processed=ingested_docs,
+        stats = await stats.update(records_skipped=skipped, records_processed=len(processed),
                                 ws_id=ws_id, force_flush=True)
 
         # send ingested docs to websocket
+        if flt:
+            # copy filter to avoid changing the original, if any, 
+            # ensure data on ws filtered
+            flt = copy(flt)
+            flt.opt_storage_ignore_filter = False
         ws_docs = self._build_ingestion_chunk_for_ws(ingested_docs, flt)
 
         # send ingested docs to websocket

@@ -475,7 +475,7 @@ def filter_doc_for_ingestion(
     """
     # logger().error(flt)
     if not flt or flt.opt_storage_ignore_filter:
-        # empty filter or store_all_documents is set
+        # empty filter or ignore
         return GulpEventFilterResult.ACCEPT
 
     is_gulp_doc = isinstance(doc, GulpDocument)
@@ -485,7 +485,7 @@ def filter_doc_for_ingestion(
     else:
         dd = doc
 
-    if flt.time_range is not None:
+    if flt.time_range:
         ts = dd["gulp.timestamp"]
         if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
             return GulpEventFilterResult.SKIP
@@ -497,7 +497,7 @@ def _bulk_docs_result_to_ingest_chunk(
     bulk_docs: list[tuple[dict, dict]], errors: list[dict] = None
 ) -> list[dict]:
     """
-    Extracts the ingested documents from a bulk ingestion result.
+    Extracts the ingested documents from a bulk ingestion result, excluding the ones that failed.
 
     Args:
         bulk_docs (list[tuple[dict, dict]]): The bulk ingestion documents.
@@ -560,7 +560,7 @@ async def ingest_bulk(
 
     timeout = config.ingestion_request_timeout()
 
-    # opensearch version
+    # bulk ingestion
     params = None
     if wait_for_refresh:
         params = {"refresh": "wait_for", "timeout": timeout}
@@ -571,11 +571,9 @@ async def ingest_bulk(
         "accept": "application/json",
         "content-type": "application/x-ndjson",
     }
-
     res = await el.bulk(body=bulk_docs, index=index, params=params, headers=headers)
     skipped = 0
     failed = 0
-    ingestion_errors = []
     ingested: list[dict] = []
 
     # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)            

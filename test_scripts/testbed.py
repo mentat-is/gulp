@@ -9,6 +9,7 @@ import muty.json
 from gulp import config
 from typing import Optional, TypeVar
 from gulp.api.collab.structs import GulpCollabType
+from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.utils import logger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
@@ -69,8 +70,21 @@ async def testbed():
             print(TestOrm)
             print(cls.__name__)
 
+    def test_fun(flt: GulpIngestionFilter):
+        if flt:
+            flt=GulpIngestionFilter(opt_storage_ignore_filter=False)
+            print('fixed', flt)
+        #flt.opt_storage_ignore_filter = False
+
     # t = TestOrm()
     # t.to_dict()
+    flt=GulpIngestionFilter(opt_storage_ignore_filter=True)
+    flt.time_range = {"start": 0, "end": 1}
+    #for i in range(10):
+    test_fun(flt)
+    print('original', flt)
+    return
+
     p = TestPydanticClass(field1=1, another_field="aaa", field_required={"a": 1})
     print(p)
     return
