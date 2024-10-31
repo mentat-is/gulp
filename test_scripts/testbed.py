@@ -54,7 +54,7 @@ async def testbed():
             "polymorphic_on": "type",
         }
 
-    class TestOrm(TestOrmBase):
+    class TestOrm(TestOrmBase):        
         __tablename__ = "testorm"
         id: Mapped[int] = mapped_column(ForeignKey("testorm_base.id"), primary_key=True)
         time_updated: Mapped[Optional[int]] = mapped_column(

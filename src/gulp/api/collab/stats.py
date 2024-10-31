@@ -85,12 +85,28 @@ class GulpStatsBase(GulpCollabBase):
         owner: str,
         ws_id: str = None,
         req_id: str = None,
-        operation: str = None,
-        context: str = None,
-        ws_id: str = None,
-        req_id: str = None,
+        sess: AsyncSession = None,
         **kwargs,
     ) -> T:
+        """
+        Asynchronously creates a new GulpStats subclass instance
+        Args:
+            id (str): The unique identifier for the instance.
+            type (GulpCollabType): The type of the collaboration.
+            owner (str): The owner of the instance.
+            ws_id (str, optional): The workspace ID. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None.
+            sess (AsyncSession, optional): The asynchronous session. Defaults to None.
+            **kwargs: Additional keyword arguments.
+        Keyword Args:
+            operation (str, optional): The operation. Defaults to None.
+            context (str, optional): The context of the operation. Defaults to None.
+        Returns:
+            T: The created instance.
+        """
+        
+        operation: str = kwargs.get("operation", None)
+        context: str = kwargs.get("context", None)
 
         # configure expiration
         time_expire = config.stats_ttl() * 1000
@@ -105,44 +121,36 @@ class GulpStatsBase(GulpCollabBase):
         }
         return await super()._create(
             id,
-            GulpCollabType.STATS_INGESTION,
+            type,
             owner,
             ws_id,
             req_id,
+            sess,
             **args,
         )
 
-    @staticmethod
-    async def create_or_get(
+    @classmethod
+    async def _create_or_get(
+        cls,
         id: str,
         owner: str,
         operation: str = None,
         context: str = None,
-        sess: AsyncSession = None,
+        sess: AsyncSession = None,        
         **kwargs,
     ) -> T:
-        """
-        Create new or get an existing GulpStats record.
-
-        Args:
-            id (str): The unique identifier of the stats (= "req_id" from the request)
-            owner (str): The owner of the stats.
-            operation (str, optional): The operation associated with the stats. Defaults to None.
-            context (str, optional): The context associated with the stats. Defaults to None.
-            sess (AsyncSession, optional): The database session. Defaults to None.
-            kwargs: Additional keyword arguments.
-        Returns:
-            GulpStats: The created CollabStats object.
-        """
-        existing = await GulpIngestionStats.get_one_by_id(
-            id, sess=sess, throw_if_not_found=False
-        )
+        existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
         if existing:
             return existing
 
         # create new
-        stats = await GulpIngestionStats._create(
-            id=id, owner=owner, operation=operation, context=context, **kwargs
+        stats = await cls._create(
+            id=id,
+            type=GulpCollabType(cls.__tablename__),
+            owner=owner,
+            operation=operation,
+            context=context,
+            **kwargs,
         )
         return stats
 
@@ -181,6 +189,42 @@ class GulpIngestionStats(GulpStatsBase):
 
     __table_args__ = (Index("idx_stats_operation", "operation"),)
 
+    @classmethod
+    async def create_or_get(
+        cls,
+        id: str,
+        owner: str,
+        operation: str = None,
+        context: str = None,
+        source_total: int = 0,
+        sess: AsyncSession = None,
+        **kwargs,
+    ) -> T:
+        """
+        Create new or get an existing GulpIngestionStats record.
+
+        Args:
+            id (str): The unique identifier of the stats (= "req_id" from the request)
+            owner (str): The owner of the stats.
+            operation (str, optional): The operation associated with the stats. Defaults to None.
+            context (str, optional): The context associated with the stats. Defaults to None.
+            sess (AsyncSession, optional): The database session. Defaults to None.
+            kwargs: Additional keyword arguments.
+        Keyword Args:
+            source_total (int, optional): The total number of sources to be processed. Defaults to 0.
+        Returns:
+            GulpIngestionStats: The created CollabStats object.
+        """
+        return await cls._create_or_get(
+            id,
+            owner,
+            operation,
+            context,
+            sess,
+            source_total=source_total,
+            **kwargs,
+        )
+
     def _reset_buffer(self):
         self._buffer = {
             "errors": [],
@@ -195,32 +239,6 @@ class GulpIngestionStats(GulpStatsBase):
     def __init__(self, *args, **kwargs):
         self._reset_buffer()
         super().__init__(*args, **kwargs)
-
-    @override
-    @classmethod
-    async def _create(
-        cls,
-        id: str,
-        owner: str,
-        operation: str = None,
-        context: str = None,
-        source_total: int = 0,
-        ws_id: str = None,
-        req_id: str = None,
-        sess: AsyncSession = None,
-        **kwargs,
-    ) -> T:
-        args = {"source_total": source_total}
-        return await super()._create(
-            id,
-            owner,
-            operation,
-            context,
-            ws_id,
-            req_id,
-            sess,
-            **args,
-        )
 
     def _update_buffered(
         self,
@@ -242,8 +260,13 @@ class GulpIngestionStats(GulpStatsBase):
         if error:
             if isinstance(error, Exception):
                 error = str(error)
-            if error not in self._buffer["errors"]:
-                self._buffer["errors"].append(error)
+            elif isinstance(error, str):
+                if error not in self._buffer["errors"]:
+                    self._buffer["errors"].append(error)
+            elif isinstance(error, list[str]):
+                for e in error:
+                    if e not in self._buffer["errors"]:
+                        self._buffer["errors"].append(e)
 
     @classmethod
     async def cancel_by_id(cls, id: str, ws_id: str = None) -> None:
@@ -252,12 +275,13 @@ class GulpIngestionStats(GulpStatsBase):
 
         Args:
             id (str): The request ID.
-            ws_id (str, optional): The workspace ID. Defaults to None.
+            ws_id (str, optional): The websocket ID. Defaults to None.
         """
         await cls.update_by_id(
             id,
-            status=GulpRequestStatus.CANCELED,
+            {"status": GulpRequestStatus.CANCELED},
             ws_id=ws_id,
+            req_id=id,
             throw_if_not_found=False,
         )
 
@@ -265,45 +289,74 @@ class GulpIngestionStats(GulpStatsBase):
         """
         Camcels the current request.
         Args:
-            ws_id (str, optional): The workspace ID. Defaults to None.
+            ws_id (str, optional): The websocket ID. Defaults to None.
         Returns:
             None
         """
         await self.update(
-            status=GulpRequestStatus.CANCELED,
+            {"status": GulpRequestStatus.CANCELED},
             ws_id=ws_id,
+            req_id=self.id,
             throw_if_not_found=False,
+            force_flush=True,
         )
-
-    async def update(
-        self,
-        status: GulpRequestStatus = GulpRequestStatus.ONGOING,
-        error: str | Exception = None,
+    @staticmethod
+    def build_update_dict(
+        status: GulpRequestStatus = None,
+        error: str | list[str] | Exception = None,
         source_processed: int = 0,
         source_failed: int = 0,
         records_failed: int = 0,
         records_skipped: int = 0,
-        records_processed: int = 0,
+        records_processed: int = 0) -> dict:
+        """
+        Builds the update dictionary for the stats, every field is optional.        
+
+        Args:
+            status (GulpRequestStatus, optional): The status of the request. Defaults to None.
+            error (str | list[str] | Exception, optional): The error message to append. Defaults to None.
+            source_processed (int, optional): The number of sources processed. Defaults to 0.
+            source_failed (int, optional): The number of sources that failed. Defaults to 0.
+            records_failed (int, optional): The number of records that failed. Defaults to 0.
+            records_skipped (int, optional): The number of records that were skipped. Defaults to 0.
+            records_processed (int, optional): The number of records that were processed. Defaults to 0.
+        """
+        d = {
+            "status": status,
+            "error": error,
+            "source_processed": source_processed,
+            "source_failed": source_failed,
+            "records_failed": records_failed,
+            "records_skipped": records_skipped,
+            "records_processed": records_processed,            
+        }
+        return d
+        
+    @override
+    async def update(
+        self,
+        d: dict,
         ws_id: str = None,
+        req_id: str = None,
         throw_if_not_found: bool = True,
         force_flush: bool = False,
     ) -> None:
         """
         Asynchronously updates the status and statistics of a Gulp request.
         Args:
-            status (GulpRequestStatus, optional): The current status of the request. Defaults to GulpRequestStatus.ONGOING.
-            errors (dict[str, list[str]], optional): A dictionary of errors encountered during processing. Defaults to None.
-            source_processed (int, optional): The number of sources processed. Defaults to 0.
-            source_failed (int, optional): The number of sources that failed. Defaults to 0.
-            records_failed (int, optional): The number of records that failed. Defaults to 0.
-            records_skipped (int, optional): The number of records that were skipped. Defaults to 0.
-            records_processed (int, optional): The number of records that were processed. Defaults to 0.
-            ws_id (str, optional): The workspace ID. Defaults to None.
-            throw_if_not_found (bool, optional): Whether to throw an exception if the request is not found. Defaults to True.
-            force_flush (bool, optional): Whether to force the flush of the buffered statistics. Defaults to False.
-        Returns:
-            None
+            d (dict): The dictionary containing the updated values.
+            ws_id (str, optional): The websocket ID. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None.
+            throw_if_not_found (bool, optional): If set, an exception is raised if the request is not found. Defaults to True.
+            force_flush (bool, optional): If set, the request is flushed to the storage. Defaults to False.
         """
+        error = d.get("error", None)
+        source_processed = d.get("source_processed", 0)
+        source_failed = d.get("source_failed", 0)
+        records_failed = d.get("records_failed", 0)
+        records_skipped = d.get("records_skipped", 0)
+        records_processed = d.get("records_processed", 0)
+        status = d.get("status", GulpRequestStatus.ONGOING)
 
         # update buffer and status
         self._update_buffered(
@@ -337,7 +390,6 @@ class GulpIngestionStats(GulpStatsBase):
             )
             self.status = GulpRequestStatus.FAILED
 
-
         if status in [
             GulpRequestStatus.CANCELED,
             GulpRequestStatus.FAILED,
@@ -365,8 +417,7 @@ class GulpIngestionStats(GulpStatsBase):
                         self.errors.append(e)
 
                 # update the instance
-                await super().update_by_id(
-                    self.id,
+                await super().update(
                     self.to_dict(),
                     ws_id,
                     self.id,

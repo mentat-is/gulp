@@ -22,7 +22,6 @@ class GulpStory(GulpCollabObject):
 
     __mapper_args__ = {"polymorphic_identity": GulpCollabType.STORY.value}
 
-    @override
     @classmethod
     async def create(
         cls,

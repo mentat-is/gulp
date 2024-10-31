@@ -347,7 +347,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the creation or storage process.
         """
 
-        # create instance
+        # create instance (calls the __init__ method)
         instance = cls(id, type, owner, 0, 0, **kwargs)
         committed = False
         if sess is not None:
