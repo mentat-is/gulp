@@ -85,7 +85,7 @@ async def initialize_custom_directories():
         != pathlib.Path(custom_plugins_path).resolve()
     ):
         # we will use custom_plugins_path so, copy the whole directory there
-        
+
         if not await aiofiles.ospath.exists(custom_plugins_path):
             logger().info(
                 "copying plugins to custom directory: %s" % (custom_plugins_path)
@@ -132,7 +132,7 @@ def check_path_index_template_override() -> bool:
 def bind_to() -> tuple[str,int]:
     """
     Returns the bind address and port.
-    
+
     Returns:
         tuple[str,int]: the bind address and port
     """
@@ -147,7 +147,7 @@ def bind_to() -> tuple[str,int]:
     splitted = p.split(":")
     if len(splitted) != 2:
         raise ValueError("invalid bind_to format: %s" % (p))
-    
+
     return (splitted[0], int(splitted[1]))
 
 def path_index_template() -> str:
@@ -158,35 +158,35 @@ def path_index_template() -> str:
     if p is None:
         p = _config.get("path_index_template", None)
     if p is None:
-        # return the default path        
+        # return the default path
         logger().warning("path_index_template not set, using default.")
         p = impresources.files("gulp.api.mapping.index_template")
         p = muty.file.safe_path_join(p,'template.json')
-    
+
     logger().debug("path_index_template: %s" % (p))
     return p
 
 def index_template_default_total_fields_limit() -> int:
     """
     Returns the default total fields limit for the index template (default=10000).
-    """    
+    """
     n = _config.get("index_template_default_total_fields_limit", None)
     if n is None:
         n = 10000
         logger().warning("using default total fields limit")
-        
+
     logger().debug("index_template_default_total_fields_limit: %d" % (n))
     return n
 
 def index_template_default_refresh_interval() -> str:
     """
     Returns the default refresh interval for the index template (i.e. usually in seconds, 5s, 30s, ...).
-    """    
+    """
     n = _config.get("index_template_default_refresh_interval", None)
     if n is None:
         n = "5s"
         logger().warning("using default refresh interval for index template")
-    
+
     logger().debug("index_template_default_refresh_interval: %s" % (n))
     return n
 
@@ -369,17 +369,6 @@ def stats_ttl() -> int:
             % (n, n / 86400)
         )
     return n
-
-
-def stats_update_threshold() -> int:
-    """
-    Returns how many events to ingest before updating the stats.
-    """
-    n = _config.get("stats_update_threshold", None)
-    if n is None:
-        n = 10000
-    return n
-
 
 def https_cert_password() -> str:
     """
@@ -637,7 +626,7 @@ def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION, paid: bool=False)
             pp = os.path.expanduser(p)
             if paid:
                 pp = muty.file.safe_path_join(pp, "paid")
-                
+
             return muty.file.safe_path_join(pp, t.value)
 
         # logger().debug("using default plugins path: %s" % (default_path))

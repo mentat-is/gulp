@@ -232,10 +232,10 @@ class PluginBase(ABC):
             - this function *MUST NOT* raise exceptions.
         """
         raise NotImplementedError("not implemented!")
-    
+
     def _set_lower_record_to_gulp_document(self, fun: Callable):
         self.lower_record_to_gulp_document=fun
-    
+
     async def _process_record(
         self,
         stats: GulpIngestionStats,
@@ -271,7 +271,7 @@ class PluginBase(ABC):
         )
         ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
 
-        # ingest record        
+        # ingest record
         for d in docs:
             self.buffer.append(d)
             if len(self.buffer) >= ingestion_buffer_size:
@@ -300,7 +300,7 @@ class PluginBase(ABC):
         """
         Asynchronously initializes the plugin with the provided mapping file and ID.
         This method reads a mapping file and validates its contents, storing the
-        resulting "mappings" and "mapping_id" in the instance. 
+        resulting "mappings" and "mapping_id" in the instance.
         If `plugin_params` is provided, it can override the `mapping_file` and `mapping_id` values or provide
         a full `mappings` dictionary.
         Args:
@@ -327,7 +327,7 @@ class PluginBase(ABC):
                 for k, v in plugin_params.mappings.items():
                     self.mappings[k] = GulpMapping.model_validate(v)
                 logger().debug('using plugin_params.mappings="%s"' % (plugin_params.mappings))
-            else:         
+            else:
                 if plugin_params.mapping_file:
                     mapping_file = plugin_params.mapping_file
                     logger().debug(
@@ -340,13 +340,13 @@ class PluginBase(ABC):
                     "using plugin_params.mapping_id=%s"
                     % (plugin_params.mapping_id)
                 )
-                
+
         if (not mapping_file and not self.mappings) and not mapping_id:
             logger().warning("mappings/mapping_file and mapping id are both None/empty!")
             raise ValueError("mappings/mapping_file and mapping id are both None/empty!")
         if mapping_id and (not mapping_file and not self.mappings):
             raise ValueError("mapping_id is set but mappings/mapping_file is not!")
-        
+
         self.mapping_id = mapping_id
         if not self.mapping_id:
             self.mapping_id = list(self.mappings.keys())[0]
@@ -354,17 +354,17 @@ class PluginBase(ABC):
         if self.mappings:
             # mappings provided directly
             return
-        
+
         # read mapping file
         mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
         js = json.loads(await muty.file.read_file(mapping_file_path))
         if not js:
             raise ValueError("mapping file %s is empty!" % (mapping_file_path))
-        
+
         gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
         self.mappings= gmf.mappings
 
-            
+
 
     async def _call_record_to_gulp_document_funcs(
         self,
@@ -960,18 +960,18 @@ class PluginBase(ABC):
     async def _flush_buffer(
         self,
         index: str,
-        stats: GulpIngestionStats,
         ws_id: str,
+        stats: GulpIngestionStats,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
     ) -> GulpIngestionStats:
         processed = len(self.buffer)
         if len(processed) == 0:
             # already flushed
-            return fs
+            return stats
 
         # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-        skipped, ingestion_failed, ingested_docs = await elastic_api.ingest_bulk(
+        skipped, ingestion_errors, ingested_docs = await elastic_api.ingest_bulk(
             elastic_api.elastic(),
             index,
             self.buffer,
@@ -980,10 +980,9 @@ class PluginBase(ABC):
         )
         # print(json.dumps(ingested_docs, indent=2))
 
-        if ingestion_failed > 0:
+        if ingestion_errors > 0:
             """
-            NOTE: errors appended by this function are intended as INGESTION errors:
-            it means something wrong with the format of the event, and must be fixed ASAP if this happens.
+            NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
             ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
             """
             if config.debug_abort_on_elasticsearch_ingestion_error():
@@ -997,7 +996,7 @@ class PluginBase(ABC):
 
         # send ingested docs to websocket
         if flt:
-            # copy filter to avoid changing the original, if any, 
+            # copy filter to avoid changing the original, if any,
             # ensure data on ws filtered
             flt = copy(flt)
             flt.opt_storage_ignore_filter = False
@@ -1014,7 +1013,7 @@ class PluginBase(ABC):
 
         # update stats
         fs = fs.update(
-            failed=ingestion_failed,
+            failed=ingestion_errors,
             skipped=skipped,
             ingest_errors=ingestion_errors,
         )

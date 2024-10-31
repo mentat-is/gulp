@@ -202,7 +202,7 @@ async def build_and_set_index_template(
         # mappings['dynamic'] = False
         mappings["properties"]["@timestamp"] = {"type": "date_nanos"}
         mappings['numeric_detection'] = False
-        
+
         # support for original event both as keyword and text
         mappings["properties"]["event"]["properties"]["original"] = {
             "type": "keyword",
@@ -469,7 +469,7 @@ def filter_doc_for_ingestion(
     Args:
         doc (GulpDocument|dict): The document to check.
         flt (GulpIngestionFilter): The filter parameters, if any.
-    
+
     Returns:
         GulpEventFilterResult: The result of the filter check.
     """
@@ -489,7 +489,7 @@ def filter_doc_for_ingestion(
         ts = dd["gulp.timestamp"]
         if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
             return GulpEventFilterResult.SKIP
-    
+
     return GulpEventFilterResult.ACCEPT
 
 
@@ -558,9 +558,8 @@ async def ingest_bulk(
 
     # logger().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
-    timeout = config.ingestion_request_timeout()
-
     # bulk ingestion
+    timeout = config.ingestion_request_timeout()
     params = None
     if wait_for_refresh:
         params = {"refresh": "wait_for", "timeout": timeout}
@@ -576,7 +575,7 @@ async def ingest_bulk(
     failed = 0
     ingested: list[dict] = []
 
-    # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)            
+    # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
     if res["errors"]:
         # count skipped
         skipped = sum(1 for r in res["items"] if r["create"]["status"] == 409)
@@ -621,8 +620,8 @@ async def rebase(
         flt (GulpQueryFilter, optional): A filter to apply to the query. Defaults to None.
     Returns:
         dict: The response from the Elasticsearch reindex operation.
-    
-    """    
+
+    """
     logger().debug(
         "rebase index %s to %s with offset=%d, flt=%s ..."
         % (index, dest_index, msec_offset, flt)
@@ -632,7 +631,7 @@ async def rebase(
         if (ctx._source['@timestamp'] != 0) {
             ctx._source['@timestamp'] += params.nsec_offset;
             ctx._source['gulp.timestamp'] += params.nsec_offset;
-        }    
+        }
     """
 
     body: dict = {

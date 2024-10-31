@@ -70,7 +70,8 @@ class GulpStatsBase(GulpCollabBase):
     async def delete_by_id(
         cls,
         id: str,
-        sess: AsyncSession = None,
+        ws_id: str = None,
+        req_id: str = None,
         throw_if_not_found: bool = True,
     ) -> None:
         raise NotImplementedError("delete_by_id @classmethod not implemented")
@@ -80,7 +81,10 @@ class GulpStatsBase(GulpCollabBase):
     async def _create(
         cls,
         id: str,
+        type: GulpCollabType,
         owner: str,
+        ws_id: str = None,
+        req_id: str = None,
         operation: str = None,
         context: str = None,
         ws_id: str = None,
@@ -333,7 +337,7 @@ class GulpIngestionStats(GulpStatsBase):
             )
             self.status = GulpRequestStatus.FAILED
 
-        
+
         if status in [
             GulpRequestStatus.CANCELED,
             GulpRequestStatus.FAILED,
@@ -371,5 +375,5 @@ class GulpIngestionStats(GulpStatsBase):
                 )
 
                 # TODO: update ws
-                
+
                 self._reset_buffer()
