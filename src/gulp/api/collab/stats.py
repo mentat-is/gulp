@@ -412,4 +412,5 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                     # TODO: update ws
                     pass
 
+                # reset stats buffer
                 self._reset_buffer()

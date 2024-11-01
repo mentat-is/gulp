@@ -92,7 +92,7 @@ class PluginBase(ABC):
         # for ingestion, the key in the mappings dict to be used
         self.mapping_id: str = None
         # for ingestion, the lower plugin record_to_gulp_document function to call (if this is a stacked plugin on top of another)
-        self._lower_record_to_gulp_document_fun: Callable = None
+        self._lower_record_to_gulp_documents_fun: Callable = None
 
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
@@ -260,7 +260,7 @@ class PluginBase(ABC):
             PluginBase: the loaded plugin
         """
         p = load_plugin(plugin, ignore_cache=ignore_cache)
-        self._lower_record_to_gulp_document_fun = p.record_to_gulp_document
+        self._lower_record_to_gulp_documents_fun = p.record_to_gulp_document
         return p
 
     async def _postprocess_gulp_document(d: dict) -> dict:
@@ -268,14 +268,31 @@ class PluginBase(ABC):
         to be implemented in a stacked plugin to further process a GulpDocument object before ingestion.
 
         Args:
-            d (dict): the GulpDocument object to process
+            d (dict): the GulpDocument dictionary to be processed
 
         Returns:
-            dict: the processed GulpDocument object
+            dict: the processed GulpDocument dictionary
         """
         raise NotImplementedError("not implemented!")
 
-    async def _record_to_documents(
+    async def record_to_gulp_documents(self, record: any, record_idx: int, operation: str, context: str, log_file_path: str, stats: GulpIngestionStats = None) -> list[dict]:
+        """
+        to be implemented in a plugin to convert a record to one or more GulpDocument objects.
+
+        Args:
+            record (any): the record to convert
+            record_idx (int): the index of the record in the source
+            operation (str): the operation associated with the record
+            context (str): the context associated with the record
+            log_file_path (str): the source file name/path (or the source name, generally)
+            stats (GulpIngestionStats, optional): ingestion stats. Defaults to None.
+
+        Returns:
+            list[dict]: zero or more GulpDocument dictionaries
+        """
+        raise NotImplementedError("not implemented!")
+    
+    async def _record_to_gulp_documents_wrapper(
         self,
         record: any,
         record_idx: int,
@@ -285,13 +302,24 @@ class PluginBase(ABC):
         stats: GulpIngestionStats = None,
     ) -> list[dict]:
         """
-        this function calls
+        turn a record in one or more gulp documents, taking care of calling lower plugin if any.
+
+        Args:
+            record (any): the record to convert
+            record_idx (int): the index of the record in the source
+            operation (str): the operation associated with the record
+            context (str): the context associated with the record
+            log_file_path (str): the source file name/path (or the source name, generally)
+            stats (GulpIngestionStats, optional): ingestion stats. Defaults to None.
+
+        Returns:
+            list[dict]: zero or more GulpDocument dictionaries
         """
         # first, check if we are in a stacked plugin:
         # a stacked plugin have _lower_record_to_gulp_document_fun set
-        if self._lower_record_to_gulp_document_fun:
+        if self._lower_record_to_gulp_documents_fun:
             # call lower
-            docs = await self._lower_record_to_gulp_document_fun(
+            docs = await self._lower_record_to_gulp_documents_fun(
                 record, record_idx, operation, context, log_file_path
             )
 
@@ -300,7 +328,7 @@ class PluginBase(ABC):
                 await self._postprocess_gulp_document(d)
         else:
             # call my record_to_gulp_document
-            docs = await self.record_to_gulp_document(
+            docs = await self.record_to_gulp_documents(
                 record, record_idx, operation, context, log_file_path, stats
             )
 
@@ -315,11 +343,12 @@ class PluginBase(ABC):
         record_idx: int,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> GulpRequestStatus:
-
+    ) -> GulpRequestStatus:        
         ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
+
+        # convert record to one or more documents
         self._records_processed += 1
-        docs = await self._record_to_documents(
+        docs = await self._record_to_gulp_documents_wrapper(
             record, record_idx, stats.operation, stats.context, stats.source, stats
         )
 
@@ -327,22 +356,11 @@ class PluginBase(ABC):
         for d in docs:
             self._buffer.append(d)
             if len(self._buffer) >= ingestion_buffer_size:
-                # time to flush
-                fs = await self._flush_buffer(
-                    index, ws_id, stats.req_id, stats, flt, wait_for_refresh
+                # flush to opensearch and update stats
+                await self._flush_buffer(
+                    index, ws_id, stats, flt, wait_for_refresh
                 )
-
-                status, _ = await GulpStats.update(
-                    await collab_api.session(),
-                    req_id,
-                    ws_id,
-                    fs=fs.update(processed=len(docs)),
-                )
-        must_break = False
-        if status in [GulpRequestStatus.FAILED, GulpRequestStatus.CANCELED]:
-            must_break = True
-
-        return fs, must_break
+        return stats.status
 
     async def initialize(
         self,
@@ -425,136 +443,6 @@ class PluginBase(ABC):
         gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
         self.mappings = gmf.mappings
 
-    async def _call_record_to_gulp_document_funcs(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParams = None,
-        record_to_gulp_document_fun: Callable = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
-        """Stub function to call stacked plugins record_to_document_gulp_document.
-        Each function is called with the previously returned GulpDocument.
-
-        Args:
-            operation_id (int): the operation ID associated with the record
-            client_id (int): client ID performing the ingestion
-            context (str): context associated with the record
-            source (str): source of the record (source file name or path, usually)
-            fs (TmpIngestStats): _description_
-            record (any): a single record (first time) or a list of GulpDocument objects (in stacked plugins)
-            record_idx (int): The index of the record in source.
-            custom_mapping (GulpMapping, optional): The custom mapping to use for the conversion. Defaults to None.
-            index_type_mapping (dict, optional): elastic search index type mappings { "field": "type", ... }. Defaults to None.
-            plugin (str, optional): "agent.type" to be set in the GulpDocument. Defaults to None.
-            plugin_params (GulpPluginParams, optional): The plugin parameters to use, if any. Defaults to None.
-            record_to_gulp_document_fun (Callable, optional): function to parse record into a gulp document, if stacked this receives a list of GulpDocuments
-
-        Returns:
-            list[GulpDocument]: zero or more GulpDocument objects
-        """
-        # plugin_params=deepcopy(plugin_params)
-
-        if plugin_params is None:
-            plugin_params = GulpPluginParams()
-
-        docs = record
-
-        if record_to_gulp_document_fun is not None:
-            docs = await record_to_gulp_document_fun(
-                operation_id,
-                client_id,
-                context,
-                source,
-                fs,
-                record,
-                record_idx,
-                custom_mapping,
-                index_type_mapping,
-                plugin,
-                plugin_params,
-                **kwargs,
-            )
-
-        for fun in plugin_params.record_to_gulp_document_fun:
-            docs = await fun(
-                operation_id,
-                client_id,
-                context,
-                source,
-                fs,
-                docs,
-                record_idx,
-                custom_mapping,
-                index_type_mapping,
-                plugin,
-                plugin_params,
-                **kwargs,
-            )
-
-        if docs is None:
-            return []
-        return docs
-
-    async def record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParams = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
-        """
-        Converts a record to one or more GulpDocument objects based on the provided index mappings.
-
-        Args:
-            operation_id (int): The operation ID associated with the record.
-            client_id (int): The client ID associated with the record.
-            context (str): The context associated with the record.
-            source (str): The source of the record (source file name or path, usually).
-            fs (TmpIngestStats): The temporary ingestion statistics (may be updated on return).
-            record (any): record to convert, plugin dependent format: note that here stacked plugins receives a list of GulpDocument objects instead (since the original record may generate one or more documents).
-            record_idx (int): The index of the record in source.
-            custom_mapping (GulpMapping, optional): The custom mapping to use for the conversion. Defaults to None.
-            index_type_mapping (dict, optional): elastic search index type mappings { "ecs_field": "type", ... }. Defaults to None.
-            plugin (str, optional): "agent.type" to be set in the GulpDocument. Defaults to None.
-            plugin_params (GulpPluginParams, optional): The plugin parameters to use, if any. Defaults to None.
-            extra (dict, optional): Additional fields to add to the GulpDocument (after applying mapping). Defaults to None.
-            **kwargs: Additional keyword arguments:
-
-        Returns:
-            list[GulDocument]: The converted GulpDocument objects or None if an exception occurred (fs is updated then).
-
-        Raises:
-            NotImplementedError: This method is not implemented yet.
-        """
-        raise NotImplementedError("not implemented!")
-
-    async def pipeline(
-        self, plugin_params: GulpPluginParams = None
-    ) -> ProcessingPipeline:
-        """
-        Returns the pysigma processing pipeline implemented in the plugin, if any
-
-        Returns:
-            ProcessingPipeline: The processing pipeline.
-        """
-        raise NotImplementedError("not implemented!")
 
     def cleanup(self) -> None:
         """
@@ -1086,31 +974,11 @@ class PluginBase(ABC):
             records_failed=self._records_failed,
             force_flush=True,
         )
+
+        # reset documents buffer
         self._buffer = []
         self._records_skipped = 0
         self._records_failed = 0
-
-    async def _ingest_record(
-        self,
-        index: str,
-        doc: GulpDocument | dict,
-        fs: TmpIngestStats,
-        ws_id: str,
-        req_id: str,
-        flt: GulpIngestionFilter = None,
-        flush_enabled: bool = True,
-        **kwargs,
-    ) -> TmpIngestStats:
-        """
-        bufferize as much as ingestion_buffer_size, then flush (writes to elasticsearch)
-        """
-        ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
-        self._buffer.append(doc)
-        if len(self._buffer) >= ingestion_buffer_size and flush_enabled:
-            # time to flush
-            fs = await self._flush_buffer(index, fs, ws_id, req_id, flt)
-
-        return fs
 
     async def _source_failed(
         self,
