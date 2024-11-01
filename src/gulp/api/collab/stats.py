@@ -21,6 +21,11 @@ from gulp.utils import logger
 from dotwiz import DotWiz
 
 
+class RequestAbortError(Exception):
+    """
+    Raised when a request is aborted.
+    """
+    pass
 class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     """
     Represents the base class for statistics
@@ -337,6 +342,8 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             **kwargs: Additional keyword arguments.
         Returns:
             T: The updated instance.
+        Raises:
+            RequestAbortError: If the request is aborted.
         """
         # update buffer and status
         self._update_buffered(
@@ -414,3 +421,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
 
                 # reset stats buffer
                 self._reset_buffer()
+        
+        if status in [GulpRequestStatus.CANCELED, GulpRequestStatus.FAILED]:
+            logger().error("request failed or canceled: %s" % (self))
+            raise RequestAbortError()

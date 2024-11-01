@@ -987,13 +987,11 @@ class PluginBase(ABC):
         ws_id: str,
         source: str = None,
     ) -> GulpIngestionStats:
-        """
-        to be called whenever a whole source fails to be ingested, also flushes the ingestion stats.
-        """
         logger().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s"
             % (muty.string.make_shorter(str(source), 260), str(err))
         )
+        err = '%s: %s' % (source or '-', str(err))
         return await stats.update(ws_id=ws_id, source_failed=1, force_flush=True)
 
     async def _record_failed(
@@ -1003,10 +1001,8 @@ class PluginBase(ABC):
         ws_id: str,
         source: str = None,
     ) -> GulpIngestionStats:
-        return await stats.update(records_failed=1)
-
-    async def _record_skipped(self, stats: GulpIngestionStats) -> GulpIngestionStats:
-        return await stats.update(records_skipped=1)
+        err = '%s: %s' % (source or '-', str(err))
+        return await stats.update(ws_id=ws_id, records_failed=1, error=err)
 
     async def _finish_ingestion(
         self,

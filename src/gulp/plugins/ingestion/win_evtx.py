@@ -12,7 +12,7 @@ from evtx import PyEvtxParser
 from lxml import etree
 from sigma.pipelines.elasticsearch.windows import ecs_windows
 
-from gulp.api.collab.stats import GulpIngestionStats, TmpIngestStats
+from gulp.api.collab.stats import GulpIngestionStats, RequestAbortError, TmpIngestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
@@ -248,40 +248,22 @@ class Plugin(PluginBase):
             await self._source_failed(stats, ex, ws_id, source=log_file_path)
             return GulpRequestStatus.FAILED
 
+        doc_idx = 0
         try:
             for rr in parser.records():
-                # process (ingest + update stats)
+                doc_idx +=1
                 try:
-                    fs, must_break = await self._process_record(
-                        index,
-                        rr,
-                        ev_idx,
-                        self.record_to_gulp_document,
-                        ws_id,
-                        req_id,
-                        operation_id,
-                        client_id,
-                        context,
-                        source,
-                        fs,
-                        custom_mapping=custom_mapping,
-                        index_type_mapping=index_type_mapping,
-                        plugin_params=plugin_params,
-                        flt=flt,
-                        **kwargs,
-                    )
-
-                    ev_idx += 1
-                    if must_break:
-                        break
-
+                    await self._process_record(stats, ws_id, index, rr, doc_idx, flt)
+                except RequestAbortError as ex:
+                    break
                 except Exception as ex:
-                    fs = self._record_failed(fs, rr, source, ex)
+                    await self._record_failed(stats, ex, ws_id, source=log_file_path)
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
+            await self._source_failed(stats, ex, ws_id, source=log_file_path)            
+        finally:
+            # in the end, flush buffer and wait for index refresh
+            await self._flush_buffer(
+                index, ws_id, stats, flt, wait_for_refresh=True
+            )
+        return stats.status
