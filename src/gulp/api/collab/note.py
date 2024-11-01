@@ -2,19 +2,17 @@ from typing import Optional, Union, override
 from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T, GulpUserPermission
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab_api import session
 from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
 from gulp.utils import logger
 
 
-class GulpNote(GulpCollabObject):
+class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     """
     a note in the gulp collaboration system
     """
-
-    __tablename__ = GulpCollabType.NOTE.value
 
     context: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
@@ -28,9 +26,6 @@ class GulpNote(GulpCollabObject):
     )
     text: Mapped[str] = mapped_column(String, doc="The text of the note.")
 
-    __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.NOTE.value,
-    }
     __table_args__ = (Index("idx_note_operation", "operation"),)
 
     @override
@@ -39,10 +34,13 @@ class GulpNote(GulpCollabObject):
         cls,
         id: str,
         d: dict,
+        token: str = None,
+        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
+        **kwargs,
     ) -> T:
         sess = await session()
         async with sess:
@@ -61,18 +59,20 @@ class GulpNote(GulpCollabObject):
             # update note, websocket will also receive the old text
             obj = await note.update(
                 d,
+                token=token,
+                permission=permission,
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,
                 throw_if_not_found=throw_if_not_found,
                 old_text=old_text,
+                **kwargs,
             )
 
             # commit in the end
             await sess.commit()
             return obj
 
-    @override
     @classmethod
     async def create(
         cls,
@@ -87,10 +87,34 @@ class GulpNote(GulpCollabObject):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
+        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
     ) -> T:
+        """
+        Create a new note object
+
+        Args:
+            id: the id of the note
+            owner: the owner of the note
+            operation: the operation associated with the note
+            context: the context associated with the note
+            log_file_path: the log file path associated with the note
+            documents: the target documents
+            text: the text of the note
+            glyph: the glyph associated with the note
+            tags: the tags associated with the note
+            title: the title of the note
+            private: whether the note is private
+            token: the token of the user
+            ws_id: the websocket id
+            req_id: the request id
+            kwargs: additional arguments
+        
+        Returns:
+            the created note object
+        """
         args = {
             "operation": operation,
             "context": context,
@@ -101,12 +125,13 @@ class GulpNote(GulpCollabObject):
             "title": title,
             "text": text,
             "private": private,
+            **kwargs,
         }
         return await super()._create(
             id,
-            GulpCollabType.NOTE,
             owner,
-            ws_id,
-            req_id,
+            token=token,
+            ws_id=ws_id,
+            req_id=req_id,
             **args,
         )

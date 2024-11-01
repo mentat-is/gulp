@@ -3,16 +3,15 @@ from typing import Optional, Union, override
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
 from gulp.utils import logger
 
 
-class GulpOperation(GulpCollabBase):
+class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     """
     Represents an operation in the gulp system.
     """
 
-    __tablename__ = GulpCollabType.OPERATION.value
     index: Mapped[Optional[str]] = mapped_column(
         String(),
         default=None,
@@ -27,10 +26,6 @@ class GulpOperation(GulpCollabBase):
         doc="The glyph associated with the operation.",
     )
 
-    __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.OPERATION.value,
-    }
-
     @override
     @classmethod
     async def create(
@@ -40,20 +35,34 @@ class GulpOperation(GulpCollabBase):
         index: str = None,
         glyph: str = None,
         description: str = None,
-        ws_id: str = None,
-        req_id: str = None,
+        token: str = None,
         **kwargs,
     ) -> T:
+        """
+        Create a new operation object.
+
+        Args:
+            id: The unique identifier of the operation.
+            owner: The owner of the operation.
+            index: The opensearch index to associate the operation with.
+            glyph: The glyph associated with the operation.
+            description: The description of the operation.
+            token: The token of the user.
+            kwargs: Arbitrary keyword arguments.
+
+        Returns:
+            The created operation object.
+        """
         args = {
             "index": index,
             "description": description,
             "glyph": glyph,
+            **kwargs,
         }
         return await super()._create(
             id,
-            GulpCollabType.OPERATION,
             owner,
-            ws_id,
-            req_id,
+            token=token,
+            required_permission=[GulpUserPermission.ADMIN],
             **args,
         )

@@ -8,15 +8,11 @@ from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollab
 from gulp.utils import logger
 
 
-class GulpUserData(GulpCollabBase):
+class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
     """
     defines data associated with an user
     """
 
-    __tablename__ = GulpCollabType.USER_DATA.value
-    __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.USER_DATA.value,
-    }
     user_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The user ID associated with this data.",
@@ -34,25 +30,38 @@ class GulpUserData(GulpCollabBase):
         JSONB, doc="The data to be associated with user."
     )
 
-    @override
-    @classmethod
+    @classmethod    
     async def create(
         cls,
         id: str,
         owner: str,
         data: dict,
+        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
     ) -> T:
+        """
+        Asynchronously creates a new user data entry.
+        Args:
+            id (str): The unique identifier for the user data entry.
+            owner (str): The owner of the user data entry.
+            data (dict): The data to be stored in the user data entry.
+            token (str, optional): The authentication token. Defaults to None (no check).
+            ws_id (str, optional): The websocket ID. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None.
+            **kwargs: Additional keyword arguments.
+        Returns:
+            T: The created user data entry.
+        """        
         args = {
             "data": data,
         }
         return await super()._create(
             id,
-            GulpCollabType.USER_DATA,
             owner,
-            ws_id,
-            req_id,
+            token=token,
+            ws_id=ws_id,
+            req_id=req_id,
             **args,
         )

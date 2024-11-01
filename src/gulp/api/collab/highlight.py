@@ -7,12 +7,10 @@ from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from gulp.utils import logger
 
 
-class GulpHighlight(GulpCollabObject):
+class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
     """
     an highlight in the gulp collaboration system
     """
-
-    __tablename__ = GulpCollabType.HIGHLIGHT.value
 
     time_range: Mapped[tuple[int, int]] = mapped_column(
         JSONB,
@@ -22,11 +20,6 @@ class GulpHighlight(GulpCollabObject):
         String, default=None, doc="The associated log file path or name."
     )
 
-    __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.HIGHLIGHT.value,
-    }
-
-    @override
     @classmethod
     async def create(
         cls,
@@ -39,10 +32,32 @@ class GulpHighlight(GulpCollabObject):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
+        token: str = None,
         ws_id: str = None,
         req_id: str = None,
-        **kwargs,
+        **kwargs,        
     ) -> T:
+        """
+        Create a new highlight object
+
+        Args:
+            id: the id of the highlight
+            owner: the owner of the highlight
+            operation: the operation associated with the highlight
+            time_range: the time range of the highlight
+            log_file_path: the log file path associated with the highlight
+            glyph: the glyph associated with the highlight
+            tags: the tags associated with the highlight
+            title: the title of the highlight
+            private: whether the highlight is private
+            token: the token of the user
+            ws_id: the websocket id
+            req_id: the request id
+            kwargs: additional arguments
+
+        Returns:
+            the created highlight object
+        """
         args = {
             "operation": operation,
             "time_range": time_range,
@@ -51,12 +66,13 @@ class GulpHighlight(GulpCollabObject):
             "tags": tags,
             "title": title,
             "private": private,
+            **kwargs,
         }
         return await super()._create(
             id,
-            GulpCollabType.HIGHLIGHT,
             owner,
-            ws_id,
-            req_id,
+            token=token,            
+            ws_id=ws_id,
+            req_id=req_id,
             **args,
         )

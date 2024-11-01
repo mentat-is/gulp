@@ -17,12 +17,11 @@ import gulp.config as config
 from gulp.utils import logger
 
 
-class GulpUserSession(GulpCollabBase):
+class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
     """
     Represents a user session (logged user).
     """
 
-    __tablename__ = GulpCollabType.SESSION.value
     user_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The user ID associated with the session.",
@@ -43,15 +42,12 @@ class GulpUserSession(GulpCollabBase):
         doc="The time when the session expires, in milliseconds from unix epoch.",
     )
 
-    __mapper_args__ = {
-        "polymorphic_identity": GulpCollabType.SESSION.value,
-    }
-
     @classmethod
     async def create(
         cls,
         id: str,
         owner: str,
+        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
@@ -113,15 +109,15 @@ class GulpUserSession(GulpCollabBase):
                 # create a new admin session
                 token = muty.string.generate_unique()
                 admin_session = await super()._create(
-                    token, GulpCollabType.SESSION, admin_user.owner
+                    token, admin_user.owner
                 )
                 admin_user.session_id = token
                 admin_user.session = admin_session
                 logger().debug(
                     "debug_allow_any_token_as_admin, created new admin session"
                 )
-                return await super().create(token, admin_user.owner)
+                return admin_session
 
-        # default, get token if exists
-        admin_user = GulpUserSession.get_one_by_id(token, sess)
-        return admin_user
+        # default, get if exists
+        s = GulpUserSession.get_one_by_id(token, sess)
+        return s

@@ -180,7 +180,7 @@ async def _create_default_data() -> None:
     admin_user: GulpUser = await GulpUser.create(
         "admin",
         "admin",
-        permission=GulpUserPermission.ADMIN,
+        permission=[GulpUserPermission.ADMIN],
     )
 
     # create glyphs
@@ -200,7 +200,6 @@ async def _create_default_data() -> None:
     guest_user = await GulpUser.create(
         "guest",
         "guest",
-        permission=GulpUserPermission.READ,
         glyph=user_glyph.id,
     )
     editor_user = await GulpUser.create(

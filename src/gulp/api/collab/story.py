@@ -6,12 +6,10 @@ from gulp.api.collab.structs import GulpCollabType, GulpCollabObject, T
 from gulp.api.elastic.structs import GulpAssociatedDocument
 
 
-class GulpStory(GulpCollabObject):
+class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
     """
     a story in the gulp collaboration system
     """
-
-    __tablename__ = GulpCollabType.STORY.value
 
     documents: Mapped[list[GulpAssociatedDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
@@ -19,8 +17,6 @@ class GulpStory(GulpCollabObject):
     text: Mapped[Optional[str]] = mapped_column(
         String, default=None, doc="The description of the story."
     )
-
-    __mapper_args__ = {"polymorphic_identity": GulpCollabType.STORY.value}
 
     @classmethod
     async def create(
@@ -34,6 +30,7 @@ class GulpStory(GulpCollabObject):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
+        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -49,9 +46,9 @@ class GulpStory(GulpCollabObject):
         }
         return await super()._create(
             id,
-            GulpCollabType.STORY,
             owner,
-            ws_id,
-            req_id,
+            token=token,
+            ws_id=ws_id,
+            req_id=req_id,
             **args,
         )

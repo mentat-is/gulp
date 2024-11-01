@@ -26,7 +26,7 @@ from sqlalchemy.orm import (
     DeclarativeBase,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
-from sqlalchemy_mixins import SerializeMixin
+from sqlalchemy_mixins.serialize import SerializeMixin
 from gulp.api.collab_api import session
 from gulp.api.elastic.structs import GulpAssociatedDocument
 from gulp.defs import ObjectNotFound
@@ -57,24 +57,22 @@ class GulpRequestStatus(StrEnum):
     CANCELED = "canceled"
 
 
-class GulpUserPermission(Flag):
+class GulpUserPermission(StrEnum):
     """represent the permission of a user in the Gulp platform."""
 
     # can read only
-    READ = auto()
+    READ = "read"
     # can edit own highlights, notes, stories, links + ingest data
-    EDIT = auto()
+    EDIT = "edit"
     # can delete others highlights, notes, stories, links + ingest data
-    DELETE = auto()
+    DELETE = "delete"
     # can do anything, including creating new users and change permissions
-    ADMIN = auto()
+    ADMIN = "admin"
 
 
-PERMISSION_MASK_EDIT = GulpUserPermission.READ | GulpUserPermission.EDIT
-PERMISSION_MASK_DELETE = (
-    GulpUserPermission.READ | GulpUserPermission.EDIT | GulpUserPermission.DELETE
-)
-
+PERMISSION_MASK_EDIT = [GulpUserPermission.READ, GulpUserPermission.EDIT]
+PERMISSION_MASK_DELETE = [
+    GulpUserPermission.READ, GulpUserPermission.EDIT, GulpUserPermission.DELETE]
 
 class GulpCollabType(StrEnum):
     """
@@ -290,6 +288,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         "polymorphic_on": "type",
     }
 
+    def __init_subclass__(cls, type: GulpCollabType|str, abstract: bool=False, **kwargs) -> None:
+        cls.__gulp_collab_type__=type
+
+        if abstract:
+            cls.__abstract__ = True
+        else:
+            cls.__tablename__ = str(type)
+        cls.__mapper_args__ = {
+            "polymorphic_identity": str(type),
+        }
+
+        print("****** type=%s, cls.__name__=%s, abstract=%r, cls.__abstract__=%r, cls.__mapper_args__=%s" % 
+              (cls.__gulp_collab_type__, cls.__name__, abstract, cls.__abstract__, cls.__mapper_args__))
+        super().__init_subclass__(**kwargs)
+
     @override
     def __init__(self, id: str, type: GulpCollabType, owner: str, **kwargs) -> None:
         """
@@ -304,6 +317,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             raise NotImplementedError(
                 "GulpCollabBase is an abstract class and cannot be instantiated directly."
             )
+        #print(f"****** GulpCollabBase __init__: id={id}, type={type}, owner={owner}")
         super().__init__()
         self.id = id
         self.type = type
@@ -322,8 +336,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def _create(
         cls,
         id: str,
-        type: GulpCollabType,
         owner: str,
+        token: str = None,
+        required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
@@ -333,8 +348,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously creates and stores an instance of the class.
         Args:
             id (str): The unique identifier for the instance.
-            type (GulpCollabType): The type of the instance.
             owner (str): The ID of the user associated with the instance.
+            token (str, optional): The token of the user making the request. Defaults to None (no check).
+            required_permission (list[GulpUserPermission], optional): The required permission to create the object. Defaults to [GulpUserPermission.READ].
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
             sess (AsyncSession, optional): The database session to use.<br>
@@ -348,8 +364,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         # create instance (calls the __init__ method)
-        instance = cls(id, type, owner, 0, 0, **kwargs)
+        #print(f"****** GulpCollabBase _create: id={id}, type={cls.type}, owner={owner}")
+
+        instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
         committed = False
+        if token:
+            # check required creation permission
+            GulpCollabBase.check_token_permission(token, permission=required_permission, sess=sess)
+
         if sess is not None:
             # just add
             await sess.add(instance)
@@ -366,6 +388,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
     async def delete(
         self,
+        token: str = None,
+        permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
         throw_if_not_found: bool = True,
@@ -373,6 +397,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously deletes an object from the database.
         Args:
+            token (str, optional): The token of the user making the request. Defaults to None.
+            permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
@@ -385,6 +411,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess = await session()
 
         async with sess:
+            if token:
+                await self.check_object_permission(token, permission, sess=sess)
+
             q = select(self.__class__).where(self.__class__.id == id).with_for_update()
             res = await sess.execute(q)
             obj = self.__class__.get_one_result_or_throw(
@@ -401,6 +430,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def delete_by_id(
         cls,
         id: str,
+        token: str = None,
+        permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
         throw_if_not_found: bool = True,
@@ -409,6 +440,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously deletes an object of the specified type by its ID.
         Args:
             id (str): The ID of the object to be deleted.
+            token (str, optional): The token of the user making the request. Defaults to None.
+            permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
@@ -417,9 +450,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        obj = await cls.get_one_by_id(id, ws_id, req_id, throw_if_not_found)
+        obj:GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, throw_if_not_found)
         if obj:
-            return await obj.delete(ws_id, req_id, throw_if_not_found)
+            return await obj.delete(token, permission, ws_id, req_id, throw_if_not_found)
         return None
 
     @classmethod
@@ -427,6 +460,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         cls,
         id: str,
         d: dict,
+        token: str=None,
+        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
@@ -438,6 +473,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Args:
             id (str): The ID of the object to update.
             d (dict): A dictionary containing the fields to update and their new values.
+            token (str, optional): The token of the user making the request.
+            permission (list[GulpUserPermission], optional): The required permission to update the object. Defaults to [GulpUserPermission.EDIT].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
             sess (AsyncSession, optional): The database session to use.<br>
@@ -450,16 +487,19 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If the object with the specified ID is not found.
         """
-        obj = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
+        obj: GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
         if obj:
+            # check permission on the object
             return await obj.update(
-                d, ws_id, req_id, sess, throw_if_not_found, **kwargs
+                d, token, permission, ws_id, req_id, sess, throw_if_not_found, **kwargs
             )
         return None
 
     async def update(
         self,
         d: dict,
+        token: str=None,
+        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
@@ -470,6 +510,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously updates the object with the specified fields and values.
         Args:
             d (dict): A dictionary containing the fields to update and their new values.
+            token (str, optional): The token of the user making the request.
+            permission (list[GulpUserPermission], optional): The required permission to update the object. Defaults to [GulpUserPermission.EDIT].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
             sess (AsyncSession, optional): The database session to use.<br>
@@ -484,8 +526,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         async def _update_internal(
-            id, d, throw_if_not_found, commit: bool = False
+            id, d, token, permission, throw_if_not_found, commit: bool = False
         ) -> T:
+            if token:
+                await self.check_object_permission(token, permission, sess=sess)
             q = select(self.__class__).where(self.__class__.id == id).with_for_update()
             res = await sess.execute(q)
             obj = await self.__class__.get_one_result_or_throw(
@@ -515,13 +559,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess = await session()
             async with sess:
                 obj = await _update_internal(
-                    self.id, d, throw_if_not_found, commit=True
+                    self.id, d, token, permission, throw_if_not_found, commit=True
                 )
         else:
             # use existing session
-            obj = await _update_internal(self.id, d, throw_if_not_found, commit=True)
+            obj = await _update_internal(self.id, d, token, permission, throw_if_not_found, commit=True)
 
-        if obj is not None:
+        if obj and ws_id:
             # TODO: handle websocket, add each **kwargs too
 
             pass
@@ -688,56 +732,113 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return c
 
     @staticmethod
-    async def check_permission(
-        id: str,
+    async def check_token_permission(
         token: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         sess: AsyncSession = None,
-    ) -> None:
+        throw_on_no_permission: bool = True) -> bool:
         """
-        Check if the user associated with the provided token has the required permission to access the object with the given id.
+        Check if the user has the required permissions.
         Args:
-            id (str): The identifier of the object to check permission for.
             token (str): The token representing the user's session.
             permission (list[GulpUserPermission], optional): A list of required permissions. Defaults to [GulpUserPermission.READ].
             sess (AsyncSession, optional): The database session to use. Defaults to None.
-        Raises:
-            MissingPermission: If the user does not have the required permission to access the object.
+            throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
+        
+        Returns:
+            bool: True if the user has the required permissions (or is admin).
+        """
+        from gulp.api.collab.user_session import GulpUserSession
+        # get session
+        user_session: GulpUserSession = await GulpUserSession.get_by_token(
+            token, sess=sess
+        )
+        if user_session.user.has_permission(permission):
+            return True
+        if throw_on_no_permission:
+            raise MissingPermission(
+                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
+            )
+        return False
+            
+    async def check_object_permission(self,
+                          token: str,
+                          permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+                          allow_owner: bool=True,
+                          sess: AsyncSession=None,
+                          throw_on_no_permission: bool=True) -> bool:
+        """
+        Check if the object is owned by the user and the user has the required permissions.
+        Args:
+            token (str): The token representing the user's session.
+            allow_owner (bool, optional): If True, always allows the owner of the object to perform the operation. Defaults to True.
+            permission (list[GulpUserPermission], optional): A list of required permissions to operate on NON-OWNED objects. Defaults to [GulpUserPermission.READ].
+            sess (AsyncSession, optional): The database session to use. Defaults to None.
+            throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
+        
+        Returns:
+            bool: True if the user is the owner of the object, or an administrator, AND have the required permissions.
         """
 
         # get the user session from the token
         from gulp.api.collab.user_session import GulpUserSession
-
+        
         # get session and object
         user_session: GulpUserSession = await GulpUserSession.get_by_token(
             token, sess=sess
         )
-        obj = await GulpCollabBase.get_one(GulpCollabFilter(id=[id]), sess=sess)
-        if obj.user != user_session.user_id:
-            # check if the user is an admin or permission is enough
-            if not user_session.user.has_permission(permission):
-                raise MissingPermission(
-                    f"token {token} (user={user_session.user_id}) does not have permission to access object {id}"
-                )
+        if user_session.user.is_admin():
+            # admin is always granted
+            return True
 
+        # check if the user is the owner of the object        
+        if self.owner == user_session.user_id and allow_owner:
+            return True
 
-class GulpCollabConcreteBase(GulpCollabBase):
+        # user do not own the object, check permissions 
+        if user_session.user.has_permission(permission):
+            return True
+        
+        if throw_on_no_permission:
+            raise MissingPermission(
+                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
+            )
+        return False
+
+    @staticmethod
+    async def check_object_permission_by_id(id: str,
+                          token: str,
+                          permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+                          allow_owner: bool=True,
+                          sess: AsyncSession=None,
+                          throw_on_no_permission: bool=True) -> bool:
+        """
+        Check if the object is owned by the user and the user has the required permissions.
+        Args:
+            id (str): The identifier of the object to check ownership for.
+            token (str): The token representing the user's session.
+            allow_owner (bool, optional): If True, always allows the owner of the object to perform the operation. Defaults to True.
+            permission (list[GulpUserPermission], optional): A list of required permissions to operate on NON-OWNED objects. Defaults to [GulpUserPermission.READ].
+            sess (AsyncSession, optional): The database session to use. Defaults to None.
+            throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
+        
+        Returns:
+            bool: True if the user is the owner of the object, or an administrator, AND have the required permissions.
+        """
+        obj: GulpCollabBase = await GulpCollabBase.get_one_by_id(id, sess=sess)
+        return await obj.check_object_permission(token, permission, allow_owner, sess, throw_on_no_permission)
+    
+
+class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
     """
     Concrete base class for GulpCollabBase to ensure a table is created.
     """
+    pass
 
-    __tablename__ = "collab_base"
-
-    __mapper_args__ = {
-        "polymorphic_identity": "collab_base",
-    }
-
-
-class GulpCollabObject(GulpCollabBase):
+class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     """
     base for all collaboration objects (notes, links, stories, highlights)
     """
-
     # the following are present in all collab objects regardless of type
     operation: Mapped[str] = mapped_column(
         ForeignKey(
@@ -757,11 +858,6 @@ class GulpCollabObject(GulpCollabBase):
         Boolean,
         doc="If True, the object is private (only the owner can see it).",
     )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "collab_obj",
-    }
-    __abstract__ = True
 
     @override
     def __init__(

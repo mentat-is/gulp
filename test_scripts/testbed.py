@@ -2,12 +2,14 @@
 import asyncio
 import sys
 import os
+
+from sqlalchemy.sql.base import _NoArg
 from gulp.api import collab_api
 
 # from gulp.api.collab import context as collab_context
 import muty.json
 from gulp import config
-from typing import Optional, TypeVar
+from typing import Optional, Type, TypeVar
 from gulp.api.collab.structs import GulpCollabType
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.utils import logger, configure_logger
@@ -16,6 +18,8 @@ from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncAttrs
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, GulpCollabBase
+from gulp.api.collab.note import GulpNote
 from dotwiz import DotWiz
 
 async def testbed():
@@ -37,7 +41,15 @@ async def testbed():
         """
         base for everything on the collab database
         """
-
+        def __init_subclass__(cls, type: GulpCollabType, **kwargs) -> None:
+            cls.__tablename__ = type.value
+            cls.__mapper_args__ = {
+                "polymorphic_identity": type.value,
+                "polymorphic_on": "type",
+            }
+            print(cls.__name__, cls.__tablename__, cls.__mapper_args__)
+            super().__init_subclass__(cls, **kwargs)
+        
         T = TypeVar("T", bound="TestOrm")
 
         id: Mapped[str] = mapped_column(
@@ -53,9 +65,14 @@ async def testbed():
             "polymorphic_identity": "testorm_base",
             "polymorphic_on": "type",
         }
+    class TestOrmBaseDerived(TestOrmBase, type=GulpCollabType.USER):
+        #__tablename__ = "testorm_base_derived"
+        #__mapper_args__ = {"polymorphic_identity": "testorm_base"}
 
-    class TestOrm(TestOrmBase):        
-        __tablename__ = "testorm"
+        testattr: Mapped[str] = mapped_column(String, doc="test attribute", default="test")
+    
+    class TestOrm(TestOrmBaseDerived, type=GulpCollabType.USER):        
+        #__tablename__ = "testorm"
         id: Mapped[int] = mapped_column(ForeignKey("testorm_base.id"), primary_key=True)
         time_updated: Mapped[Optional[int]] = mapped_column(
             BIGINT,
@@ -76,15 +93,11 @@ async def testbed():
             print('fixed', flt)
         #flt.opt_storage_ignore_filter = False
 
-    t: DotWiz={"a": 1}
-    t.b=2
-    t.c='hello'
+    t = TestOrm(type=GulpCollabType.USER)
+    t.to_dict()
     print(t)
     return
 
-
-    # t = TestOrm()
-    # t.to_dict()
     flt=GulpIngestionFilter(opt_storage_ignore_filter=True)
     flt.time_range = {"start": 0, "end": 1}
     #for i in range(10):
