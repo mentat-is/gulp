@@ -201,7 +201,7 @@ async def _ingest_file_task_internal(
     if flt is None:
         flt = GulpIngestionFilter()
 
-    status = await mod.ingest(
+    status = await mod.ingest_file(
         index,
         req_id,
         client_id,

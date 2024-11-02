@@ -4,7 +4,6 @@ import sys
 import os
 
 from sqlalchemy.sql.base import _NoArg
-from gulp.api import collab_api
 
 # from gulp.api.collab import context as collab_context
 import muty.json
@@ -12,6 +11,9 @@ from gulp import config
 from typing import Optional, Type, TypeVar
 from gulp.api.collab.structs import GulpCollabType
 from gulp.api.elastic.structs import GulpIngestionFilter
+from gulp.api import elastic_api
+from gulp.api import collab_api
+from gulp.api.collab import db
 from gulp.utils import logger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
@@ -21,6 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, GulpCollabBase
 from gulp.api.collab.note import GulpNote
 from dotwiz import DotWiz
+from opensearchpy import AsyncOpenSearch
+
+_os: AsyncOpenSearch = None
+
 
 async def testbed():
     class TestPydanticClass(BaseModel):
@@ -41,10 +47,10 @@ async def testbed():
         """
         base for everything on the collab database
         """
-        def __init_subclass__(cls, type: GulpCollabType, **kwargs) -> None:
-            cls.__tablename__ = type.value
+        def __init_subclass__(cls, type: str, **kwargs) -> None:                
+            cls.__tablename__ = type
             cls.__mapper_args__ = {
-                "polymorphic_identity": type.value,
+                "polymorphic_identity": type,
                 "polymorphic_on": "type",
             }
             print(cls.__name__, cls.__tablename__, cls.__mapper_args__)
@@ -65,13 +71,7 @@ async def testbed():
             "polymorphic_identity": "testorm_base",
             "polymorphic_on": "type",
         }
-    class TestOrmBaseDerived(TestOrmBase, type=GulpCollabType.USER):
-        #__tablename__ = "testorm_base_derived"
-        #__mapper_args__ = {"polymorphic_identity": "testorm_base"}
-
-        testattr: Mapped[str] = mapped_column(String, doc="test attribute", default="test")
-    
-    class TestOrm(TestOrmBaseDerived, type=GulpCollabType.USER):        
+    class TestOrm(TestOrmBase, type='testorm'):        
         #__tablename__ = "testorm"
         id: Mapped[int] = mapped_column(ForeignKey("testorm_base.id"), primary_key=True)
         time_updated: Mapped[Optional[int]] = mapped_column(
@@ -87,15 +87,11 @@ async def testbed():
             print(TestOrm)
             print(cls.__name__)
 
-    def test_fun(flt: GulpIngestionFilter):
-        if flt:
-            flt=GulpIngestionFilter(opt_storage_ignore_filter=False)
-            print('fixed', flt)
-        #flt.opt_storage_ignore_filter = False
-
-    t = TestOrm(type=GulpCollabType.USER)
-    t.to_dict()
-    print(t)
+    buf=[]
+    if buf:
+        print('buf')
+    else:
+        print('not buf')
     return
 
     flt=GulpIngestionFilter(opt_storage_ignore_filter=True)
@@ -129,18 +125,34 @@ async def testbed():
     print("field1" in tt.model_fields)
     print("field4" in tt.model_fields)
 
+async def _init_gulptest():
+    configure_logger()
+    logger().debug("---> init")
+    config.init()
+    
+    # reinit collab
+    await db.setup(force_recreate=True)
+
+    # reinit elastic
+    global _os
+    _os = elastic_api.elastic()
+    await elastic_api.datastream_create(_os, "testidx")
+
 
 async def main():
-    configure_logger()
-    config.init()
-    await testbed()
+    #configure_logger()
+    #config.init()
+    #await testbed()
     # connect postgre
     # await collab_api.setup(force_recreate=True)
 
     # t = TestClass
     # print("field1" in t.__annotations__)
     # print(hasattr(t(), "field1"))
-
+    try:
+        await _init_gulptest()
+    finally:
+        await elastic_api.shutdown_client(_os)
 
 if __name__ == "__main__":
     asyncio.run(main())

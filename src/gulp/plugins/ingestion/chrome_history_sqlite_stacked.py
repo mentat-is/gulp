@@ -76,7 +76,7 @@ class Plugin(PluginBase):
 
         return record
 
-    async def ingest(
+    async def ingest_file(
         self,
         index: str,
         req_id: str,
@@ -90,7 +90,7 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
 
-        await super().ingest(
+        await super().ingest_file(
             index=index,
             req_id=req_id,
             client_id=client_id,
@@ -108,7 +108,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            await self.initialize()(index, source, skip_mapping=True)
+            await self._initialize_mappings()(index, source, skip_mapping=True)
             mod = gulp_plugin.load_plugin("sqlite", **kwargs)
         except Exception as ex:
             fs = self._source_failed(fs, source, ex)
@@ -123,7 +123,7 @@ class Plugin(PluginBase):
                 "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
             }
         }
-        return await mod.ingest(
+        return await mod.ingest_file(
             index,
             req_id,
             client_id,

@@ -33,7 +33,7 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    async def ingest(
+    async def ingest_file(
         self,
         index: str,
         req_id: str,
@@ -47,7 +47,7 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
 
-        await super().ingest(
+        await super().ingest_file(
             index=index,
             req_id=req_id,
             client_id=client_id,
@@ -61,7 +61,7 @@ class Plugin(PluginBase):
         )
 
         fs = TmpIngestStats("raw")
-        await self.initialize()(index, source, skip_mapping=True)
+        await self._initialize_mappings()(index, source, skip_mapping=True)
 
         events: list[dict] = source
         for evt in events:

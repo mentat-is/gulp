@@ -12,7 +12,7 @@ from evtx import PyEvtxParser
 from lxml import etree
 from sigma.pipelines.elasticsearch.windows import ecs_windows
 
-from gulp.api.collab.stats import GulpIngestionStats, RequestAbortError, TmpIngestStats
+from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError, TmpIngestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
@@ -88,6 +88,13 @@ class Plugin(PluginBase):
             return codes[ev_code]
 
         return None
+    async def record_to_gulp_documents(self,
+                                      record: any, record_idx: int, operation: str, context: str, log_file_path: str) -> list[dict]:
+        
+        evt_str: str = record["data"].encode()
+        data_elem = None
+        data_elem = etree.fromstring(evt_str)
+        cat_tree = data_elem[0]
 
     async def record_to_gulp_document(
         self,
@@ -223,7 +230,7 @@ class Plugin(PluginBase):
         return docs
 
     
-    async def ingest(
+    async def ingest_file(
         self,
         req_id: str,
         ws_id: str,
@@ -235,12 +242,15 @@ class Plugin(PluginBase):
         plugin_params: GulpPluginParams = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
+        await super().ingest_file(
+            req_id, ws_id, user, index, operation, context, log_file_path, plugin_params, flt
+        )
 
         # initialize stats
         stats: GulpIngestionStats = GulpIngestionStats.create_or_get(req_id, user, operation=operation, context=context)
         try:
             # initialize plugin
-            self.initialize(mapping_file='windows.json')
+            await self._initialize_mappings(mapping_file='windows.json')
 
             # init parser
             parser = PyEvtxParser(log_file_path)
@@ -253,17 +263,13 @@ class Plugin(PluginBase):
             for rr in parser.records():
                 doc_idx +=1
                 try:
-                    await self._process_record(stats, ws_id, index, rr, doc_idx, flt)
-                except RequestAbortError as ex:
+                    await self._process_record(stats, rr, doc_idx, flt)
+                except RequestCanceledError as ex:
                     break
-                except Exception as ex:
-                    await self._record_failed(stats, ex, ws_id, source=log_file_path)
 
         except Exception as ex:
-            await self._source_failed(stats, ex, ws_id, source=log_file_path)            
+            await self._source_failed(stats, ex)            
         finally:
-            # in the end, flush buffer and wait for index refresh
-            await self._flush_buffer(
-                index, ws_id, stats, flt, wait_for_refresh=True
-            )
+            await self._source_done(stats, flt)
+
         return stats.status

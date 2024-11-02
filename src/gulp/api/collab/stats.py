@@ -21,9 +21,9 @@ from gulp.utils import logger
 from dotwiz import DotWiz
 
 
-class RequestAbortError(Exception):
+class RequestCanceledError(Exception):
     """
-    Raised when a request is aborted.
+    Raised when a request is aborted (by API or in case of too many failures).
     """
     pass
 class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
@@ -196,7 +196,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
     __table_args__ = (Index("idx_stats_operation", "operation"),)
 
     def __init__(self, *args, **kwargs):
-        self._buffer: GulpIngestionStats = GulpIngestionStats()
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -235,44 +234,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             **kwargs,
         )
 
-    def _reset_buffer(self):
-        self._buffer.errors = []
-        self._buffer.records_failed = 0
-        self._buffer.records_skipped = 0
-        self._buffer.records_processed = 0
-        self._buffer.records_ingested = 0
-
-    def _update_buffered(
-        self,
-        error: str | list[str] | Exception = None,
-        source_processed: int = 0,
-        source_failed: int = 0,
-        records_failed: int = 0,
-        records_skipped: int = 0,
-        records_processed: int = 0,
-        records_ingested: int = 0,
-    ) -> None:
-        """
-        Updates the buffered statistics with the provided values.
-        """
-        self._buffer.source_processed += source_processed
-        self._buffer.source_failed += source_failed
-        self._buffer.records_failed += records_failed
-        self._buffer.records_skipped += records_skipped
-        self._buffer.records_processed += records_processed
-        self._buffer.records_ingested += records_ingested
-        if error:
-            if isinstance(error, Exception):
-                error = str(error)
-                if error not in self._buffer.errors:
-                    self._buffer.errors.append(error)
-            elif isinstance(error, str):
-                if error not in self._buffer.errors:
-                    self._buffer.errors.append(error)
-            elif isinstance(error, list[str]):
-                for e in error:
-                    if e not in self._buffer.errors:
-                        self._buffer.errors.append(e)
 
     @classmethod
     async def cancel_by_id(cls, id: str, ws_id: str = None) -> None:
@@ -303,8 +264,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             {"status": GulpRequestStatus.CANCELED},
             ws_id=ws_id,
             req_id=self.id,
-            throw_if_not_found=False,
-            force_flush=True,
+            throw_if_not_found=False
         )
 
     @override
@@ -321,7 +281,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         records_skipped: int = 0,
         records_processed: int = 0,
         records_ingested: int = 0,
-        force_flush: bool = False,
         **kwargs,
     ) -> T:
         """
@@ -330,7 +289,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             d (dict): unused
             ws_id (str, optional): The websocket ID. Defaults to None.
             throw_if_not_found (bool, optional): If set, an exception is raised if the request is not found. Defaults to True.
-            force_flush (bool, optional): If set, the request is force flushed to the storage even if threshold has not been reached yet. Defaults to False.
             error (str|Exception|list[str], optional): The error/s to append. Defaults to None.
             status (GulpRequestStatus, optional): The status of the request. Defaults to None.
             source_processed (int, optional): The number of sources processed. Defaults to 0.
@@ -345,16 +303,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Raises:
             RequestAbortError: If the request is aborted.
         """
-        # update buffer and status
-        self._update_buffered(
-            error=error,
-            source_processed=source_processed,
-            source_failed=source_failed,
-            records_failed=records_failed,
-            records_skipped=records_skipped,
-            records_processed=records_processed,
-            records_ingested=records_ingested,
-        )
         if status:
             self.status = status
 
@@ -363,6 +311,12 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 "source_processed == source_total, setting status to DONE: %s" % (self)
             )
             self.status = GulpRequestStatus.DONE
+        
+        if self.source_failed == self.source_total:
+            logger().debug(
+                "source_failed == source_total, setting status to FAILED: %s" % (self)
+            )
+            self.status = GulpRequestStatus.FAILED
 
         # check threshold
         failure_threshold = config.ingestion_evt_failure_threshold()
@@ -377,7 +331,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 "TOO MANY FAILURES REQ_ID=%s (failed=%d, threshold=%d), aborting ingestion!"
                 % (self.id, self.source_failed, failure_threshold)
             )
-            self.status = GulpRequestStatus.FAILED
+            self.status = GulpRequestStatus.CANCELED
 
         if status in [
             GulpRequestStatus.CANCELED,
@@ -385,43 +339,46 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             GulpRequestStatus.DONE,
         ]:
             self.time_finished = muty.time.now_msec()
-            force_flush = True
             logger().debug("request is finished: %s" % (self))
 
-        if force_flush:
-            # time to update on the storage
-            async with await session() as sess:
-                # be sure to read the latest version from db
-                sess.add(self)
-                await sess.refresh(self)
+        async with await session() as sess:
+            # be sure to read the latest version from db
+            sess.add(self)
+            await sess.refresh(self)
 
-                # add buffered values to the instance
-                self.source_processed += self._buffer.source_processed
-                self.source_failed += self._buffer.source_failed
-                self.records_failed += self._buffer.records_failed
-                self.records_skipped += self._buffer.records_skipped
-                self.records_processed += self._buffer.records_processed
-                self.records_ingested += self._buffer.records_ingested
-                for e in self._buffer.errors:
-                    if e not in self.errors:
-                        self.errors.append(e)
+            # add buffered values to the instance
+            self.source_processed += source_processed
+            self.source_failed += source_failed
+            self.records_failed += records_failed
+            self.records_skipped += records_skipped
+            self.records_processed += records_processed
+            self.records_ingested += records_ingested
+            if error:
+                if isinstance(error, Exception):
+                    error = str(error)
+                    if error not in self.errors:
+                        self.errors.append(error)
+                elif isinstance(error, str):
+                    if error not in self.errors:
+                        self.errors.append(error)
+                elif isinstance(error, list[str]):
+                    for e in error:
+                        if e not in self.errors:
+                            self.errors.append(e)
 
-                # update the instance
-                await super().update(
-                    self.to_dict(),
-                    ws_id=ws_id,
-                    req_id=self.id,
-                    throw_if_not_found=throw_if_not_found,
-                    **kwargs,
-                )
+            # update the instance
+            await super().update(
+                self.to_dict(),
+                ws_id=ws_id,
+                req_id=self.id,
+                throw_if_not_found=throw_if_not_found,
+                **kwargs,
+            )
 
-                if ws_id:
-                    # TODO: update ws
-                    pass
+        if ws_id:
+            # TODO: update ws
+            pass
 
-                # reset stats buffer
-                self._reset_buffer()
-        
-        if status in [GulpRequestStatus.CANCELED, GulpRequestStatus.FAILED]:
-            logger().error("request failed or canceled: %s" % (self))
-            raise RequestAbortError()
+        if status == GulpRequestStatus.CANCELED:
+            logger().error("request canceled: %s" % (self))
+            raise RequestCanceledError()

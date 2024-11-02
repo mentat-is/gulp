@@ -187,7 +187,7 @@ class Plugin(PluginBase):
         )
         return docs
 
-    async def ingest(
+    async def ingest_file(
         self,
         index: str,
         req_id: str,
@@ -201,7 +201,7 @@ class Plugin(PluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
 
-        await super().ingest(
+        await super().ingest_file(
             index=index,
             req_id=req_id,
             client_id=client_id,
@@ -221,7 +221,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self.initialize()(
+            index_type_mapping, custom_mapping = await self._initialize_mappings()(
                 index,
                 source,
                 mapping_file="apache_access_clf.json",

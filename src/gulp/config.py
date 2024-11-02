@@ -14,7 +14,7 @@ from gulp.utils import logger
 _config: dict = None
 _config_file_path = None
 
-
+# TODO: turn to a class
 def init():
     """
     initialize the configuration module

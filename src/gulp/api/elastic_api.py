@@ -14,10 +14,7 @@ from gulp.api.elastic.structs import (
     GulpDocument,
     GulpIngestionFilter,
     GulpQueryFilter,
-    GulpQueryOptions,
-    gulpqueryflt_to_elastic_dsl,
 )
-from gulp.api.mapping import index_template
 from gulp.defs import GulpEventFilterResult, ObjectNotFound
 from gulp.utils import logger
 
@@ -29,13 +26,14 @@ from elasticsearch import (
 )  # use AElasticSearch for Elasticsearch
 
 # NOTE: this was originally written for Elasticsearch, then ported to OpenSearch. maybe it should be refactored to remove this "as" alias.
-# TODO: one day this should be properly renamed
 from opensearchpy import (
     AsyncOpenSearch as AsyncElasticsearch,
 )  # use AsyncElasticSearch for OpenSearch
 
 _elastic: AsyncElasticsearch = None
 
+# TODO: turn to singleton class
+# TODO: properly use AsyncOpenSearch without aliasing to AsyncElasticSearch
 
 def _parse_mappings(d: dict, parent_key="", result=None) -> dict:
     if result is None:
@@ -194,7 +192,7 @@ async def build_and_set_index_template(
     )
     dtt.extend(dt)
     mappings["dynamic_templates"] = dtt
-
+    
     if apply_patches:
         # only set these if we do not want to use the template as is
         # mappings['date_detection'] = True
@@ -205,11 +203,14 @@ async def build_and_set_index_template(
 
         # support for original event both as keyword and text
         mappings["properties"]["event"]["properties"]["original"] = {
-            "type": "keyword",
+            "type": "text",
+            "analyzer": "standard",
             "fields": {
-                "type": "text",
-                "analyzer": "standard",
-            },
+                "keyword": {
+                "type": "keyword",
+                "ignore_above": 1024
+                }
+            }
         }
         settings["index"]["mapping"]["total_fields"] = {
             "limit": config.index_template_default_total_fields_limit()
@@ -660,7 +661,7 @@ def _parse_elastic_res(
     results: dict,
     include_hits: bool = True,
     include_aggregations: bool = True,
-    options: GulpQueryOptions = None,
+    options = None,
 ) -> list:
     """
     Parse an Elasticsearch query result.
@@ -973,7 +974,7 @@ async def query_single_event(el: AsyncElasticsearch, index: str, gulp_id: str) -
 
 
 async def query_raw(
-    el: AsyncElasticsearch, index: str, q: dict, options: GulpQueryOptions = None
+    el: AsyncElasticsearch, index: str, q: dict, options = None
 ) -> dict:
     """
     Executes a raw DSL query on OpenSearch
@@ -1018,7 +1019,7 @@ async def query_raw(
 
 
 async def query_raw_elastic(
-    el: AElasticSearch, index: str, q: dict, options: GulpQueryOptions = None
+    el: AElasticSearch, index: str, q: dict, options = None
 ) -> dict:
     """
     Executes a raw DSL query on Elasticsearch.
@@ -1054,7 +1055,7 @@ async def query_raw_elastic(
     return _parse_elastic_res(res, options=options)
 
 
-def get_client() -> AsyncElasticsearch:
+def _get_client() -> AsyncElasticsearch:
     """
     Create and return an Elasticsearch client.
 
@@ -1163,5 +1164,5 @@ def elastic(invalidate: bool = False) -> AsyncElasticsearch:
 
     if _elastic is None:
         # create
-        _elastic = get_client()
+        _elastic = _get_client()
     return _elastic

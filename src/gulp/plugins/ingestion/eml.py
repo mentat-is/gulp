@@ -140,7 +140,7 @@ class Plugin(PluginBase):
 
         return docs
 
-    async def ingest(
+    async def ingest_file(
         self,
         index: str,
         req_id: str,
@@ -156,7 +156,7 @@ class Plugin(PluginBase):
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self.initialize()(
+        index_type_mapping, custom_mapping = await self._initialize_mappings()(
             index, source, plugin_params=plugin_params
         )
 
