@@ -98,12 +98,16 @@ class IngestionFailed(Exception):
 
 
 class GulpPluginType(StrEnum):
-    """plugin types"""
+    """ 
+    specifies the plugin types
 
+    - INGESTION: support ingestion
+    - QUERY_EXTERNAL: support query to external sources
+    - EXTENSION: extension plugin
+    """
     INGESTION = "ingestion"
-    SIGMA = "sigma"
     EXTENSION = "extension"
-    QUERY = "query"
+    QUERY_EXTERNAL = "query_external"
 
 
 class GulpLogLevel(IntEnum):

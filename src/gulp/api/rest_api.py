@@ -36,7 +36,7 @@ import gulp.api.rest.ws as gulp_ws
 import gulp.config as config
 import gulp.utils as gulp_utils
 from gulp.api.collab import db
-from gulp.api.collab.base import (
+from gulp.api.collab.structs import (
     MissingPermission,
     SessionExpired,
     WrongUsernameOrPassword,
@@ -493,7 +493,7 @@ def start_server(
             address,
             port,
             logger().level,
-            config.config_path(),
+            config.path_config(),
             log_file_path,
             reset_collab,
             elastic_index,
@@ -502,7 +502,7 @@ def start_server(
     if config.enforce_https():
         logger().info("enforcing HTTPS ...")
 
-        certs_path: str = config.certs_directory()
+        certs_path: str = config.path_certs()
         cert_password: str = config.https_cert_password()
         gulp_ca_certs = muty.file.safe_path_join(certs_path, "gulp-ca.pem")
         if not os.path.exists(gulp_ca_certs):

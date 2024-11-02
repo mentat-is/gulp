@@ -14,7 +14,9 @@ from gulp.utils import logger
 _config: dict = None
 _config_file_path = None
 
-# TODO: turn to a class
+# TODO: turn to a singleton class
+# TODO: simplify (i.e. path_config, read_or_init_configuration, initialize_custom_directories ...)
+
 def init():
     """
     initialize the configuration module
@@ -150,22 +152,6 @@ def bind_to() -> tuple[str,int]:
 
     return (splitted[0], int(splitted[1]))
 
-def path_index_template() -> str:
-    """
-    Returns the path of the index template file.
-    """
-    p = os.getenv("PATH_INDEX_TEMPLATE")
-    if p is None:
-        p = _config.get("path_index_template", None)
-    if p is None:
-        # return the default path
-        logger().warning("path_index_template not set, using default.")
-        p = impresources.files("gulp.api.mapping.index_template")
-        p = muty.file.safe_path_join(p,'template.json')
-
-    logger().debug("path_index_template: %s" % (p))
-    return p
-
 def index_template_default_total_fields_limit() -> int:
     """
     Returns the default total fields limit for the index template (default=10000).
@@ -200,7 +186,7 @@ def ingestion_request_timeout() -> int:
 
 def _read_or_init_configuration(path: str = None) -> dict:
     global _config, _config_file_path
-    _config_file_path = config_path()
+    _config_file_path = path_config()
 
     logger().info("configuration path: %s" % (_config_file_path))
 
@@ -238,11 +224,11 @@ def config_dir() -> str:
     returns:
         str: the configuration directory
     """
-    p = os.path.dirname(config_path())
+    p = os.path.dirname(path_config())
     return p
 
 
-def config_path() -> str:
+def path_config() -> str:
     """
     get the configuration file path
     """
@@ -598,77 +584,85 @@ def elastic_verify_certs() -> bool:
     return n
 
 
-def path_plugins(t: GulpPluginType = GulpPluginType.INGESTION, paid: bool=False) -> str:
+def path_plugins(extension: bool=False) -> str:
     """
-    returns the plugins path depending on the plugin type
+    returns the plugins path
 
-    t: GulpPluginType = GulpPluginType.INGESTION, use None to return the base plugins path
-    paid: bool = False, if True, the paid plugins path will be returned (ignolred if t is None)
-    returns:
+    Args:
+        extension (bool, optional): whether to return the extension plugins path. Defaults to False.
+
+    Returns:
         str: the plugins path
     """
     default_path = impresources.files("gulp.plugins")
+    # try env
     p = os.getenv("PATH_PLUGINS", None)
-    if p is not None:
-        logger().debug(
-            "using PATH_PLUGINS environment variable as plugins path: %s" % (p)
-        )
-    else:
+    if not p:
+        # try configuration
         p = _config.get("path_plugins", None)
-        if p is not None:
-            logger().debug(
-                "using 'path_plugins' from configuration  as plugins path: %s" % (p)
-            )
-            if t is None:
-                return os.path.expanduser(p)
+        if not p:
+            # use default
+            p = default_path
 
-            # append plugins type directory
-            pp = os.path.expanduser(p)
-            if paid:
-                pp = muty.file.safe_path_join(pp, "paid")
+    pp = os.path.expanduser(p)
+    logger().debug("plugins path: %s" % (pp))    
+    if extension:
+        return muty.file.safe_path_join(pp, "extension")
+    return pp
 
-            return muty.file.safe_path_join(pp, t.value)
+def path_index_template() -> str:
+    """
+    Returns the path of the opensearch index template file.
+    """
+    p = impresources.files("gulp.api.mapping.index_template")
+    default_path = muty.file.safe_path_join(p,'template.json')
 
-        # logger().debug("using default plugins path: %s" % (default_path))
-        p = default_path
+    # try env
+    p = os.getenv("PATH_INDEX_TEMPLATE", None)
+    if not p:
+        # try configuration
+        p = _config.get("path_index_template", None)
+        if not p:
+            p = default_path
 
-    if t is None:
-        # return the base plugins path
-        return p
-
-    # use plugin type as subdirectory
-    return muty.file.safe_path_join(p, t.value)
+    pp = os.path.expanduser(p)
+    logger().debug("path_index_template: %s" % (pp))
+    return p
 
 def path_mapping_files() -> str:
     """
     Returns the directory where mapping files for plugins are stored (default=None=GULPDIR/mapping_files).
     """
-    n = os.getenv("PATH_MAPPING_FILES", None)
-    if n is None:
-        # try config
-        n = _config.get("path_mapping_files", None)
-        if n is not None:
-            logger().debug(
-                'using overridden "mapping_files" directory from configuration: %s'
-                % (n)
-            )
-            n = os.path.expanduser(n)
-        else:
-            # default
-            n = impresources.files("gulp.mapping_files")
-    return n
+    # try env
+    default_path = impresources.files("gulp.mapping_files")
+    p = os.getenv("PATH_MAPPING_FILES", None)
+    if not p:
+        # try configuration
+        p = _config.get("path_mapping_files", None)
+        if not p:
+            p = default_path
+
+    pp = os.path.expanduser(p)
+    logger().debug("mapping files path: %s" % (pp))
+    return p
 
 
-def certs_directory() -> str:
+def path_certs() -> str:
     """
     Returns the directory where the certificates are stored.
     """
-    n = os.getenv("PATH_CERTS", None)
-    if n is None:
-        n = _config.get("path_certs", None)
-        if n is None:
+    # try env
+    p = os.getenv("PATH_CERTS", None)
+    if not p:
+        # try configuration
+        p = _config.get("path_certs", None)
+        if not p:
             logger().warning('"path_certs" is not set !')
-    return muty.file.abspath(n)
+            return None
+    
+    pp = os.path.expanduser(p)
+    logger().debug("certs directory: %s" % (pp))
+    return pp
 
 
 def aggregation_max_buckets() -> int:

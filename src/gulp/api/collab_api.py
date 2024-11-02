@@ -32,7 +32,7 @@ async def engine() -> AsyncEngine:
 
     # check for ssl connection preferences
     # https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
-    certs_dir = config.certs_directory()
+    certs_dir = config.path_certs()
     postgres_ssl = config.postgres_ssl()
     verify_certs = config.postgres_verify_certs()
     if verify_certs:

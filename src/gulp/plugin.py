@@ -14,11 +14,10 @@ import muty.file
 import muty.jsend
 import muty.string
 import muty.time
-from sigma.processing.pipeline import ProcessingPipeline
 
 from gulp import config
 from gulp import utils as gulp_utils
-from gulp.api import collab_api, elastic_api
+from gulp.api import elastic_api
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.elastic.structs import (
@@ -26,20 +25,15 @@ from gulp.api.elastic.structs import (
     GulpIngestionFilter,
     GulpQueryFilter,
 )
-from gulp.api.mapping import helpers as mapping_helpers
 from gulp.api.mapping.models import (
     GulpMappingField,
     GulpMapping,
     GulpMappingFile,
-    GulpMappingOptions,
 )
-from gulp.api.rest import ws as ws_api
-from gulp.api.rest.ws import WsQueueDataType
 from gulp.defs import (
     GulpEventFilterResult,
     GulpLogLevel,
     GulpPluginType,
-    ObjectNotFound,
 )
 from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
 from gulp.utils import logger
@@ -47,6 +41,76 @@ from gulp.utils import logger
 # caches plugin modules for the running process
 _cache: dict = {}
 
+
+
+class PluginCache:
+    """
+    Plugin cache singleton.
+    """
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super().__new__(cls, *args, **kwargs)
+        return cls._instance
+
+    def __init__(self):
+        if not hasattr(self, 'initialized'):
+            self.initialized = True
+            self.cache = {}    
+    
+    def clear(self):
+        """
+        Clear the cache.
+        """
+        if not config.plugin_cache_enabled():
+            return
+
+        self._cache = {}
+
+    def add(self, plugin: ModuleType, name: str) -> None:
+        """
+        Add a plugin to the cache.
+
+        Args:
+            plugin (PluginBase): The plugin to add to the cache.
+            name (str): The name of the plugin.
+        """
+        if not config.plugin_cache_enabled():
+            return
+        if not name in self._cache:
+            logger().debug("adding plugin %s to cache" % (name))
+            self._cache[name] = plugin
+
+    def get(self, name: str) -> ModuleType:
+        """
+        Get a plugin from the cache.
+
+        Args:
+            name (str): The name of the plugin to get.
+        Returns:
+            PluginBase: The plugin if found in the cache, otherwise None.
+        """        
+        if not config.plugin_cache_enabled():
+            return None
+        
+        p = self._cache.get(name, None)
+        if p:
+            logger().debug("found plugin %s in cache !" % (name))
+        return p
+
+    def remove(self, name: str):
+        """
+        Remove a plugin from the cache.
+
+        Args:
+            name (str): The name of the plugin to remove from the cache.
+        """
+        if not config.plugin_cache_enabled():
+            return
+        if name in self._cache:
+            logger().debug("removing plugin %s from cache" % (name))
+            del self._cache[name]
 
 class PluginBase(ABC):
     """
@@ -61,8 +125,9 @@ class PluginBase(ABC):
             tuple: A tuple containing the callable, its arguments, and the object's state.
         """
 
-        # load the plugin module setting the pickled flag to True
-        return (load_plugin, (self.path, self.type(), True, True), self.__dict__)
+        # load with ignore_cache=True, pickled=True
+        extension = GulpPluginType.EXTENSION in self.type()
+        return (PluginBase.load, (self.path, extension, True, True), self.__dict__)
 
     def __init__(
         self,
@@ -136,9 +201,9 @@ class PluginBase(ABC):
         """
 
     @abstractmethod
-    def type(self) -> GulpPluginType:
+    def type(self) -> list[GulpPluginType]:
         """
-        Returns the plugin type.
+        the supported plugin types.
         """
 
     def version(self) -> str:
@@ -1109,273 +1174,141 @@ class PluginBase(ABC):
         err = '%s: %s' % (self._log_file_path or '-', str(err))
         return await stats.update(ws_id=self._ws_id, source_failed=1, source_processed=1, error=err)
 
-def get_plugin_path(
-    plugin: str, plugin_type: GulpPluginType = GulpPluginType.INGESTION
-) -> str:
-    """
-    try different paths to get plugin path for a certain type
+    @staticmethod
+    async def path_by_name(name: str, extension: bool=False) -> str:
+        """
+        Get the path of a plugin by name.
 
-    Args:
-        plugin (str): The name of the plugin.
-        plugin_type (GulpPluginType, optional): The type of the plugin. Defaults to GulpPluginType.INGESTION.
+        Args:
+            name (str): The name of the plugin.
+            extension (bool, optional): Whether the plugin is an extension. Defaults to False.
+        Returns:
+            str: The path of the plugin.        
+        Raises:
+            FileNotFoundError: If the plugin is not found.
+        """
+        async def _path_by_name_internal(name: str, base_path: str) -> str:
+            path_py = muty.file.safe_path_join(base_path, f"{name}.py")
+            path_pyc = muty.file.safe_path_join(base_path, f"{name}.pyc")
+            if await muty.file.exists_async(path_py):
+                logger().debug(f"Plugin {name}.py found in {base_path} !")
+                return path_py
+            if await muty.file.exists_async(path_pyc):
+                logger().debug(f"Plugin {name}.pyc found in {base_path} !")
+                return path_pyc
+            raise FileNotFoundError(f"Plugin {name} not found !")
 
-    Returns:
-        str: The plugin path.
+        # ensure name is stripped of .py/.pyc
+        name = os.path.splitext(name)[0]        
+        if extension:
+            return await _path_by_name_internal(name, config.path_plugins(extension=True))
+        return await _path_by_name_internal(name, config.path_plugins())
+    
+    @staticmethod
+    async def load(plugin: str, extension: bool=False, ignore_cache: bool=False, *args, **kwargs) -> "PluginBase":
+        """
+        Load a plugin by name.
 
-    Raises:
-        ObjectNotFound: If the plugin could not be found.
-    """
-    # try plain .py first
-    # TODO: on license manager, disable plain .py load (only encrypted pyc)
-    # get path according to plugin type
-    path_plugins = config.path_plugins(plugin_type)
-    plugin_path = muty.file.safe_path_join(path_plugins, f"{plugin}.py")
-    paid_plugin_path = muty.file.safe_path_join(
-        path_plugins, f"paid/{plugin}.py", allow_relative=True
-    )
-    plugin_path_pyc = muty.file.safe_path_join(path_plugins, f"{plugin}.pyc")
-    paid_plugin_path_pyc = muty.file.safe_path_join(
-        path_plugins, f"paid/{plugin}.pyc", allow_relative=True
-    )
-    logger().debug(
-        "trying to load plugin %s from paths: %s, %s, %s, %s"
-        % (plugin, plugin_path, paid_plugin_path, plugin_path_pyc, paid_plugin_path_pyc)
-    )
-    if muty.file.exists(paid_plugin_path):
-        return paid_plugin_path
-    if muty.file.exists(plugin_path):
-        return plugin_path
-    if muty.file.exists(paid_plugin_path_pyc):
-        return paid_plugin_path_pyc
-    if muty.file.exists(plugin_path_pyc):
-        return plugin_path_pyc
-    raise ObjectNotFound(f"Plugin {plugin} not found!")
+        Args:
+            plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
+            extension (bool, optional): Whether the plugin is an extension. Defaults to False.
+            ignore_cache (bool, optional): Whether to ignore the cache. Defaults to False.
+            *args: Additional arguments (args[0]: pickled).
+            **kwargs: Additional keyword arguments.
+        """
+        # this is set in __reduce__
+        pickled=args[0] if args else False
 
+        if plugin.startswith('/'):
+            path = plugin
+        else:
+            # get plugin full path by name
+            path = await PluginBase.path_by_name(plugin, extension)
+        bare_name = os.path.splitext(os.path.basename(path))[0]
 
-def load_plugin(
-    plugin: str,
-    plugin_type: GulpPluginType = GulpPluginType.INGESTION,
-    ignore_cache: bool = False,
-    from_reduce: bool = False,
-    **kwargs,
-) -> PluginBase:
-    """
-    Load a plugin from a given path or from the default plugin path.
+        m = PluginCache().get(bare_name) 
+        if ignore_cache:
+            logger().warning("ignoring cache for plugin %s" % (bare_name))
+            m = None
+        if m:
+            # return from cache
+            return m.Plugin(path, pickled=pickled, **kwargs)
+        
+        if extension:
+            module_name = f"gulp.plugins.extension.{bare_name}"
+        else:
+            module_name = f"gulp.plugins.{bare_name}"
 
-    Args:
-        plugin (str): The name or path of the plugin to load.
-        plugin_type (GulpPluginType, optional): The type of the plugin to load. Defaults to GulpPluginType.INGESTION.
-            this is ignored if the plugin is an absolute path or if "plugin_cache" is enabled and the plugin is already cached.
-        ignore_cache (bool, optional): Whether to ignore the plugin cache. Defaults to False.
-        from_reduce (bool, optional, INTERNAL): Whether the plugin is being loaded from a __reduce__ call, defaults to False
-        **kwargs (dict, optional): Additional keyword arguments:
-    Returns:
-        PluginBase: The loaded plugin.
-
-    Raises:
-        Exception: If the plugin could not be loaded.
-    """
-    logger().debug(
-        "load_plugin %s, type=%s, ignore_cache=%r, kwargs=%s ..."
-        % (plugin, plugin_type, ignore_cache, kwargs)
-    )
-    plugin_bare_name = plugin
-    is_absolute_path = plugin.startswith("/")
-    if is_absolute_path:
-        plugin_bare_name = os.path.basename(plugin)
-
-    if plugin_bare_name.lower().endswith(".py") or plugin_bare_name.lower().endswith(
-        ".pyc"
-    ):
-        # remove extension
-        plugin_bare_name = plugin_bare_name.rsplit(".", 1)[0]
-
-    m = plugin_cache_get(plugin_bare_name)
-    if ignore_cache:
-        logger().debug("ignoring cache for plugin %s" % (plugin_bare_name))
-        m = None
-
-    if is_absolute_path:
-        # plugin is an absolute path
-        path = muty.file.abspath(plugin)
-    else:
-        # use plugin_type to load from the correct subfolder
-        path = get_plugin_path(plugin_bare_name, plugin_type=plugin_type)
-
-    module_name = f"gulp.plugins.{plugin_type.value}.{plugin_bare_name}"
-    try:
+        # load from file        
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
-    except Exception as ex:
-        raise Exception(f"Failed to load plugin {path}: {str(ex)}") from ex
+        p: PluginBase = m.Plugin(path, _pickled=pickled, **kwargs)
+        logger().debug(f"loaded plugin m={m}, p={p}, name()={p.name}")
+        PluginCache().add(m, bare_name)
+        return p
 
-    mod: PluginBase = m.Plugin(path, pickled=from_reduce, **kwargs)
-    logger().debug(
-        "loaded plugin m=%s, mod=%s, name()=%s" % (m, mod, mod.display_name())
-    )
-    plugin_cache_add(m, plugin_bare_name)
-    return mod
+    def unload(self) -> None:
+        """
+        unload the plugin module by calling its `cleanup` method and deleting the module object.
+
+        NOTE: the plugin module is **no more valid** after this function returns.
+
+        Returns:
+            None
+        """
+        if config.plugin_cache_enabled():
+            # do not unload if cache is enabled
+            return
+
+        logger().debug("unloading plugin: %s" % (self.name))
+        self.cleanup()
+        PluginCache().remove(self.name)
 
 
-async def list_plugins() -> list[dict]:
-    """
-    List all available plugins.
+    @staticmethod
+    async def list(name: str=None) -> list[dict]:
+        """
+        List all available plugins.
 
-    Returns:
-        list[dict]: The list of available plugins.
-    """
-    path_plugins = config.path_plugins(t=None)
-    l = []
-    for plugin_type in GulpPluginType:
-        subdir_path = os.path.join(path_plugins, plugin_type.value)
-        files = await muty.file.list_directory_async(
-            subdir_path, "*.py*", recursive=True
-        )
+        Args:
+            name (str, optional): if set, only plugins with this name will be returned. Defaults to None.
+        Returns:
+            list[dict]: The list of available plugins.
+        """
+        path_plugins = config.path_plugins()
+        path_extension = config.path_plugins(extension=True)
+        plugins = await muty.file.list_directory_async(path_plugins, "*.py*")
+        extensions = await muty.file.list_directory_async(path_extension, "*.py*")
+        files = plugins + extensions
+        l = []
         for f in files:
-            if "__init__" not in f and "__pycache__" not in f:
-                try:
-                    p = load_plugin(
-                        os.path.splitext(os.path.basename(f))[0],
-                        plugin_type,
-                        ignore_cache=True,
-                    )
-                    n = {
-                        "display_name": p.display_name(),
-                        "type": str(p.type()),
-                        "paid": "/paid/" in f.lower(),
-                        "desc": p.desc(),
-                        "filename": os.path.basename(p.path),
-                        "options": [o.to_dict() for o in p.options()],
-                        "depends_on": p.depends_on(),
-                        "tags": p.tags(),
-                        "event_type_field": p.event_type_field(),
-                        "version": p.version(),
-                    }
-                    l.append(n)
-                    unload_plugin(p)
-                except Exception as ex:
-                    logger().exception(ex)
-                    logger().error("could not load plugin %s" % (f))
+            if "__init__" or "__pycache__" in f:
+                continue            
+            if '/extension/' in f:
+                extension=True
+            else:
+                extension=False
+            try:
+                p = await PluginBase.load(f, extension=extension, ignore_cache=True)
+            except Exception as ex:
+                logger().exception(ex)
+                logger().error("could not load plugin %s" % (f))
+                continue
+
+            if name is not None:
+                # filter by name
+                if name.lower() not in p.name.lower():
                     continue
-    return l
+            n = {
+                "display_name": p.name,
+                "type": p.type(),
+                "desc": p.desc(),
+                "filename": p.plugin_file,
+                "options": [o.to_dict() for o in p.options()],
+                "depends_on": p.depends_on(),
+                "tags": p.tags(),
+                "version": p.version(),
+            }
+            l.append(n)
+            p.unload()
 
-
-async def get_plugin_tags(
-    plugin: str, t: GulpPluginType = GulpPluginType.INGESTION
-) -> list[str]:
-    """
-    Get the tags for a given (ingestion) plugin.
-
-    Args:
-        plugin (str): The name of the plugin to get the tags for.
-        t (GulpPluginType, optional): The type of the plugin. Defaults to GulpPluginType.INGESTION.
-    Returns:
-        list[str]: The tags for the given plugin.
-    """
-    p = load_plugin(plugin, plugin_type=t, ignore_cache=True)
-    tags = p.tags()
-    unload_plugin(p)
-    return tags
-
-
-def unload_plugin(mod: PluginBase) -> None:
-    """
-    Unloads a plugin module by calling its `unload` method and deletes the module object
-
-    NOTE: mod is **no more valid** after this function returns.
-
-    Args:
-        mod (PluginBase): The plugin module to unload.
-        run_gc (bool): if set, garbage collector is called after unloading the module. Defaults to True.
-
-    Returns:
-        None
-    """
-    if config.plugin_cache_enabled():
-        return
-
-    if mod is not None:
-        # delete from cache if any
-        # plugin_cache_delete(mod)
-
-        logger().debug("unloading plugin: %s" % (mod.display_name()))
-        mod.cleanup()
-        del mod
-
-
-def plugin_cache_clear() -> None:
-    """
-    Clear the process's own plugin cache.
-
-    Returns:
-        None
-    """
-    global _cache
-    if not config.plugin_cache_enabled():
-        return
-
-    _cache = {}
-
-
-def plugin_cache_remove(plugin: str) -> None:
-    """
-    Remove a plugin from the process's own plugin cache.
-
-    Args:
-        plugin (str): The name/path of the plugin to remove from the cache.
-
-    Returns:
-        None
-    """
-    global _cache
-    if not config.plugin_cache_enabled():
-        return
-
-    if plugin in _cache:
-        logger().debug("removing plugin %s from cache" % (plugin))
-
-        # cleanup module and delete
-        m = _cache[plugin]
-        del _cache[plugin]
-
-
-def plugin_cache_add(m: ModuleType, name: str) -> None:
-    """
-    Add a plugin to the process's own plugin cache.
-
-    Args:
-        m (ModuleType): The plugin module to add to the cache.
-        name (str): The name/path of the plugin.
-
-    Returns:
-        None
-    """
-    global _cache
-    if not config.plugin_cache_enabled():
-        return
-
-    mm = _cache.get(name, None)
-    if mm is None:
-        logger().debug("adding plugin %s (%s) to cache" % (name, m))
-        _cache[name] = m
-
-
-def plugin_cache_get(plugin: str) -> ModuleType:
-    """
-    Retrieve a plugin from the process's own plugin cache.
-
-    Args:
-        plugin (str): The name/path of the plugin to retrieve.
-
-    Returns:
-        ModuleType: The plugin module if found in the cache, otherwise None.
-    """
-    global _cache
-    if not config.plugin_cache_enabled():
-        return None
-
-    p = _cache.get(plugin, None)
-    if p is not None:
-        logger().debug("found plugin %s in cache" % (plugin))
-    else:
-        logger().warning("plugin %s not found in cache" % (plugin))
-    return p
+        return l

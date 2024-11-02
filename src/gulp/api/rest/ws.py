@@ -19,14 +19,14 @@ from pydantic import BaseModel, Field
 from starlette.endpoints import WebSocketEndpoint
 
 from gulp.api import collab_api
-from gulp.api.collab.session import GulpUserSession
+from gulp.api.collab.user_session import GulpUserSession
 
 
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
 import gulp.utils
-from gulp.api.collab.base import GulpUserPermission
+from gulp.api.collab.structs import GulpUserPermission
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
@@ -66,13 +66,15 @@ class ConnectedWs(BaseModel):
     """
     a connected and active websocket
     """
-
+    class Config:
+        arbitrary_types_allowed = True
+        
     ws: WebSocket = Field(..., description="The WebSocket instance.")
     ws_id: str = Field(..., description="The WebSocket ID.")
     q: asyncio.Queue = Field(
         ..., description="The asyncio queue associated with this websocket."
     )
-    user = Field(..., description="user associated with this websocket.")
+    user: str = Field(..., description="user associated with this websocket.")
     params: WsParameters = Field(
         ..., description="creation parameters for this websocket."
     )

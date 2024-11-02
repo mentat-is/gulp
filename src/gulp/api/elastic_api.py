@@ -1076,7 +1076,7 @@ def _get_client() -> AsyncElasticsearch:
 
     host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
     ca = None
-    certs_dir = config.certs_directory()
+    certs_dir = config.path_certs()
     if certs_dir is not None and parsed.scheme.lower() == "https":
         # https and certs_dir is set
         ca: str = muty.file.abspath(
