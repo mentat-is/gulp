@@ -459,16 +459,15 @@ async def datastream_create(
         await e
         raise e
 
-
 def filter_doc_for_ingestion(
-    doc: GulpDocument | dict,
+    doc: dict,
     flt: GulpIngestionFilter = None
 ) -> GulpEventFilterResult:
     """
     Check if a document is eligible for ingestion based on a filter.
 
     Args:
-        doc (GulpDocument|dict): The document to check.
+        doc (dict): The GulpDocument dictionary to check.
         flt (GulpIngestionFilter): The filter parameters, if any.
 
     Returns:
@@ -479,15 +478,8 @@ def filter_doc_for_ingestion(
         # empty filter or ignore
         return GulpEventFilterResult.ACCEPT
 
-    is_gulp_doc = isinstance(doc, GulpDocument)
-    if is_gulp_doc:
-        # turn to dict
-        dd = doc.to_dict()
-    else:
-        dd = doc
-
     if flt.time_range:
-        ts = dd["gulp.timestamp"]
+        ts = doc["@timestamp"]
         if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
             return GulpEventFilterResult.SKIP
 
@@ -631,7 +623,6 @@ async def rebase(
     convert_script = """
         if (ctx._source['@timestamp'] != 0) {
             ctx._source['@timestamp'] += params.nsec_offset;
-            ctx._source['gulp.timestamp'] += params.nsec_offset;
         }
     """
 

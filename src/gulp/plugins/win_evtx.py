@@ -17,12 +17,12 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import logger
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     windows evtx log file processor.
     """
@@ -96,7 +96,7 @@ class Plugin(PluginBase):
         data_elem = etree.fromstring(evt_str)
         cat_tree = data_elem[0]
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -108,7 +108,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
@@ -239,7 +239,7 @@ class Plugin(PluginBase):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
@@ -250,7 +250,7 @@ class Plugin(PluginBase):
         stats: GulpIngestionStats = GulpIngestionStats.create_or_get(req_id, user, operation=operation, context=context)
         try:
             # initialize plugin
-            await self._initialize_mappings(mapping_file='windows.json')
+            await self._initialize(mapping_file='windows.json')
 
             # init parser
             parser = PyEvtxParser(log_file_path)
@@ -263,7 +263,7 @@ class Plugin(PluginBase):
             for rr in parser.records():
                 doc_idx +=1
                 try:
-                    await self._process_record(stats, rr, doc_idx, flt)
+                    await self.process_record(stats, rr, doc_idx, flt)
                 except RequestCanceledError as ex:
                     break
 

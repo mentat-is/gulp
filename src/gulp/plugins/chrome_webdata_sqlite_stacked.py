@@ -6,11 +6,11 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMapping
 from gulp.defs import GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginGenericParams
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     chrome based browser web data plugin stacked over the SQLITE plugin
     """
@@ -63,7 +63,7 @@ class Plugin(PluginBase):
         virtual_card_usage_data = 32
         web_app_manifest_section = 33
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -75,7 +75,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
 
@@ -123,7 +123,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -142,12 +142,12 @@ class Plugin(PluginBase):
         )
 
         if plugin_params is None:
-            plugin_params = GulpPluginParams()
+            plugin_params = GulpPluginGenericParams()
         fs = TmpIngestStats(source)
 
         # initialize mapping
         try:
-            await self._initialize_mappings()(index, source, skip_mapping=True)
+            await self._initialize()(index, source, skip_mapping=True)
             mod = gulp_plugin.load_plugin("sqlite", **kwargs)
         except Exception as ex:
             fs = self._source_failed(fs, source, ex)
@@ -155,7 +155,7 @@ class Plugin(PluginBase):
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
 
-        plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
+        plugin_params.record_to_gulp_document_fun.append(self._record_to_gulp_document)
         plugin_params.mapping_file = "chrome_webdata.json"
         return await mod.ingest_file(
             index,

@@ -5,12 +5,12 @@ from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.defs import GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 from gulp.utils import logger
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
@@ -28,9 +28,9 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         return [
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "decode", "bool", "attempt to decode messages wherever possible", True
             )
         ]
@@ -47,7 +47,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -56,7 +56,7 @@ class Plugin(PluginBase):
 
         fs = TmpIngestStats(source)
         # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize_mappings()(
+        index_type_mapping, custom_mapping = await self._initialize()(
             index, source, plugin_params=plugin_params
         )
 
@@ -74,7 +74,7 @@ class Plugin(PluginBase):
             mbox = mailbox.mbox(source)
             for message in mbox.itervalues():
                 try:
-                    fs, must_break = await self._process_record(
+                    fs, must_break = await self.process_record(
                         index,
                         message,
                         ev_idx,

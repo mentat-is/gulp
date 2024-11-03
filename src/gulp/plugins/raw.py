@@ -12,11 +12,11 @@ from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.defs import GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginGenericParams
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     ingests raw events
     """
@@ -42,7 +42,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -61,7 +61,7 @@ class Plugin(PluginBase):
         )
 
         fs = TmpIngestStats("raw")
-        await self._initialize_mappings()(index, source, skip_mapping=True)
+        await self._initialize()(index, source, skip_mapping=True)
 
         events: list[dict] = source
         for evt in events:

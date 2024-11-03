@@ -44,7 +44,7 @@ from gulp.defs import (
     ObjectAlreadyExists,
     ObjectNotFound,
 )
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import logger
 
 
@@ -667,7 +667,7 @@ async def query_by_gulpqueryparam(
 async def sigma_to_raw(
     rule: str | SigmaRule,
     pysigma_plugin: str = None,
-    plugin_params: GulpPluginParams = None,
+    plugin_params: GulpPluginGenericParams = None,
 ) -> tuple[SigmaRule, dict]:
     """
     Converts a Sigma rule to raw (Lucene) query for elasticsearch.
@@ -707,7 +707,7 @@ async def sigma_to_raw(
     # load pipeline via dedicated pysigma plugin
     try:
         # use provided pipeline
-        mod: pluginbase.PluginBase = pluginbase.load_plugin(
+        mod: pluginbase.GulpPluginBase = pluginbase.load_plugin(
             pysigma_plugin, plugin_type=GulpPluginType.SIGMA
         )
         processing_pipeline = await mod.pipeline(plugin_params=plugin_params)
@@ -994,7 +994,7 @@ async def sigma_directory_to_gulpqueryparams(
     directory: str,
     pysigma_plugin: str = None,
     tags_from_directories: bool = True,
-    plugin_params: GulpPluginParams = None,
+    plugin_params: GulpPluginGenericParams = None,
     tags_filter: list[str] = None,
     options: GulpQueryOptions = None,
 ) -> list[GulpQueryParameter]:

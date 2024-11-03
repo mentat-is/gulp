@@ -24,7 +24,7 @@ from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, GulpCollab
 from gulp.api.collab.note import GulpNote
 from dotwiz import DotWiz
 from opensearchpy import AsyncOpenSearch
-from gulp.plugin import PluginBase
+from gulp.plugin import GulpPluginBase
 
 _os: AsyncOpenSearch = None
 
@@ -88,11 +88,10 @@ async def testbed():
             print(TestOrm)
             print(cls.__name__)
 
-    buf=[]
-    if buf:
-        print('buf')
-    else:
-        print('not buf')
+    d = {"field1": 1, "field2": "aaa", "field_required": {"a": 1}}
+    d.pop("field2")
+    d.pop("eeee",None)
+    print(d)
     return
 
     flt=GulpIngestionFilter(opt_storage_ignore_filter=True)
@@ -126,8 +125,8 @@ async def testbed():
     print("field1" in tt.model_fields)
     print("field4" in tt.model_fields)
 
-async def _init_gulptest(param1: str, param2: str, *args, **kwargs):
-    print(param1, param2, args, kwargs)
+async def _init_gulptest():
+    await testbed()
     return
     configure_logger()
     logger().debug("---> init")
@@ -152,8 +151,8 @@ async def main():
     # t = TestClass
     # print("field1" in t.__annotations__)
     # print(hasattr(t(), "field1"))
-    try:        
-        await _init_gulptest('a','b')
+    try:       
+        await _init_gulptest()
         
     finally:
         await elastic_api.shutdown_client(_os)

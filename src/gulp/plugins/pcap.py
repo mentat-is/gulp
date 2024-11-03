@@ -28,11 +28,11 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     windows evtx log file processor.
     """
@@ -55,12 +55,12 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng
         # hence a safe default could be pcapng regardless of type
         return [
-            GulpPluginOption(
-                "format", "str", "pcap format (pcap or pcapng)", default=None
+            GulpPluginSpecificParams(
+                "format", "str", "pcap format (pcap or pcapng)", default_value=None
             )
         ]
 
@@ -121,7 +121,7 @@ class Plugin(PluginBase):
 
         return d
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -133,7 +133,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
@@ -210,7 +210,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -233,7 +233,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self._initialize_mappings()(
+            index_type_mapping, custom_mapping = await self._initialize()(
                 index,
                 source=source,
                 # mapping_file="pcap.json",
@@ -282,11 +282,11 @@ class Plugin(PluginBase):
         try:
             for pkt in parser:
                 try:
-                    fs, must_break = await self._process_record(
+                    fs, must_break = await self.process_record(
                         index,
                         pkt,
                         ev_idx,
-                        self.record_to_gulp_document,
+                        self._record_to_gulp_document,
                         ws_id,
                         req_id,
                         operation_id,

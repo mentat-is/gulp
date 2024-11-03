@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from gulp.api.mapping.models import GulpMappingField
 from gulp.defs import GulpLogLevel, GulpSortOrder
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin_internal import GulpPluginGenericParams
 
 EXAMPLE_QUERY_OPTIONS = {
     "example": {
@@ -371,22 +371,19 @@ class GulpDocument(BaseModel):
     """
     represents a Gulp document.
     """
+    class Config:
+        extra = "allow"
 
     id: str = Field(
-        None, description='"_id": the unique identifier of the document.', alias="_id"
+        ..., description='"_id": the unique identifier of the document.', alias="_id"
     )
     hash: str = Field(
-        None, description='"event.hash": the hash of the event.', alias="event.hash"
+        ..., description='"event.hash": the hash of the event.', alias="event.hash"
     )
     timestamp: str = Field(
         ...,
         description='"@timestamp": document original timestamp.',
         alias="@timestamp",
-    )
-    gulp_timestamp: int = Field(
-        0,
-        description='"gulp.timestamp": "@timestamp" as nanoseconds from unix epoch (this is used by the UI only).',
-        alias="gulp.timestamp",
     )
     operation: str = Field(
         ...,
@@ -436,7 +433,7 @@ class GulpDocument(BaseModel):
     @override
     def __init__(
         self,
-        timestamp: str,
+        timestamp: int,
         operation: str,
         context: str,
         agent_type: str,
@@ -448,18 +445,16 @@ class GulpDocument(BaseModel):
         **kwargs,
     ) -> None:
         super().__init__()
-        self.timestamp = str(timestamp)
-        if not self.timestamp:
-            # flag as invalid
-            self.invalid_timestamp = True
-            self.timestamp = None
-            self.gulp_timestamp = 0
+        if isinstance(timestamp, int):
+            # already numeric
+            self.timestamp = timestamp
         else:
-            # convert to nanosec
-            if self.timestamp.isnumeric():
-                self.gulp_timestamp = int(self.timestamp)
+            # ensure numeric
+            if timestamp.isnumeric():
+                self.timestamp = int(self.timestamp)
             else:
-                self.gulp_timestamp = muty.time.string_to_epoch_nsec(self.timestamp)
+                # convert (we must ensure this is a supported string, either conversion must be done in the plugin)
+                self.timestamp = muty.time.string_to_epoch_nsec(self.timestamp)
         self.operation = operation
         self.context = context
         self.agent_type = agent_type
@@ -486,8 +481,33 @@ class GulpDocument(BaseModel):
 
         
     def __repr__(self) -> str:
-        return f"GulpDocument(timestamp={self.timestamp}, gulp.timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
+        return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
 
+    @override
+    def model_dump(self, lite: bool=False, exclude_none: bool=True, exclude_unset: bool=True, **kwargs) -> dict:
+        """
+        Convert the model instance to a dictionary.
+        Args:
+            lite (bool): If True, return a subset of the dictionary with "_id", "@timestamp",
+                  "gulp.context", "gulp.operation", and "log.file.path" keys.
+                         Defaults to False.
+            **kwargs: Additional keyword arguments to pass to the parent class model_dump method.
+        Returns:
+            dict: A dictionary representation of the model instance
+        """
+        d = super().model_dump(exclude_none=exclude_none, exclude_unset=exclude_unset, **kwargs)
+        if lite:
+            # return just this subset
+            for k in list(d.keys()):
+                if k not in [
+                    "_id",
+                    "@timestamp",
+                    "gulp.context",
+                    "gulp.operation",
+                    "log.file.path",
+                ]:
+                    d.pop(k,None)
+        return d
     def to_dict(self, lite: bool = False) -> dict:
         """
         Convert the model instance to a dictionary.
@@ -496,7 +516,7 @@ class GulpDocument(BaseModel):
                          Defaults to False.
         Returns:
             dict: A dictionary representation of the model instance. If `lite` is True,
-                  only includes the keys: "_id", "@timestamp", "gulp.timestamp",
+                  only includes the keys: "_id", "@timestamp",
                   "gulp.context", "gulp.operation", and "log.file.path".
         """
         d = self.model_dump(exclude_none=True, exclude_unset=True)
@@ -506,12 +526,11 @@ class GulpDocument(BaseModel):
                 if k not in [
                     "_id",
                     "@timestamp",
-                    "gulp.timestamp"
                     "gulp.context",
                     "gulp.operation",
                     "log.file.path",
                 ]:
-                    del d[k]
+                    d.pop(k,None)
         return d
 
 

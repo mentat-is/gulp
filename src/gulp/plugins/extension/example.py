@@ -20,7 +20,7 @@ from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.stats import GulpStats
 from gulp.api.elastic.query import QueryResult
 from gulp.api.rest import ws as ws_api
-from gulp.plugin import PluginBase
+from gulp.plugin import GulpPluginBase
 from gulp.utils import logger
 
 """
@@ -39,7 +39,7 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 """
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,

@@ -16,13 +16,13 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 
 # TODO support gzipped logs from rotated configurations, same for error logs
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     common access.log format file processor.
     """
@@ -73,20 +73,20 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         return [
-            GulpPluginOption(
-                "locale", "str", "original server's locale", default=None
+            GulpPluginSpecificParams(
+                "locale", "str", "original server's locale", default_value=None
             ),  # TODO
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "date_format",
                 "str",
                 "server date log format",
-                default="%d/%b/%Y:%H:%M:%S %z",
+                default_value="%d/%b/%Y:%H:%M:%S %z",
             ),
         ]
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -98,7 +98,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
 
@@ -196,7 +196,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -221,7 +221,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self._initialize_mappings()(
+            index_type_mapping, custom_mapping = await self._initialize()(
                 index,
                 source,
                 mapping_file="apache_access_clf.json",
@@ -243,11 +243,11 @@ class Plugin(PluginBase):
                             continue
 
                         # process (ingest + update stats)
-                        fs, must_break = await self._process_record(
+                        fs, must_break = await self.process_record(
                             index,
                             l,
                             ev_idx,
-                            self.record_to_gulp_document,
+                            self._record_to_gulp_document,
                             ws_id,
                             req_id,
                             operation_id,

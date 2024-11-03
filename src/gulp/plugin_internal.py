@@ -1,12 +1,14 @@
 import json
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, SkipValidation, model_validator
 from gulp.api.mapping.models import GulpMapping
 
-class GulpPluginParams(BaseModel):
+class GulpPluginGenericParams(BaseModel):
     """
-    parameters for a plugin, to be passed to ingest and query API
+    parameters for a plugin, to be passed to ingest and query API.
+
+    this may also include other parameters that are specific to the plugin
     """
 
     class Config:
@@ -39,22 +41,13 @@ class GulpPluginParams(BaseModel):
         return json.loads(data)
 
 
-class GulpPluginOption:
+class GulpPluginSpecificParams(BaseModel):
     """
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
     """
+    name: str = Field(..., description="option name.")
+    type: Literal['bool', 'str', 'int', 'float', 'dict', 'list'] = Field(..., description="option type.")
+    default_value: Optional[Any] = Field(None, description="default value.")
+    desc: Optional[str] = Field(None, description="option description.")
+    required: Optional[bool] = Field(False, description="is the option required ?")
 
-    def __init__(self, name: str, type: str, desc: str, default: any = None):
-        """
-        :param name: option name
-        :param type: option type (use "bool", "str", "int", "float", "dict", "list" for the types.)
-        :param desc: option description
-        :param default: default value
-        """
-        self.name = name
-        self.type = type
-        self.default = default
-        self.desc = desc
-
-    def to_dict(self) -> dict:
-        return self.__dict__

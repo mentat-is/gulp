@@ -51,7 +51,7 @@ from gulp.defs import (
     InvalidArgument,
     ObjectNotFound,
 )
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
@@ -538,7 +538,7 @@ async def query_sigma_handler(
             description=API_DESC_PYSYGMA_PLUGIN,
         ),
     ] = None,
-    plugin_params: Annotated[GulpPluginParams, Body()] = None,
+    plugin_params: Annotated[GulpPluginGenericParams, Body()] = None,
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
@@ -615,7 +615,7 @@ async def query_sigma_files_handler(
         str,
         Query(description=API_DESC_PYSYGMA_PLUGIN),
     ] = None,
-    plugin_params: Annotated[GulpPluginParams, Body()] = None,
+    plugin_params: Annotated[GulpPluginGenericParams, Body()] = None,
     tags: Annotated[list[str], Body()] = None,
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
@@ -1055,7 +1055,7 @@ async def query_external_handler(
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
     plugin_params: Annotated[
-        GulpPluginParams,
+        GulpPluginGenericParams,
         Body(
             examples=[
                 {
@@ -1179,7 +1179,7 @@ async def query_external_single_handler(
     token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
     plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
     plugin_params: Annotated[
-        GulpPluginParams,
+        GulpPluginGenericParams,
         Body(
             examples=[
                 {
@@ -1232,7 +1232,7 @@ async def query_external_single_handler(
     # load plugin
     mod = None
     try:
-        mod: gulp.plugin.PluginBase = gulp.plugin.load_plugin(
+        mod: gulp.plugin.GulpPluginBase = gulp.plugin.load_plugin(
             plugin, plugin_type=GulpPluginType.QUERY
         )
     except Exception as ex:

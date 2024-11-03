@@ -31,8 +31,8 @@ from gulp.api.elastic.structs import (
     GulpQueryParameter,
 )
 from gulp.defs import GulpPluginType, ObjectNotFound
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import logger
 
 
@@ -134,7 +134,7 @@ async def _ingest_file_task_internal(
     plugin: str,
     src_file: str | list[dict],
     ws_id: str,
-    plugin_params: GulpPluginParams = None,
+    plugin_params: GulpPluginGenericParams = None,
     flt: GulpIngestionFilter = None,
     user_id: int = None,
     **kwargs,
@@ -182,7 +182,7 @@ async def _ingest_file_task_internal(
 
     # load plugin
     try:
-        mod: PluginBase = gulp.plugin.load_plugin(plugin)
+        mod: GulpPluginBase = gulp.plugin.load_plugin(plugin)
     except Exception as ex:
         # can't load plugin ...
         t = TmpIngestStats(src_file).update(ingest_errors=[ex])
@@ -688,7 +688,7 @@ async def _query_external_internal(
     user_id: int,
     username: str,
     plugin: str,
-    plugin_params: GulpPluginParams,
+    plugin_params: GulpPluginGenericParams,
     ws_id: str,
     req_id: str,
     flt: GulpQueryFilter,
@@ -703,7 +703,7 @@ async def _query_external_internal(
     mod = None
     raw_plugin = None
     try:
-        mod: PluginBase = gulp.plugin.load_plugin(
+        mod: GulpPluginBase = gulp.plugin.load_plugin(
             plugin, plugin_type=GulpPluginType.QUERY
         )
     except Exception as ex:
@@ -723,7 +723,7 @@ async def _query_external_internal(
     ingest_index = plugin_params.extra.get("ingest_index", None)
     if ingest_index is not None:
         # # load the raw plugin and pass the instance over in extra
-        raw_plugin: PluginBase = gulp.plugin.load_plugin(
+        raw_plugin: GulpPluginBase = gulp.plugin.load_plugin(
             "raw", plugin_type=GulpPluginType.INGESTION
         )
         plugin_params.extra["raw_plugin"] = raw_plugin

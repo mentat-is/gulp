@@ -33,7 +33,7 @@ from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import GulpUser
 from gulp.api.elastic.structs import GulpIngestionFilter
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
@@ -188,7 +188,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
 def _get_ingest_payload(
     multipart_result: dict,
 ) -> tuple[
-    GulpPluginParams,
+    GulpPluginGenericParams,
     GulpIngestionFilter,
 ]:
     """
@@ -202,7 +202,7 @@ def _get_ingest_payload(
     if payload is None or len(payload) == 0:
         #  no payload
         logger().debug("no payload found in multipart")
-        return GulpPluginParams(), GulpIngestionFilter()
+        return GulpPluginGenericParams(), GulpIngestionFilter()
 
     # parse each part of the payload
 
@@ -216,9 +216,9 @@ def _get_ingest_payload(
     # plugin parameters
     plugin_params = payload.get("plugin_params", None)
     if plugin_params is None:
-        plugin_params = GulpPluginParams()
+        plugin_params = GulpPluginGenericParams()
     else:
-        plugin_params = GulpPluginParams.from_dict(plugin_params)
+        plugin_params = GulpPluginGenericParams.from_dict(plugin_params)
 
     logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
     return plugin_params, flt
@@ -284,7 +284,7 @@ async def ingest_raw_handler(
         Body(description="chunk of raw JSON events to be ingested."),
     ],
     ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    plugin_params: Annotated[GulpPluginParams, Body()] = None,
+    plugin_params: Annotated[GulpPluginGenericParams, Body()] = None,
     flt: Annotated[GulpIngestionFilter, Body()] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
@@ -600,7 +600,7 @@ if __debug__:
         ],
         ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
         plugin_params: Annotated[
-            GulpPluginParams,
+            GulpPluginGenericParams,
             Body(),
         ] = None,
         flt: Annotated[GulpIngestionFilter, Body()] = None,

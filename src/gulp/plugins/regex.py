@@ -13,12 +13,12 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 from gulp.utils import logger
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return """generic regex file processor"""
 
@@ -28,15 +28,15 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         return [
-            GulpPluginOption(
-                "regex", "str", "regex to apply - must use named groups", default=None
+            GulpPluginSpecificParams(
+                "regex", "str", "regex to apply - must use named groups", default_value=None
             ),
-            GulpPluginOption("flags", "int", "flags to apply to regex", default=0),
+            GulpPluginSpecificParams("flags", "int", "flags to apply to regex", default_value=0),
         ]
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -48,7 +48,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> GulpDocument:
 
@@ -107,14 +107,14 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize_mappings()(
+        index_type_mapping, custom_mapping = await self._initialize()(
             index, source, plugin_params=plugin_params
         )
 
@@ -165,11 +165,11 @@ class Plugin(PluginBase):
                     try:
                         m = regex.match(line)
                         if m is not None:
-                            fs, must_break = await self._process_record(
+                            fs, must_break = await self.process_record(
                                 index,
                                 m,
                                 ev_idx,
-                                self.record_to_gulp_document,
+                                self._record_to_gulp_document,
                                 ws_id,
                                 req_id,
                                 operation_id,

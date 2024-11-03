@@ -14,8 +14,8 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType, InvalidArgument
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 
 try:
     from regipy.registry import RegistryHive, Subkey
@@ -26,7 +26,7 @@ except Exception:
 from construct.core import EnumInteger
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     Windows Registry
 
@@ -61,29 +61,29 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         return [
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "path",
                 "str",
                 "registry path to start traversing the hive from",
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "partial_hive_path",
                 "str",
                 "the path from which the partial hive actually starts",
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "partial_hive_type",
                 "str",
                 "the hive type can be specified if this is a partial hive, or if auto-detection fails",
-                default=None,
+                default_value=None,
             ),
         ]
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -95,7 +95,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
 
@@ -174,7 +174,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list,
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -194,7 +194,7 @@ class Plugin(PluginBase):
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize_mappings()(
+        index_type_mapping, custom_mapping = await self._initialize()(
             index, source=source, plugin_params=plugin_params
         )
 
@@ -228,7 +228,7 @@ class Plugin(PluginBase):
         record_to_gulp_document_fun = plugin_params.record_to_gulp_document_fun
         if record_to_gulp_document_fun is None:
             # no record_to_gulp_document() function defined in params, use the default one
-            record_to_gulp_document_fun = self.record_to_gulp_document
+            record_to_gulp_document_fun = self._record_to_gulp_document
             logger().warning("using win_reg plugin record_to_gulp_document().")
 
         ev_idx = 0
@@ -241,11 +241,11 @@ class Plugin(PluginBase):
                 if len(entry.values) < 1:
                     continue
                 try:
-                    fs, must_break = await self._process_record(
+                    fs, must_break = await self.process_record(
                         index,
                         entry,
                         ev_idx,
-                        self.record_to_gulp_document,
+                        self._record_to_gulp_document,
                         ws_id,
                         req_id,
                         operation_id,

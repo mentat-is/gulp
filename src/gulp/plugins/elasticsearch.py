@@ -21,8 +21,8 @@ from gulp.api.elastic.structs import (
     gulpqueryflt_to_elastic_dsl,
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 from gulp.utils import logger
 from gulp.api.rest import ws as ws_api
 from elasticsearch import AsyncElasticsearch
@@ -44,7 +44,7 @@ The plugin must implement the following methods:
 """
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     query plugin for opensearch/elasticsearch.
 
@@ -80,84 +80,84 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         return [
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "url",
                 "str",
                 "opensearch/elasticsearch server URL, i.e. http://localhost:9200.",
-                default=None,
+                default_value=None,
             ),  # TODO
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "is_elasticsearch",
                 "bool",
                 "True if the server is an ElasticSearch server, False if is an OpenSearch server.",
-                default=True,
+                default_value=True,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "username",
                 "str",
                 "Username.",
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "password",
                 "str",
                 "Password.",
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "index",
                 "str",
                 "Index name.",
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_offset_msec",
                 "int",
                 'if set, this is used to rebase "@timestamp" (and "gulp.timestamp.nsec") in the query results.',
-                default="_time",
+                default_value="_time",
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_field",
                 "str",
                 'timestamp field to be used for querying external sources in "query_external" API, if different from the default.',
-                default="@timestamp",
+                default_value="@timestamp",
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_is_string",
                 "bool",
                 "if set, timestamp is a string (not numeric).",
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_format_string",
                 "str",
                 'if set, the format string used to parse the timestamp if "timestamp_is_string" is True.',
-                default=None,
+                default_value=None,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_day_first",
                 "bool",
                 "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with dayfirst=True.",
-                default=False,
+                default_value=False,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_year_first",
                 "bool",
                 "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with yearfirst=True.",
-                default=True,
+                default_value=True,
             ),
-            GulpPluginOption(
+            GulpPluginSpecificParams(
                 "timestamp_unit",
                 "str",
                 'if timestamp is a number, this is the unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).',
-                default="ms",
+                default_value="ms",
             ),
         ]
 
     def _get_parameters(
-        self, plugin_params: GulpPluginParams
+        self, plugin_params: GulpPluginGenericParams
     ) -> tuple[
         str, bool, str, str, str, bool, str, bool, str, str, str, str, int, dict
     ]:
@@ -310,7 +310,7 @@ class Plugin(PluginBase):
 
     async def query_single(
         self,
-        plugin_params: GulpPluginParams,
+        plugin_params: GulpPluginGenericParams,
         event: dict,
     ) -> dict:
         # get parameters
@@ -369,7 +369,7 @@ class Plugin(PluginBase):
         username: str,
         ws_id: str,
         req_id: str,
-        plugin_params: GulpPluginParams,
+        plugin_params: GulpPluginGenericParams,
         flt: GulpQueryFilter,
         options: GulpQueryOptions = None,
     ) -> tuple[int, GulpRequestStatus]:

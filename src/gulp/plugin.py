@@ -35,15 +35,11 @@ from gulp.defs import (
     GulpLogLevel,
     GulpPluginType,
 )
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 from gulp.utils import logger
 
-# caches plugin modules for the running process
-_cache: dict = {}
 
-
-
-class PluginCache:
+class GulpPluginCache:
     """
     Plugin cache singleton.
     """
@@ -112,7 +108,7 @@ class PluginCache:
             logger().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
 
-class PluginBase(ABC):
+class GulpPluginBase(ABC):
     """
     Base class for all Gulp plugins.
     """
@@ -127,7 +123,7 @@ class PluginBase(ABC):
 
         # load with ignore_cache=True, pickled=True
         extension = GulpPluginType.EXTENSION in self.type()
-        return (PluginBase.load, (self.path, extension, True, True), self.__dict__)
+        return (GulpPluginBase.load, (self.path, extension, True, True), self.__dict__)
 
     def __init__(
         self,
@@ -159,7 +155,9 @@ class PluginBase(ABC):
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
         # for ingestion, the key in the mappings dict to be used
-        self._mapping_id: str = None        
+        self._mapping_id: str = None    
+        # plugin specific parameters (k: v, where k is one of the GulpPluginSpecificParams "name") 
+        self._specific_params: dict = {}
         # calling user
         self._user: str = None
         # current gulp operation
@@ -176,7 +174,7 @@ class PluginBase(ABC):
         self._log_file_path: str = None
 
         # for ingestion, the lower plugin record_to_gulp_document function to call (if this is a stacked plugin on top of another)
-        self._lower_record_to_gulp_documents_fun: Callable = None
+        self._lower_record_to_gulp_document_fun: Callable = None
 
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
@@ -187,7 +185,7 @@ class PluginBase(ABC):
         self.name = self.display_name()
 
         # to bufferize gulpdocuments
-        self._buffer: list[dict] = []
+        self._docs_buffer: list[dict] = []
 
         # to keep track of processed/skipped/failed records
         self._records_skipped = 0
@@ -218,9 +216,9 @@ class PluginBase(ABC):
         """
         return ""
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         """
-        return available GulpPluginOption list (plugin specific parameters)
+        if any, returns a list of plugin specific parameters.
         """
         return []
 
@@ -256,7 +254,7 @@ class PluginBase(ABC):
         username: str,
         ws_id: str,
         req_id: str,
-        plugin_params: GulpPluginParams,
+        plugin_params: GulpPluginGenericParams,
         flt: GulpQueryFilter,
     ) -> tuple[int, GulpRequestStatus]:
         """
@@ -280,7 +278,7 @@ class PluginBase(ABC):
 
     async def query_external_single(
         self,
-        plugin_params: GulpPluginParams,
+        plugin_params: GulpPluginGenericParams,
         event: dict,
     ) -> dict:
         """
@@ -306,7 +304,7 @@ class PluginBase(ABC):
         data: list[dict]|bytes,
         raw: bool=False,
         log_file_path: str=None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         """
@@ -349,7 +347,7 @@ class PluginBase(ABC):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         """
@@ -383,39 +381,78 @@ class PluginBase(ABC):
         return GulpRequestStatus.ONGOING
 
     def _load_lower_plugin(
-        self, plugin: str, ignore_cache: bool = False
-    ) -> "PluginBase":
+        self, plugin: str, ignore_cache: bool = False, *args, **kwargs
+    ) -> "GulpPluginBase":
         """
         in a stacked plugin, load the lower plugin and set the _lower_record_to_gulp_document_fun to the lower plugin record_to_gulp_document function.
 
         Args:
             plugin (str): the plugin to load
             ignore_cache (bool, optional): ignore cache. Defaults to False.
-
+            *args: additional arguments to pass to the plugin constructor.
+            **kwargs: additional keyword arguments to pass to the plugin constructor.
         Returns:
             PluginBase: the loaded plugin
         """
-        p = load_plugin(plugin, ignore_cache=ignore_cache)
+        p = GulpPluginBase.load(plugin, extension=False, ignore_cache=ignore_cache, *args, **kwargs)
 
         # store its record_to_gulp_document function for us to call first
-        self._lower_record_to_gulp_documents_fun = p.record_to_gulp_document
+        self._lower_record_to_gulp_document_fun = p.record_to_gulp_document
         return p
 
-    async def _postprocess_gulp_document(d: dict) -> dict:
+    def _finalize_process_record(self, doc: GulpDocument, extra: list[dict]=None) -> list[dict]:
         """
-        to be implemented in a stacked plugin to further process a GulpDocument dictionary before ingestion.
+        finalize processing a record, generating extra documents if needed.
 
         Args:
-            d (dict): the GulpDocument dictionary to be processed
+            doc (GulpDocument): the gulp document to finalize
+            extra (list[dict], optional): these are the dicts returned from _process_key having tuple[1]=True, to generate further documents. Defaults to None.
 
         Returns:
-            dict: the processed GulpDocument dictionary
+            list[dict]: the final list of documents to be ingested (doc is always the first one).
+        
+        NOTE: called by the engine, do not call this function directly.
+        """
+        # turn to dict
+        doc = doc.model_dump()
+
+        if not extra:
+            return [doc]
+
+        def _update_document(base_doc, extra_fields):
+            new_doc = copy(base_doc)
+            new_doc.update(extra_fields)
+            new_doc['event.hash'] = muty.crypto.hash_blake2b(
+                f"{new_doc['event.original']}{new_doc['event.code']}{new_doc['event.sequence']}"
+            )
+            new_doc['_id'] = new_doc['event.hash']
+            new_doc['gulp.event.code'] = (
+                int(new_doc['event.code'])
+                if new_doc['event.code'].isnumeric()
+                else muty.crypto.hash_crc24(new_doc['event.code'])
+            )
+            return new_doc
+
+        return [doc] + [_update_document(doc, e) for e in extra]        
+    
+
+    async def _postprocess_gulp_documents(d: list[dict]) -> list[dict]:
+        """
+        to be implemented in a stacked plugin to further process GulpDocument dictionaries returned by record_to_gulp_document().
+
+        Args:
+            d (list[dict]): the GulpDocument dictionaries to process.
+
+        Returns:
+            list[dict]: processed GulpDocument dictionaries.
+        
+        NOTE: called by the engine, do not call this function directly.
         """
         raise NotImplementedError("not implemented!")
 
-    async def record_to_gulp_documents(self, record: any, record_idx: int, operation: str, context: str, log_file_path: str=None) -> list[dict]:
+    async def _record_to_gulp_document(self, record: any, record_idx: int, operation: str, context: str, log_file_path: str=None) -> tuple[GulpDocument,dict]:
         """
-        to be implemented in a plugin to convert a record to one or more GulpDocument dictionaries.
+        to be implemented in a plugin to convert a record to a GulpDocument
 
         Args:
             record (any): the record to convert
@@ -425,7 +462,10 @@ class PluginBase(ABC):
             log_file_path (str, optional): the source file name/path
 
         Returns:
-            list[dict]: zero or more GulpDocument dictionaries
+            tuple[0]: the resulting GulpDocument
+            tuple[1]: the list of dictionaries returned from _process_key() having tuple[1]=True, to generate further documents
+        
+        NOTE: called by the engine, do not call this function directly.
         """
         raise NotImplementedError("not implemented!")
     
@@ -443,34 +483,53 @@ class PluginBase(ABC):
 
         Returns:
             list[dict]: zero or more GulpDocument dictionaries
+
+        NOTE: called by the engine, do not call this function directly.
         """
         # first, check if we are in a stacked plugin:
         # a stacked plugin have _lower_record_to_gulp_document_fun set
-        if self._lower_record_to_gulp_documents_fun:
-            # call lower
-            docs = await self._lower_record_to_gulp_documents_fun(
+        if self._lower_record_to_gulp_document_fun:
+            # call lower 
+            doc: GulpDocument
+            extras: list[dict]
+            doc, extras = await self._lower_record_to_gulp_document_fun(
                 record, record_idx, self._operation, self._context, self._log_file_path
             )
 
-            # post-process docs
-            for d in docs:
-                await self._postprocess_gulp_document(d)
+            # generate extra documents if needed
+            docs = self._finalize_process_record(doc, extras)
+            
+            # post-process docs in the plugin above (may generate further documents)
+            docs = self._postprocess_gulp_documents(docs)
         else:
             # call my record_to_gulp_document
-            docs = await self.record_to_gulp_documents(
-                record, record_idx, self._operation, self._context, self._log_file_path
-            )
+            doc, extras = await self.record_to_gulp_documents(
+                record, record_idx, self._operation, self._context, self._log_file_path)
+            
+            # generate extra documents if needed
+            docs = self._finalize_process_record(doc, extras)            
 
         return docs
 
-    async def _process_record(
+    async def process_record(
         self,
         stats: GulpIngestionStats,
         record: any,
         record_idx: int,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> GulpRequestStatus:        
+    ) -> None:        
+        """
+        Processes a single record by converting it to one or more documents and ingesting them.
+        Args:
+            stats (GulpIngestionStats): The ingestion statistics object to update.
+            record (any): The record to process.
+            record_idx (int): The index of the record.
+            flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
+            wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
+        Returns:
+            None
+        """
         ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
 
         # convert record to one or more documents
@@ -485,8 +544,8 @@ class PluginBase(ABC):
 
         # ingest record
         for d in docs:
-            self._buffer.append(d)
-            if len(self._buffer) >= ingestion_buffer_size:
+            self._docs_buffer.append(d)
+            if len(self._docs_buffer) >= ingestion_buffer_size:
                 # flush to opensearch and update stats
                 ingested, skipped = await self._flush_buffer(
                     stats, flt, wait_for_refresh
@@ -501,49 +560,40 @@ class PluginBase(ABC):
                 )
 
                 # reset buffer
-                self._buffer = []
+                self._docs_buffer = []
 
-        return stats.status
 
-    async def _initialize_mappings(
+    async def _initialize(
         self,
         mapping_file: str = None,
         mapping_id: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
     ) -> None:
         """
-        Asynchronously initializes the plugin with the provided mapping file and ID.
-        This method reads a mapping file and validates its contents, storing the
-        resulting "mappings" and "mapping_id" in the instance.
-        If `plugin_params` is provided, it can override the `mapping_file` and `mapping_id` values or provide
-        a full `mappings` dictionary.
+        initialize the plugin, setting mappings and specific parameters if any
+
         Args:
-            mapping_file (str, optional): name of the mapping file. Defaults to None.
-            mapping_id (str, optional): The ID of the mapping inside the mapping file. Defaults to None.
-            plugin_params (GulpPluginParams, optional): Parameters that may override
-                `mapping_file` and `mapping_id`. Defaults to None.
+            mapping_file (str, optional): the mapping file to use. Defaults to None.
+            mapping_id (str, optional): the mapping id to use. Defaults to None.
+            plugin_params (GulpPluginParams, optional): plugin parameters. Defaults to None.
+        
         Raises:
-            ValueError: If the mapping file is empty or if both `mapping_file` and `mapping_id` are None.
-            ValidationError: If the mapping file is invalid.
-        Notes:
-            - If both `mapping_file` and `mapping_id` are None, a warning is logged
-              and an empty dictionary is returned.
-            - The method logs debug information if `plugin_params` overrides the
-              `mapping_file` or `mapping_id`.
+            ValueError: if mapping_id is set but mappings/mapping_file is not.
+            ValueError: if a specific parameter is required but not found in plugin_params.
+
         """
+        if not plugin_params:
+            # ensure we have a plugin_params object
+            plugin_params = GulpPluginGenericParams()
 
         # check if mapping_file, mappings and mapping_id are set in PluginParams
         # if so, override the values
-        if plugin_params:
+        if plugin_params and GulpPluginType.EXTENSION not in self.type():
             # override provided mapping_file, mappings and mapping_id            
             if plugin_params.mappings:
                 # ignore mapping_file
-                self._mappings = {}
-                for k, v in plugin_params.mappings.items():
-                    self._mappings[k] = GulpMapping.model_validate(v)
-                logger().debug(
-                    'using plugin_params.mappings="%s"' % (plugin_params.mappings)
-                )
+                self._mappings = {k: GulpMapping.model_validate(v) for k, v in plugin_params.mappings.items()}
+                logger().debug('using plugin_params.mappings="%s"' % plugin_params.mappings)
             else:
                 # mapping_file must exist if "mappings" is not set
                 if plugin_params.mapping_file:
@@ -559,36 +609,47 @@ class PluginBase(ABC):
                     "using plugin_params.mapping_id=%s" % (plugin_params.mapping_id)
                 )
 
-        if (not mapping_file and not self._mappings) and not mapping_id:
+        for p in self.specific_params() or []:
+            # set specific plugin parameters
+            k = p.name
+            if p.required and (not plugin_params or k not in plugin_params.model_extra):                    
+                raise ValueError(
+                    "required plugin parameter '%s' not found in plugin_params !" % (k)
+                )
+            self._specific_params[k] = plugin_params.get('model_extra', {}).get(k, p.default_value)
+            logger().debug(
+                "setting specific parameter %s=%s" % (k, self._specific_params[k])
+            )
+        if GulpPluginType.EXTENSION in self.type():
+            # extension plugins do not need mappings
+            logger().debug("extension plugin, no mappings needed")
+            return
+        
+        # some checks
+        if not mapping_file and not self._mappings and not mapping_id:
             logger().warning(
                 "mappings/mapping_file and mapping id are both None/empty!"
             )
-            raise ValueError(
-                "mappings/mapping_file and mapping id are both None/empty!"
-            )
+            return
         if mapping_id and (not mapping_file and not self._mappings):
             raise ValueError("mapping_id is set but mappings/mapping_file is not!")
 
-        self._mapping_id = mapping_id
-        if not self._mapping_id:
-            # empty _mapping_id, use first mapping found
-            self._mapping_id = list(self._mappings.keys())[0]
-            logger().warning(
-                "no mapping_id provided, using first mapping found: %s"
-                % (self._mapping_id)
-            )
-        if self._mappings:
-            # mappings provided directly, we're done
-            return
+        if not self._mappings:
+            # read mapping file
+            mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
+            js = json.loads(await muty.file.read_file(mapping_file_path))
+            if not js:                
+                raise ValueError("mapping file %s is empty!" % (mapping_file_path))
 
-        # read mapping file
-        mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
-        js = json.loads(await muty.file.read_file(mapping_file_path))
-        if not js:
-            raise ValueError("mapping file %s is empty!" % (mapping_file_path))
+            gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
+            self._mappings = gmf.mappings
 
-        gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
-        self._mappings = gmf.mappings
+        # set mapping_id (if not set, use first mapping found)
+        self._mapping_id = mapping_id or list(self._mappings.keys())[0]
+        logger().warning(
+            "no mapping_id provided, using first mapping found: %s"
+            % (self._mapping_id)
+        )
 
 
     def cleanup(self) -> None:
@@ -596,89 +657,6 @@ class PluginBase(ABC):
         Optional cleanup routine to call on unload.
         """
         return
-
-    def _build_gulpdocuments(
-        self,
-        fme: list[GulpMappingField],
-        idx: int,
-        operation_id: int,
-        context: str,
-        plugin: str,
-        client_id: int,
-        raw_event: str,
-        original_id: str,
-        src_file: str,
-        timestamp: int = None,
-        timestamp_nsec: int = None,
-        event_code: str = None,
-        cat: list[str] = None,
-        duration_nsec: int = 0,
-        gulp_log_level: GulpLogLevel = None,
-        original_log_level: str = None,
-        remove_raw_event: bool = False,
-        **kwargs,
-    ) -> list[GulpDocument]:
-        """
-        build one or more GulpDocument objects from a list of FieldMappingEntry objects:
-
-        this function creates as many GulpDocument objects as there are FieldMappingEntry objects with is_timestamp=True.
-        if no FieldMappingEntry object has is_timestamp=True, it creates a single GulpDocument object with the first FieldMappingEntry object.
-        """
-        docs: list[GulpDocument] = []
-        append_doc = docs.append  # local variable for faster access
-
-        common_params = {
-            "idx": idx,
-            "operation_id": operation_id,
-            "context": context,
-            "plugin": plugin,
-            "client_id": client_id,
-            "raw_event": raw_event,
-            "original_id": original_id,
-            "src_file": src_file,
-            "timestamp": timestamp,
-            "timestamp_nsec": timestamp_nsec,
-            "event_code": event_code,
-            "cat": cat,
-            "duration_nsec": duration_nsec,
-            "gulp_log_level": gulp_log_level,
-            "original_log_level": original_log_level,
-            **kwargs,
-        }
-        for f in fme:
-            # print("%s\n\n" % (f))
-            # for each is_timestamp build a gulpdocument with all the fields in fme
-            if f.is_timestamp:
-                d = GulpDocument(fme=fme, f=f, **common_params)
-                if remove_raw_event:
-                    d.original_event = None
-
-                # print("%s\n\n" % (d))
-                append_doc(d)
-
-        if len(docs) == 0:
-            # create a document with the given timestamp in timestamp/timestamp_nsec (if any, either it will be set to 0/invalid)
-            d = GulpDocument(fme=fme, **common_params)
-            if remove_raw_event:
-                d.original_event = None
-            append_doc(d)
-
-        return docs
-
-    def get_unmapped_field_name(self, field: str) -> str:
-        """
-        Returns the name of the unmapped field.
-
-        Parameters:
-        - field (str): The name of the field.
-
-        Returns:
-        - str: The name of the unmapped field.
-        """
-        if not elastic_api.UNMAPPED_PREFIX:
-            return field
-
-        return f"{elastic_api.UNMAPPED_PREFIX}.{field}"
 
     def _type_checks(self, v: any, k: str, index_type_mapping: dict) -> any:
         """
@@ -730,269 +708,39 @@ class PluginBase(ABC):
         # logger().debug("returning %s:%s" % (k, v))
         return str(v)
 
-    def _remap_event_fields(
-        self, event: dict, fields: dict, index_type_mapping: dict = None
-    ) -> dict:
+    def _process_key(self, source_key: str, source_value: any) -> tuple[dict, bool]:
         """
-        apply mapping to event, handling special cases:
-
-            - event code (always map to "event.code" and "gulp.event.code")
+        Maps the source key
 
         Args:
-            event (dict): The event to map.
-            fields (dict): describes the mapping, a structure with the following format
-            {
-                "field1": {
-                    # if "field1" exists in event, map it to "mapped_field"
-                    "map_to": "mapped_field",
-                },
-                "field2: {
-                    # if "field2" exists in event, create "event.code" (str) and "gulp.event.code" (int) with the value of "field2"
-                    "is_event_code": True
-                }
-            }
-            index_type_mapping (dict, optional): The elasticsearch index key->type mappings. Defaults to None.
-
+            source_key (str): The source key to map.
+            source_value (any): The source value to map.
         Returns:
-            dict: The mapped event.
+            tuple[0]: the mapped key/s and value/s
+            tuple[1]: a boolean indicating if an extra document should be created with tuple[0] as base
         """
+        # check if we have a mapping for source_key
+        mapping = self._mappings.get(self._mapping_id, {}).fields.get(source_key, None)
+        if not mapping:
+            # unmapped key
+            return {f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value}, False
+        
+        d = {}        
+        if mapping.opt_is_timestamp_chrome:
+            # timestamp chrome, turn to nanoseconds from epoch
+            source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
+        
+        if mapping.opt_extra_doc_with_event_code:
+           d["event.code"] = str(mapping.opt_extra_doc_with_event_code)
+           d["@timestamp"] = source_value
+           return d, True
 
-        mapped_ev: dict = {}
-        if index_type_mapping is None:
-            index_type_mapping = {}
-        if fields is None:
-            fields = {}
-        for k, v in event.items():
-            if k in index_type_mapping.keys():
-                # found in index mapping, fix value if needed. @timestamp is handled here
-                mapped_ev[k] = self._type_checks(v, k, index_type_mapping)
-
-            # check for custom mapping
-            if k in fields.keys():
-                field = fields[k]
-                map_to = field.get("map_to", None)
-                is_event_code = field.get("is_event_code", False)
-                if is_event_code:
-                    # event code is a special case:
-                    # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
-                    mapped_ev["event.code"] = str(v)
-                    if isinstance(v, int) or str(v).isnumeric():
-                        # already numeric
-                        mapped_ev["gulp.event.code"] = int(v)
-                    else:
-                        # string, hash it
-                        mapped_ev["gulp.event.code"] = muty.crypto.hash_crc24(v)
-                elif map_to is not None:
-                    # apply mapping
-                    mapped_ev[map_to] = event[k]
-            else:
-                # add as unmapped, forced to string
-                if k == "_id":
-                    # this is not in the index type mapping even if it is provided
-                    mapped_ev["_id"] = str(v)
-                else:
-                    mapped_ev["%s.%s" % (elastic_api.UNMAPPED_PREFIX, k)] = str(v)
-
-        return mapped_ev
-
-    def _map_source_key_lite(self, event: dict, fields: dict) -> dict:
-        """
-        handles special cases for:
-
-        - event code (always map to "event.code" and "gulp.event.code")
-        """
-        # for each field, check if key exist: if so, map it using "map_to"
-        for k, field in fields.items():
-            if k in event:
-                map_to = field.get("map_to", None)
-                if map_to is not None:
-                    event[map_to] = event[k]
-                elif field.get("is_event_code", False):
-                    # event code is a special case:
-                    # it is always stored as "event.code" and "gulp.event.code", the first being a string and the second being a number.
-                    v = event[k]
-                    event["event.code"] = str(v)
-                    if isinstance(v, int) or str(v).isnumeric():
-                        # already numeric
-                        event["gulp.event.code"] = int(v)
-                    else:
-                        # string, hash it
-                        event["gulp.event.code"] = muty.crypto.hash_crc24(v)
-        return event
-
-    def _map_source_key(
-        self,
-        plugin_params: GulpPluginParams,
-        custom_mapping: GulpMapping,
-        source_key: str,
-        v: Any,
-        index_type_mapping: dict = None,
-        ignore_custom_mapping: bool = False,
-        **kwargs,
-    ) -> list[GulpMappingField]:
-        """
-        map source key to a field mapping entry with "result": {mapped_key: v}
-
-        Args:
-            plugin_params (GulpPluginParams): The plugin parameters.
-            custom_mapping (GulpMapping): The custom mapping.
-            source_key (str): The key to look for(=the event record key to be mapped) in the custom_mapping dictionary
-            v (any): value to set for mapped key/s.
-            index_type_mapping (dict, optional): The elasticsearch index key->type mappings. Defaults to None.
-            ignore_custom_mapping (bool, optional): Whether to ignore custom_mapping and directly map source_key to v. Defaults to False.
-            kwargs: Additional keyword arguments.
-
-        Returns:
-            list[FieldMappingEntry]: zero or more FieldMappingEntry objects with "result" set.
-        """
-        # get mapping and option from custom_mapping
-        if index_type_mapping is None:
-            index_type_mapping = {}
-        # logger().debug('len index type mapping=%d' % (len(index_type_mapping)))
-        mapping_dict: dict = custom_mapping.fields
-        mapping_options = (
-            custom_mapping.options
-            if custom_mapping.options is not None
-            else GulpMappingOptions()
-        )
-
-        # basic checks
-        if v == "-" or v is None:
-            return []
-
-        if isinstance(v, str):
-            v = v.strip()
-            if not v and mapping_options.ignore_blanks:
-                # not adding blank strings
-                return []
-
-        # fix value if needed, and add to extra
-        if ignore_custom_mapping:
-            # direct mapping, no need to check custom_mappings
-            return [GulpMappingField(result={source_key: v})]
-
-        if source_key not in mapping_dict:
-            # logger().error('key "%s" not found in custom mapping, mapping_dict=%s!' % (source_key, muty.string.make_shorter(str(mapping_dict))))
-            # key not found in custom_mapping, check if we have to map it anyway
-            if not mapping_options.ignore_unmapped:
-                return [
-                    GulpMappingField(
-                        result={self.get_unmapped_field_name(source_key): str(v)}
-                    )
-                ]
-
-        # there is a mapping defined to be processed
-        fm: GulpMappingField = mapping_dict[source_key]
-        map_to_list = (
-            [fm.map_to] if isinstance(fm.map_to, (str, type(None))) else fm.map_to
-        )
-
-        # in the end, this function will return a list of FieldMappingEntry objects with "result" set: these results will be used to create the GulpDocument object
-        fme_list: list[GulpMappingField] = []
-        for k in map_to_list:
-            # make a copy of fme without using deepcopy)
-            dest_fm = GulpMappingField(
-                is_timestamp=fm.is_timestamp,
-                event_code=fm.event_code,
-                do_multiply=fm.do_multiply,
-                is_timestamp_chrome=fm.is_timestamp_chrome,
-                is_variable_mapping=fm.is_variable_mapping,
-                result={},
-            )
-
-            # check if it is a number and/or a timestamp (including chrome timestamp, which is a special case)
-            is_numeric = isinstance(v, int) or str(v).isnumeric()
-            if is_numeric:
-                v = int(v)
-                # ensure chrome timestamp is properly converted to nanos
-                # logger().debug('***** is_numeric, v=%d' % (v))
-                if fm.is_timestamp_chrome:
-                    v = int(muty.time.chrome_epoch_to_nanos(v))
-                    # logger().debug('***** is_timestamp_chrome, v nsec=%d' % (v))
-
-                if fm.do_multiply is not None:
-                    # apply a multipler if any (must turn v to nanoseconds)
-                    # logger().debug("***** is_numeric, multiply, v=%d" % (v))
-                    v = int(v * fm.do_multiply)
-                    # logger().debug("***** is_numeric, AFTER multiply, v=%d" % (v))
-
-            elif isinstance(v, str) and fm.is_timestamp:
-                v = int(
-                    muty.time.string_to_epoch_nsec(
-                        v,
-                        utc=mapping_options.timestamp_utc,
-                        dayfirst=mapping_options.timestamp_dayfirst,
-                        yearfirst=mapping_options.timestamp_yearfirst,
-                    )
-                )
-                # logger().debug('***** str and is_timestamp, v nsec=%d' % (v))
-            if fm.is_timestamp:
-                # it's a timestamp, another event will be generated
-                vv = muty.time.nanos_to_millis(v)
-                dest_fm.result["@timestamp"] = vv
-                dest_fm.result["gulp.timestamp.nsec"] = v
-                # logger().debug('***** timestamp nanos, v=%d' % (v))
-                # logger().debug('***** timestamp to millis, v=%d' % (vv))
-
-            if fm.is_timestamp or fm.is_timestamp_chrome:
-                # logger().debug('***** timestamp or timestamp_chrome, v=%d' % (v))
-                if v < 0:
-                    # logger().debug('***** adding invalid timestamp')
-                    v = 0
-                    GulpDocument.add_invalid_timestamp(dest_fm.result)
-                if k is not None:
-                    # also add to mapped key
-                    dest_fm.result[k] = v
-            else:
-                # not a timestamp, map
-                if k is None:
-                    # add unmapped
-                    k = self.get_unmapped_field_name(source_key)
-                else:
-                    v = self._type_checks(v, k, index_type_mapping)
-                dest_fm.result[k] = v
-
-            fme_list.append(dest_fm)
-            """
-            logger().debug('FME LIST FOR THIS RECORD:')
-            for p in fme_list:
-                logger().debug(p)
-            logger().debug('---------------------------------')
-            """
-        return fme_list
-
-    def _build_ingestion_chunk_for_ws(
-        self, docs: list[dict], flt: GulpIngestionFilter = None
-    ) -> list[dict]:
-        """
-        Builds the ingestion chunk for the websocket, filtering if needed.
-        """
-        # logger().debug("building ingestion chunk, flt=%s" % (flt))
-        if not docs:
-            return []
-
-        ws_docs = [
-            {
-                "_id": doc["_id"],
-                "@timestamp": doc["@timestamp"],
-                "gulp.timestamp": doc["gulp.timestamp"],
-                "log.file.path": doc["log.file.path"],
-                "event.duration": doc["event.duration"],
-                "gulp.context": doc["gulp.context"],
-                "event.code": doc["event.code"],
-                "gulp.event.code": doc["gulp.event.code"],
-            }
-            for doc in docs
-            if elastic_api.filter_doc_for_ingestion(
-                doc, flt, ignore_store_all_documents=True
-            )
-            == GulpEventFilterResult.ACCEPT
-        ]
-
-        return ws_docs
+        for k in mapping.ecs:
+            d[k] = source_value
+        return d, False
 
     async def _check_raw_ingestion_enabled(
-        self, plugin_params: GulpPluginParams
+        self, plugin_params: GulpPluginGenericParams
     ) -> tuple[str, dict]:
         """
         check if we need to ingest the events using the raw ingestion plugin (from the query plugin)
@@ -1003,7 +751,7 @@ class PluginBase(ABC):
         Returns:
             tuple[str, dict]: The ingest index and the index type mapping.
         """
-        raw_plugin: PluginBase = plugin_params.extra.get("raw_plugin", None)
+        raw_plugin: GulpPluginBase = plugin_params.extra.get("raw_plugin", None)
         if raw_plugin is None:
             logger().warning("no raw ingestion plugin found, skipping!")
             return None, None
@@ -1021,7 +769,7 @@ class PluginBase(ABC):
 
     async def _perform_raw_ingest_from_query_plugin(
         self,
-        plugin_params: GulpPluginParams,
+        plugin_params: GulpPluginGenericParams,
         events: list[dict],
         operation_id: int,
         client_id: int,
@@ -1039,7 +787,7 @@ class PluginBase(ABC):
             ws_id (str): The websocket id.
             req_id (str): The request id.
         """
-        raw_plugin: PluginBase = plugin_params.extra.get("raw_plugin", None)
+        raw_plugin: GulpPluginBase = plugin_params.extra.get("raw_plugin", None)
 
         # ingest events using the raw ingestion plugin
         ingest_index = plugin_params.extra.get("ingest_index", None)
@@ -1070,12 +818,12 @@ class PluginBase(ABC):
         """
         ingested_docs: list[dict]=[]
         skipped = 0
-        if self._buffer:
+        if self._docs_buffer:
             # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
             skipped, ingestion_errors, ingested_docs = await elastic_api.ingest_bulk(
                 elastic_api.elastic(),
                 self._index,
-                self._buffer,
+                self._docs_buffer,
                 flt=flt,
                 wait_for_refresh=wait_for_refresh,
             )
@@ -1101,7 +849,6 @@ class PluginBase(ABC):
                 {
                     "_id": doc["_id"],
                     "@timestamp": doc["@timestamp"],
-                    "gulp.timestamp": doc["gulp.timestamp"],
                     "log.file.path": doc["log.file.path"],
                     "event.duration": doc["event.duration"],
                     "gulp.context": doc["gulp.context"],
@@ -1114,10 +861,7 @@ class PluginBase(ABC):
                 )
                 == GulpEventFilterResult.ACCEPT
             ]
-
-
-            ws_docs = self._build_ingestion_chunk_for_ws(ingested_docs, flt)
-            if len(ws_docs) > 0:
+            if ws_docs:
                 # TODO: send to ws
                 """ws_api.shared_queue_add_data(
                     WsQueueDataType.INGESTION_CHUNK,
@@ -1205,7 +949,7 @@ class PluginBase(ABC):
         return await _path_by_name_internal(name, config.path_plugins())
     
     @staticmethod
-    async def load(plugin: str, extension: bool=False, ignore_cache: bool=False, *args, **kwargs) -> "PluginBase":
+    async def load(plugin: str, extension: bool=False, ignore_cache: bool=False, *args, **kwargs) -> "GulpPluginBase":
         """
         Load a plugin by name.
 
@@ -1223,10 +967,10 @@ class PluginBase(ABC):
             path = plugin
         else:
             # get plugin full path by name
-            path = await PluginBase.path_by_name(plugin, extension)
+            path = await GulpPluginBase.path_by_name(plugin, extension)
         bare_name = os.path.splitext(os.path.basename(path))[0]
 
-        m = PluginCache().get(bare_name) 
+        m = GulpPluginCache().get(bare_name) 
         if ignore_cache:
             logger().warning("ignoring cache for plugin %s" % (bare_name))
             m = None
@@ -1241,9 +985,9 @@ class PluginBase(ABC):
 
         # load from file        
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
-        p: PluginBase = m.Plugin(path, _pickled=pickled, **kwargs)
+        p: GulpPluginBase = m.Plugin(path, _pickled=pickled, **kwargs)
         logger().debug(f"loaded plugin m={m}, p={p}, name()={p.name}")
-        PluginCache().add(m, bare_name)
+        GulpPluginCache().add(m, bare_name)
         return p
 
     def unload(self) -> None:
@@ -1261,7 +1005,7 @@ class PluginBase(ABC):
 
         logger().debug("unloading plugin: %s" % (self.name))
         self.cleanup()
-        PluginCache().remove(self.name)
+        GulpPluginCache().remove(self.name)
 
 
     @staticmethod
@@ -1270,7 +1014,7 @@ class PluginBase(ABC):
         List all available plugins.
 
         Args:
-            name (str, optional): if set, only plugins with this name will be returned. Defaults to None.
+            name (str, optional): if set, only plugins with filename matching this will be returned. Defaults to None.
         Returns:
             list[dict]: The list of available plugins.
         """
@@ -1288,7 +1032,7 @@ class PluginBase(ABC):
             else:
                 extension=False
             try:
-                p = await PluginBase.load(f, extension=extension, ignore_cache=True)
+                p = await GulpPluginBase.load(f, extension=extension, ignore_cache=True)
             except Exception as ex:
                 logger().exception(ex)
                 logger().error("could not load plugin %s" % (f))
@@ -1303,7 +1047,7 @@ class PluginBase(ABC):
                 "type": p.type(),
                 "desc": p.desc(),
                 "filename": p.plugin_file,
-                "options": [o.to_dict() for o in p.options()],
+                "options": [o.model_dump() for o in p.specific_params()],
                 "depends_on": p.depends_on(),
                 "tags": p.tags(),
                 "version": p.version(),

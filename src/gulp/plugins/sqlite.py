@@ -14,8 +14,8 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
 from gulp.defs import GulpPluginType, InvalidArgument
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginOption, GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 
 try:
     import aiosqlite
@@ -24,7 +24,7 @@ except Exception:
     import aiosqlite
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     """
     SQLITE generic file processor
 
@@ -70,18 +70,18 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def options(self) -> list[GulpPluginOption]:
+    def specific_params(self) -> list[GulpPluginSpecificParams]:
         return [
-            GulpPluginOption(
-                "encryption_key", "str", "DB encryption key", default=None
+            GulpPluginSpecificParams(
+                "encryption_key", "str", "DB encryption key", default_value=None
             ),
-            GulpPluginOption("key_type", "str", "DB encryption key type", default=None),
-            GulpPluginOption(
-                "queries", "dict", "query to run for each table", default={}
+            GulpPluginSpecificParams("key_type", "str", "DB encryption key type", default_value=None),
+            GulpPluginSpecificParams(
+                "queries", "dict", "query to run for each table", default_value={}
             ),
         ]
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -93,7 +93,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         **kwargs,
     ) -> list[GulpDocument]:
 
@@ -202,7 +202,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list,
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -224,7 +224,7 @@ class Plugin(PluginBase):
         fs = TmpIngestStats(source)
 
         # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize_mappings()(
+        index_type_mapping, custom_mapping = await self._initialize()(
             index, source, plugin_params=plugin_params
         )
 
@@ -368,11 +368,11 @@ class Plugin(PluginBase):
 
                             # logger().debug("Mapping: %s" % mapping)
                             try:
-                                fs, must_break = await self._process_record(
+                                fs, must_break = await self.process_record(
                                     index,
                                     row,
                                     ev_idx,
-                                    self.record_to_gulp_document,
+                                    self._record_to_gulp_document,
                                     ws_id,
                                     req_id,
                                     operation_id,

@@ -15,11 +15,11 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
-from gulp.plugin import PluginBase
-from gulp.plugin_internal import GulpPluginParams
+from gulp.plugin import GulpPluginBase
+from gulp.plugin_internal import GulpPluginGenericParams
 
 
-class Plugin(PluginBase):
+class Plugin(GulpPluginBase):
     def _normalize_loglevel(self, l: int | str) -> str:
         """
         int to str mapping
@@ -54,7 +54,7 @@ class Plugin(PluginBase):
     def version(self) -> str:
         return "1.0"
 
-    async def record_to_gulp_document(
+    async def _record_to_gulp_document(
         self,
         operation_id: int,
         client_id: int,
@@ -66,7 +66,7 @@ class Plugin(PluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         extra: dict = None,
         **kwargs,
     ) -> list[GulpDocument]:
@@ -265,7 +265,7 @@ class Plugin(PluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParams = None,
+        plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -298,7 +298,7 @@ class Plugin(PluginBase):
 
         # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self._initialize_mappings()(
+            index_type_mapping, custom_mapping = await self._initialize()(
                 index, source, mapping_file="pfsense.json", plugin_params=plugin_params
             )
         except Exception as ex:
@@ -334,11 +334,11 @@ class Plugin(PluginBase):
                             )
                             continue
 
-                        fs, must_break = await self._process_record(
+                        fs, must_break = await self.process_record(
                             index,
                             rr,
                             ev_idx,
-                            self.record_to_gulp_document,
+                            self._record_to_gulp_document,
                             ws_id,
                             req_id,
                             operation_id,
