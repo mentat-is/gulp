@@ -51,9 +51,9 @@ class GulpPluginCache:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, 'initialized'):
-            self.initialized = True
-            self.cache = {}    
+        if not hasattr(self, '_initialized'):
+            self._initialized = True
+            self._cache = {}    
     
     def clear(self):
         """
@@ -164,33 +164,39 @@ class GulpPluginBase(ABC):
         self._operation: str = None
         # current gulp context
         self._context: str = None
+        # current log file path
+        self._log_file_path: str = None
         # opensearch index to operate on
         self._index: str = None
+        # this is retrieved from the index to check types during ingestion
+        self._index_type_mapping: dict = None
         # websocket to stream data to
         self._ws_id: str = None
         # current request id
         self._req_id: str = None        
-        # current log file path
-        self._log_file_path: str = None
 
         # for ingestion, the lower plugin record_to_gulp_document function to call (if this is a stacked plugin on top of another)
         self._lower_record_to_gulp_document_fun: Callable = None
 
         s = os.path.basename(self.path)
         s = os.path.splitext(s)[0]
-        # to have faster access to the plugin file name (without ext)
-        self.plugin_file = s
+        # to have faster access to the plugin filename
+        self.bare_filename = s
 
         # to have faster access to the plugin name
         self.name = self.display_name()
 
         # to bufferize gulpdocuments
         self._docs_buffer: list[dict] = []
-
+        
+        # this is used by the engine to generate extra documents from a single gulp document
+        self._extra_docs: list[dict]
+        
         # to keep track of processed/skipped/failed records
         self._records_skipped = 0
         self._records_failed = 0
         self._records_processed = 0
+
 
     @abstractmethod
     def display_name(self) -> str:
@@ -380,7 +386,7 @@ class GulpPluginBase(ABC):
         self._log_file_path = log_file_path        
         return GulpRequestStatus.ONGOING
 
-    def _load_lower_plugin(
+    async def _load_lower_plugin(
         self, plugin: str, ignore_cache: bool = False, *args, **kwargs
     ) -> "GulpPluginBase":
         """
@@ -394,19 +400,17 @@ class GulpPluginBase(ABC):
         Returns:
             PluginBase: the loaded plugin
         """
-        p = GulpPluginBase.load(plugin, extension=False, ignore_cache=ignore_cache, *args, **kwargs)
-
+        p = await GulpPluginBase.load(plugin, extension=False, ignore_cache=ignore_cache, *args, **kwargs)        
         # store its record_to_gulp_document function for us to call first
-        self._lower_record_to_gulp_document_fun = p.record_to_gulp_document
+        self._lower_record_to_gulp_document_fun = p._record_to_gulp_document
         return p
 
-    def _finalize_process_record(self, doc: GulpDocument, extra: list[dict]=None) -> list[dict]:
+    def _finalize_process_record(self, doc: GulpDocument) -> list[dict]:
         """
         finalize processing a record, generating extra documents if needed.
 
         Args:
             doc (GulpDocument): the gulp document to finalize
-            extra (list[dict], optional): these are the dicts returned from _process_key having tuple[1]=True, to generate further documents. Defaults to None.
 
         Returns:
             list[dict]: the final list of documents to be ingested (doc is always the first one).
@@ -415,8 +419,8 @@ class GulpPluginBase(ABC):
         """
         # turn to dict
         doc = doc.model_dump()
-
-        if not extra:
+        
+        if not self._extra_docs:
             return [doc]
 
         def _update_document(base_doc, extra_fields):
@@ -433,8 +437,7 @@ class GulpPluginBase(ABC):
             )
             return new_doc
 
-        return [doc] + [_update_document(doc, e) for e in extra]        
-    
+        return [doc] + [_update_document(doc, e) for e in self._extra_docs]        
 
     async def _postprocess_gulp_documents(d: list[dict]) -> list[dict]:
         """
@@ -448,22 +451,18 @@ class GulpPluginBase(ABC):
         
         NOTE: called by the engine, do not call this function directly.
         """
-        raise NotImplementedError("not implemented!")
+        return d
 
-    async def _record_to_gulp_document(self, record: any, record_idx: int, operation: str, context: str, log_file_path: str=None) -> tuple[GulpDocument,dict]:
+    async def _record_to_gulp_document(self, record: any, record_idx: int) -> GulpDocument:
         """
         to be implemented in a plugin to convert a record to a GulpDocument
 
         Args:
             record (any): the record to convert
             record_idx (int): the index of the record in the source
-            operation (str): the operation associated with the record
-            context (str): the context associated with the record
-            log_file_path (str, optional): the source file name/path
 
         Returns:
-            tuple[0]: the resulting GulpDocument
-            tuple[1]: the list of dictionaries returned from _process_key() having tuple[1]=True, to generate further documents
+            GulpDocument: the GulpDocument 
         
         NOTE: called by the engine, do not call this function directly.
         """
@@ -486,30 +485,63 @@ class GulpPluginBase(ABC):
 
         NOTE: called by the engine, do not call this function directly.
         """
-        # first, check if we are in a stacked plugin:
-        # a stacked plugin have _lower_record_to_gulp_document_fun set
-        if self._lower_record_to_gulp_document_fun:
-            # call lower 
-            doc: GulpDocument
-            extras: list[dict]
-            doc, extras = await self._lower_record_to_gulp_document_fun(
-                record, record_idx, self._operation, self._context, self._log_file_path
-            )
 
-            # generate extra documents if needed
-            docs = self._finalize_process_record(doc, extras)
-            
-            # post-process docs in the plugin above (may generate further documents)
-            docs = self._postprocess_gulp_documents(docs)
+        if self._lower_record_to_gulp_document_fun:
+            # a stacked plugin have _lower_record_to_gulp_document_fun set
+            doc = await self._lower_record_to_gulp_document_fun(record, record_idx)
         else:
-            # call my record_to_gulp_document
-            doc, extras = await self.record_to_gulp_documents(
-                record, record_idx, self._operation, self._context, self._log_file_path)
-            
-            # generate extra documents if needed
-            docs = self._finalize_process_record(doc, extras)            
+            # call our record_to_gulp_document
+            doc = await self._record_to_gulp_document(record, record_idx)        
+
+        # generate extra documents if needed
+        docs = self._finalize_process_record(doc)
+
+        # post-process (may generate further documents)
+        docs = await self._postprocess_gulp_documents(docs)
 
         return docs
+
+    def _process_key(self, source_key: str, source_value: any) -> dict:
+        """
+        Maps the source key
+
+        Args:
+            source_key (str): The source key to map.
+            source_value (any): The source value to map.
+        Returns:
+            a dictionary to be merged in the final gulp document
+        """
+
+        # check if we have a mapping for source_key
+        mapping = self._mappings.get(self._mapping_id, {}).fields.get(source_key, None)
+        if not mapping:
+            # missing mapping at all
+            return {
+                f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value
+            }
+        
+        d = {}        
+        if mapping.opt_is_timestamp_chrome:
+            # timestamp chrome, turn to nanoseconds from epoch
+            source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
+        
+        if mapping.opt_extra_doc_with_event_code:
+           # this will trigger the creation of an extra document with the given event code
+           self._extra_docs.append({
+                "event.code": str(mapping.opt_extra_doc_with_event_code),
+                "@timestamp": source_value,
+           })
+
+        if mapping.ecs:
+            # map to ECS fields
+            for k in mapping.ecs:
+                d[k] = source_value
+        else:
+            # unmapped key
+            d[f"{elastic_api.UNMAPPED_PREFIX}.{source_key}"] = source_value
+        
+        return d
+
 
     async def process_record(
         self,
@@ -532,8 +564,9 @@ class GulpPluginBase(ABC):
         """
         ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
 
-        # convert record to one or more documents
+        # process record, initialize
         self._records_processed += 1
+        self._extra_docs = []
         try:
             docs = await self._record_to_gulp_documents_wrapper(
                 stats, record, record_idx
@@ -651,6 +684,10 @@ class GulpPluginBase(ABC):
             % (self._mapping_id)
         )
 
+        # load mappings from index
+        self._index_type_mapping = await elastic_api.datastream_get_key_value_mapping(elastic_api.elastic(), self._index)
+        logger().debug("got index type mappings with %d entries" % (len(self._index_type_mapping)))
+
 
     def cleanup(self) -> None:
         """
@@ -707,37 +744,6 @@ class GulpPluginBase(ABC):
         # add more types here if needed ...
         # logger().debug("returning %s:%s" % (k, v))
         return str(v)
-
-    def _process_key(self, source_key: str, source_value: any) -> tuple[dict, bool]:
-        """
-        Maps the source key
-
-        Args:
-            source_key (str): The source key to map.
-            source_value (any): The source value to map.
-        Returns:
-            tuple[0]: the mapped key/s and value/s
-            tuple[1]: a boolean indicating if an extra document should be created with tuple[0] as base
-        """
-        # check if we have a mapping for source_key
-        mapping = self._mappings.get(self._mapping_id, {}).fields.get(source_key, None)
-        if not mapping:
-            # unmapped key
-            return {f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value}, False
-        
-        d = {}        
-        if mapping.opt_is_timestamp_chrome:
-            # timestamp chrome, turn to nanoseconds from epoch
-            source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
-        
-        if mapping.opt_extra_doc_with_event_code:
-           d["event.code"] = str(mapping.opt_extra_doc_with_event_code)
-           d["@timestamp"] = source_value
-           return d, True
-
-        for k in mapping.ecs:
-            d[k] = source_value
-        return d, False
 
     async def _check_raw_ingestion_enabled(
         self, plugin_params: GulpPluginGenericParams
@@ -968,8 +974,8 @@ class GulpPluginBase(ABC):
         else:
             # get plugin full path by name
             path = await GulpPluginBase.path_by_name(plugin, extension)
+        
         bare_name = os.path.splitext(os.path.basename(path))[0]
-
         m = GulpPluginCache().get(bare_name) 
         if ignore_cache:
             logger().warning("ignoring cache for plugin %s" % (bare_name))
@@ -1046,7 +1052,7 @@ class GulpPluginBase(ABC):
                 "display_name": p.name,
                 "type": p.type(),
                 "desc": p.desc(),
-                "filename": p.plugin_file,
+                "filename": p.bare_filename,
                 "options": [o.model_dump() for o in p.specific_params()],
                 "depends_on": p.depends_on(),
                 "tags": p.tags(),

@@ -231,44 +231,10 @@ async def build_and_set_index_template(
 
 
 async def datastream_get_key_value_mapping(
-    el: AsyncElasticsearch, datastream_name: str
-) -> dict:
-    """
-    Get and parse mappings for the given datastream's backing index: it will result in a dict like:
-    {
-        "field1": "type",
-        "field2": "type",
-        ...
-    }
-
-    Args:
-        el (AsyncElasticsearch): The Elasticsearch client.
-        datastream_name (str): The datastream name as passed to "index_create"
-
-    Returns:
-        dict: The mapping dict.
-    """
-    idx = datastream_name
-    try:
-        res = await el.indices.get_index_template(name=idx)
-    except Exception as e:
-        logger().warning(
-            'no template for datastream/index "%s" found: %s' % (datastream_name, e)
-        )
-        return {}
-
-    # logger().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
-    properties = res["index_templates"][0]["index_template"]["template"]["mappings"][
-        "properties"
-    ]
-    return _parse_mappings(properties)
-
-
-async def index_get_key_value_mapping(
     el: AsyncElasticsearch, index_name: str, return_raw_result: bool = False
 ) -> dict:
     """
-    Get and parse mappings for the given index: it will result in a dict (if return_raw_result is not set) like:
+    Get and parse mappings for the given datastream or index: it will result in a dict (if return_raw_result is not set) like:
     {
         "field1": "type",
         "field2": "type",
@@ -277,7 +243,7 @@ async def index_get_key_value_mapping(
 
     Args:
         el (AsyncElasticsearch): The Elasticsearch client.
-        index_name (str): an index name
+        index_name (str): an index/datastream to query
         return_raw_result (bool, optional): Whether to return the raw result (mapping + settings). Defaults to False.
     Returns:
         dict: The mapping dict.
@@ -297,7 +263,7 @@ async def index_get_key_value_mapping(
     return _parse_mappings(properties)
 
 
-async def index_get_mapping_by_src(
+async def datastream_get_mapping_by_src(
     el: AsyncElasticsearch, index_name: str, context: str, src_file: str
 ) -> dict:
     """
@@ -314,7 +280,7 @@ async def index_get_mapping_by_src(
         dict: The mapping dict.
     """
     # query first
-    options = GulpQueryOptions()
+    options = {} # GulpQueryOptions()
     options.limit = 1000
     options.fields_filter = ["*"]
     q = {
@@ -325,7 +291,7 @@ async def index_get_mapping_by_src(
     }
 
     # get mapping
-    mapping = await index_get_key_value_mapping(el, index_name)
+    mapping = await datastream_get_key_value_mapping(el, index_name)
     filtered_mapping = {}
 
     # loop with query_raw until there's data and update filtered_mapping

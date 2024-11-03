@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import asyncio
+import json
 import sys
 import os
 
@@ -22,12 +23,35 @@ from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, GulpCollabBase
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.user import GulpUser
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab.user_data import GulpUserData
 from dotwiz import DotWiz
 from opensearchpy import AsyncOpenSearch
+from sqlalchemy.ext.asyncio import AsyncEngine
 from gulp.plugin import GulpPluginBase
 
 _os: AsyncOpenSearch = None
+_pg: AsyncEngine = None
 
+_opt_samples_dir= os.environ.get('GULP_SAMPLES_DIR', '~/repos/gulp/samples')
+_opt_reset = os.environ.get('GULP_RESET', False)
+_opt_index = os.environ.get('GULP_INDEX', 'testidx')
+_opt_gulp_integration_test = os.environ.get('GULP_INTEGRATION_TEST', True)
+_operation='test_operation'
+_context='test_context'
+_test_req_id='test_req_id'
+_test_ws_id='test_ws_id'
+_guest_user='guest'
+_admin_user='admin'
+
+configure_logger()
+config.init()
+
+print('opt_samples_dir:', _opt_samples_dir)
+print('opt_reset:', _opt_reset)
+print('opt_index:', _opt_index)
+print('opt_gulp_integration_test:', _opt_gulp_integration_test)
 
 async def testbed():
     class TestPydanticClass(BaseModel):
@@ -125,35 +149,42 @@ async def testbed():
     print("field1" in tt.model_fields)
     print("field4" in tt.model_fields)
 
-async def _init_gulptest():
-    await testbed()
-    return
-    configure_logger()
+async def test_init():
+
+    #await testbed()
+    #return
     logger().debug("---> init")
     config.init()
     
-    # reinit collab
-    await db.setup(force_recreate=True)
+    global _os, _pg
+    if _opt_reset:
+        logger().debug("resetting...")
+        _os = elastic_api.elastic()
+        await elastic_api.datastream_create(_os, _opt_index)
+        await db.setup(force_recreate=True)
+        _pg = await collab_api.engine()
+    else:
+        _os = elastic_api.elastic()
+        _pg = await collab_api.engine()
 
-    # reinit elastic
-    global _os
-    _os = elastic_api.elastic()
-    await elastic_api.datastream_create(_os, "testidx")
-
+async def test_ingest():
+    logger().debug("---> test_ingest")
+    session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
+    print(session)
+    return
+    # load plugin
+    file = os.path.join(_opt_samples_dir,'/win_evtx/security.evtx')
+    plugin = await GulpPluginBase.load("win_evtx")
+    await plugin.ingest_file
 
 async def main():
-    #configure_logger()
-    #config.init()
-    #await testbed()
-    # connect postgre
-    # await collab_api.setup(force_recreate=True)
+    configure_logger()
+    # testbed()
 
-    # t = TestClass
-    # print("field1" in t.__annotations__)
-    # print(hasattr(t(), "field1"))
+    
     try:       
-        await _init_gulptest()
-        
+        await test_init()
+        await test_ingest()
     finally:
         await elastic_api.shutdown_client(_os)
 

@@ -202,29 +202,23 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         sess = await session()
         async with sess:
-            user = await cls.get_one(
-                GulpCollabFilter(id=[user], type=[GulpCollabType.USER]), sess
-            )
-
+            u: GulpUser = await cls.get_one_by_id(user, sess=sess)
             # check if user has a session already, if so invalidate
-            existing_session: GulpUserSession = await GulpUserSession.get_by_user(
-                user, sess, throw_if_not_found=False
-            )
-            if existing_session:
+            if u.session:
                 logger().debug("resetting previous session for user=%s" % (user))
-                user.session = None
-                user.session_id = None
-                sess.add(user)  # keep track of the change
+                u.session = None
+                u.session_id = None
+                sess.add(u)  # keep track of the change
 
             # check password
-            if user.pwd_hash != muty.crypto.hash_sha256(password):
+            if u.pwd_hash != muty.crypto.hash_sha256(password):
                 raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
 
             # create new session
             token = muty.string.generate_unique()
-            new_session: GulpUserSession = await super()._create(
+            new_session: GulpUserSession = await GulpUserSession._create(
                 token,
-                user.id,
+                u.id,
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,
@@ -232,7 +226,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             if config.debug_no_token_expiration():
                 new_session.time_expire = 0
             else:
-                if user.is_admin():
+                if u.is_admin():
                     new_session.time_expire = (
                         muty.time.now_msec() + config.token_admin_ttl() * 1000
                     )
@@ -241,9 +235,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                         muty.time.now_msec() + config.token_ttl() * 1000
                     )
 
-            user.session_id = token
-            user.session = new_session
-            sess.add(user)
+            u.session_id = token
+            u.session = new_session
+            sess.add(u)
             sess.add(new_session)
             await sess.commit()  # this will also delete the previous session from above, if needed
             return new_session

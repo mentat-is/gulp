@@ -439,7 +439,7 @@ class GulpDocument(BaseModel):
         agent_type: str,
         event_original: str,
         event_sequence: int,
-        event_code: str,
+        event_code: str = "0",
         event_duration: int = 1,
         source: str = None,
         **kwargs,
@@ -479,6 +479,8 @@ class GulpDocument(BaseModel):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
+        # check in the end
+        GulpDocument.model_validate(self)
         
     def __repr__(self) -> str:
         return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
@@ -508,31 +510,6 @@ class GulpDocument(BaseModel):
                 ]:
                     d.pop(k,None)
         return d
-    def to_dict(self, lite: bool = False) -> dict:
-        """
-        Convert the model instance to a dictionary.
-        Args:
-            lite (bool): If True, return a subset of the dictionary with specific keys.
-                         Defaults to False.
-        Returns:
-            dict: A dictionary representation of the model instance. If `lite` is True,
-                  only includes the keys: "_id", "@timestamp",
-                  "gulp.context", "gulp.operation", and "log.file.path".
-        """
-        d = self.model_dump(exclude_none=True, exclude_unset=True)
-        if lite:
-            # return just this subset
-            for k in list(d.keys()):
-                if k not in [
-                    "_id",
-                    "@timestamp",
-                    "gulp.context",
-                    "gulp.operation",
-                    "log.file.path",
-                ]:
-                    d.pop(k,None)
-        return d
-
 
 class GulpQueryType(IntEnum):
     """Gulp rule types"""

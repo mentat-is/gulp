@@ -368,7 +368,7 @@ async def elastic_get_mapping_by_source_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
-        m = await elastic_api.index_get_mapping_by_src(
+        m = await elastic_api.datastream_get_mapping_by_src(
             elastic_api.elastic(), index, context, src
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))

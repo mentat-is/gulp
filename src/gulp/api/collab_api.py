@@ -15,6 +15,7 @@ from gulp.utils import logger
 _engine: AsyncEngine = None
 _collab_sessionmaker = None
 
+# TODO: turn to class singleton
 
 async def engine() -> AsyncEngine:
     """

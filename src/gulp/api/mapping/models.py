@@ -44,12 +44,12 @@ class GulpMappingField(BaseModel):
         extra = "allow"
 
     ecs: Optional[list[str]] = Field(None,
-        description="one or more ECS field names to map the source fields to in the resulting document.",
+        description="one or more ECS field names to map the source field to in the resulting document.",
         min_length=1,
     )
     opt_extra_doc_with_event_code: Optional[str] = Field(
         None,
-        description='if this is set, `ecs` is ignored and and the creation of an extra document is triggered with the given "event.code" and "@timestamp" set to this field value.',
+        description='if this is set, the creation of an extra document is triggered with the given "event.code" and "@timestamp" set to this field value.',
     )
     opt_is_timestamp_chrome: Optional[bool] = Field(
         False,

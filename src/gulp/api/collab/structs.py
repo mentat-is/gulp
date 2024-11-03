@@ -186,7 +186,8 @@ class GulpCollabFilter(BaseModel):
         if self.id:
             q = q.filter(self._case_insensitive_or_ilike(type.id, self.id))
         if self.type:
-            q = q.filter(self._case_insensitive_or_ilike(type.type, self.type))
+            # match if equal to any in the list
+            q = q.filter(type.type.in_(self.type))
         if self.operation and "operation" in type.columns:
             q = q.filter(
                 self._case_insensitive_or_ilike(type.operation, self.operation)
@@ -289,6 +290,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     }
 
     def __init_subclass__(cls, type: GulpCollabType|str, abstract: bool=False, **kwargs) -> None:
+        """
+        this is called automatically when a subclass is created
+
+        Args:
+            type (GulpCollabType|str): The type of the object.
+            abstract (bool): If True, the class is abstract
+            **kwargs: Additional keyword arguments.
+        """
         cls.__gulp_collab_type__=type
 
         if abstract:
@@ -299,8 +308,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             "polymorphic_identity": str(type),
         }
 
-        print("****** type=%s, cls.__name__=%s, abstract=%r, cls.__abstract__=%r, cls.__mapper_args__=%s" % 
-              (cls.__gulp_collab_type__, cls.__name__, abstract, cls.__abstract__, cls.__mapper_args__))
+        #print("type=%s, cls.__name__=%s, abstract=%r, cls.__abstract__=%r, cls.__mapper_args__=%s" % (cls.__gulp_collab_type__, cls.__name__, abstract, cls.__abstract__, cls.__mapper_args__))
         super().__init_subclass__(**kwargs)
 
     @override
@@ -364,7 +372,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         # create instance (calls the __init__ method)
-        #print(f"****** GulpCollabBase _create: id={id}, type={cls.type}, owner={owner}")
+        #print(f"****** GulpCollabBase _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}")
 
         instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
         committed = False
@@ -594,9 +602,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.type}")
-        o = cls.get_one(
-            GulpCollabFilter(id=[id], type=[cls.type]),
+        logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}")
+        o = await cls.get_one(
+            GulpCollabFilter(id=[id], type=[cls.__gulp_collab_type__]),
             ws_id,
             req_id,
             sess,
@@ -667,8 +675,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         try:
             # build query
             q = flt.to_select_query(cls)
+            logger().debug("---> get: query=\n%s\n" % (q))
             res = await sess.execute(q)
-            c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found)
+            c = await cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found)
             if c is not None:
                 logger().debug("---> get: found %d objects" % (len(c)))
                 return c

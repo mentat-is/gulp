@@ -1,4 +1,4 @@
-import os
+import json
 from typing import override
 
 import muty.dict
@@ -10,16 +10,13 @@ import muty.time
 import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
-from sigma.pipelines.elasticsearch.windows import ecs_windows
 
-from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError, TmpIngestStats
+from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
-from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.defs import GulpLogLevel, GulpPluginType
+from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginGenericParams
-from gulp.utils import logger
 
 
 class Plugin(GulpPluginBase):
@@ -28,7 +25,7 @@ class Plugin(GulpPluginBase):
     """
 
     def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+        return [GulpPluginType.INGESTION]
 
     def display_name(self) -> str:
         return "win_evtx"
@@ -44,7 +41,7 @@ class Plugin(GulpPluginBase):
         Args:
             ev_code (str): The event code to be converted.
         Returns:
-            dict: A dictionary with 'event.category' and 'event.type'
+            dict: A dictionary with 'event.category' and 'event.type', or an empty dictionary.
         """
         codes = {
             "100": {"event.category": ["package"], "event.type": ["start"]},
@@ -87,102 +84,32 @@ class Plugin(GulpPluginBase):
         if ev_code in codes:
             return codes[ev_code]
 
-        return None
-    async def record_to_gulp_documents(self,
-                                      record: any, record_idx: int, operation: str, context: str, log_file_path: str) -> list[dict]:
+        return {}
+    
+    @override
+    async def _record_to_gulp_document(self, record: any, record_idx: int) -> GulpDocument:
         
-        evt_str: str = record["data"].encode()
-        data_elem = None
-        data_elem = etree.fromstring(evt_str)
-        cat_tree = data_elem[0]
-
-    async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginGenericParams = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
-        # process record
-        # logger().debug(record)
-        evt_str: str = record["data"].encode()
-        data_elem = None
-        data_elem = etree.fromstring(evt_str)
-        cat_tree = data_elem[0]
-
-        # extra mapping from event code
-        fme: list[GulpMappingField] = []
-        entry = GulpMappingField(result={})
-
-        evt_code = str(muty.xml.child_node_text(cat_tree, "EventID"))
-        try:
-            evt_channel = str(muty.xml.child_node_text(cat_tree, "Channel"))
-        except:
-            evt_channel = str(muty.xml.strip_namespace(cat_tree.tag))
-
-        entry.result["winlog.channel"] = evt_channel
-        try:
-            evt_provider = str(muty.xml.child_attrib(cat_tree, "Provider", "Name"))
-            entry.result["event.provider"] = evt_provider
-        except:
-            evt_provider = None
-
-        d = self._map_evt_code(evt_code)
-        if d is not None:
-            entry.result.update(d)
-
-        evt_id = muty.xml.child_node_text(cat_tree, "EventRecordID")
-        original_log_level: str = muty.xml.child_node_text(cat_tree, "Level")
-        gulp_log_level = self._normalize_loglevel(
-            muty.xml.child_node_text(cat_tree, "Level")
-        )
-
-        # evtx timestamp is always UTC string, i.e.: '2021-11-19 16:53:03.836551 UTC'
-        time_str = record["timestamp"]
-        time_nanosec = muty.time.string_to_epoch_nsec(time_str)
-        time_msec = muty.time.nanos_to_millis(time_nanosec)
-        # logger().debug('%s -  %d' % (time_str, time_msec))
-
-        #  raw event as text
-        raw_text = str(record["data"])
-
-        # append this entry
-        fme.append(entry)
-
+        event_original: str = record["data"]
+        timestamp = muty.time.string_to_epoch_nsec(record["timestamp"])
+        data_elem = etree.fromstring(event_original)
         e_tree: etree.ElementTree = etree.ElementTree(data_elem)
-
-        # logger().debug("e_tree: %s" % (e_tree))
-
+        
+        d = {}
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
             # logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
 
             # map attrs and values
-            entries: list[GulpMappingField] = []
             if len(e.attrib) == 0:
                 # no attribs, i.e. <Opcode>0</Opcode>
                 if not e.text or not e.text.strip():
                     # none/empty text
                     # logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
                     continue
-                # 1637340783836
+
                 # logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
-                entries = self._map_source_key(
-                    plugin_params,
-                    custom_mapping,
-                    e.tag,
-                    e.text,
-                    index_type_mapping=index_type_mapping,
-                    **kwargs,
-                )
+                mapped = self._process_key(e.tag, e.text)
+                d.update(mapped)
             else:
                 # attribs, i.e. <TimeCreated SystemTime="2019-11-08T23:20:54.670500400Z" />
                 for attr_k, attr_v in e.attrib.items():
@@ -197,39 +124,20 @@ class Plugin(GulpPluginBase):
                         k = attr_k  # "%s.%s" % (e.tag, attr_k)
                         v = attr_v
                         # logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
-                    ee = self._map_source_key(
-                        plugin_params,
-                        custom_mapping,
-                        k,
-                        v,
-                        index_type_mapping=index_type_mapping,
-                        **kwargs,
-                    )
-                    entries.extend(ee)
+                    mapped = self._process_key(k, v)
+                    d.update(mapped)
 
-            for entry in entries:
-                fme.append(entry)
+        print(json.dumps(d, indent=4))
+        import sys
+        sys.exit(0)
+        
+        doc = GulpDocument(timestamp=timestamp, 
+                           operation=self._operation, 
+                           context=self._context,
+                           agent_type=self.bare_filename,
+                           event_original=event_original,
+                           event_sequence=record_idx)
 
-        # finally create documents
-        docs = self._build_gulpdocuments(
-            fme,
-            idx=record_idx,
-            operation_id=operation_id,
-            context=context,
-            plugin=self.display_name(),
-            client_id=client_id,
-            raw_event=raw_text,
-            original_id=evt_id,
-            src_file=os.path.basename(source),
-            timestamp=time_msec,
-            timestamp_nsec=time_nanosec,
-            event_code=evt_code,
-            gulp_log_level=gulp_log_level,
-            original_log_level=original_log_level,
-        )
-        return docs
-
-    
     async def ingest_file(
         self,
         req_id: str,
