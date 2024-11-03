@@ -170,6 +170,7 @@ async def test_init():
 async def test_ingest():
     logger().debug("---> test_ingest")
     session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
+    await GulpUser.logout(session.id)    
     print(session)
     return
     # load plugin

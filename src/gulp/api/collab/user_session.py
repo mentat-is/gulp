@@ -23,7 +23,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
     """
 
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="CASCADE"),
+        ForeignKey("user.id"),
         doc="The user ID associated with the session.",
         unique=True,
     )
@@ -32,7 +32,6 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
         "GulpUser",
         back_populates="session",
         foreign_keys="[GulpUser.session_id]",
-        cascade="all,delete-orphan",
         single_parent=True,
         uselist=False,
     )
@@ -99,7 +98,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
             admin_user: GulpUser = await GulpUser.get_one_by_id(
                 "admin", sess, throw_if_not_found=False
             )
-            if admin_user.session:
+            if admin_user.session_id:
                 # already exists
                 logger().debug(
                     "debug_allow_any_token_as_admin, reusing existing admin session"
@@ -108,8 +107,8 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
             else:
                 # create a new admin session
                 token = muty.string.generate_unique()
-                admin_session = await super()._create(
-                    token, admin_user.owner
+                admin_session = await GulpUserSession._create(
+                    token, admin_user.id, user_id=admin_user.id, user=admin_user, 
                 )
                 admin_user.session_id = token
                 admin_user.session = admin_session

@@ -53,7 +53,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         foreign_keys=[user_data_id],
         uselist=False,
         default=None,
-    )
+    )    
     @classmethod
     async def create(
         cls,        
@@ -67,7 +67,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
-    ) -> T:        
+    ) -> T:  
+              
         if GulpUserPermission.READ not in permission:
             # ensure that all users have read permission
             permission.append(GulpUserPermission.READ)
@@ -78,7 +79,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "email": email,
             "glyph": glyph,
         }
-
         owner = id
         return await super()._create(
             id,
@@ -222,6 +222,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,
+                user_id=u.id,
+                user=u,
             )
             if config.debug_no_token_expiration():
                 new_session.time_expire = 0
@@ -237,6 +239,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
             u.session_id = token
             u.session = new_session
+            u.time_last_login = muty.time.now_msec()
             sess.add(u)
             sess.add(new_session)
             await sess.commit()  # this will also delete the previous session from above, if needed

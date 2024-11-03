@@ -310,36 +310,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         #print("type=%s, cls.__name__=%s, abstract=%r, cls.__abstract__=%r, cls.__mapper_args__=%s" % (cls.__gulp_collab_type__, cls.__name__, abstract, cls.__abstract__, cls.__mapper_args__))
         super().__init_subclass__(**kwargs)
-
-    @override
-    def __init__(self, id: str, type: GulpCollabType, owner: str, **kwargs) -> None:
+    
+    def __init__(self, *args, **kwargs):
         """
-        Initialize a GulpCollabBase instance.
-        Args:
-            id (str): The identifier for the object.
-            type (GulpCollabType): The type of the object.
-            owner (str): The user ID of the owner of the object.
-            **kwargs: Additional keyword arguments.
+        prevents instantiation of this class
         """
-        if self.__class__ is GulpCollabBase:
-            raise NotImplementedError(
-                "GulpCollabBase is an abstract class and cannot be instantiated directly."
-            )
-        #print(f"****** GulpCollabBase __init__: id={id}, type={type}, owner={owner}")
-        super().__init__()
-        self.id = id
-        self.type = type
-        self.owner = owner
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
-        self.time_created = muty.time.now_msec()
-        self.time_updated = self.time_created
-
-        logger().debug(
-            "---> GulpCollabBase: id=%s, type=%s, owner=%s" % (id, type, owner)
-        )
-
+        if self.__class__ == GulpCollabBase:
+            raise Exception("GulpCollabBase is an abstract class and cannot be instantiated directly.")
+        
     @classmethod
     async def _create(
         cls,
@@ -371,10 +349,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the creation or storage process.
         """
 
-        # create instance (calls the __init__ method)
-        #print(f"****** GulpCollabBase _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}")
-
+        # create instance
+        # print(f"****** GulpCollabBase _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}")
         instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
+        instance.id = id        
+        instance.owner = owner
+        for k, v in kwargs.items():
+            setattr(instance, k, v)
+
+        instance.time_created = muty.time.now_msec()
+        instance.time_updated = instance.time_created
+
+        logger().debug(
+            "---> GulpCollabBase: id=%s, type=%s, owner=%s" % (id, type, owner)
+        )
+
         committed = False
         if token:
             # check required creation permission
@@ -382,7 +371,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         if sess is not None:
             # just add
-            await sess.add(instance)
+            sess.add(instance)
         else:
             sess = await session()
             committed = True
@@ -400,6 +389,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
+        sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> None:
         """
@@ -409,30 +399,33 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
+            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
         Raises:
             ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
         Returns:
             None
         """
-        logger().debug("---> delete: obj_id=%s, type=%s" % (id, self.__class__))
-        sess = await session()
-
-        async with sess:
+        logger().debug("---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess))
+        created = False
+        if not sess:
+            created=True
+            sess = await session()
+        try:
+            token="1dfjlkdsjflksldj"
             if token:
                 await self.check_object_permission(token, permission, sess=sess)
-
-            q = select(self.__class__).where(self.__class__.id == id).with_for_update()
-            res = await sess.execute(q)
-            obj = self.__class__.get_one_result_or_throw(
-                res, obj_id=id, throw_if_not_found=throw_if_not_found
-            )
-            if obj is not None:
-                sess.delete(obj)
+            
+            await sess.delete(self)
+            if created:
                 await sess.commit()
-                logger().info("---> deleted: %s" % (obj))
+            
+            # TODO: notify websocket
 
-                # TODO: notify websocket
+        finally:
+            if created:
+                await sess.close()
+
 
     @classmethod
     async def delete_by_id(
@@ -458,10 +451,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        obj:GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, throw_if_not_found)
+        obj:GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, throw_if_not_found=throw_if_not_found)
         if obj:
-            return await obj.delete(token, permission, ws_id, req_id, throw_if_not_found)
-        return None
+            #logger().debug("---> delete_by_id: obj=%s" % (await obj))
+            await obj.delete(token=token, permission=permission, ws_id=ws_id, req_id=req_id, throw_if_not_found=throw_if_not_found)
+        
 
     @classmethod
     async def update_by_id(
@@ -540,7 +534,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 await self.check_object_permission(token, permission, sess=sess)
             q = select(self.__class__).where(self.__class__.id == id).with_for_update()
             res = await sess.execute(q)
-            obj = await self.__class__.get_one_result_or_throw(
+            obj = self.__class__.get_one_result_or_throw(
                 res, obj_id=id, throw_if_not_found=throw_if_not_found
             )
             if obj:
@@ -675,9 +669,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         try:
             # build query
             q = flt.to_select_query(cls)
-            logger().debug("---> get: query=\n%s\n" % (q))
+            logger().debug("---> get: created=%r, query=\n%s\n" % (created, q))
             res = await sess.execute(q)
-            c = await cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found)
+            c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found)
             if c is not None:
                 logger().debug("---> get: found %d objects" % (len(c)))
                 return c
@@ -688,7 +682,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 await sess.close()
 
     @classmethod
-    async def get_all_results_or_throw(
+    def get_all_results_or_throw(
         cls, res: Result, throw_if_not_found: bool = True
     ) -> list[T]:
         """
@@ -713,7 +707,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return c
 
     @classmethod
-    async def get_one_result_or_throw(
+    def get_one_result_or_throw(
         cls,
         res: Result,
         obj_id: str = None,
