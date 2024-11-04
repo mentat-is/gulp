@@ -55,8 +55,10 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     )
 
     def __init__(self, *args, **kwargs):
+        logger().debug(f"---> GulpStatsBase: args={args}, kwargs={kwargs}")
         if type(self) is GulpStatsBase:
             raise TypeError("GulpStatsBase cannot be instantiated directly")
+        super().__init__(*args, **kwargs)
 
     @override
     @classmethod
@@ -116,7 +118,9 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         Returns:
             T: The created instance.
         """
-
+        logger().debug(
+            f"--->_create: id={id}, owner={owner}, ws_id={ws_id}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}"
+        )
         operation: str = kwargs.get("operation", None)
         context: str = kwargs.get("context", None)
 
@@ -152,6 +156,9 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         ensure_eager_load: bool=True,
         **kwargs,
     ) -> T:
+        logger().debug(
+            f"--->_create_or_get: id={id}, owner={owner}, operation={operation}, context={context}, kwargs={kwargs}"    
+        )
         existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
         if existing:
             return existing
@@ -174,8 +181,9 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
     """
 
     errors: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String), default=None, doc="The errors that occurred during processing."
-    )
+        ARRAY(String), default_factory=lambda:[] , doc="The errors that occurred during processing."
+    )    
+    
     source_processed: Mapped[Optional[int]] = mapped_column(
         Integer, default=0, doc="The number of sources processed."
     )
@@ -201,9 +209,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
     )
     __table_args__ = (Index("idx_stats_operation", "operation"),)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @classmethod
     async def create_or_get(
         cls,
@@ -211,7 +216,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         owner: str,
         operation: str = None,
         context: str = None,
-        source_total: int = 0,
+        source_total: int = 1,
         sess: AsyncSession = None,
         **kwargs,
     ) -> T:
@@ -219,10 +224,11 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Create new or get an existing GulpIngestionStats record.
 
         Args:
-            id (str): The unique identifier of the stats (= "req_id" from the request)
+            id (str): The unique identifier of the stats (= "req_id" of the request)
             owner (str): The owner of the stats.
             operation (str, optional): The operation associated with the stats. Defaults to None.
             context (str, optional): The context associated with the stats. Defaults to None.
+            source_total (int, optional): The total number of sources to be processed in the associated request. Defaults to 1.
             sess (AsyncSession, optional): The database session. Defaults to None.
             kwargs: Additional keyword arguments.
         Keyword Args:
@@ -230,6 +236,9 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Returns:
             GulpIngestionStats: The created CollabStats object.
         """
+        logger().debug(
+            f"---> create_or_get: id={id}, owner={owner}, operation={operation}, context={context}, source_total={source_total}, kwargs={kwargs}"
+        )
         return await cls._create_or_get(
             id,
             owner,
@@ -250,6 +259,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             id (str): The request ID.
             ws_id (str, optional): The websocket ID. Defaults to None.
         """
+        logger().debug(f"---> cancel_by_id: id={id}, ws_id={ws_id}")
         await cls.update_by_id(
             id,
             {"status": GulpRequestStatus.CANCELED},
@@ -266,6 +276,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Returns:
             None
         """
+        logger().debug(f"---> cancel: {self}, ws_id={ws_id}")
         await self.update(
             {"status": GulpRequestStatus.CANCELED},
             ws_id=ws_id,
@@ -309,43 +320,9 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Raises:
             RequestAbortError: If the request is aborted.
         """
-        if status:
-            self.status = status
-
-        if self.source_processed == self.source_total:
-            logger().debug(
-                "source_processed == source_total, setting status to DONE: %s" % (self)
-            )
-            self.status = GulpRequestStatus.DONE
-        
-        if self.source_failed == self.source_total:
-            logger().debug(
-                "source_failed == source_total, setting status to FAILED: %s" % (self)
-            )
-            self.status = GulpRequestStatus.FAILED
-
-        # check threshold
-        failure_threshold = config.ingestion_evt_failure_threshold()
-
-        if (
-            failure_threshold > 0
-            and self.type == GulpCollabType.STATS_INGESTION
-            and self.source_failed >= failure_threshold
-        ):
-            # too many failures, abort
-            logger().error(
-                "TOO MANY FAILURES REQ_ID=%s (failed=%d, threshold=%d), aborting ingestion!"
-                % (self.id, self.source_failed, failure_threshold)
-            )
-            self.status = GulpRequestStatus.CANCELED
-
-        if status in [
-            GulpRequestStatus.CANCELED,
-            GulpRequestStatus.FAILED,
-            GulpRequestStatus.DONE,
-        ]:
-            self.time_finished = muty.time.now_msec()
-            logger().debug("request is finished: %s" % (self))
+        logger().debug(
+            f"---> update: ws_id={ws_id}, throw_if_not_found={throw_if_not_found}, error={error}, status={status}, source_processed={source_processed}, source_failed={source_failed}, records_failed={records_failed}, records_skipped={records_skipped}, records_processed={records_processed}, records_ingested={records_ingested}, kwargs={kwargs}"
+        )
 
         async with await session() as sess:
             # be sure to read the latest version from db
@@ -372,19 +349,59 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                         if e not in self.errors:
                             self.errors.append(e)
 
+            if status:
+                self.status = status
+
+            if self.source_processed == self.source_total:
+                logger().debug(
+                    "source_processed == source_total, setting status to DONE: %s" % (self)
+                )
+                self.status = GulpRequestStatus.DONE
+            
+            if self.source_failed == self.source_total:
+                logger().debug(
+                    "source_failed == source_total, setting status to FAILED: %s" % (self)
+                )
+                self.status = GulpRequestStatus.FAILED
+
+            # check threshold
+            failure_threshold = config.ingestion_evt_failure_threshold()
+
+            if (
+                failure_threshold > 0
+                and self.type == GulpCollabType.STATS_INGESTION
+                and self.source_failed >= failure_threshold
+            ):
+                # too many failures, abort
+                logger().error(
+                    "TOO MANY FAILURES REQ_ID=%s (failed=%d, threshold=%d), aborting ingestion!"
+                    % (self.id, self.source_failed, failure_threshold)
+                )
+                self.status = GulpRequestStatus.CANCELED
+
+            if self.status in [
+                GulpRequestStatus.CANCELED,
+                GulpRequestStatus.FAILED,
+                GulpRequestStatus.DONE,
+            ]:
+                self.time_finished = muty.time.now_msec()
+                logger().warning("request is finished: %s" % (self))
+
             # update the instance
             await super().update(
                 self.to_dict(),
                 ws_id=ws_id,
                 req_id=self.id,
+                sess=sess,
                 throw_if_not_found=throw_if_not_found,
                 **kwargs,
             )
+            await sess.commit()
 
-        if ws_id:
-            # TODO: update ws
-            pass
+            if ws_id:
+                # TODO: update ws
+                pass
 
-        if status == GulpRequestStatus.CANCELED:
-            logger().error("request canceled: %s" % (self))
-            raise RequestCanceledError()
+            if status == GulpRequestStatus.CANCELED:
+                logger().error("request canceled: %s" % (self))
+                raise RequestCanceledError()

@@ -155,7 +155,7 @@ class Plugin(GulpPluginBase):
         )
 
         # initialize stats
-        stats: GulpIngestionStats = GulpIngestionStats.create_or_get(req_id, user, operation=operation, context=context)
+        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(req_id, user, operation=operation, context=context)
         try:
             # initialize plugin
             await self._initialize(mapping_file='windows.json')
@@ -163,7 +163,7 @@ class Plugin(GulpPluginBase):
             # init parser
             parser = PyEvtxParser(log_file_path)
         except Exception as ex:
-            await self._source_failed(stats, ex, ws_id, source=log_file_path)
+            await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED
 
         doc_idx = 0

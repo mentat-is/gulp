@@ -10,6 +10,7 @@ from sqlalchemy.sql.base import _NoArg
 import muty.json
 from gulp import config
 from typing import Optional, Type, TypeVar
+from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpCollabType
 from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.api import elastic_api
@@ -167,16 +168,21 @@ async def test_init():
         _os = elastic_api.elastic()
         _pg = await collab_api.engine()
 
+async def test_login_logout():
+    logger().debug("---> test_login_logout")
+    session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
+    await GulpUser.logout(session.id)
+    return
+
 async def test_ingest():
     logger().debug("---> test_ingest")
-    session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
-    await GulpUser.logout(session.id)    
-    print(session)
-    return
+    
     # load plugin
     file = os.path.join(_opt_samples_dir,'/win_evtx/security.evtx')
     plugin = await GulpPluginBase.load("win_evtx")
-    await plugin.ingest_file
+    # create stats upfront
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
 
 async def main():
     configure_logger()

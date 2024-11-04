@@ -299,6 +299,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             abstract (bool): If True, the class is abstract
             **kwargs: Additional keyword arguments.
         """
+        print(f"__init_subclass__: cls={cls}, type={type}, abstract={abstract}, kwargs={kwargs}")
+
         cls.__gulp_collab_type__=type
 
         if abstract:
@@ -379,7 +381,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         # create instance
-        # print(f"****** GulpCollabBase _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}")
+        logger().debug(f"---> _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}, token={token}, required_permission={required_permission}, ws_id={ws_id}, req_id={req_id}, sess={sess}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}")
         instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
         instance.id = id        
         instance.owner = owner
@@ -388,10 +390,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         instance.time_created = muty.time.now_msec()
         instance.time_updated = instance.time_created
-
-        logger().debug(
-            "---> GulpCollabBase: id=%s, type=%s, owner=%s, sess=%s" % (id, cls.__gulp_collab_type__, owner, sess)
-        )
 
         if token:
             # check required creation permission
@@ -728,7 +726,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         try:
             # build query
             q = flt.to_select_query(cls)
-            logger().debug("---> get: created=%r, query=\n%s\n" % (created, q))
+            logger().debug("---> get: sess_created=%r, query=\n%s\n" % (created, q))
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found, detail=q)
             if c:
