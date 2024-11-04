@@ -434,7 +434,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
-            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            sess (AsyncSession, optional): The database session to use.<br>
+                If None, a new session is created and committed in a transaction.<br>
+                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
         Raises:
             ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
@@ -452,13 +454,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 await GulpCollabBase.check_token_permission(token, permission, sess=sess)
             
             await sess.delete(self)
-            if created:
-                await sess.commit()
             
             # TODO: notify websocket
 
         finally:
             if created:
+                await sess.commit()
                 await sess.close()
 
 
@@ -481,7 +482,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
-            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
+            sess (AsyncSession, optional): The database session to use.<br>
+                If None, a new session is created and committed in a transaction.<br>
+                either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             throw_if_not_found (bool, optional): If True, raises an exception if the object does not exist. Defaults to True.
         Raises:
             ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
@@ -500,6 +503,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 await obj.delete(token=token, permission=permission, ws_id=ws_id, req_id=req_id, sess=sess, throw_if_not_found=throw_if_not_found)
         finally:
             if created:
+                await sess.commit()
                 await sess.close()
 
     @classmethod
@@ -534,13 +538,22 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If the object with the specified ID is not found.
         """
-        obj: GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
-        if obj:
-            # check permission on the object
-            return await obj.update(
-                d, token, permission, ws_id, req_id, sess, throw_if_not_found, **kwargs
-            )
-        return None
+        created=False
+        if not sess:
+            created = True
+            sess = await session()
+
+        try:
+            obj: GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
+            if obj:
+                return await obj.update(
+                    d, token, permission, ws_id, req_id, sess, throw_if_not_found, **kwargs
+                )
+            return None
+        finally:
+            if created:
+                await sess.commit()
+                await sess.close()
 
     async def update(
         self,
@@ -571,9 +584,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If the object with the specified ID is not found.
         """
-
         async def _update_internal(
-            id, d, token, permission, throw_if_not_found, commit: bool = False
+            id, d, token, permission, throw_if_not_found
         ) -> T:
             if token:
                 await self.check_object_permission(token, permission, sess=sess)
@@ -594,30 +606,30 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 obj.time_updated = muty.time.now_msec()
 
                 sess.add(obj)
-                if commit:
-                    await sess.commit()
-                logger().debug("---> updated: %s, committed=%r" % (obj, commit))
+                logger().debug("---> updated: %s" % (obj))
 
             return obj
 
         logger().debug(f"---> update: obj_id={id}, type={self.__class__}, d={d}")
-        if sess is None:
-            # create a new session
+        created=False
+        if not sess:
+            created = True
             sess = await session()
-            async with sess:
-                obj = await _update_internal(
-                    self.id, d, token, permission, throw_if_not_found, commit=True
-                )
-        else:
-            # use existing session
-            obj = await _update_internal(self.id, d, token, permission, throw_if_not_found, commit=True)
 
-        if obj and ws_id:
-            # TODO: handle websocket, add each **kwargs too
+        try:
+            obj = await _update_internal(
+                self.id, d, token, permission, throw_if_not_found)
 
-            pass
+            if obj and ws_id:
+                # TODO: handle websocket, add each **kwargs too
 
-        return obj
+                pass
+
+            return obj
+        finally:
+            if created:
+                await sess.commit()
+                await sess.close()
 
     @classmethod
     async def get_one_by_id(
