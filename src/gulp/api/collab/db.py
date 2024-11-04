@@ -80,19 +80,19 @@ async def create(url: str) -> None:
 
 
 async def _setup_collab_expirations() -> None:
+    # TODO: check issues with pg-cron process dying
     logger().debug("setting up stats and tokens expiration with pg_cron ...")
 
     async with await session() as sess:
         # create pg_cron extension
         await sess.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
 
-        # create function to delete expired rows (runs every 5 minutes)
         await sess.execute(
             text(
                 """
             CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
             BEGIN
-                DELETE FROM stats WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000) AND time_expire > 0;
+                DELETE FROM stats_ingestion WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
             END;
             $$ LANGUAGE plpgsql;
         """
@@ -104,21 +104,21 @@ async def _setup_collab_expirations() -> None:
                 """
             CREATE OR REPLACE FUNCTION delete_expired_tokens_rows() RETURNS void AS $$
             BEGIN
-                DELETE FROM session WHERE time_expire < (EXTRACT(EPOCH FROM NOW()) * 1000) AND time_expire > 0;
+                DELETE FROM session WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
             END;
             $$ LANGUAGE plpgsql;
         """
             )
         )
 
+        # purge stats and tokens every 1 minutes
         await sess.execute(
             text(
                 """
-                SELECT cron.schedule('*/5 * * * *', 'SELECT delete_expired_stats_rows();');
+                SELECT cron.schedule('* * * * *', 'SELECT delete_expired_stats_rows();');
                 """
             )
         )
-
         await sess.execute(
             text(
                 """

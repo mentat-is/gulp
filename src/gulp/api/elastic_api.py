@@ -504,16 +504,28 @@ async def ingest_bulk(
 
     # filter documents first
     # len_first = len(docs)
+    """
+    bulk_docs = []
+    for item in docs:
+        if not flt or filter_doc_for_ingestion(item, flt) != GulpEventFilterResult.SKIP:
+            bulk_docs.append({"create": {"_id": item["_id"]}})
+            bulk_docs.append(item)
+    """
     bulk_docs = [
-        ({"create": {"_id": item["_id"]}}, item)
+        doc
         for item in docs
         if not flt or filter_doc_for_ingestion(item, flt) != GulpEventFilterResult.SKIP
+        # create a tuple with the create action and the document
+        #   {
+        #     "create": {"_id": item["_id"]},
+        #     { doc stripped of _id }
+        #   }
+        for doc in ({"create": {"_id": item["_id"]}}, {k: v for k, v in item.items() if k != "_id"})
     ]
-
     # logger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
     if len(bulk_docs) == 0:
         logger().warning("no document to ingest (flt=%s)" % (flt))
-        return 0, 0, [], []
+        return 0, 0, []
 
     # logger().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
@@ -529,12 +541,11 @@ async def ingest_bulk(
         "accept": "application/json",
         "content-type": "application/x-ndjson",
     }
+
     res = await el.bulk(body=bulk_docs, index=index, params=params, headers=headers)
     skipped = 0
     failed = 0
     ingested: list[dict] = []
-
-    # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
     if res["errors"]:
         # count skipped
         skipped = sum(1 for r in res["items"] if r["create"]["status"] == 409)
@@ -542,8 +553,8 @@ async def ingest_bulk(
         failed = sum(1 for r in res["items"] if r["create"]["status"] not in [201, 200, 409])
         if failed > 0:
             logger().error(
-                "failed to ingest documents: %s"
-                % (muty.string.make_shorter(str(res["items"]), max_len=10000))
+                "failed to ingest %d documents: %s"
+                % (failed, muty.string.make_shorter(str(res["items"]), max_len=10000))
             )
 
         # take only the documents with no ingest errors
@@ -553,6 +564,7 @@ async def ingest_bulk(
         ingested = _bulk_docs_result_to_ingest_chunk(bulk_docs)
 
     if skipped != 0:
+        # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
         logger().error(
             "**NOT AN ERROR** total %d skipped, %d failed in this bulk ingestion of %d documents !"
             % (skipped, failed, len(bulk_docs) / 2)

@@ -44,6 +44,7 @@ class GulpPluginCache:
     """
     Plugin cache singleton.
     """
+
     _instance = None
 
     def __new__(cls, *args, **kwargs):
@@ -52,10 +53,10 @@ class GulpPluginCache:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self._initialized = True
-            self._cache = {}    
-    
+            self._cache = {}
+
     def clear(self):
         """
         Clear the cache.
@@ -87,10 +88,10 @@ class GulpPluginCache:
             name (str): The name of the plugin to get.
         Returns:
             PluginBase: The plugin if found in the cache, otherwise None.
-        """        
+        """
         if not config.plugin_cache_enabled():
             return None
-        
+
         p = self._cache.get(name, None)
         if p:
             logger().debug("found plugin %s in cache !" % (name))
@@ -108,6 +109,7 @@ class GulpPluginCache:
         if name in self._cache:
             logger().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
+
 
 class GulpPluginBase(ABC):
     """
@@ -149,15 +151,15 @@ class GulpPluginBase(ABC):
         self._pickled = pickled
         # plugin file path
         self.path = path
-    
+
         #
         # the following, if available, are stored in the plugin instance at the query/ingest entrypoint
         #
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
         # for ingestion, the key in the mappings dict to be used
-        self._mapping_id: str = None    
-        # plugin specific parameters (k: v, where k is one of the GulpPluginSpecificParams "name") 
+        self._mapping_id: str = None
+        # plugin specific parameters (k: v, where k is one of the GulpPluginSpecificParams "name")
         self._specific_params: dict = {}
         # calling user
         self._user: str = None
@@ -174,7 +176,7 @@ class GulpPluginBase(ABC):
         # websocket to stream data to
         self._ws_id: str = None
         # current request id
-        self._req_id: str = None        
+        self._req_id: str = None
 
         # for ingestion, the lower plugin record_to_gulp_document function to call (if this is a stacked plugin on top of another)
         self._lower_record_to_gulp_document_fun: Callable = None
@@ -189,15 +191,14 @@ class GulpPluginBase(ABC):
 
         # to bufferize gulpdocuments
         self._docs_buffer: list[dict] = []
-        
+
         # this is used by the engine to generate extra documents from a single gulp document
         self._extra_docs: list[dict]
-        
+
         # to keep track of processed/skipped/failed records
         self._records_skipped = 0
         self._records_failed = 0
         self._records_processed = 0
-
 
     @abstractmethod
     def display_name(self) -> str:
@@ -308,9 +309,9 @@ class GulpPluginBase(ABC):
         index: str,
         operation: str,
         context: str,
-        data: list[dict]|bytes,
-        raw: bool=False,
-        log_file_path: str=None,
+        data: list[dict] | bytes,
+        raw: bool = False,
+        log_file_path: str = None,
         plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
@@ -342,7 +343,7 @@ class GulpPluginBase(ABC):
         self._operation = operation
         self._context = context
         self._index = index
-        self._log_file_path = log_file_path        
+        self._log_file_path = log_file_path
         return GulpRequestStatus.ONGOING
 
     async def ingest_file(
@@ -384,7 +385,10 @@ class GulpPluginBase(ABC):
         self._operation = operation
         self._context = context
         self._index = index
-        self._log_file_path = log_file_path        
+        self._log_file_path = log_file_path
+        logger().debug(
+            f"ingesting file {log_file_path} with plugin {self.name}, user={user}, operation={operation}, context={context}, index={index}, ws_id={ws_id}, req_id={req_id}"
+        )
         return GulpRequestStatus.ONGOING
 
     async def _load_lower_plugin(
@@ -401,7 +405,9 @@ class GulpPluginBase(ABC):
         Returns:
             PluginBase: the loaded plugin
         """
-        p = await GulpPluginBase.load(plugin, extension=False, ignore_cache=ignore_cache, *args, **kwargs)        
+        p = await GulpPluginBase.load(
+            plugin, extension=False, ignore_cache=ignore_cache, *args, **kwargs
+        )
         # store its record_to_gulp_document function for us to call first
         self._lower_record_to_gulp_document_fun = p._record_to_gulp_document
         return p
@@ -415,32 +421,32 @@ class GulpPluginBase(ABC):
 
         Returns:
             list[dict]: the final list of documents to be ingested (doc is always the first one).
-        
+
         NOTE: called by the engine, do not call this function directly.
         """
         # turn to dict
-        doc = doc.model_dump()
-        
+        doc = doc.model_dump(by_alias=True)
+
         if not self._extra_docs:
             return [doc]
 
         def _update_document(base_doc, extra_fields):
             new_doc = copy(base_doc)
             new_doc.update(extra_fields)
-            new_doc['event.hash'] = muty.crypto.hash_blake2b(
+            new_doc["event.hash"] = muty.crypto.hash_blake2b(
                 f"{new_doc['event.original']}{new_doc['event.code']}{new_doc['event.sequence']}"
             )
-            new_doc['_id'] = new_doc['event.hash']
-            new_doc['gulp.event.code'] = (
-                int(new_doc['event.code'])
-                if new_doc['event.code'].isnumeric()
-                else muty.crypto.hash_crc24(new_doc['event.code'])
+            new_doc["_id"] = new_doc["event.hash"]
+            new_doc["gulp.event.code"] = (
+                int(new_doc["event.code"])
+                if new_doc["event.code"].isnumeric()
+                else muty.crypto.hash_crc24(new_doc["event.code"])
             )
             return new_doc
 
-        return [doc] + [_update_document(doc, e) for e in self._extra_docs]        
+        return [doc] + [_update_document(doc, e) for e in self._extra_docs]
 
-    async def _postprocess_gulp_documents(d: list[dict]) -> list[dict]:
+    async def _postprocess_gulp_documents(self, d: list[dict]) -> list[dict]:
         """
         to be implemented in a stacked plugin to further process GulpDocument dictionaries returned by record_to_gulp_document().
 
@@ -449,12 +455,14 @@ class GulpPluginBase(ABC):
 
         Returns:
             list[dict]: processed GulpDocument dictionaries.
-        
+
         NOTE: called by the engine, do not call this function directly.
         """
         return d
 
-    async def _record_to_gulp_document(self, record: any, record_idx: int) -> GulpDocument:
+    async def _record_to_gulp_document(
+        self, record: any, record_idx: int
+    ) -> GulpDocument:
         """
         to be implemented in a plugin to convert a record to a GulpDocument
 
@@ -463,12 +471,12 @@ class GulpPluginBase(ABC):
             record_idx (int): the index of the record in the source
 
         Returns:
-            GulpDocument: the GulpDocument 
-        
+            GulpDocument: the GulpDocument
+
         NOTE: called by the engine, do not call this function directly.
         """
         raise NotImplementedError("not implemented!")
-    
+
     async def _record_to_gulp_documents_wrapper(
         self,
         record: any,
@@ -492,7 +500,7 @@ class GulpPluginBase(ABC):
             doc = await self._lower_record_to_gulp_document_fun(record, record_idx)
         else:
             # call our record_to_gulp_document
-            doc = await self._record_to_gulp_document(record, record_idx)        
+            doc = await self._record_to_gulp_document(record, record_idx)
 
         # generate extra documents if needed
         docs = self._finalize_process_record(doc)
@@ -512,26 +520,28 @@ class GulpPluginBase(ABC):
         Returns:
             a dictionary to be merged in the final gulp document
         """
-
+        if not source_value:
+            return {}
+        
         # check if we have a mapping for source_key
         mapping = self._mappings.get(self._mapping_id, {}).fields.get(source_key, None)
         if not mapping:
             # missing mapping at all
-            return {
-                f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value
-            }
-        
-        d = {}        
+            return {f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value}
+
+        d = {}
         if mapping.opt_is_timestamp_chrome:
             # timestamp chrome, turn to nanoseconds from epoch
             source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
-        
+
         if mapping.opt_extra_doc_with_event_code:
-           # this will trigger the creation of an extra document with the given event code
-           self._extra_docs.append({
-                "event.code": str(mapping.opt_extra_doc_with_event_code),
-                "@timestamp": source_value,
-           })
+            # this will trigger the creation of an extra document with the given event code
+            self._extra_docs.append(
+                {
+                    "event.code": str(mapping.opt_extra_doc_with_event_code),
+                    "@timestamp": source_value,
+                }
+            )
 
         if mapping.ecs:
             # map to ECS fields
@@ -540,9 +550,8 @@ class GulpPluginBase(ABC):
         else:
             # unmapped key
             d[f"{elastic_api.UNMAPPED_PREFIX}.{source_key}"] = source_value
-        
-        return d
 
+        return d
 
     async def process_record(
         self,
@@ -551,7 +560,7 @@ class GulpPluginBase(ABC):
         record_idx: int,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> None:        
+    ) -> None:
         """
         Processes a single record by converting it to one or more documents and ingesting them.
         Args:
@@ -569,13 +578,12 @@ class GulpPluginBase(ABC):
         self._records_processed += 1
         self._extra_docs = []
         try:
-            docs = await self._record_to_gulp_documents_wrapper(
-                stats, record, record_idx
-            )
+            docs = await self._record_to_gulp_documents_wrapper(record, record_idx)
         except Exception as ex:
             self._records_failed += 1
             logger().exception(ex)
-
+            return
+        
         # ingest record
         for d in docs:
             self._docs_buffer.append(d)
@@ -596,7 +604,6 @@ class GulpPluginBase(ABC):
                 # reset buffer
                 self._docs_buffer = []
 
-
     async def _initialize(
         self,
         mapping_file: str = None,
@@ -610,7 +617,7 @@ class GulpPluginBase(ABC):
             mapping_file (str, optional): the mapping file to use. Defaults to None.
             mapping_id (str, optional): the mapping id to use. Defaults to None.
             plugin_params (GulpPluginParams, optional): plugin parameters. Defaults to None.
-        
+
         Raises:
             ValueError: if mapping_id is set but mappings/mapping_file is not.
             ValueError: if a specific parameter is required but not found in plugin_params.
@@ -623,11 +630,16 @@ class GulpPluginBase(ABC):
         # check if mapping_file, mappings and mapping_id are set in PluginParams
         # if so, override the values
         if plugin_params and GulpPluginType.EXTENSION not in self.type():
-            # override provided mapping_file, mappings and mapping_id            
+            # override provided mapping_file, mappings and mapping_id
             if plugin_params.mappings:
                 # ignore mapping_file
-                self._mappings = {k: GulpMapping.model_validate(v) for k, v in plugin_params.mappings.items()}
-                logger().debug('using plugin_params.mappings="%s"' % plugin_params.mappings)
+                self._mappings = {
+                    k: GulpMapping.model_validate(v)
+                    for k, v in plugin_params.mappings.items()
+                }
+                logger().debug(
+                    'using plugin_params.mappings="%s"' % plugin_params.mappings
+                )
             else:
                 # mapping_file must exist if "mappings" is not set
                 if plugin_params.mapping_file:
@@ -646,11 +658,13 @@ class GulpPluginBase(ABC):
         for p in self.specific_params() or []:
             # set specific plugin parameters
             k = p.name
-            if p.required and (not plugin_params or k not in plugin_params.model_extra):                    
+            if p.required and (not plugin_params or k not in plugin_params.model_extra):
                 raise ValueError(
                     "required plugin parameter '%s' not found in plugin_params !" % (k)
                 )
-            self._specific_params[k] = plugin_params.get('model_extra', {}).get(k, p.default_value)
+            self._specific_params[k] = plugin_params.get("model_extra", {}).get(
+                k, p.default_value
+            )
             logger().debug(
                 "setting specific parameter %s=%s" % (k, self._specific_params[k])
             )
@@ -658,7 +672,7 @@ class GulpPluginBase(ABC):
             # extension plugins do not need mappings
             logger().debug("extension plugin, no mappings needed")
             return
-        
+
         # some checks
         if not mapping_file and not self._mappings and not mapping_id:
             logger().warning(
@@ -671,8 +685,9 @@ class GulpPluginBase(ABC):
         if not self._mappings:
             # read mapping file
             mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
-            js = json.loads(await muty.file.read_file(mapping_file_path))
-            if not js:                
+            f = await muty.file.read_file_async(mapping_file_path)
+            js = json.loads(f)
+            if not js:
                 raise ValueError("mapping file %s is empty!" % (mapping_file_path))
 
             gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
@@ -681,14 +696,16 @@ class GulpPluginBase(ABC):
         # set mapping_id (if not set, use first mapping found)
         self._mapping_id = mapping_id or list(self._mappings.keys())[0]
         logger().warning(
-            "no mapping_id provided, using first mapping found: %s"
-            % (self._mapping_id)
+            "no mapping_id provided, using first mapping found: %s" % (self._mapping_id)
         )
 
         # load mappings from index
-        self._index_type_mapping = await elastic_api.datastream_get_key_value_mapping(elastic_api.elastic(), self._index)
-        logger().debug("got index type mappings with %d entries" % (len(self._index_type_mapping)))
-
+        self._index_type_mapping = await elastic_api.datastream_get_key_value_mapping(
+            elastic_api.elastic(), self._index
+        )
+        logger().debug(
+            "got index type mappings with %d entries" % (len(self._index_type_mapping))
+        )
 
     def cleanup(self) -> None:
         """
@@ -811,7 +828,7 @@ class GulpPluginBase(ABC):
         stats: GulpIngestionStats,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> tuple[int,int]:
+    ) -> tuple[int, int]:
         """
         flushes the ingestion buffer to openssearch, updating the ingestion stats on the collab db.
 
@@ -823,7 +840,7 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int,int]: ingested, skipped records
         """
-        ingested_docs: list[dict]=[]
+        ingested_docs: list[dict] = []
         skipped = 0
         if self._docs_buffer:
             # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
@@ -863,9 +880,7 @@ class GulpPluginBase(ABC):
                     "gulp.event.code": doc["gulp.event.code"],
                 }
                 for doc in ingested_docs
-                if elastic_api.filter_doc_for_ingestion(
-                    doc, flt
-                )
+                if elastic_api.filter_doc_for_ingestion(doc, flt)
                 == GulpEventFilterResult.ACCEPT
             ]
             if ws_docs:
@@ -878,11 +893,9 @@ class GulpPluginBase(ABC):
                 )"""
 
         return len(ingested_docs), skipped
-    
+
     async def _source_done(
-        self,
-        stats: GulpIngestionStats,
-        flt: GulpIngestionFilter=None
+        self, stats: GulpIngestionStats, flt: GulpIngestionFilter = None
     ) -> GulpIngestionStats:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
@@ -891,23 +904,22 @@ class GulpPluginBase(ABC):
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
         Returns:
             GulpIngestionStats: The updated ingestion statistics.
-        """        
-        logger().debug(
-            "INGESTION SOURCE DONE: "
-            % (self._log_file_path)
-        )
-        ingested, skipped = await self._flush_buffer(
-                stats, flt, wait_for_refresh=True
-            )
+        """
+        logger().debug("INGESTION SOURCE DONE: %s" % (self._log_file_path))
+        ingested, skipped = await self._flush_buffer(stats, flt, wait_for_refresh=True)
 
-        return await stats.update(ws_id=self._ws_id, 
-                                  source_processed=1, records_ingested=ingested, records_skipped=skipped)
+        return await stats.update(
+            ws_id=self._ws_id,
+            source_processed=1,
+            records_ingested=ingested,
+            records_skipped=skipped,
+        )
 
     async def _source_failed(
         self,
         stats: GulpIngestionStats,
         err: str | Exception,
-    ) -> GulpIngestionStats:        
+    ) -> GulpIngestionStats:
         """
         Handles the failure of a source during ingestion.
         Logs the error and updates the ingestion statistics with the failure details.
@@ -917,18 +929,20 @@ class GulpPluginBase(ABC):
         Returns:
             GulpIngestionStats: The updated ingestion statistics.
         """
-        if isinstance(err, Exception):
-            err = muty.log.exception_to_string_lite()
+        if not isinstance(err, str):
+            #err = muty.log.exception_to_string_lite(err)
+            err = muty.log.exception_to_string(err)
         logger().error(
-            "INGESTION SOURCE FAILED: source=%s, ex=%s"
-            % (self._log_file_path, err)
+            "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._log_file_path, err)
         )
         # update and force-flush stats
-        err = '%s: %s' % (self._log_file_path or '-', err)
-        return await stats.update(ws_id=self._ws_id, source_failed=1, source_processed=1, error=err)
+        err = "%s: %s" % (self._log_file_path or "-", err)
+        return await stats.update(
+            ws_id=self._ws_id, source_failed=1, source_processed=1, error=err
+        )
 
     @staticmethod
-    async def path_by_name(name: str, extension: bool=False) -> str:
+    async def path_by_name(name: str, extension: bool = False) -> str:
         """
         Get the path of a plugin by name.
 
@@ -936,10 +950,11 @@ class GulpPluginBase(ABC):
             name (str): The name of the plugin.
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
         Returns:
-            str: The path of the plugin.        
+            str: The path of the plugin.
         Raises:
             FileNotFoundError: If the plugin is not found.
         """
+
         async def _path_by_name_internal(name: str, base_path: str) -> str:
             path_py = muty.file.safe_path_join(base_path, f"{name}.py")
             path_pyc = muty.file.safe_path_join(base_path, f"{name}.pyc")
@@ -952,13 +967,21 @@ class GulpPluginBase(ABC):
             raise FileNotFoundError(f"Plugin {name} not found !")
 
         # ensure name is stripped of .py/.pyc
-        name = os.path.splitext(name)[0]        
+        name = os.path.splitext(name)[0]
         if extension:
-            return await _path_by_name_internal(name, config.path_plugins(extension=True))
+            return await _path_by_name_internal(
+                name, config.path_plugins(extension=True)
+            )
         return await _path_by_name_internal(name, config.path_plugins())
-    
+
     @staticmethod
-    async def load(plugin: str, extension: bool=False, ignore_cache: bool=False, *args, **kwargs) -> "GulpPluginBase":
+    async def load(
+        plugin: str,
+        extension: bool = False,
+        ignore_cache: bool = False,
+        *args,
+        **kwargs,
+    ) -> "GulpPluginBase":
         """
         Load a plugin by name.
 
@@ -970,29 +993,29 @@ class GulpPluginBase(ABC):
             **kwargs: Additional keyword arguments.
         """
         # this is set in __reduce__
-        pickled=args[0] if args else False
+        pickled = args[0] if args else False
 
-        if plugin.startswith('/'):
+        if plugin.startswith("/"):
             path = plugin
         else:
             # get plugin full path by name
             path = await GulpPluginBase.path_by_name(plugin, extension)
-        
+
         bare_name = os.path.splitext(os.path.basename(path))[0]
-        m = GulpPluginCache().get(bare_name) 
+        m = GulpPluginCache().get(bare_name)
         if ignore_cache:
             logger().warning("ignoring cache for plugin %s" % (bare_name))
             m = None
         if m:
             # return from cache
             return m.Plugin(path, pickled=pickled, **kwargs)
-        
+
         if extension:
             module_name = f"gulp.plugins.extension.{bare_name}"
         else:
             module_name = f"gulp.plugins.{bare_name}"
 
-        # load from file        
+        # load from file
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
         p: GulpPluginBase = m.Plugin(path, _pickled=pickled, **kwargs)
         logger().debug(f"loaded plugin m={m}, p={p}, name()={p.name}")
@@ -1016,9 +1039,8 @@ class GulpPluginBase(ABC):
         self.cleanup()
         GulpPluginCache().remove(self.name)
 
-
     @staticmethod
-    async def list(name: str=None) -> list[dict]:
+    async def list(name: str = None) -> list[dict]:
         """
         List all available plugins.
 
@@ -1035,11 +1057,11 @@ class GulpPluginBase(ABC):
         l = []
         for f in files:
             if "__init__" or "__pycache__" in f:
-                continue            
-            if '/extension/' in f:
-                extension=True
+                continue
+            if "/extension/" in f:
+                extension = True
             else:
-                extension=False
+                extension = False
             try:
                 p = await GulpPluginBase.load(f, extension=extension, ignore_cache=True)
             except Exception as ex:

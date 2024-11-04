@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from gulp.api.mapping.models import GulpMappingField
 from gulp.defs import GulpLogLevel, GulpSortOrder
 from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.utils import logger
 
 EXAMPLE_QUERY_OPTIONS = {
     "example": {
@@ -373,15 +374,17 @@ class GulpDocument(BaseModel):
     """
     class Config:
         extra = "allow"
+        # solves the issue of not being able to populate fields with the same name as the model fields (aliasing)
+        populate_by_name = True 
 
     id: str = Field(
-        ..., description='"_id": the unique identifier of the document.', alias="_id"
+        None, description='"_id": the unique identifier of the document.', alias="_id"
     )
     hash: str = Field(
-        ..., description='"event.hash": the hash of the event.', alias="event.hash"
+        None, description='"event.hash": the hash of the event.', alias="event.hash"
     )
-    timestamp: str = Field(
-        ...,
+    timestamp: int = Field(
+        0,
         description='"@timestamp": document original timestamp.',
         alias="@timestamp",
     )
@@ -444,7 +447,8 @@ class GulpDocument(BaseModel):
         source: str = None,
         **kwargs,
     ) -> None:
-        super().__init__()
+        #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, agent_type=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, agent_type, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
+        super().__init__(timestamp=timestamp, operation=operation, context=context, agent_type=agent_type, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=source, **kwargs)
         if isinstance(timestamp, int):
             # already numeric
             self.timestamp = timestamp
@@ -481,6 +485,7 @@ class GulpDocument(BaseModel):
 
         # check in the end
         GulpDocument.model_validate(self)
+        logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     def __repr__(self) -> str:
         return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"

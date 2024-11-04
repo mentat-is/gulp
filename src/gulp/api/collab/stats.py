@@ -127,7 +127,9 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         # configure expiration
         time_expire = config.stats_ttl() * 1000
         if time_expire > 0:
+            now = muty.time.now_msec()
             time_expire = muty.time.now_msec() + time_expire
+            logger().debug(f"now={now}, setting stats \"{id}\".time_expire to {time_expire}")
 
         args = {
             "operation": operation,
@@ -307,7 +309,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             ws_id (str, optional): The websocket ID. Defaults to None.
             throw_if_not_found (bool, optional): If set, an exception is raised if the request is not found. Defaults to True.
             error (str|Exception|list[str], optional): The error/s to append. Defaults to None.
-            status (GulpRequestStatus, optional): The status of the request. Defaults to None.
+            status (GulpRequestStatus, optional): The status to set (either, it )
             source_processed (int, optional): The number of sources processed. Defaults to 0.
             source_failed (int, optional): The number of sources that failed. Defaults to 0.
             records_failed (int, optional): The number of records that failed. Defaults to 0.
@@ -320,9 +322,11 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Raises:
             RequestAbortError: If the request is aborted.
         """
-        logger().debug(
-            f"---> update: ws_id={ws_id}, throw_if_not_found={throw_if_not_found}, error={error}, status={status}, source_processed={source_processed}, source_failed={source_failed}, records_failed={records_failed}, records_skipped={records_skipped}, records_processed={records_processed}, records_ingested={records_ingested}, kwargs={kwargs}"
-        )
+        msg = f"---> update: ws_id={ws_id}, throw_if_not_found={throw_if_not_found}, error={error}, status={status}, source_processed={source_processed}, source_failed={source_failed}, records_failed={records_failed}, records_skipped={records_skipped}, records_processed={records_processed}, records_ingested={records_ingested}, kwargs={kwargs}"
+        if error:
+            logger().error(msg)
+        else:
+            logger().debug(msg)
 
         async with await session() as sess:
             # be sure to read the latest version from db
@@ -354,13 +358,13 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
 
             if self.source_processed == self.source_total:
                 logger().debug(
-                    "source_processed == source_total, setting status to DONE: %s" % (self)
+                    "source_processed == source_total, setting request \"%s\" to DONE" % (self.id)
                 )
                 self.status = GulpRequestStatus.DONE
             
             if self.source_failed == self.source_total:
-                logger().debug(
-                    "source_failed == source_total, setting status to FAILED: %s" % (self)
+                logger().error(
+                    "source_failed == source_total, setting request \"%s\" to FAILED" % (self.id)
                 )
                 self.status = GulpRequestStatus.FAILED
 
@@ -374,7 +378,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             ):
                 # too many failures, abort
                 logger().error(
-                    "TOO MANY FAILURES REQ_ID=%s (failed=%d, threshold=%d), aborting ingestion!"
+                    "TOO MANY FAILURES req_id=%s (failed=%d, threshold=%d), aborting ingestion!"
                     % (self.id, self.source_failed, failure_threshold)
                 )
                 self.status = GulpRequestStatus.CANCELED
@@ -385,7 +389,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 GulpRequestStatus.DONE,
             ]:
                 self.time_finished = muty.time.now_msec()
-                logger().warning("request is finished: %s" % (self))
+                logger().debug("request \"%s\" COMPLETED with status=%s" % (self.id, self.status))
 
             # update the instance
             await super().update(
@@ -403,5 +407,5 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 pass
 
             if status == GulpRequestStatus.CANCELED:
-                logger().error("request canceled: %s" % (self))
+                logger().error("request \"%s\" set to CANCELED" % (self.id))
                 raise RequestCanceledError()

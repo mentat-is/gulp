@@ -36,6 +36,7 @@ _os: AsyncOpenSearch = None
 _pg: AsyncEngine = None
 
 _opt_samples_dir= os.environ.get('GULP_SAMPLES_DIR', '~/repos/gulp/samples')
+_opt_samples_dir = os.path.expanduser(_opt_samples_dir)
 _opt_reset = os.environ.get('GULP_RESET', False)
 _opt_index = os.environ.get('GULP_INDEX', 'testidx')
 _opt_gulp_integration_test = os.environ.get('GULP_INTEGRATION_TEST', False)
@@ -178,7 +179,8 @@ async def test_ingest():
     logger().debug("---> test_ingest")
     
     # load plugin
-    file = os.path.join(_opt_samples_dir,'/win_evtx/security.evtx')
+    #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
+    file = os.path.join(_opt_samples_dir,'win_evtx/Security_short_selected.evtx')
     plugin = await GulpPluginBase.load("win_evtx")
     # create stats upfront
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)

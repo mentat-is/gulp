@@ -17,7 +17,7 @@ from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginGenericParams
-
+from gulp.utils import logger
 
 class Plugin(GulpPluginBase):
     """
@@ -91,7 +91,7 @@ class Plugin(GulpPluginBase):
         
         event_original: str = record["data"]
         timestamp = muty.time.string_to_epoch_nsec(record["timestamp"])
-        data_elem = etree.fromstring(event_original)
+        data_elem = etree.fromstring(event_original.encode("utf-8"))
         e_tree: etree.ElementTree = etree.ElementTree(data_elem)
         
         d = {}
@@ -117,26 +117,28 @@ class Plugin(GulpPluginBase):
                         # logger().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
                         continue
                     if attr_k == "Name":
-                        k = attr_v
-                        v = e.text
-                        # logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        if e.text:
+                            text = e.text.strip()
+                            k = attr_v
+                            v = text
+                        else:
+                            k = e.tag
+                            v = attr_v
+                        #logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
-                        k = attr_k  # "%s.%s" % (e.tag, attr_k)
+                        k = "%s.%s" % (e.tag, attr_k)
                         v = attr_v
-                        # logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        #logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     mapped = self._process_key(k, v)
                     d.update(mapped)
 
-        print(json.dumps(d, indent=4))
-        import sys
-        sys.exit(0)
-        
-        doc = GulpDocument(timestamp=timestamp, 
+        return GulpDocument(timestamp=timestamp, 
                            operation=self._operation, 
                            context=self._context,
                            agent_type=self.bare_filename,
                            event_original=event_original,
-                           event_sequence=record_idx)
+                           event_sequence=record_idx,
+                           **d)
 
     async def ingest_file(
         self,
@@ -161,7 +163,7 @@ class Plugin(GulpPluginBase):
             await self._initialize(mapping_file='windows.json')
 
             # init parser
-            parser = PyEvtxParser(log_file_path)
+            parser = PyEvtxParser(log_file_path)            
         except Exception as ex:
             await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED
