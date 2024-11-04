@@ -85,6 +85,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
+        sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> None:
         raise NotImplementedError("delete_by_id @classmethod not implemented")
@@ -97,6 +98,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         owner: str,
         ws_id: str = None,
         sess: AsyncSession = None,
+        ensure_eager_load: bool=True,
         **kwargs,
     ) -> T:
         """
@@ -106,6 +108,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             owner (str): The owner of the instance.
             ws_id (str, optional): The websocket ID. Defaults to None.
             sess (AsyncSession, optional): The asynchronous session. Defaults to None.
+            ensure_eager_load (bool, optional): Whether to ensure eager loading of the instance. Defaults to True.
             **kwargs: Additional keyword arguments.
         Keyword Args:
             operation (str, optional): The operation. Defaults to None.
@@ -134,6 +137,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             ws_id=ws_id,
             req_id=id,
             sess=sess,
+            ensure_eager_load=ensure_eager_load,
             **args,
         )
 
@@ -145,6 +149,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         operation: str = None,
         context: str = None,
         sess: AsyncSession = None,
+        ensure_eager_load: bool=True,
         **kwargs,
     ) -> T:
         existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
@@ -157,6 +162,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             owner=owner,
             operation=operation,
             context=context,
+            ensure_eager_load=ensure_eager_load,
             **kwargs,
         )
         return stats

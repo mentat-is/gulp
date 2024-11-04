@@ -160,11 +160,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
+        sess: AsyncSession = None,
         throw_if_not_found: bool = True,
     ) -> None:
         if id == "admin":
             raise ValueError("cannot delete the default admin user")
-        await super().delete_by_id(id, token, permission, ws_id, req_id, throw_if_not_found)
+        await super().delete_by_id(id, token, permission, ws_id, req_id, sess, throw_if_not_found)
 
     def is_admin(self) -> bool:
         """
@@ -184,9 +185,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         """
         return self.session is not None
 
-    @classmethod
+    @staticmethod
     async def login(
-        cls, user: str, password: str, ws_id: str = None, req_id: str = None
+        user: str, password: str, ws_id: str = None, req_id: str = None
     ) -> T:
         """
         Asynchronously logs in a user and creates a session (=obtain token).
@@ -202,7 +203,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         sess = await session()
         async with sess:
-            u: GulpUser = await cls.get_one_by_id(user, sess=sess)
+            u: GulpUser = await GulpUser.get_one_by_id(user, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
                 logger().debug("resetting previous session for user=%s" % (user))
@@ -245,13 +246,14 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             await sess.commit()  # this will also delete the previous session from above, if needed
             return new_session
 
-    @classmethod
-    async def logout(cls, token: str, ws_id: str = None, req_id: str = None) -> None:
+    @staticmethod
+    async def logout(token: str, ws_id: str = None, req_id: str = None) -> None:
         """
         Logs out the specified user by deleting their session.
         Args:
-            user (str): The username of the user to log out.
-            sess (AsyncSession, optional): The asynchronous session to use for the operation (will be committed). Defaults to None.
+            token (str): The token of the user to log out.
+            ws_id (str, optional): The websocket ID. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None.
         Returns:
             None
         """

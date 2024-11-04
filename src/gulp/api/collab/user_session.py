@@ -90,6 +90,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
         Raises:
             ObjectNotFound: if the user session is not found.
         """
+        logger().debug("---> get_by_token: token=%s ..." % (token))
         if config.debug_allow_any_token_as_admin():
             # return an admin session
             from gulp.api.collab.user import GulpUser
@@ -118,5 +119,5 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
                 return admin_session
 
         # default, get if exists
-        s = GulpUserSession.get_one_by_id(token, sess)
+        s = await GulpUserSession.get_one_by_id(token, sess)
         return s
