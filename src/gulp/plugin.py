@@ -12,6 +12,7 @@ import muty.crypto
 import muty.dynload
 import muty.file
 import muty.jsend
+import muty.log
 import muty.string
 import muty.time
 
@@ -916,12 +917,14 @@ class GulpPluginBase(ABC):
         Returns:
             GulpIngestionStats: The updated ingestion statistics.
         """
+        if isinstance(err, Exception):
+            err = muty.log.exception_to_string_lite()
         logger().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s"
-            % (self._log_file_path, str(err))
+            % (self._log_file_path, err)
         )
         # update and force-flush stats
-        err = '%s: %s' % (self._log_file_path or '-', str(err))
+        err = '%s: %s' % (self._log_file_path or '-', err)
         return await stats.update(ws_id=self._ws_id, source_failed=1, source_processed=1, error=err)
 
     @staticmethod
