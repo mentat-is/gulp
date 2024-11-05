@@ -16,6 +16,8 @@ from gulp.api.elastic.structs import GulpIngestionFilter
 from gulp.api import elastic_api
 from gulp.api import collab_api
 from gulp.api.collab import db
+from gulp.api.mapping.models import GulpMapping
+from gulp.plugin_params import GulpPluginGenericParams
 from gulp.utils import logger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
@@ -167,6 +169,7 @@ async def test_init():
         _pg = await collab_api.engine()
     else:
         _os = elastic_api.elastic()
+        await db.setup()
         _pg = await collab_api.engine()
 
 async def test_login_logout():
@@ -182,9 +185,32 @@ async def test_ingest():
     #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
     file = os.path.join(_opt_samples_dir,'win_evtx/security_big_sample.evtx')
     #file = os.path.join(_opt_samples_dir,'win_evtx/Security_short_selected.evtx')
+
     plugin = await GulpPluginBase.load("win_evtx")
     # create stats upfront
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
+    end_time = timeit.default_timer()
+    execution_time = end_time - start_time
+    logger().debug(
+        "execution time for ingesting file %s: %f sec." % (file, execution_time)
+    )
+
+async def test_ingest_stacked():
+    logger().debug("---> test_ingest_stacked")
+    start_time = timeit.default_timer()
+    # load plugin
+    #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
+    file = os.path.join(_opt_samples_dir,'mftecmd/sample_j.csv')
+    #file = os.path.join(_opt_samples_dir,'win_evtx/Security_short_selected.evtx')
+    
+    # test csv alone
+    plugin = await GulpPluginBase.load("csv")
+    
+    # create stats upfront
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    empty_mapping = GulpMapping()
+    params: GulpPluginGenericParams = GulpPluginGenericParams(model_extra={"delimiter": ","})  
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
@@ -199,7 +225,8 @@ async def main():
     
     try:       
         await test_init()
-        await test_ingest()
+        #await test_ingest()
+        await test_ingest_stacked()
     finally:
         await elastic_api.shutdown_client(_os)
 

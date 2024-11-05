@@ -15,7 +15,7 @@ from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
 
 try:
     import aiosqlite
@@ -70,13 +70,13 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
         return [
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "encryption_key", "str", "DB encryption key", default_value=None
             ),
-            GulpPluginSpecificParams("key_type", "str", "DB encryption key type", default_value=None),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam("key_type", "str", "DB encryption key type", default_value=None),
+            GulpPluginSpecificParam(
                 "queries", "dict", "query to run for each table", default_value={}
             ),
         ]

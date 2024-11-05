@@ -338,7 +338,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             self.source_failed += source_failed
             self.records_failed += records_failed
             self.records_skipped += records_skipped
-            self.records_processed += records_processed
+            self.records_processed = records_processed
             self.records_ingested += records_ingested
             if error:
                 if isinstance(error, Exception):

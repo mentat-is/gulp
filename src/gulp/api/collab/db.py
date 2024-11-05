@@ -147,12 +147,6 @@ async def _create_default_data() -> None:
         Any exceptions that occur during the execution of the function.
     """
 
-    # import everything under gulp.api.collab
-    package_name = "gulp.api.collab"
-    package = importlib.import_module(package_name)
-    for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-        importlib.import_module(f"{package_name}.{module_name}")
-
     from gulp.api.collab.user import GulpUser
     from gulp.api.collab.glyph import GulpGlyph
     from gulp.api.collab.operation import GulpOperation
@@ -234,6 +228,13 @@ async def setup(force_recreate: bool = False) -> None:
         # recreate tables and default data
         await _create_default_data()
 
+    # import everything under gulp.api.collab
+    # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
+    package_name = "gulp.api.collab"
+    package = importlib.import_module(package_name)
+    for _, module_name, _ in pkgutil.iter_modules(package.__path__):
+        importlib.import_module(f"{package_name}.{module_name}")
+
     url = config.postgres_url()
     if force_recreate:
         logger().warning(
@@ -241,13 +242,14 @@ async def setup(force_recreate: bool = False) -> None:
         )
         await _recreate_internal(url)
     else:
+
         if await exists(config.postgres_url()):
             # check if tables exist
             async with await session() as sess:
                 res = await sess.execute(
                     text("SELECT to_regclass('public.context') AS exists")
                 )
-                if res.scalar_one_or_none() is not None:
+                if res.scalar_one_or_none():
                     # tables ok
                     logger().info("collab database exists and tables are ok.")
                     return

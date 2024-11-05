@@ -22,7 +22,7 @@ from gulp.api.elastic.structs import (
 )
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
 from gulp.utils import logger
 from gulp.api.rest import ws as ws_api
 from elasticsearch import AsyncElasticsearch
@@ -80,75 +80,75 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
         return [
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "url",
                 "str",
                 "opensearch/elasticsearch server URL, i.e. http://localhost:9200.",
                 default_value=None,
             ),  # TODO
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "is_elasticsearch",
                 "bool",
                 "True if the server is an ElasticSearch server, False if is an OpenSearch server.",
                 default_value=True,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "username",
                 "str",
                 "Username.",
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "password",
                 "str",
                 "Password.",
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "index",
                 "str",
                 "Index name.",
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_offset_msec",
                 "int",
                 'if set, this is used to rebase "@timestamp" (and "gulp.timestamp.nsec") in the query results.',
                 default_value="_time",
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_field",
                 "str",
                 'timestamp field to be used for querying external sources in "query_external" API, if different from the default.',
                 default_value="@timestamp",
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_is_string",
                 "bool",
                 "if set, timestamp is a string (not numeric).",
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_format_string",
                 "str",
                 'if set, the format string used to parse the timestamp if "timestamp_is_string" is True.',
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_day_first",
                 "bool",
                 "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with dayfirst=True.",
                 default_value=False,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_year_first",
                 "bool",
                 "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with yearfirst=True.",
                 default_value=True,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "timestamp_unit",
                 "str",
                 'if timestamp is a number, this is the unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).',

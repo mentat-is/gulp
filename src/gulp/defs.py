@@ -81,10 +81,6 @@ At least one special character
 REGEX_PASSWORD = "^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,32}$"
 
 
-class InvalidArgument(Exception):
-    pass
-
-
 class ObjectAlreadyExists(Exception):
     pass
 

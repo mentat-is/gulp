@@ -14,7 +14,7 @@ from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
 from gulp.utils import logger
 
 
@@ -28,12 +28,12 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
         return [
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "regex", "str", "regex to apply - must use named groups", default_value=None
             ),
-            GulpPluginSpecificParams("flags", "int", "flags to apply to regex", default_value=0),
+            GulpPluginSpecificParam("flags", "int", "flags to apply to regex", default_value=0),
         ]
 
     async def _record_to_gulp_document(

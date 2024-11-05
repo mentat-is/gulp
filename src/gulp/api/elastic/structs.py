@@ -8,9 +8,9 @@ import muty.string
 import muty.time
 from pydantic import BaseModel, Field, model_validator
 
-from gulp.api.mapping.models import GulpMappingField
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.defs import GulpLogLevel, GulpSortOrder
-from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.plugin_params import GulpPluginGenericParams
 from gulp.utils import logger
 
 EXAMPLE_QUERY_OPTIONS = {
@@ -380,9 +380,6 @@ class GulpDocument(BaseModel):
     id: str = Field(
         None, description='"_id": the unique identifier of the document.', alias="_id"
     )
-    hash: str = Field(
-        None, description='"event.hash": the hash of the event.', alias="event.hash"
-    )
     timestamp: str = Field(
         0,
         description='"@timestamp": document timestamp, in iso8601 format.',
@@ -436,32 +433,58 @@ class GulpDocument(BaseModel):
     @override
     def __init__(
         self,
+        plugin_instance,
         timestamp: str|int,
         operation: str,
         context: str,
-        agent_type: str,
         event_original: str,
         event_sequence: int,
         event_code: str = "0",
         event_duration: int = 1,
-        source: str = None,
-        **kwargs,
+        log_file_path: str = None,
+        **kwargs,        
     ) -> None:
+        """
+        Initialize a GulpDocument instance.
+        Args:
+            plugin_instance: The calling PluginBase
+            timestamp (str|int): The timestamp of the event, either as a string or integer.
+            operation (str): The operation type.
+            context (str): The context of the event.
+            agent_type (str): The type of agent.
+            event_original (str): The original event data.
+            event_sequence (int): The sequence number of the event.
+            event_code (str, optional): The event code. Defaults to "0".
+            event_duration (int, optional): The duration of the event. Defaults to 1.
+            source (str, optional): The source log file path. Defaults to None.
+            **kwargs: Additional keyword arguments to be added as attributes.
+        Returns:
+            None
+        """
+        
         #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, agent_type=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, agent_type, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
-        super().__init__(timestamp=str(timestamp), operation=operation, context=context, agent_type=agent_type, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=source, **kwargs)
+        super().__init__(timestamp=str(timestamp), operation=operation, context=context, agent_type=agent_type, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
         self.timestamp = muty.time.ensure_iso8601(self.timestamp)
         self.operation = operation
         self.context = context
-        self.agent_type = agent_type
+        mapping = plugin_instance.selected_mapping()
+        if mapping and mapping.agent_type:
+            # force agent type from mapping
+            self.agent_type = mapping.agent_type
+        else:
+            self.agent_type = plugin_instance.bare_filename
         self.event_original = event_original
         self.event_sequence = event_sequence
-        self.event_code = event_code
+        if mapping and mapping.event_code:
+            # force event code from mapping
+            self.event_code = mapping.event_code
+        else:
+            self.event_code = event_code
         self.event_duration = event_duration
-        self.log_file_path = source
-        self.hash = muty.crypto.hash_blake2b(
+        self.log_file_path = log_file_path
+        self.id = muty.crypto.hash_blake2b(
             f"{self.event_original}{event_code}{self.event_sequence}"
-        )
-        self.id = self.hash
+        )[:32]
 
         # add gulp_event_code (event code as a number)
         self.gulp_event_code = (

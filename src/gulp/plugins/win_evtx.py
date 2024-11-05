@@ -19,6 +19,7 @@ from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import logger
 
+
 class Plugin(GulpPluginBase):
     """
     windows evtx log file processor.
@@ -85,15 +86,17 @@ class Plugin(GulpPluginBase):
             return codes[ev_code]
 
         return {}
-    
+
     @override
-    async def _record_to_gulp_document(self, record: any, record_idx: int) -> GulpDocument:
-        
+    async def _record_to_gulp_document(
+        self, record: any, record_idx: int
+    ) -> GulpDocument:
+
         event_original: str = record["data"]
         timestamp = record["timestamp"]
         data_elem = etree.fromstring(event_original.encode("utf-8"))
         e_tree: etree.ElementTree = etree.ElementTree(data_elem)
-        
+
         d = {}
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
@@ -124,11 +127,11 @@ class Plugin(GulpPluginBase):
                         else:
                             k = e.tag
                             v = attr_v
-                        #logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
                         k = "%s.%s" % (e.tag, attr_k)
                         v = attr_v
-                        #logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     mapped = self._process_key(k, v)
                     d.update(mapped)
 
@@ -136,14 +139,16 @@ class Plugin(GulpPluginBase):
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
 
-        return GulpDocument(timestamp=timestamp, 
-                           operation=self._operation, 
-                           context=self._context,
-                           agent_type=self.bare_filename,
-                           event_original=event_original,
-                           event_sequence=record_idx,
-                           source=self._log_file_path,
-                           **d)
+        return GulpDocument(
+            self,
+            timestamp=timestamp,
+            operation=self._operation,
+            context=self._context,
+            event_original=event_original,
+            event_sequence=record_idx,
+            log_file_path=self._log_file_path,
+            **d,
+        )
 
     async def ingest_file(
         self,
@@ -158,17 +163,27 @@ class Plugin(GulpPluginBase):
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
-            req_id, ws_id, user, index, operation, context, log_file_path, plugin_params, flt
+            req_id,
+            ws_id,
+            user,
+            index,
+            operation,
+            context,
+            log_file_path,
+            plugin_params,
+            flt,
         )
 
         # initialize stats
-        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(req_id, user, operation=operation, context=context)
+        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
+            req_id, user, operation=operation, context=context
+        )
         try:
             # initialize plugin
-            await self._initialize(mapping_file='windows.json')
+            await self._initialize(mapping_file="windows.json", plugin_params=plugin_params)
 
             # init parser
-            parser = PyEvtxParser(log_file_path)            
+            parser = PyEvtxParser(log_file_path)
         except Exception as ex:
             await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED
@@ -176,14 +191,14 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         try:
             for rr in parser.records():
-                doc_idx +=1
+                doc_idx += 1
                 try:
                     await self.process_record(stats, rr, doc_idx, flt)
                 except RequestCanceledError as ex:
                     break
 
         except Exception as ex:
-            await self._source_failed(stats, ex)            
+            await self._source_failed(stats, ex)
         finally:
             await self._source_done(stats, flt)
 

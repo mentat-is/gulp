@@ -15,7 +15,7 @@ from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
 
 try:
     from regipy.registry import RegistryHive, Subkey
@@ -61,21 +61,21 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
         return [
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "path",
                 "str",
                 "registry path to start traversing the hive from",
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "partial_hive_path",
                 "str",
                 "the path from which the partial hive actually starts",
                 default_value=None,
             ),
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "partial_hive_type",
                 "str",
                 "the hive type can be specified if this is a partial hive, or if auto-detection fails",

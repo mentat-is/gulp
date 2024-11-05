@@ -608,7 +608,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return obj
 
-        logger().debug(f"---> update: obj_id={id}, type={self.__class__}, d={d}")
+        logger().debug(f"---> update: obj_id={self.id}, type={self.__class__}, d={d}")
         created=False
         if not sess:
             created = True

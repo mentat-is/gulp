@@ -17,7 +17,7 @@ from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
 
 # TODO support gzipped logs from rotated configurations, same for error logs
 
@@ -73,12 +73,12 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
         return [
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "locale", "str", "original server's locale", default_value=None
             ),  # TODO
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "date_format",
                 "str",
                 "server date log format",

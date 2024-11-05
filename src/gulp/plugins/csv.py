@@ -1,4 +1,5 @@
 import os
+from typing import override
 
 import aiofiles
 import muty.dict
@@ -6,13 +7,13 @@ import muty.os
 import muty.string
 import muty.xml
 
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.defs import GulpPluginType, InvalidArgument
+from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_params import GulpPluginSpecificParam, GulpPluginGenericParams
 from gulp.utils import logger
 
 try:
@@ -30,9 +31,9 @@ class Plugin(GulpPluginBase):
 
     ### standalone mode
 
-    when used by itself, it is sufficient to ingest a CSV file with the default settings (no extra parameters needed).
+    when used by itself, it is enough to ingest a CSV file with the default settings (no extra parameters needed).
 
-    NOTE: since each document stored on elasticsearch must have a "@timestamp", either a mapping file is provided, or "timestamp_field" is set to a field name in the CSV file.
+    NOTE: since each document must have a "@timestamp", a GulpMapping must be set with a "opt_timestamp_field" set in the plugin_params.
 
     ~~~bash
     # all CSV field will result in "gulp.unmapped.*" fields, timestamp will be set from "UpdateTimestamp" field
@@ -65,193 +66,118 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
-    def desc(self) -> str:
-        return """generic CSV file processor"""
-
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
-        return [
-            GulpPluginSpecificParams(
-                "delimiter", "str", "delimiter for the CSV file", default_value=","
-            )
-        ]
-
     def display_name(self) -> str:
         return "csv"
 
+    @override
+    def desc(self) -> str:
+        return """generic CSV file processor"""
+
+    @override
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
+        return [
+            GulpPluginSpecificParam(
+                "delimiter", "str", desc="delimiter for the CSV file", default_value=","
+            )
+        ]
+
+    @override
     def version(self) -> str:
         return "1.0"
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginGenericParams = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: dict, record_idx: int
+    ) -> GulpDocument:
 
         # logger().debug("record: %s" % record)
-        event: dict = record
 
         # get raw csv line (then remove it)
-        raw_text: str = event["__line__"]
-        del event["__line__"]
+        event_original: str = record["__line__"]
+        del record["__line__"]
 
         # map all keys for this record
-        fme: list[GulpMappingField] = []
-        for k, v in event.items():
-            e = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                k,
-                v,
-                index_type_mapping=index_type_mapping,
-                **kwargs,
-            )
-            fme.extend(e)
+        d = {}
+        for k, v in record.items():
+            mapped = self._process_key(k, v)
+            d.update(mapped)
 
-        # logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
-
-        # this is the global event code for this mapping, but it may be overridden
-        # at field level, anyway
-        event_code = (
-            custom_mapping.options.default_event_code
-            if custom_mapping is not None
-            else None
+        return GulpDocument(
+            self,
+            timestamp=record[self.selected_mapping().opt_timestamp_field],
+            operation=self._operation,
+            context=self._context,
+            agent_type=self.bare_filename,
+            event_original=event_original,
+            event_sequence=record_idx,
+            log_file_path=self._log_file_path,
+            mapping=self._mappings[self._mapping_id] ** d,
         )
-        # logger().error(f"**** SET FROM PLUGIN ev_code: {event_code}, custom_mapping: {custom_mapping}")
-        events = self._build_gulpdocuments(
-            fme,
-            idx=record_idx,
-            operation_id=operation_id,
-            context=context,
-            plugin=plugin,
-            client_id=client_id,
-            raw_event=raw_text,
-            event_code=event_code,
-            original_id=record_idx,
-            src_file=os.path.basename(source),
-        )
-        return events
 
     async def ingest_file(
         self,
-        index: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        user: str,
+        index: str,
+        operation: str,
+        context: str,
+        log_file_path: str,
         plugin_params: GulpPluginGenericParams = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-
         await super().ingest_file(
-            index=index,
-            req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context=context,
-            source=source,
-            ws_id=ws_id,
-            plugin_params=plugin_params,
-            flt=flt,
-            **kwargs,
+            req_id,
+            ws_id,
+            user,
+            index,
+            operation,
+            context,
+            log_file_path,
+            plugin_params,
+            flt,
         )
 
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize()(
-            index, source, plugin_params=plugin_params
+        # initialize stats
+        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
+            req_id, user, operation=operation, context=context
         )
-
-        # check plugin_params
         try:
-            custom_mapping, plugin_params = self._process_plugin_params(
-                custom_mapping, plugin_params
-            )
-        except InvalidArgument as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            # initialize plugin
+            await self._initialize(plugin_params=plugin_params)
+            
+            # csv plugin needs a mapping set if not stacked
+            if not self._stacked:
+                if not self.selected_mapping().opt_timestamp_field:
+                    raise ValueError(
+                        "in non-stacked setting, timestamp_field must be set in GulpMapping !"
+                    )
+        except Exception as ex:
+            await self._source_failed(stats, ex)
+            return GulpRequestStatus.FAILED
 
-        logger().debug("custom_mapping=%s" % (custom_mapping))
-
-        delimiter = plugin_params.extra.get("delimiter", ",")
-
-        if custom_mapping.options.agent_type is None:
-            plugin = self.display_name()
-        else:
-            plugin = custom_mapping.options.agent_type
-            logger().warning("using plugin name=%s" % (plugin))
-
-        ev_idx = 0
+        delimiter = plugin_params.model_extra.get("delimiter", ",")        
+        doc_idx = 0
         try:
             async with aiofiles.open(
-                source, mode="r", encoding="utf-8", newline=""
+                log_file_path, mode="r", encoding="utf-8", newline=""
             ) as f:
                 async for line_dict in AsyncDictReader(f, delimiter=delimiter):
-                    # rebuild original line and fix dict (remove BOM, if present)
-                    line = ""
-                    fixed_dict = {}
-                    for k, v in line_dict.items():
-                        if v is not None and len(v) > 0:
-                            k = muty.string.remove_unicode_bom(k)
-                            fixed_dict[k] = v
-
-                        if v is None:
-                            v = ""
-
-                        line += v + delimiter
-
+                    # fix dict (remove BOM from keys, if present)
+                    fixed_dict = {muty.string.remove_unicode_bom(k): v for k, v in line_dict.items() if v}
+                    # rebuild line
+                    line = delimiter.join(fixed_dict.values())
                     # add original line as __line__
-                    line = line[:-1]
-                    fixed_dict["__line__"] = line
+                    fixed_dict["__line__"] = line[:-1] 
 
-                    # convert record to gulp document
                     try:
-                        fs, must_break = await self.process_record(
-                            index,
-                            fixed_dict,
-                            ev_idx,
-                            self._record_to_gulp_document,
-                            ws_id,
-                            req_id,
-                            operation_id,
-                            client_id,
-                            context,
-                            source,
-                            fs,
-                            custom_mapping=custom_mapping,
-                            index_type_mapping=index_type_mapping,
-                            plugin=self.display_name(),
-                            plugin_params=plugin_params,
-                            flt=flt,
-                            **kwargs,
-                        )
-                        ev_idx += 1
-                        if must_break:
-                            break
-
-                    except Exception as ex:
-                        fs = self._record_failed(fs, fixed_dict, source, ex)
-
+                        await self.process_record(stats, fixed_dict, doc_idx, flt)
+                    except RequestCanceledError as ex:
+                        break
         except Exception as ex:
-            # add an error
-            fs = self._source_failed(fs, source, ex)
+            await self._source_failed(stats, ex)
 
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs, flt
-        )
+        finally:
+            await self._source_done(stats, flt)
+
+        return stats.status

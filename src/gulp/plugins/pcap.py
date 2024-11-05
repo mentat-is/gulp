@@ -29,7 +29,7 @@ from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
 
 
 class Plugin(GulpPluginBase):
@@ -55,11 +55,11 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParams]:
+    def specific_params(self) -> list[GulpPluginSpecificParam]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng
         # hence a safe default could be pcapng regardless of type
         return [
-            GulpPluginSpecificParams(
+            GulpPluginSpecificParam(
                 "format", "str", "pcap format (pcap or pcapng)", default_value=None
             )
         ]
