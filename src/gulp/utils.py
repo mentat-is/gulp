@@ -123,7 +123,7 @@ def configure_logger(
             filename = "%s-%s" % (prefix, filename)
             log_to_file = muty.file.safe_path_join(d, filename)
 
-    _logger = muty.log.configure_logger(name=n, log_file=log_to_file, level=level)
+    _logger = muty.log.configure_logger(name=n, log_file=log_to_file, level=level, use_multiline_formatter=True)
 
     _logger.warning(
         "reconfigured logger %s, level=%d, file_path=%s"
@@ -132,7 +132,7 @@ def configure_logger(
 
     # also reconfigure muty logger with the same level
     muty.log.internal_logger(
-        log_to_file=log_to_file, level=level, force_reconfigure=force_reconfigure
+        log_to_file=log_to_file, level=level, force_reconfigure=force_reconfigure, use_multiline_formatter=True
     )
     return _logger
 

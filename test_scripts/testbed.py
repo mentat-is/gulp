@@ -178,8 +178,8 @@ async def test_login_logout():
     await GulpUser.logout(session.id)
     return
 
-async def test_ingest():
-    logger().debug("---> test_ingest")
+async def test_ingest_windows():
+    logger().debug("---> test_ingest_windows")
     start_time = timeit.default_timer()
     # load plugin
     #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
@@ -196,8 +196,8 @@ async def test_ingest():
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
-async def test_ingest_stacked():
-    logger().debug("---> test_ingest_stacked")
+async def test_ingest_csv():
+    logger().debug("---> test_ingest_csv")
     start_time = timeit.default_timer()
     # load plugin
     #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
@@ -209,14 +209,37 @@ async def test_ingest_stacked():
     
     # create stats upfront
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
-    empty_mapping = GulpMapping()
-    params: GulpPluginGenericParams = GulpPluginGenericParams(model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
+    generic_mapping = GulpMapping(opt_timestamp_field="UpdateTimestamp", opt_agent_type="mftecmd", opt_event_code="j")
+    params: GulpPluginGenericParams = GulpPluginGenericParams(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     logger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
+
+async def test_ingest_csv_stacked():
+    logger().debug("---> test_ingest_csv_stacked")
+    start_time = timeit.default_timer()
+    # load plugin
+    #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
+    file = os.path.join(_opt_samples_dir,'mftecmd/sample_j.csv')
+    #file = os.path.join(_opt_samples_dir,'win_evtx/Security_short_selected.evtx')
+    
+    # test csv alone
+    plugin = await GulpPluginBase.load("stacked_example")
+    
+    # create stats upfront
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    generic_mapping = GulpMapping(opt_timestamp_field="UpdateTimestamp", opt_agent_type="mftecmd", opt_event_code="j")
+    params: GulpPluginGenericParams = GulpPluginGenericParams(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
+    end_time = timeit.default_timer()
+    execution_time = end_time - start_time
+    logger().debug(
+        "execution time for ingesting file %s: %f sec." % (file, execution_time)
+    )
+
 
 async def main():
     configure_logger()
@@ -225,8 +248,9 @@ async def main():
     
     try:       
         await test_init()
-        #await test_ingest()
-        await test_ingest_stacked()
+        #await test_ingest_windows()
+        #await test_ingest_csv()
+        await test_ingest_csv_stacked()
     finally:
         await elastic_api.shutdown_client(_os)
 

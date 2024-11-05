@@ -176,6 +176,7 @@ async def build_and_set_index_template(
     mappings["properties"]["gulp"] = {
         "properties": {
             "event": {"properties": {"code": {"type": "long"}}},
+            "invalid": {"properties": {"timestamp": {"type": "boolean"}}},
             "context": {"type": "keyword"},
             "operation": {"type": "keyword"},
         }

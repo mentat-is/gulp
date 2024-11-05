@@ -385,6 +385,11 @@ class GulpDocument(BaseModel):
         description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
     )
+    invalid_timestamp: bool = Field(
+        False,
+        description="True if \"@timestamp\" is invalid and set to 1/1/1970 (the document should be checked, probably ...).",
+        alias='gulp.invalid.timestamp',
+    )
     operation: str = Field(
         ...,
         description='"gulp.operation": the operation ID the document is associated with.',
@@ -451,7 +456,6 @@ class GulpDocument(BaseModel):
             timestamp (str|int): The timestamp of the event, either as a string or integer.
             operation (str): The operation type.
             context (str): The context of the event.
-            agent_type (str): The type of agent.
             event_original (str): The original event data.
             event_sequence (int): The sequence number of the event.
             event_code (str, optional): The event code. Defaults to "0".
@@ -462,22 +466,29 @@ class GulpDocument(BaseModel):
             None
         """
         
-        #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, agent_type=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, agent_type, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
-        super().__init__(timestamp=str(timestamp), operation=operation, context=context, agent_type=agent_type, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
-        self.timestamp = muty.time.ensure_iso8601(self.timestamp)
+        #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
+        super().__init__(timestamp=str(timestamp), operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
+        try:
+            self.timestamp = muty.time.ensure_iso8601(self.timestamp)
+        except Exception as e:
+            # invalid timestamp
+            self.timestamp='1970-01-01T00:00:00Z'
+            self.invalid_timestamp=True
+
         self.operation = operation
         self.context = context
-        mapping = plugin_instance.selected_mapping()
-        if mapping and mapping.agent_type:
+        mapping: GulpMapping = plugin_instance.selected_mapping()
+        if mapping and mapping.opt_agent_type:
             # force agent type from mapping
-            self.agent_type = mapping.agent_type
+            self.agent_type = mapping.opt_agent_type
         else:
+            # default to plugin name
             self.agent_type = plugin_instance.bare_filename
         self.event_original = event_original
         self.event_sequence = event_sequence
-        if mapping and mapping.event_code:
+        if mapping and mapping.opt_event_code:
             # force event code from mapping
-            self.event_code = mapping.event_code
+            self.event_code = mapping.opt_event_code
         else:
             self.event_code = event_code
         self.event_duration = event_duration

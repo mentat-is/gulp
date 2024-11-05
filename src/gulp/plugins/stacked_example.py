@@ -68,15 +68,7 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return """generic CSV file processor"""
-
-    @override
-    def specific_params(self) -> list[GulpPluginSpecificParam]:
-        return [
-            GulpPluginSpecificParam(
-               name="delimiter", type="str", desc="delimiter for the CSV file", default_value=","
-            )
-        ]
+        return """stacked plugin on top of csv example"""
 
     @override
     def version(self) -> str:
@@ -84,38 +76,14 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: dict, record_idx: int
+        self, record: GulpDocument, record_idx: int
     ) -> GulpDocument:
 
         # logger().debug("record: %s" % record)
-
-        # get raw csv line (then remove it)
-        event_original: str = record["__line__"]
-        del record["__line__"]
-
-        # map all keys for this record
-        d = {}
-        for k, v in record.items():
-            mapped = self._process_key(k, v)
-            d.update(mapped)
-
-        timestamp = d.get('@timestamp')
-        if not timestamp:
-            # not mapped, try to get it from the record
-            timestamp = record[self.selected_mapping().opt_timestamp_field]
-
-        return GulpDocument(
-            self,
-            timestamp=timestamp,
-            operation=self._operation,
-            context=self._context,
-            agent_type=self.bare_filename,
-            event_original=event_original,
-            event_sequence=record_idx,
-            log_file_path=self._log_file_path,
-            **d,
-        )
-
+        # tweak event duration ...
+        record.event_duration = 9999
+        return record
+    
     async def ingest_file(
         self,
         req_id: str,
@@ -144,42 +112,12 @@ class Plugin(GulpPluginBase):
         stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
             req_id, user, operation=operation, context=context
         )
+
+        # set as stacked
         try:
-            # initialize plugin
-            await self._initialize(plugin_params=plugin_params)
-            
-            # csv plugin needs a mapping or a timestamp field
-            selected_mapping = self.selected_mapping()
-            if not selected_mapping.fields and not selected_mapping.opt_timestamp_field:
-                    raise ValueError(
-                        "if no mapping_file or mappings specified, opt_timestamp_field must be set in GulpMapping !"
-                    )
+            lower = await self.setup_stacked_plugin('csv')
+            return await lower.ingest_file(req_id, ws_id, user, index, operation, context, log_file_path, plugin_params, flt)
         except Exception as ex:
             await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED
-
-        delimiter = plugin_params.model_extra.get("delimiter", ",")        
-        doc_idx = 0
-        try:
-            async with aiofiles.open(
-                log_file_path, mode="r", encoding="utf-8", newline=""
-            ) as f:
-                async for line_dict in AsyncDictReader(f, delimiter=delimiter):
-                    # fix dict (remove BOM from keys, if present)
-                    fixed_dict = {muty.string.remove_unicode_bom(k): v for k, v in line_dict.items() if v}
-                    # rebuild line
-                    line = delimiter.join(fixed_dict.values())
-                    # add original line as __line__
-                    fixed_dict["__line__"] = line[:-1] 
-
-                    try:
-                        await self.process_record(stats, fixed_dict, doc_idx, flt)
-                    except RequestCanceledError as ex:
-                        break
-        except Exception as ex:
-            await self._source_failed(stats, ex)
-
-        finally:
-            await self._source_done(stats, flt)
-
-        return stats.status
+   

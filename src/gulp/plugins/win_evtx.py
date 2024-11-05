@@ -16,7 +16,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.plugin_params import GulpPluginGenericParams
 from gulp.utils import logger
 
 
