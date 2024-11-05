@@ -383,9 +383,9 @@ class GulpDocument(BaseModel):
     hash: str = Field(
         None, description='"event.hash": the hash of the event.', alias="event.hash"
     )
-    timestamp: int = Field(
+    timestamp: str = Field(
         0,
-        description='"@timestamp": document original timestamp.',
+        description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
     )
     operation: str = Field(
@@ -419,8 +419,8 @@ class GulpDocument(BaseModel):
         alias="event.code",
     )
     gulp_event_code: Optional[int] = Field(
-        0, description='"gulp.event_code": "event.code" as integer.',
-        alias="gulp.event_code",
+        0, description='"gulp.event.code": "event.code" as integer.',
+        alias="gulp.event.code",
     )
     event_duration: Optional[int] = Field(
         1,
@@ -436,7 +436,7 @@ class GulpDocument(BaseModel):
     @override
     def __init__(
         self,
-        timestamp: int,
+        timestamp: str|int,
         operation: str,
         context: str,
         agent_type: str,
@@ -448,17 +448,8 @@ class GulpDocument(BaseModel):
         **kwargs,
     ) -> None:
         #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, agent_type=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, agent_type, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
-        super().__init__(timestamp=timestamp, operation=operation, context=context, agent_type=agent_type, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=source, **kwargs)
-        if isinstance(timestamp, int):
-            # already numeric
-            self.timestamp = timestamp
-        else:
-            # ensure numeric
-            if timestamp.isnumeric():
-                self.timestamp = int(self.timestamp)
-            else:
-                # convert (we must ensure this is a supported string, either conversion must be done in the plugin)
-                self.timestamp = muty.time.string_to_epoch_nsec(self.timestamp)
+        super().__init__(timestamp=str(timestamp), operation=operation, context=context, agent_type=agent_type, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=source, **kwargs)
+        self.timestamp = muty.time.ensure_iso8601(self.timestamp)
         self.operation = operation
         self.context = context
         self.agent_type = agent_type
@@ -485,7 +476,7 @@ class GulpDocument(BaseModel):
 
         # check in the end
         GulpDocument.model_validate(self)
-        logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
+        #logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     def __repr__(self) -> str:
         return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
@@ -504,15 +495,9 @@ class GulpDocument(BaseModel):
         """
         d = super().model_dump(exclude_none=exclude_none, exclude_unset=exclude_unset, **kwargs)
         if lite:
-            # return just this subset
+            # return just a minimal subset
             for k in list(d.keys()):
-                if k not in [
-                    "_id",
-                    "@timestamp",
-                    "gulp.context",
-                    "gulp.operation",
-                    "log.file.path",
-                ]:
+                if k not in QUERY_DEFAULT_FIELDS:
                     d.pop(k,None)
         return d
 

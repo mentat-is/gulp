@@ -69,6 +69,11 @@
                         "file.pe.company"
                     ]
                 },
+                "Computer": {
+                    "ecs": [
+                        "winlog.computer_name"
+                    ]
+                },                
                 "ComputerName": {
                     "ecs": [
                         "winlog.computer_name"
@@ -126,6 +131,11 @@
                         "file.path"
                     ]
                 },
+                "Direction": {
+                    "ecs": [
+                        "network.direction"
+                    ]
+                },
                 "EngineVersion": {
                     "ecs": [
                         "powershell.engine.version"
@@ -134,6 +144,21 @@
                 "EventID": {
                     "ecs": [
                         "event.code"
+                    ]
+                },
+                "EventRecordID": {
+                    "ecs": [
+                        "winlog.record_id"
+                    ]
+                },
+                "Execution.ProcessID": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "Execution.ThreadID": {
+                    "ecs": [
+                        "process.thread.id"
                     ]
                 },
                 "FileName": {

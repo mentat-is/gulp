@@ -90,7 +90,7 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(self, record: any, record_idx: int) -> GulpDocument:
         
         event_original: str = record["data"]
-        timestamp = muty.time.string_to_epoch_nsec(record["timestamp"])
+        timestamp = record["timestamp"]
         data_elem = etree.fromstring(event_original.encode("utf-8"))
         e_tree: etree.ElementTree = etree.ElementTree(data_elem)
         
@@ -132,12 +132,17 @@ class Plugin(GulpPluginBase):
                     mapped = self._process_key(k, v)
                     d.update(mapped)
 
+        # try to map event code to a more meaningful event category and type
+        mapped = self._map_evt_code(d.get("event.code"))
+        d.update(mapped)
+
         return GulpDocument(timestamp=timestamp, 
                            operation=self._operation, 
                            context=self._context,
                            agent_type=self.bare_filename,
                            event_original=event_original,
                            event_sequence=record_idx,
+                           source=self._log_file_path,
                            **d)
 
     async def ingest_file(

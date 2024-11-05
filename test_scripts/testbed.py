@@ -3,7 +3,7 @@ import asyncio
 import json
 import sys
 import os
-
+import timeit
 from sqlalchemy.sql.base import _NoArg
 
 # from gulp.api.collab import context as collab_context
@@ -177,14 +177,20 @@ async def test_login_logout():
 
 async def test_ingest():
     logger().debug("---> test_ingest")
-    
+    start_time = timeit.default_timer()
     # load plugin
     #file = os.path.join(_opt_samples_dir,'win_evtx/security.evtx')
-    file = os.path.join(_opt_samples_dir,'win_evtx/Security_short_selected.evtx')
+    file = os.path.join(_opt_samples_dir,'win_evtx/security_big_sample.evtx')
+    #file = os.path.join(_opt_samples_dir,'win_evtx/Security_short_selected.evtx')
     plugin = await GulpPluginBase.load("win_evtx")
     # create stats upfront
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
+    end_time = timeit.default_timer()
+    execution_time = end_time - start_time
+    logger().debug(
+        "execution time for ingesting file %s: %f sec." % (file, execution_time)
+    )
 
 async def main():
     configure_logger()

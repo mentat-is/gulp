@@ -35,6 +35,7 @@ _elastic: AsyncElasticsearch = None
 # TODO: turn to singleton class
 # TODO: properly use AsyncOpenSearch without aliasing to AsyncElasticSearch
 
+
 def _parse_mappings(d: dict, parent_key="", result=None) -> dict:
     if result is None:
         result = {}
@@ -192,25 +193,24 @@ async def build_and_set_index_template(
     )
     dtt.extend(dt)
     mappings["dynamic_templates"] = dtt
-    
+
     if apply_patches:
         # only set these if we do not want to use the template as is
         # mappings['date_detection'] = True
         # mappings['numeric_detection'] = True
         # mappings['dynamic'] = False
-        mappings["properties"]["@timestamp"] = {"type": "date_nanos"}
-        mappings['numeric_detection'] = False
+        mappings["properties"]["@timestamp"] = {
+            "type": "date_nanos",
+            "format": "strict_date_optional_time_nanos",
+        }
+
+        mappings["numeric_detection"] = False
 
         # support for original event both as keyword and text
         mappings["properties"]["event"]["properties"]["original"] = {
             "type": "text",
             "analyzer": "standard",
-            "fields": {
-                "keyword": {
-                "type": "keyword",
-                "ignore_above": 1024
-                }
-            }
+            "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
         }
         settings["index"]["mapping"]["total_fields"] = {
             "limit": config.index_template_default_total_fields_limit()
@@ -280,7 +280,7 @@ async def datastream_get_mapping_by_src(
         dict: The mapping dict.
     """
     # query first
-    options = {} # GulpQueryOptions()
+    options = {}  # GulpQueryOptions()
     options.limit = 1000
     options.fields_filter = ["*"]
     q = {
@@ -425,9 +425,9 @@ async def datastream_create(
         await e
         raise e
 
+
 def filter_doc_for_ingestion(
-    doc: dict,
-    flt: GulpIngestionFilter = None
+    doc: dict, flt: GulpIngestionFilter = None
 ) -> GulpEventFilterResult:
     """
     Check if a document is eligible for ingestion based on a filter.
@@ -446,6 +446,8 @@ def filter_doc_for_ingestion(
 
     if flt.time_range:
         ts = doc["@timestamp"]
+        # turn to nanoseconds from epoch
+        ts = muty.time.string_to_epoch_nsec(ts)
         if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
             return GulpEventFilterResult.SKIP
 
@@ -465,9 +467,12 @@ def _bulk_docs_result_to_ingest_chunk(
     Returns:
         list[dict]: The ingested documents.
     """
-    if errors is None:
-        return [doc for _, doc in bulk_docs]
-
+    if not errors:
+        return [
+            {**doc, "_id": create_doc["create"]["_id"]}
+            for create_doc, doc in zip(bulk_docs[::2], bulk_docs[1::2])
+        ]        
+        
     error_ids = {error["create"]["_id"] for error in errors}
     result = [
         {**doc, "_id": create_doc["create"]["_id"]}
@@ -520,7 +525,10 @@ async def ingest_bulk(
         #     "create": {"_id": item["_id"]},
         #     { doc stripped of _id }
         #   }
-        for doc in ({"create": {"_id": item["_id"]}}, {k: v for k, v in item.items() if k != "_id"})
+        for doc in (
+            {"create": {"_id": item["_id"]}},
+            {k: v for k, v in item.items() if k != "_id"},
+        )
     ]
     # logger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
     if len(bulk_docs) == 0:
@@ -550,11 +558,19 @@ async def ingest_bulk(
         # count skipped
         skipped = sum(1 for r in res["items"] if r["create"]["status"] == 409)
         # count failed
-        failed = sum(1 for r in res["items"] if r["create"]["status"] not in [201, 200, 409])
+        failed = sum(
+            1 for r in res["items"] if r["create"]["status"] not in [201, 200, 409]
+        )
         if failed > 0:
+            failed_items = [
+                item
+                for item in res["items"]
+                if item["create"]["status"] not in [201, 200]
+            ]
+            s = json.dumps(failed_items, indent=2)
             logger().error(
-                "failed to ingest %d documents: %s"
-                % (failed, muty.string.make_shorter(str(res["items"]), max_len=10000))
+                "%d failed ingestion, %d skipped: %s"
+                % (failed, skipped, muty.string.make_shorter(s, max_len=10000))
             )
 
         # take only the documents with no ingest errors
@@ -611,7 +627,7 @@ async def rebase(
             "lang": "painless",
             "source": convert_script,
             "params": {
-                "nsec_offset": msec_offset*muty.time.MILLISECONDS_TO_NANOSECONDS,
+                "nsec_offset": msec_offset * muty.time.MILLISECONDS_TO_NANOSECONDS,
             },
         },
     }
@@ -630,7 +646,7 @@ def _parse_elastic_res(
     results: dict,
     include_hits: bool = True,
     include_aggregations: bool = True,
-    options = None,
+    options=None,
 ) -> list:
     """
     Parse an Elasticsearch query result.
@@ -942,9 +958,7 @@ async def query_single_event(el: AsyncElasticsearch, index: str, gulp_id: str) -
     return js
 
 
-async def query_raw(
-    el: AsyncElasticsearch, index: str, q: dict, options = None
-) -> dict:
+async def query_raw(el: AsyncElasticsearch, index: str, q: dict, options=None) -> dict:
     """
     Executes a raw DSL query on OpenSearch
 
@@ -988,7 +1002,7 @@ async def query_raw(
 
 
 async def query_raw_elastic(
-    el: AElasticSearch, index: str, q: dict, options = None
+    el: AElasticSearch, index: str, q: dict, options=None
 ) -> dict:
     """
     Executes a raw DSL query on Elasticsearch.

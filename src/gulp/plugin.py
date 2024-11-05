@@ -25,6 +25,7 @@ from gulp.api.elastic.structs import (
     GulpDocument,
     GulpIngestionFilter,
     GulpQueryFilter,
+    QUERY_DEFAULT_FIELDS
 )
 from gulp.api.mapping.models import (
     GulpMappingField,
@@ -38,7 +39,6 @@ from gulp.defs import (
 )
 from gulp.plugin_internal import GulpPluginSpecificParams, GulpPluginGenericParams
 from gulp.utils import logger
-
 
 class GulpPluginCache:
     """
@@ -546,7 +546,9 @@ class GulpPluginBase(ABC):
         if mapping.ecs:
             # map to ECS fields
             for k in mapping.ecs:
-                d[k] = source_value
+                kk,vv = self._type_checks(k, source_value)
+                if vv is not None:
+                    d[kk] = vv
         else:
             # unmapped key
             d[f"{elastic_api.UNMAPPED_PREFIX}.{source_key}"] = source_value
@@ -713,55 +715,77 @@ class GulpPluginBase(ABC):
         """
         return
 
-    def _type_checks(self, v: any, k: str, index_type_mapping: dict) -> any:
+    def _type_checks(self, k: str, v: any) -> tuple[str, any]:
         """
-        check if the value should be fixed based on the index type mapping
+        check the type of a value and convert it if needed.
 
         Args:
-            v (any): The value to check.
-            k (str): The mapped field (i.e. "user.id", may also be an unmapped (i.e. "gulp.unmapped") field)
-            index_type_mapping (dict): The elasticsearch index key->type mappings.
+            k (str): the key
+            v (any): the value
+        
+        Returns:
+            tuple[str, any]: the key and the value
         """
-        if k not in index_type_mapping:
-            # logger().debug("key %s not found in index_type_mapping" % (k))
-            return str(v)
-
-        index_type = index_type_mapping[k]
+        index_type = self._index_type_mapping.get(k)
+        if not index_type:
+            #logger().warning("key %s not found in index_type_mapping" % (k))
+            # return an unmapped key, so it is guaranteed to be a string
+            #k = f"{elastic_api.UNMAPPED_PREFIX}.{k}"
+            return k, str(v)
+        
+        # check different types, we may add more ...
+        index_type = self._index_type_mapping[k]
         if index_type == "long":
             # logger().debug("converting %s:%s to long" % (k, v))
             if isinstance(v, str):
                 if v.isnumeric():
-                    return int(v)
+                    return k, int(v)                
                 if v.lower().startswith("0x"):
-                    return int(v, 16)
-            return v
+                    return k, int(v, 16)
+                try:
+                    return k, int(v)
+                except ValueError:
+                    #logger().exception("error converting %s:%s to long" % (k, v))
+                    return k, None
+            return k, v
 
-        if index_type == "float" or index_type == "double":
+        if index_type in [ "float", "double" ]:
             if isinstance(v, str):
-                return float(v)
-            return v
+                try:
+                    return k, float(v)
+                except ValueError:
+                    #logger().exception("error converting %s:%s to float" % (k, v))
+                    return k, None             
+                
+            return k, v
 
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
-            # convert hex to int
-            return int(v, 16)
+            # convert hex to int, then ensure it is a valid timestamp
+            try:
+                #logger().debug("converting %s: %s to date" % (k, v))
+                v = muty.time.ensure_iso8601(str(int(v, 16)))
+                return k,v
+            except ValueError:
+                #logger().exception("error converting %s:%s to date" % (k, v))
+                return k, None
 
         if index_type == "keyword" or index_type == "text":
             # logger().debug("converting %s:%s to keyword" % (k, v))
-            return str(v)
+            return k, str(v)
 
         if index_type == "ip":
             # logger().debug("converting %s:%s to ip" % (k, v))
             if "local" in v.lower():
-                return "127.0.0.1"
+                return k, "127.0.0.1"
             try:
                 ipaddress.ip_address(v)
-            except ValueError as ex:
-                logger().exception(ex)
-                return None
+            except ValueError:
+                #logger().exception("error converting %s:%s to ip" % (k, v))
+                return k, None
 
         # add more types here if needed ...
         # logger().debug("returning %s:%s" % (k, v))
-        return str(v)
+        return k, v
 
     async def _check_raw_ingestion_enabled(
         self, plugin_params: GulpPluginGenericParams
@@ -870,15 +894,8 @@ class GulpPluginBase(ABC):
                 flt.opt_storage_ignore_filter = False
 
             ws_docs = [
-                {
-                    "_id": doc["_id"],
-                    "@timestamp": doc["@timestamp"],
-                    "log.file.path": doc["log.file.path"],
-                    "event.duration": doc["event.duration"],
-                    "gulp.context": doc["gulp.context"],
-                    "event.code": doc["event.code"],
-                    "gulp.event.code": doc["gulp.event.code"],
-                }
+                # use only a minimal fields set to avoid sending too much data to the ws
+                {field: doc[field] for field in QUERY_DEFAULT_FIELDS}
                 for doc in ingested_docs
                 if elastic_api.filter_doc_for_ingestion(doc, flt)
                 == GulpEventFilterResult.ACCEPT
@@ -891,6 +908,14 @@ class GulpPluginBase(ABC):
                     {"plugin": self.display_name(), "events": ws_docs},
                     ws_id=ws_id,
                 )"""
+
+            # update index type mapping too
+            self._index_type_mapping = await elastic_api.datastream_get_key_value_mapping(
+                elastic_api.elastic(), self._index
+            )
+            logger().debug(
+                "got index type mappings with %d entries" % (len(self._index_type_mapping))
+            )
 
         return len(ingested_docs), skipped
 
