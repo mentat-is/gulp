@@ -128,13 +128,6 @@ class GulpLogLevel(IntEnum):
     INFO = 0
 
 
-class GulpEventFilterResult(IntEnum):
-    """wether if the event should be accepted or skipped during ingestion."""
-
-    ACCEPT = 0
-    SKIP = 1
-
-
 class GulpSortOrder(StrEnum):
     """
     specifies the sort types for API accepting the "sort" parameter

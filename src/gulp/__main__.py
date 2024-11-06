@@ -135,17 +135,8 @@ def main():
             elastic_index = (
                 args.reset_elastic[0] if args.reset_elastic is not None else None
             )
-            is_first_run = gulp.utils.check_first_run()
-            if is_first_run:
-                # first run, create index
-                elastic_index = "gulpidx"
-                reset_collab = True
-                logger().info(
-                    "first run detected, creating default index: %s" % (elastic_index)
-                )
-            else:
-                logger().info("not first run")
-            rest_api.start_server(
+            
+            rest_api.start(
                 address, port, log_file_path, reset_collab, elastic_index, is_first_run
             )
     except Exception as ex:

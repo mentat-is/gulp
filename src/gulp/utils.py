@@ -3,7 +3,6 @@ import os
 import ssl
 from email.message import EmailMessage
 from importlib import resources as impresources
-from queue import Queue
 
 import aiosmtplib
 import muty.file
@@ -14,8 +13,118 @@ import muty.version
 
 from gulp import mapping_files
 
-_logger: logging.Logger = None
+class GulpLogger:
+    """
+    singleton logger class, represents a logger for the process
+    """
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    def __init__(self):
+        if not hasattr(self, "_initialized"):
+            self._initialized = True
+            self._logger = self.create()
 
+    def debug(self, msg:object, *args:object) -> None:
+        """
+        log a debug message
+        """
+        self._logger.debug(msg, args)
+    
+    def warning(self, msg:object, *args:object) -> None:
+        """
+        log a warning message
+        """
+        self._logger.warning(msg, args)
+    
+    def error(self, msg:object, *args:object) -> None:
+        """
+        log an error message
+        """
+        self._logger.error(msg, args)
+
+    def info(self, msg:object, *args:object) -> None:
+        """
+        log an info message
+        """
+        self._logger.info(msg, args)
+
+    
+    def exception(self, msg:object, *args:object) -> None:
+        """
+        log an exception message
+        """
+        self._logger.exception(msg, args)
+    
+    def critical(self, msg:object, *args:object) -> None:
+        """
+        log a critical message
+        """
+        self._logger.critical(msg, args)
+
+    def get(self) -> logging.Logger:
+        """
+        get the logger instance
+        
+        Returns:
+            logging.Logger: the logger
+        """
+        return self._logger
+    
+    def reconfigure(self, log_to_file: str = None, level: int = logging.DEBUG, prefix: str = None) -> logging.Logger:
+        """
+        reconfigure the logger instance with the given parameters and return it
+
+        Args:
+            log_to_file (str, optional): path to the log file. Defaults to None (log to stdout only)
+            level (int, optional): the debug level. Defaults to logging.DEBUG.
+            prefix (str, optional): prefix to add to the logger name (ignored if log_to_file is None). Defaults to None.
+
+        Returns:
+            logging.Logger: the reconfigured logger
+        """
+        self._logger = self.create(log_to_file, level, prefix)
+        return self._logger
+
+    def create(self,
+        log_to_file: str = None,
+        level: int = logging.DEBUG,
+        prefix: str = None,
+    ) -> logging.Logger:
+        """
+        create a new logger with the given parameters (do not touch the singleton logger)
+
+        Args:
+            log_to_file (str, optional): path to the log file. Defaults to None (log to stdout only)
+            level (int, optional): the debug level. Defaults to logging.DEBUG.
+            prefix (str, optional): prefix to add to the logger name (ignored if log_to_file is None). Defaults to None.
+        Returns:
+            logging.Logger: the new logger
+        """
+
+        n = "gulp"
+        if log_to_file is not None:
+            # if log_to_file is not None, build the filename
+            d = os.path.dirname(log_to_file)
+            filename = os.path.basename(log_to_file)
+            if prefix is not None:
+                # add prefix to filename
+                filename = "%s-%s" % (prefix, filename)
+                log_to_file = muty.file.safe_path_join(d, filename)
+
+        l = muty.log.configure_logger(name=n, log_file=log_to_file, level=level, use_multiline_formatter=True)
+
+        l.warning(
+            "created logger %s, level=%d, file_path=%s"
+            % (l, l.level, log_to_file)
+        )
+
+        # also reconfigure muty logger with the same level
+        muty.log.internal_logger(
+            log_to_file=log_to_file, level=level, force_reconfigure=True, use_multiline_formatter=True
+        )
+        return l
 
 def logger() -> logging.Logger:
     """
@@ -24,8 +133,7 @@ def logger() -> logging.Logger:
     Returns:
         logging.Logger: The global logger.
     """
-    global _logger
-    return _logger
+    return GulpLogger().get()
 
 
 async def send_mail(
@@ -88,93 +196,6 @@ async def send_mail(
     )
 
 
-def configure_logger(
-    log_to_file: str = None,
-    level: int = logging.DEBUG,
-    force_reconfigure: bool = False,
-    prefix: str = None,
-) -> logging.Logger:
-    """
-    get the gulp logger. if already configured (and force_reconfigure is not set), returns the existing logger.
-
-    Args:
-        log_to_file (str, optional): path to the log file. Defaults to None (log to stdout only)
-        level (int, optional): the debug level. Defaults to logging.DEBUG.
-        force_reconfigure (bool, optional): if True, will reconfigure the logger also if it already exists. Defaults to True.
-        prefix (str, optional): prefix to add to the logger name (ignored if log_to_file is None). Defaults to None.
-    Returns:
-        logging.Logger: configured logger
-    """
-    global _logger
-
-    # if _logger is not None:
-    # _logger.debug('using global logger')
-
-    if not force_reconfigure and _logger is not None:
-        return _logger
-
-    n = "gulp"
-    if log_to_file is not None:
-        # if log_to_file is not None, build the filename
-        d = os.path.dirname(log_to_file)
-        filename = os.path.basename(log_to_file)
-        if prefix is not None:
-            # add prefix to filename
-            filename = "%s-%s" % (prefix, filename)
-            log_to_file = muty.file.safe_path_join(d, filename)
-
-    _logger = muty.log.configure_logger(name=n, log_file=log_to_file, level=level, use_multiline_formatter=True)
-
-    _logger.warning(
-        "reconfigured logger %s, level=%d, file_path=%s"
-        % (_logger, _logger.level, log_to_file)
-    )
-
-    # also reconfigure muty logger with the same level
-    muty.log.internal_logger(
-        log_to_file=log_to_file, level=level, force_reconfigure=force_reconfigure, use_multiline_formatter=True
-    )
-    return _logger
-
-
-def init_modules(
-    l: logging.Logger,
-    logger_prefix: str = None,
-    log_level: int = None,
-    log_file_path: str = None,
-    ws_queue: Queue = None,
-) -> logging.Logger:
-    """
-    Initializes the gulp modules **in the current process**.
-
-    @param l: the source logger, ignored if log_level is set
-    @param log_level: if set, l is reinitialized with the given log level and l is ignored
-    @param logger_prefix: if set, will prefix the reinitialized logger name with this string (ignored if log_level is not set)
-    @param log_file_path: if set, will log to this file (ignored if log_level is not set)
-    @param ws_queue: the proxy queue for websocket messages
-    returns the logger (reinitialized if log_level is set)
-    """
-    global _logger
-
-    if log_level is not None:
-        # recreate logger
-        _logger = configure_logger(
-            log_to_file=log_file_path,
-            level=log_level,
-            force_reconfigure=True,
-            prefix=logger_prefix,
-        )
-    else:
-        # use provided
-        _logger = l
-
-    # initialize modules
-    from gulp import config
-    from gulp.api.rest import ws as ws_api
-    config.init()
-    ws_api.init(ws_queue, main_process=False)
-    return _logger
-
 
 def build_mapping_file_path(filename: str) -> str:
     """
@@ -223,38 +244,4 @@ def ensure_req_id(req_id: str = None) -> str:
     if req_id is None:
         return muty.string.generate_unique()
     return req_id
-
-def delete_first_run_file() -> None:
-    """
-    deletes the ".first_run_done" file in the config directory.
-    """
-    import gulp.config as config
-    config_directory = config.config_dir()
-    check_first_run_file = os.path.join(config_directory, ".first_run_done")
-    if os.path.exists(check_first_run_file):
-        muty.file.delete_file_or_dir(check_first_run_file)
-        logger().info("first run file deleted: %s" % (check_first_run_file))
-    else:
-        logger().warning("first run file does not exist: %s" % (check_first_run_file))
-
-def check_first_run() -> bool:
-    """
-    checks if this is the first run of the application by checking the existence of ".first_run_done" file in the config directory.
-    
-    :return: True if this is the first run, False otherwise.    
-    """
-    
-    # check if this is the first run
-    import gulp.config as config
-    config_directory = config.config_dir()
-    check_first_run_file = os.path.join(config_directory, ".first_run_done")
-    if os.path.exists(check_first_run_file):
-        logger().debug("first run file exists: %s" % (check_first_run_file))
-        return False
-
-    logger().warning("first run file does not exist: %s" % (check_first_run_file))
-    # create the file
-    with open(check_first_run_file, "w") as f:
-        f.write("gulp!")
-    return True
 

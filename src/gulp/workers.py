@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from queue import Queue
 import sys
 import timeit
 from multiprocessing import Lock, Queue, Value
@@ -15,12 +16,12 @@ import muty.uploadfile
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.elastic.query_utils as query_utils
-import gulp.api.elastic_api as elastic_api
+import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest.ws as ws_api
 import gulp.config as config
 import gulp.plugin
 import gulp.utils
-from gulp.api import collab_api, elastic_api, rest_api
+from gulp.api import collab_api, opensearch_api, rest_api
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats, TmpQueryStats
 from gulp.api.elastic.query import QueryResult, SigmaGroupFilter
@@ -33,60 +34,104 @@ from gulp.api.elastic.structs import (
 from gulp.defs import GulpPluginType, ObjectNotFound
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.utils import _logger, configure_logger, logger
+import logging
 
 
-def process_worker_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
-    """
-    Initializes the worker process.
+class GulpWorker:
+    
+    @staticmethod
+    def process_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
+        """
+        Initializes the worker process.
 
-    Args:
-        spawned_processes (Value): A shared value representing the number of spawned processes.
-        lock (Lock): to synchronize startup of worker processes ()
-        ws_queue (Queue): The queue (proxy for multiprocessing) for websocket messages.
-        config_path (str, optional): The path to the configuration file. Defaults to None.
-        log_level (int, optional): The log level. Defaults to None.
-        log_file_path (str, optional): The path to the log file. Defaults to None.
-    """
+        Args:
+            spawned_processes (Value): A shared value representing the number of spawned processes.
+            lock (Lock): to synchronize startup of worker processes ()
+            ws_queue (Queue): The queue (proxy for multiprocessing) for websocket messages.
+            config_path (str, optional): The path to the configuration file. Defaults to None.
+            log_level (int, optional): The log level. Defaults to None.
+            log_file_path (str, optional): The path to the log file. Defaults to None.
+        """
 
-    # initialize modules in the worker process, this will also initialize LOGGER
-    gulp.utils.init_modules(
-        l=None,
-        logger_prefix=str(os.getpid()),
-        log_level=log_level,
-        log_file_path=log_file_path,
-        ws_queue=ws_queue,
-    )
-
-    # add plugins paths
-    ext_plugins_path = config.path_plugins(GulpPluginType.EXTENSION)
-    ing_plugins_path = config.path_plugins(GulpPluginType.INGESTION)
-    if ing_plugins_path not in sys.path:
-        sys.path.append(ing_plugins_path)
-    if ext_plugins_path not in sys.path:
-        sys.path.append(ext_plugins_path)
-
-    # initialize per-process clients
-    asyncio.run(collab_api.session())
-    elastic_api.elastic()
-
-    # initialize per-process thread pool executor
-    rest_api.thread_pool_executor()
-
-    lock.acquire()
-    spawned_processes.value += 1
-    lock.release()
-    logger().warning(
-        "workerprocess initializer DONE, sys.path=%s, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
-        % (
-            sys.path,
-            logger(),
-            logger().level,
-            log_file_path,
-            spawned_processes.value,
-            ws_queue,
+        # initialize modules in the worker process, this will also initialize LOGGER
+        gulp.utils.init_modules(
+            l=None,
+            logger_prefix=str(os.getpid()),
+            log_level=log_level,
+            log_file_path=log_file_path,
+            ws_queue=ws_queue,
         )
-    )
+
+        # add plugins paths
+        plugins_path = config.path_plugins()
+        ext_plugins_path = config.path_plugins(extension=True)
+        if plugins_path not in sys.path:
+            sys.path.append(plugins_path)
+        if ext_plugins_path not in sys.path:
+            sys.path.append(ext_plugins_path)
+
+        # initialize per-process clients
+        asyncio.run(collab_api.session())
+        opensearch_api.elastic()
+
+        # initialize per-process thread pool executor
+        rest_api.thread_pool_executor()
+
+        lock.acquire()
+        spawned_processes.value += 1
+        lock.release()
+        logger().warning(
+            "workerprocess initializer DONE, sys.path=%s, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
+            % (
+                sys.path,
+                logger(),
+                logger().level,
+                log_file_path,
+                spawned_processes.value,
+                ws_queue,
+            )
+        )
+
+def init_modules(
+    l: logging.Logger,
+    logger_prefix: str = None,
+    log_level: int = None,
+    log_file_path: str = None,
+    ws_queue: Queue = None,
+) -> logging.Logger:
+    """
+    Initializes the gulp modules **in the current process**.
+
+    @param l: the source logger, ignored if log_level is set
+    @param log_level: if set, l is reinitialized with the given log level and l is ignored
+    @param logger_prefix: if set, will prefix the reinitialized logger name with this string (ignored if log_level is not set)
+    @param log_file_path: if set, will log to this file (ignored if log_level is not set)
+    @param ws_queue: the proxy queue for websocket messages
+    returns the logger (reinitialized if log_level is set)
+    """
+    global _logger
+
+    if log_level is not None:
+        # recreate logger
+        _logger = configure_logger(
+            log_to_file=log_file_path,
+            level=log_level,
+            force_reconfigure=True,
+            prefix=logger_prefix,
+        )
+    else:
+        # use provided
+        _logger = l
+
+    # initialize modules
+    from gulp import config
+    from gulp.api.rest import ws as ws_api
+    config.init()
+    ws_api.init(ws_queue, main_process=False)
+    return _logger
+
+
 
 
 async def _print_debug_ingestion_stats(collab: AsyncEngine, req_id: str):
@@ -165,7 +210,7 @@ async def _ingest_file_task_internal(
         Any exceptions raised by the plugin during ingestion.
     """
     collab = await collab_api.session()
-    elastic = elastic_api.elastic()
+    elastic = opensearch_api.elastic()
 
     mod = None
     if plugin == "raw":
@@ -573,26 +618,26 @@ async def _rebase_internal(
     Returns:
         None
     """
-    elastic = elastic_api.elastic()
+    elastic = opensearch_api.elastic()
     ds = None
     rebase_result = {}
     template_file: str = None
     try:
         # get template for index and use it to create the destination datastream
-        template = await elastic_api.index_template_get(elastic, index)
+        template = await opensearch_api.index_template_get(elastic, index)
         template_file = await muty.file.write_temporary_file_async(
             json.dumps(template).encode()
         )
 
         # create another datastream (if it exists, it will be deleted)
-        ds = await elastic_api.datastream_create(
+        ds = await opensearch_api.datastream_create(
             elastic,
             dest_index,
             index_template=template_file,
         )
 
         # rebase
-        rebase_result = await elastic_api.rebase(
+        rebase_result = await opensearch_api.rebase(
             elastic, index, dest_index, offset, flt=flt
         )
     except Exception as ex:
@@ -611,7 +656,7 @@ async def _rebase_internal(
         )
 
         if ds is not None:
-            await elastic_api.datastream_delete(elastic, dest_index)
+            await opensearch_api.datastream_delete(elastic, dest_index)
         return
     finally:
         if template_file is not None:

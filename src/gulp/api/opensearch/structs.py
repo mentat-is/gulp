@@ -113,6 +113,13 @@ class GulpBaseDocumentFilter(BaseModel):
         return type(**d)
 
 
+class GulpDocumentFilterResult(IntEnum):
+    """wether if the event should be accepted or skipped during ingestion."""
+
+    ACCEPT = 0
+    SKIP = 1
+
+
 class GulpIngestionFilter(GulpBaseDocumentFilter):
     """
     a GulpIngestionFilter defines a filter for the ingestion API.<br><br>
@@ -127,11 +134,38 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         description="on filtering during ingestion, websocket receives filtered results while OpenSearch stores all documents anyway (default=False=both OpenSearch and websocket receives the filtered results).",
     )
 
+    @staticmethod
+    def filter_doc_for_ingestion(
+        doc: dict, flt: "GulpIngestionFilter" = None
+    ) -> GulpDocumentFilterResult:
+        """
+        Check if a document is eligible for ingestion based on a filter.
+
+        Args:
+            doc (dict): The GulpDocument dictionary to check.
+            flt (GulpIngestionFilter): The filter parameters, if any.
+
+        Returns:
+            GulpEventFilterResult: The result of the filter check.
+        """
+        # GulpLogger().error(flt)
+        if not flt or flt.opt_storage_ignore_filter:
+            # empty filter or ignore
+            return GulpDocumentFilterResult.ACCEPT
+
+        if flt.time_range:
+            ts = doc["gulp.timestamp"]
+            if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
+                return GulpDocumentFilterResult.SKIP
+
+        return GulpDocumentFilterResult.ACCEPT
+
 
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = [
     "_id",
     "@timestamp",
+    "gulp.timestamp",
     "gulp.operation",
     "gulp.context",
     "log.file.path",
@@ -139,7 +173,6 @@ QUERY_DEFAULT_FIELDS = [
     "event.code",
     "gulp.event.code",
 ]
-
 
 class GulpQueryFilter(GulpBaseDocumentFilter):
     """
@@ -179,23 +212,6 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     extra: Optional[dict] = Field(
         None,
         description='include documents matching the given `extra` field/s (as OR), i.e. { "winlog.event_data.SubjectUserName": "test" }.',
-    )
-    opt_limit: int = Field(
-        1000,
-        gt=1,
-        le=10000,
-        description="maximum number of results to return per chunk, default=1000",
-    )
-    opt_sort: dict[str, GulpSortOrder] = Field(
-        default={"@timestamp": "asc"},
-        max_length=1,
-        description="how to sort results, default=sort by ascending `@timestamp`.",
-    )
-    opt_fields: list[str] = Field(
-        default=QUERY_DEFAULT_FIELDS,
-        description="the set of fields to include in the returned documents.<br>"
-        "default=`%s` (which are forcefully included anyway), use `None` to return all fields."
-        % (QUERY_DEFAULT_FIELDS),
     )
     opt_event_original_full_text_search: bool = Field(
         False,
@@ -352,7 +368,75 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         # print('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
+class GulpQueryAdditionalOptions(BaseModel):
+    """
+    additional options for a query.
+    """
+    opt_sort: Optional[dict[str, GulpSortOrder]] = Field(
+        default={"@timestamp": "asc", "_id": "asc", "event.sequence": "asc"},
+        max_length=1,
+        description="how to sort results, default=sort by ascending `@timestamp`.",
+    )
+    opt_fields: Optional[list[str]] = Field(
+        default=QUERY_DEFAULT_FIELDS,
+        description="the set of fields to include in the returned documents.<br>"
+        "default=`%s` (which are forcefully included anyway), use `None` to return all fields."
+        % (QUERY_DEFAULT_FIELDS),
+    )
+    opt_limit: Optional[int] = Field(
+        1000,
+        gt=1,
+        le=10000,
+        description="for pagination: the maximum number of documents to return in a chunk, default=1000 (None=return up to 10000 documents).",
+    )
+    opt_search_after: Optional[list[Union[str, int]]] = Field(
+        None,
+        description="for pagination: this is the last value returned as \"search_after\" from the previous query, to be used as start offset.",
+    )
 
+    def parse(self) -> dict:
+        """
+        Parse the additional options to a dictionary for the OpenSearch query api.
+
+        Returns:
+            dict: The parsed dictionary.
+        """
+        n = {}
+        
+        # sorting
+        n["sort"] = []
+        for k, v in self.opt_sort.items():
+            n["sort"].append({k: {"order": v}})
+            # NOTE: this was "event.hash" before: i removed it since its values is the same as _id now, so put _id here.
+            # if problems (i.e. issues with sorting on _id), we can add it back just by duplicating _id 
+            if "_id" not in self.opt_sort:
+                n["sort"].append({"_id": {"order": v}})
+            if "event.sequence" not in self.opt_sort:
+                n["sort"].append({"event.sequence": {"order": v}})
+
+        # fields to be returned
+        if self.opt_fields:
+            # only return these fields (must always include the defaults)
+            for f in QUERY_DEFAULT_FIELDS:
+                if f not in self.opt_fields:
+                    self.opt_fields.append(f)
+            n["_source"] = self.opt_fields
+
+        # pagination: doc limit
+        if self.opt_limit is not None:
+            # use provided
+            n["size"] = self.opt_limit
+
+        # pagination: start from
+        if self.opt_search_after:
+            # next chunk from this point
+            n["search_after"] = self.opt_search_after
+        else:
+            n["search_after"] = None
+
+        # GulpLogger().debug("query options: %s" % (json.dumps(n, indent=2)))
+        return n  
+      
 class GulpAssociatedDocument(BaseModel):
     """
     a stripped down version of a Gulp document, used to associate documents with a note/link
@@ -381,9 +465,14 @@ class GulpDocument(BaseModel):
         None, description='"_id": the unique identifier of the document.', alias="_id"
     )
     timestamp: str = Field(
-        0,
+        None,
         description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
+    )
+    gulp_timestamp: int = Field(
+        0,
+        description='"gulp.timestamp": document timestamp in nanoseconds from unix epoch.',
+        alias="gulp.timestamp"
     )
     invalid_timestamp: bool = Field(
         False,
@@ -436,7 +525,7 @@ class GulpDocument(BaseModel):
     )
 
     @staticmethod
-    def ensure_timestamp(timestamp: str, dayfirst: bool=None, yearfirst: bool=None, fuzzy: bool=None) -> tuple[str, bool]:
+    def ensure_timestamp(timestamp: str, dayfirst: bool=None, yearfirst: bool=None, fuzzy: bool=None) -> tuple[str, int, bool]:
         """
         Ensure the timestamp is in iso8601 format.
 
@@ -446,13 +535,15 @@ class GulpDocument(BaseModel):
             yearfirst (bool, optional): If set, parse the timestamp with yearfirst=True. Defaults to None (use dateutil.parser default).
             fuzzy (bool, optional): If set, parse the timestamp with fuzzy=True. Defaults to None (use dateutil.parser default).
         Returns:
-            tuple[str, bool]: The timestamp in iso8601 format and a boolean indicating if the timestamp is invalid.
+            tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid. 
         """
         try:
-            return muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy), False
+            ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy), False
+            ns = muty.time.string_to_epoch_nsec(ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy)
+            return ts, ns, False
         except Exception as e:
             # invalid timestamp
-            return '1970-01-01T00:00:00Z', True
+            return '1970-01-01T00:00:00Z', 0, True
     
     @override
     def __init__(
@@ -487,15 +578,8 @@ class GulpDocument(BaseModel):
         
         #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
         super().__init__(timestamp=timestamp, operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
-        mapping: GulpMapping = plugin_instance.selected_mapping()
-        self.timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
-                                                                dayfirst=mapping.opt_timestamp_dayfirst,
-                                                                yearfirst=mapping.opt_timestamp_yearfirst,
-                                                                fuzzy=mapping.opt_timestamp_fuzzy)
-        if invalid:
-            # invalid timestamp
-            self.invalid_timestamp=True
-
+        mapping: GulpMapping = plugin_instance.selected_mapping()        
+        
         self.operation = operation
         self.context = context
         if mapping and mapping.opt_agent_type:
@@ -513,9 +597,6 @@ class GulpDocument(BaseModel):
             self.event_code = event_code
         self.event_duration = event_duration
         self.log_file_path = log_file_path
-        self.id = muty.crypto.hash_blake2b(
-            f"{self.event_original}{event_code}{self.event_sequence}"
-        )
 
         # add gulp_event_code (event code as a number)
         self.gulp_event_code = (
@@ -525,15 +606,30 @@ class GulpDocument(BaseModel):
         )
 
         # add each kwargs as an attribute as-is
+        # @timestamp may have been mapped and already checked for validity in plugin._process_key()
+        # if so, we will find it in the kwargs
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-        # check in the end
+        if not self.timestamp:
+            # if not mapped, means we must use the one provided
+            self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
+                dayfirst=mapping.opt_timestamp_dayfirst, yearfirst=mapping.opt_timestamp_yearfirst, fuzzy=mapping.opt_timestamp_fuzzy)
+            if invalid:
+                # invalid timestamp
+                self.invalid_timestamp=True
+        
+        # id is a hash of the event
+        self.id = muty.crypto.hash_blake2b(
+            f"{self.event_original}{event_code}{self.event_sequence}"
+        )
+
+        # finally check for consistency
         GulpDocument.model_validate(self)
         #logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     def __repr__(self) -> str:
-        return f"GulpDocument(timestamp={self.timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
+        return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
 
     @override
     def model_dump(self, lite: bool=False, exclude_none: bool=True, exclude_unset: bool=True, **kwargs) -> dict:

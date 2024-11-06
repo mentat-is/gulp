@@ -19,7 +19,7 @@ from muty.jsend import JSendException, JSendResponse
 import gulp.defs
 import gulp.plugin
 import gulp.utils
-from gulp.api import collab_api, elastic_api
+from gulp.api import collab_api, opensearch_api
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
@@ -91,8 +91,8 @@ async def operation_delete_handler(
             logger().info(
                 "deleting data related to operation_id=%d ..." % (operation_id)
             )
-            await elastic_api.delete_data_by_operation(
-                elastic_api.elastic(), op.index, operation_id
+            await opensearch_api.delete_data_by_operation(
+                opensearch_api.elastic(), op.index, operation_id
             )
 
         if recreate_operation:

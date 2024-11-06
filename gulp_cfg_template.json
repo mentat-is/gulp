@@ -4,7 +4,7 @@
   // each spawned process will run this number of tasks concurrently, at max (default=16)
   "concurrency_max_tasks": 16,
   // only for debugging, abort ingestion of the current file on first error when indexing a document (default=true)
-  "debug_abort_on_elasticsearch_ingestion_error": true,
+  "debug_abort_on_opensearch_ingestion_error": true,
   // allow any token (even non existent) to be used as admin (default=false)
   "debug_allow_any_token_as_admin": false,
   // enable insecure passwords for user during development
@@ -13,14 +13,6 @@
   "debug_collab": false,
   // prevent token expiration for debugging purposes
   "debug_no_token_expiration": false,
-  // client certificate password (not supported, ignored)
-  "elastic_client_cert_password": null,
-  // this is the default, set to true only if your elasticsearch cluster has multiple nodes
-  "elastic_multiple_nodes": false,
-  // elasticsearch url (may be overridden by ELASTIC_URL environment variable)
-  "elastic_url": "http://admin:Gulp1234!@localhost:9200",
-  // set to false to skip server certificate verification
-  "elastic_verify_certs": false,
   // enforce https
   "https_enforce": false,
   // enforce client certificates signed by gulp-ca for https
@@ -37,6 +29,14 @@
   "ingestion_request_timeout": 180,
   // for multiple queries/ingestions at once, limit the batch size used (default=0=number of cpu cores)
   "multiprocessing_batch_size": 0,
+  // client certificate password (not supported, ignored)
+  "opensearch_client_cert_password": null,
+  // this is the default, set to true only if your opensearch cluster has multiple nodes
+  "opensearch_multiple_nodes": false,
+  // opensearch url (may be overridden by OPENSEARCH_URL environment variable)
+  "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
+  // set to false to skip server certificate verification
+  "opensearch_verify_certs": false,
   // maximum number of processes to be used for ingestion (default=0=number of CPU cores)
   "parallel_processes_max": 0,
   // respawn a process after this number of tasks, may help against leaks (default=0=never respawn)

@@ -14,7 +14,7 @@ from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.collab_api as collab_api
-import gulp.api.elastic_api as elastic_api
+import gulp.api.opensearch_api as opensearch_api
 import gulp.config as config
 import gulp.plugin as pluginbase
 from gulp.api.collab.base import (
@@ -472,8 +472,8 @@ async def query_by_gulpconvertedquery(
                 # logger().debug("calling query_raw from query_by_gulpconvertedquery ...")
                 res: dict = None
                 try:
-                    res = await elastic_api.query_raw(
-                        elastic_api.elastic(), index, raw_query_dict, options
+                    res = await opensearch_api.query_raw(
+                        opensearch_api.elastic(), index, raw_query_dict, options
                     )
                     had_result = True
                 except Exception as ex:

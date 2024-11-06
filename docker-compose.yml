@@ -13,8 +13,8 @@ services:
       #index.codec: "zstd_no_dict"
       bootstrap.memory_lock: true
       #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
-      OPENSEARCH_USERNAME: ${ELASTIC_USER}
-      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${ELASTIC_PASSWORD}
+      OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
       plugins.security.ssl.http.enabled: false
       http.cors.enabled: true
       http.cors.allow-origin: "*"
@@ -52,8 +52,8 @@ services:
   #     #index.codec: "zstd_no_dict"
   #     bootstrap.memory_lock: true
   #     #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
-  #     OPENSEARCH_USERNAME: ${ELASTIC_USER}
-  #     OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${ELASTIC_PASSWORD}
+  #     OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+  #     OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
   #     plugins.security.ssl.http.enabled: false
   #     http.cors.enabled: true
   #     http.cors.allow-origin: "*"
@@ -65,7 +65,7 @@ services:
   #   networks:
   #     - gulpnet
   #   volumes:
-  #     - ${ELASTIC_DATA}2:/usr/share/opensearch/data
+  #     - ${OPENSEARCH_DATA}2:/usr/share/opensearch/data
   #     - ./certs:/usr/share/opensearch/config/certs
 
   # os03:
@@ -81,8 +81,8 @@ services:
   #     #index.codec: "zstd_no_dict"
   #     bootstrap.memory_lock: true
   #     #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
-  #     OPENSEARCH_USERNAME: ${ELASTIC_USER}
-  #     OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${ELASTIC_PASSWORD}
+  #     OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+  #     OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
   #     plugins.security.ssl.http.enabled: false
   #     http.cors.enabled: true
   #     http.cors.allow-origin: "*"
@@ -94,7 +94,7 @@ services:
   #   networks:
   #     - gulpnet
   #   volumes:
-  #     - ${ELASTIC_DATA}3:/usr/share/opensearch/data
+  #     - ${OPENSEARCH_DATA}3:/usr/share/opensearch/data
   #     - ./certs:/usr/share/opensearch/config/certs
 
   opensearch-dashboards:
@@ -148,7 +148,7 @@ services:
     container_name: gulp
     environment:
       - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      - ELASTIC_URL=http://${ELASTIC_USER}:${ELASTIC_PASSWORD}@os01:9200
+      - OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
     volumes:
       - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
       - ./.gulpconfig:/root/.config/gulp

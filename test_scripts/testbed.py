@@ -13,7 +13,7 @@ from typing import Optional, Type, TypeVar
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpCollabType
 from gulp.api.elastic.structs import GulpIngestionFilter
-from gulp.api import elastic_api
+from gulp.api import opensearch_api
 from gulp.api import collab_api
 from gulp.api.collab import db
 from gulp.api.mapping.models import GulpMapping
@@ -163,12 +163,12 @@ async def test_init():
     global _os, _pg
     if _opt_reset:
         logger().debug("resetting...")
-        _os = elastic_api.elastic()
-        await elastic_api.datastream_create(_os, _opt_index)
+        _os = opensearch_api.elastic()
+        await opensearch_api.datastream_create(_os, _opt_index)
         await db.setup(force_recreate=True)
         _pg = await collab_api.engine()
     else:
-        _os = elastic_api.elastic()
+        _os = opensearch_api.elastic()
         await db.setup()
         _pg = await collab_api.engine()
 
@@ -269,7 +269,7 @@ async def main():
         #await test_ingest_csv_stacked()
         await test_ingest_csv_with_mappings()
     finally:
-        await elastic_api.shutdown_client(_os)
+        await opensearch_api.shutdown_client(_os)
 
 if __name__ == "__main__":
     asyncio.run(main())

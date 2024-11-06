@@ -18,7 +18,7 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab.db as collab_db
 import gulp.api.collab_api as collab_api
-import gulp.api.elastic_api as elastic_api
+import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.defs
@@ -156,7 +156,7 @@ async def elastic_list_index_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        l: list[str] = await elastic_api.datastream_list(elastic_api.elastic())
+        l: list[str] = await opensearch_api.datastream_list(opensearch_api.elastic())
         # logger().debug("datastreams=%s" % (l))
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
@@ -209,8 +209,8 @@ async def elastic_init_handler(
             # get index template from file
             f = await muty.uploadfile.to_path(index_template)
 
-        await elastic_api.datastream_create(
-            elastic_api.elastic(),
+        await opensearch_api.datastream_create(
+            opensearch_api.elastic(),
             datastream_name=index,
             index_template=f,
         )
@@ -259,7 +259,7 @@ async def elastic_delete_index_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        await elastic_api.datastream_delete(elastic_api.elastic(), index)
+        await opensearch_api.datastream_delete(opensearch_api.elastic(), index)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -311,8 +311,8 @@ async def elastic_get_mapping_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
-        m = await elastic_api.index_get_key_value_mapping(
-            elastic_api.elastic(), index, return_raw_result
+        m = await opensearch_api.index_get_key_value_mapping(
+            opensearch_api.elastic(), index, return_raw_result
         )
         # m = await elastic_api.datastream_get_mapping(elastic_api.elastic(), n)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))
@@ -368,8 +368,8 @@ async def elastic_get_mapping_by_source_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
-        m = await elastic_api.datastream_get_mapping_by_src(
-            elastic_api.elastic(), index, context, src
+        m = await opensearch_api.datastream_get_mapping_by_src(
+            opensearch_api.elastic(), index, context, src
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))
     except Exception as ex:
@@ -515,7 +515,7 @@ async def elastic_get_index_template_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        m = await elastic_api.index_template_get(elastic_api.elastic(), index)
+        m = await opensearch_api.index_template_get(opensearch_api.elastic(), index)
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

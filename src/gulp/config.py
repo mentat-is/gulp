@@ -400,15 +400,15 @@ def debug_allow_any_token_as_admin() -> bool:
     return n
 
 
-def debug_abort_on_elasticsearch_ingestion_error() -> bool:
+def debug_abort_on_opensearch_ingestion_error() -> bool:
     """
-    Returns whether to abort ingestion of the current file when an error occurs during indexing on elasticsearch (=something's wrong in GulpDocument).
+    Returns whether to abort ingestion of the current file when an error occurs during indexing on opensearch (=something's wrong in GulpDocument).
     """
     n = True
     if __debug__:
-        n = _config.get("debug_abort_on_elasticsearch_ingestion_error", True)
+        n = _config.get("debug_abort_on_opensearch_ingestion_error", True)
 
-    # logger().warning('debug_abort_on_elasticsearch_ingestion_error is set to True.')
+    # logger().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
     return n
 
 
@@ -436,19 +436,19 @@ def concurrency_max_tasks() -> int:
     return n
 
 
-def elastic_client_cert_password() -> str:
+def opensearch_client_cert_password() -> str:
     """
-    Returns the password for the elastic client certificate.
+    Returns the password for the opensearch client certificate.
     """
-    n = _config.get("elastic_client_cert_password", None)
+    n = _config.get("opensearch_client_cert_password", None)
     return n
 
 
-def elastic_multiple_nodes() -> bool:
+def opensearch_multiple_nodes() -> bool:
     """
-    Returns whether to use multiple nodes for elasticsearch.
+    Returns whether to use multiple nodes for opensearch.
     """
-    n = _config.get("elastic_multiple_nodes", False)
+    n = _config.get("opensearch_multiple_nodes", False)
     return n
 
 
@@ -538,9 +538,9 @@ def postgres_client_cert_password() -> str:
     return n
 
 
-def elastic_url() -> str:
+def opensearch_url() -> str:
     """
-    Returns the elastic url
+    Returns the opensearch url
 
     if this is an https url, the certificates used to connect to opensearch will be:
 
@@ -549,14 +549,14 @@ def elastic_url() -> str:
 
 
     raises:
-        Exception: If the elastic_url is not set in the configuration.
+        Exception: If the opensearch_url is not set in the configuration.
     """
-    n = os.getenv("ELASTIC_URL", None)
+    n = os.getenv("OPENSEARCH_URL", None)
     if n is None:
-        n = _config.get("elastic_url", None)
+        n = _config.get("opensearch_url", None)
         if n is None:
             raise Exception(
-                "elastic_url not set (tried configuration and ELASTIC_URL environment_variable)."
+                "opensearch_url not set (tried configuration and OPENSEARCH_URL environment_variable)."
             )
 
     return n
@@ -573,14 +573,14 @@ def query_sigma_max_notes() -> int:
     return n
 
 
-def elastic_verify_certs() -> bool:
+def opensearch_verify_certs() -> bool:
     """
     Returns whether to verify the certificates when connecting to opensearch with SSL.
 
     default: False
 
     """
-    n = _config.get("elastic_verify_certs", False)
+    n = _config.get("opensearch_verify_certs", False)
     return n
 
 

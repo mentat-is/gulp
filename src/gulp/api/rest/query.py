@@ -31,7 +31,7 @@ import gulp.defs
 import gulp.plugin
 import gulp.utils
 from gulp import workers
-from gulp.api import collab_api, elastic_api, rest_api
+from gulp.api import collab_api, opensearch_api, rest_api
 from gulp.api.collab.base import GulpCollabType, GulpUserPermission
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
@@ -803,8 +803,8 @@ async def query_max_min_handler(
 
         # query
         try:
-            res = await elastic_api.query_max_min_per_field(
-                elastic_api.elastic(), index, group_by, flt
+            res = await opensearch_api.query_max_min_per_field(
+                opensearch_api.elastic(), index, group_by, flt
             )
             # logger().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
             return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
@@ -936,7 +936,7 @@ async def query_operations_handler(
             await collab_api.collab(), token, GulpUserPermission.READ
         )
         # query
-        res = await elastic_api.query_operations(elastic_api.elastic(), index)
+        res = await opensearch_api.query_operations(opensearch_api.elastic(), index)
         logger().debug(
             "query_operations (before parsing): %s", json.dumps(res, indent=2)
         )
@@ -1007,8 +1007,8 @@ async def query_single_event_handler(
         )
 
         # query
-        res = await elastic_api.query_single_event(
-            elastic_api.elastic(), index, gulp_id
+        res = await opensearch_api.query_single_event(
+            opensearch_api.elastic(), index, gulp_id
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
     except Exception as ex:

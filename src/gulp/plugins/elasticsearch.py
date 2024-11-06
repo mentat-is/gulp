@@ -6,7 +6,7 @@ import muty.string
 import muty.time
 import muty.xml
 
-from gulp.api import elastic_api
+from gulp.api import opensearch_api
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.elastic.query import QueryResult
 from gulp.api.elastic.query_utils import (
@@ -347,7 +347,7 @@ class Plugin(GulpPluginBase):
             logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
 
         # get the event from elasticsearch
-        e = await elastic_api.query_single_event(cl, index, event["_id"])
+        e = await opensearch_api.query_single_event(cl, index, event["_id"])
         e = self._process_event(
             e,
             timestamp_offset_msec,
@@ -404,7 +404,7 @@ class Plugin(GulpPluginBase):
                 basic_auth=(elastic_user, password),
                 verify_certs=False,
             )
-            api = elastic_api.query_raw_elastic
+            api = opensearch_api.query_raw_elastic
             logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
         else:
             # opensearch
@@ -413,7 +413,7 @@ class Plugin(GulpPluginBase):
                 http_auth=(elastic_user, password),
                 verify_certs=False,
             )
-            api = elastic_api.query_raw
+            api = opensearch_api.query_raw
             logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
 
         # initialize result

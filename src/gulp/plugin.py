@@ -15,14 +15,15 @@ import muty.jsend
 import muty.log
 import muty.string
 import muty.time
-
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp import config
 from gulp import utils as gulp_utils
-from gulp.api import elastic_api
+from gulp.api import opensearch_api
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.elastic.structs import (
     GulpDocument,
+    GulpDocumentFilterResult,
     GulpIngestionFilter,
     GulpQueryFilter,
     QUERY_DEFAULT_FIELDS,
@@ -33,7 +34,6 @@ from gulp.api.mapping.models import (
     GulpMappingFile,
 )
 from gulp.defs import (
-    GulpEventFilterResult,
     GulpLogLevel,
     GulpPluginType,
 )
@@ -533,7 +533,7 @@ class GulpPluginBase(ABC):
         fields_mapping = mapping.fields.get(source_key, None)
         if not fields_mapping:
             # missing mapping at all
-            return {f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value}
+            return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
         if fields_mapping.opt_is_timestamp_chrome:
@@ -542,7 +542,8 @@ class GulpPluginBase(ABC):
 
         if fields_mapping.opt_extra_doc_with_event_code:
             # this will trigger the creation of an extra document with the given event code
-            timestamp, invalid = GulpDocument.ensure_timestamp(
+            # (document creation will NOT pass from GulpDocument constructor, so timestamp check must be done here)
+            timestamp, gulp_timestamp, invalid = GulpDocument.ensure_timestamp(
                 source_value,
                 mapping.opt_timestamp_dayfirst,
                 mapping.opt_timestamp_yearfirst,
@@ -550,6 +551,7 @@ class GulpPluginBase(ABC):
             )
             extra = {
                 "event.code": str(fields_mapping.opt_extra_doc_with_event_code),
+                "gulp.timestamp": gulp_timestamp,
                 "@timestamp": timestamp,
             }
             if invalid:
@@ -563,20 +565,21 @@ class GulpPluginBase(ABC):
                 if vv is not None:
                     if kk == '@timestamp':
                         # ensure timestamp is iso8601
-                        timestamp, invalid = GulpDocument.ensure_timestamp(
+                        timestamp, gulp_timestamp, invalid = GulpDocument.ensure_timestamp(
                             source_value,
                             mapping.opt_timestamp_dayfirst,
                             mapping.opt_timestamp_yearfirst,
                             mapping.opt_timestamp_fuzzy,
                         )
                         d[kk] = timestamp
+                        d["gulp.timestamp"] = gulp_timestamp
                         if invalid:
                             d["gulp.invalid.timestamp"] = True                        
                     else:
                         d[kk] = vv
         else:
             # unmapped key
-            d[f"{elastic_api.UNMAPPED_PREFIX}.{source_key}"] = source_value
+            d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
 
         return d
 
@@ -738,8 +741,8 @@ class GulpPluginBase(ABC):
         self._mapping_id = mapping_id or list(self._mappings.keys())[0]
 
         # load mappings from index
-        self._index_type_mapping = await elastic_api.datastream_get_key_value_mapping(
-            elastic_api.elastic(), self._index
+        self._index_type_mapping = await opensearch_api.datastream_get_key_value_mapping(
+            opensearch_api.elastic(), self._index
         )
         logger().debug(
             "got index type mappings with %d entries" % (len(self._index_type_mapping))
@@ -845,8 +848,8 @@ class GulpPluginBase(ABC):
             return None, None
 
         # get kv index mapping for the ingest index
-        el = elastic_api.elastic()
-        index_type_mapping = await elastic_api.index_get_key_value_mapping(
+        el = opensearch_api.elastic()
+        index_type_mapping = await opensearch_api.index_get_key_value_mapping(
             el, ingest_index, False
         )
         return ingest_index, index_type_mapping
@@ -904,8 +907,8 @@ class GulpPluginBase(ABC):
         skipped = 0
         if self._docs_buffer:
             # logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-            skipped, ingestion_errors, ingested_docs = await elastic_api.ingest_bulk(
-                elastic_api.elastic(),
+            skipped, ingestion_errors, ingested_docs = await opensearch_api.ingest_bulk(
+                opensearch_api.elastic(),
                 self._index,
                 self._docs_buffer,
                 flt=flt,
@@ -933,8 +936,8 @@ class GulpPluginBase(ABC):
                 # use only a minimal fields set to avoid sending too much data to the ws
                 {field: doc[field] for field in QUERY_DEFAULT_FIELDS}
                 for doc in ingested_docs
-                if elastic_api.filter_doc_for_ingestion(doc, flt)
-                == GulpEventFilterResult.ACCEPT
+                if opensearch_api.filter_doc_for_ingestion(doc, flt)
+                == GulpDocumentFilterResult.ACCEPT
             ]
             if ws_docs:
                 # TODO: send to ws
@@ -947,8 +950,8 @@ class GulpPluginBase(ABC):
 
             # update index type mapping too
             self._index_type_mapping = (
-                await elastic_api.datastream_get_key_value_mapping(
-                    elastic_api.elastic(), self._index
+                await opensearch_api.datastream_get_key_value_mapping(
+                    opensearch_api.elastic(), self._index
                 )
             )
             logger().debug(

@@ -22,7 +22,6 @@ from gulp.api.collab.user_session import GulpUserSession
 
 import gulp.api.rest_api as rest_api
 import gulp.config as config
-import gulp.utils
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.utils import logger
 
@@ -241,7 +240,7 @@ class GulpConnectedSockets():
 
 class GulpSharedWsDataQueue():
     """
-    singleton class to hold all websocket data
+    singleton class to manage adding data to the shared websocket queue
     """
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, "_instance"):
@@ -411,7 +410,7 @@ class WebSocketHandler(WebSocketEndpoint):
 
     async def _read_items(self, q: asyncio.Queue):
         """
-        Reads items from the websocket's asyncio queue.
+        Reads WsData items from the websocket's asyncio queue.
 
         Args:
             q (asyncio.Queue): The asyncio queue.
