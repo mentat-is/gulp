@@ -1,9 +1,8 @@
 import asyncio
-import logging
 from concurrent.futures import ThreadPoolExecutor
-from enum import IntEnum, StrEnum, auto
+from enum import StrEnum
 from queue import Empty, Queue
-from typing import override
+from typing import Optional, override
 
 import muty.crypto
 import muty.file
@@ -18,21 +17,16 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from starlette.endpoints import WebSocketEndpoint
 
-from gulp.api import collab_api
 from gulp.api.collab.user_session import GulpUserSession
 
 
 import gulp.api.rest_api as rest_api
 import gulp.config as config
-import gulp.defs
 import gulp.utils
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.utils import logger
 
 _app: APIRouter = APIRouter()
-_connected_ws: dict[str, "ConnectedWs"] = {}
-_global_shared_q: Queue = None
-
 
 class WsQueueDataType(StrEnum):
     """
@@ -47,36 +41,18 @@ class WsQueueDataType(StrEnum):
 
 
 class WsParameters(BaseModel):
+    """
+    Parameters for the websocket.
+    """
     token: str = Field(..., description="user token")
-    operation: list[str] = Field(
-        None,
-        description="The operation/s on which this websocket is registered to receive data for, defaults to None(=all).",
-    )
-    types: list[WsQueueDataType] = Field(
-        None,
-        description="The types of data this websocket is interested in, defaults to None(=all).",
-    )
-    
-    @staticmethod
-    def from_dict(d: dict) -> "WsParameters":
-        return WsParameters(**d)
-
-
-class ConnectedWs(BaseModel):
-    """
-    a connected and active websocket
-    """
-    class Config:
-        arbitrary_types_allowed = True
-        
-    ws: WebSocket = Field(..., description="The WebSocket instance.")
     ws_id: str = Field(..., description="The WebSocket ID.")
-    q: asyncio.Queue = Field(
-        ..., description="The asyncio queue associated with this websocket."
+    operation: Optional[list[str]] = Field(
+        None,
+        description="The operation/s this websocket is registered to receive data for, defaults to None(=all).",
     )
-    user: str = Field(..., description="user associated with this websocket.")
-    params: WsParameters = Field(
-        ..., description="creation parameters for this websocket."
+    type: Optional[list[WsQueueDataType]] = Field(
+        None,
+        description="The WsData.type this websocket is registered to receive, defaults to None(=all).",
     )
 
 
@@ -84,300 +60,303 @@ class WsData(BaseModel):
     """
     data carried by the websocket
     """
-
+    timestamp: int = Field(..., description="The timestamp of the data.")
     type: WsQueueDataType = Field(
         ..., description="The type of data carried by the websocket."
     )
     operation: str = Field(..., description="The operation this data belongs to.")
     user: str = Field(..., description="The user who issued the request.")
     ws_id: str = Field(..., description="The WebSocket ID.")
-    req_id: str = Field(..., description="The request ID.")
-    private: bool = Field(
+    req_id: Optional[str] = Field(None, description="The request ID.")
+    private: Optional[bool] = Field(
         False,
-        description="If the data is private(=only ws with ws_id=ws_id can receive it).",
+        description="If the data is private(=only ws=ws_id can receive it).",
     )
-    timestamp: int = Field(None, description="The timestamp of the data.")
-    data: dict = Field(None, description="The data carried by the websocket.")
+    data: Optional[dict] = Field(None, description="The data carried by the websocket.")
 
-    def __init__(self, **kwargs):
-        if "timestamp" not in kwargs:
-            kwargs["timestamp"] = muty.time.now_nsec()
-        super().__init__(**kwargs)
-
-    def to_dict(self) -> dict:
+class ConnectedSocket():
+    """ 
+    Represents a connected websocket.
+    """
+    def __init__(self, ws: WebSocket, ws_id: str, type: list[WsQueueDataType]=None, operation: list[str]=None):
         """
-        Returns the object as a dictionary.
-
-        Returns:
-            dict: The object as a dictionary.
-        """
-        return self.model_dump()
-
-    @staticmethod
-    def from_dict(d: dict) -> "WsData":
-        """
-        Creates a WsData object from a dictionary.
+        Initializes the ConnectedSocket object.
 
         Args:
-            d (dict): The dictionary.
+            ws (WebSocket): The WebSocket object.
+            ws_id (str): The WebSocket ID.
+            type (list[WsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
+            operation (list[str], optional): The operations this websocket is interested in. Defaults to None (all).
+        """
+        self.ws = ws
+        self.ws_id = ws_id
+        self.type = type
+        self.operation = operation
+
+        # each socket has its own asyncio queue
+        self.q = asyncio.Queue()
+
+    def __str__(self):
+        return f"ConnectedSocket(ws_id={self.ws_id}, registered_types={self.type}, registered_operations={self.operation})"
+   
+class GulpConnectedSockets():
+    """
+    singleton class to hold all connected sockets
+    """
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    def __init__(self):
+        if not hasattr(self, "_initialized"):
+            self._initialized = True
+            self._sockets: dict[str, ConnectedSocket] = {}
+    
+    def add(self, ws: WebSocket, ws_id: str, type: list[WsQueueDataType]=None, operation: list[str]=None) -> ConnectedSocket:   
+        """
+        Adds a websocket to the connected sockets list.
+
+        Args:
+            ws (WebSocket): The WebSocket object.
+            ws_id (str): The WebSocket ID.
+            type (list[WsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
+            operation (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
 
         Returns:
-            WsData: The WsData object.
+            ConnectedSocket: The ConnectedSocket object.
         """
-        return WsData(**d)
+        ws = ConnectedSocket(ws=ws, ws_id=ws_id, type=type, operation=operation)
+        self._sockets[str(id(ws))] = ws
+        logger().debug(f"added connected ws {id(ws)}: {ws}")
+        return ws
+    
+    async def remove(self, ws: WebSocket, flush: bool=True) -> None:
+        """
+        Removes a websocket from the connected sockets list
 
+        Args:
+            ws (WebSocket): The WebSocket object.
+            flush (bool, optional): If the queue should be flushed. Defaults to True.
 
-def init(ws_queue: Queue, main_process: bool = False):
-    """
-    Initializes the websocket API.
+        """
+        id_str = str(id(ws))
+        cws = self._sockets.get(id_str, None)
+        if cws is None:
+            logger().warning(f"no websocket found for ws_id={id_str}")
+            return
 
-    Args:
-        logger (logging.Logger): The logger object to be used for logging.
-        ws_queue (Queue): proxy queue for websocket messages.
-        main_process (bool, optional): If the current process is the main process. Defaults to False (to perform initialization in worker process, must be False).
-    """
-    global _global_shared_q
-    _global_shared_q = ws_queue
-    if main_process:
-        # start the asyncio queue fill task to keep the asyncio queue filled from the ws queue
-        asyncio.create_task(_fill_ws_queues_from_shared_queue(ws_queue))
-    logger().debug("ws initialized!")
+        # flush queue first
+        if flush:
+            q = cws.q
+            while q.qsize() != 0:
+                try:
+                    q.get_nowait()
+                    q.task_done()
+                except Exception:
+                    pass
 
+            await q.join()
+            logger().debug(f"queue flush done for ws id={id_str}")
 
-def shared_queue_close(q: Queue) -> None:
-    """
-    Closes the shared multiprocessing queue (flushes it first).
+        logger().debug(f"removed connected ws, id={id_str}")
+        del self._sockets[id_str]
 
-    Returns:
-        None
-    """
-    # flush queue first
-    while q.qsize() != 0:
-        try:
-            q.get_nowait()
-            q.task_done()
-        except Exception:
-            pass
+    def find(self, ws_id: str) -> ConnectedSocket:
+        """
+        Finds a ConnectedSocket object by its ID.
 
-    q.join()
+        Args:
+            ws_id (str): The WebSocket ID.
 
+        Returns:
+            ConnectedSocket: The ConnectedSocket object or None if not found.
+        """
+        for _, v in self._sockets.items():
+            if v.ws_id == ws_id:
+                return v
+            
+        logger().warning(f"no websocket found for ws_id={ws_id}")
+        return None
+    
+    async def wait_all_close(self) -> None:
+        """
+        Waits for all active websockets to close.
+        """
+        while len(self._sockets) > 0:
+            logger().debug("waiting for active websockets to close ...")
+            await asyncio.sleep(1)
+        logger().debug("all active websockets closed!")
 
-async def _fill_ws_queues_from_shared_queue(q: Queue):
-    """
-    runs continously (in the main process) to walk through the queued data in the multiprocessing shared queue and fill each connected websocket asyncio queue
-    """
+    async def close_all(self) -> None:
+        """
+        Closes all active websockets.
+        """
+        for _, cws in self._sockets.items():
+            await self.remove(cws.ws, flush=True)
+        logger().debug("all active websockets closed!")
+    
+    async def broadcast_data(self, d: WsData):
+        """
+        broadcasts data to all connected websockets
 
-    # uses an executor to run the blocking get() call in a separate thread
-    logger().debug("starting asyncio queue fill task ...")
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor() as pool:
-        while True:
-            if rest_api.is_shutdown():
-                break
-
-            # logger().debug("running ws_q.get in executor ...")
-            try:
-                # get a WsData entry from the shared multiprocessing queue
-                d: dict = await loop.run_in_executor(pool, q.get, True, 1)
-                q.task_done()
-                entry = WsData.from_dict(d)
-
-                # find the websocket associated with this entry
-                cws = _find_target_ws(entry.ws_id)
-                if cws is None:
-                    # no websocket found for this entry, skip (this WsData entry will be lost)
+        Args:
+            d (WsData): The data to broadcast.
+        """
+        for _, cws in self._sockets.items():
+            if cws.type:
+                # check types
+                if not d.type in cws.type:
                     logger().warning(
-                        "no websocket found for ws_id=%s, skipping entry!"
-                        % (entry.ws_id)
+                        "skipping entry type=%s for ws_id=%s, cws.types=%s"
+                        % (d.type, cws.ws_id, cws.type)
+                    )
+                    continue
+            if cws.operation:
+                # check operation/s
+                if not d.operation in cws.operation:
+                    logger().warning(
+                        "skipping entry type=%s for ws_id=%s, cws.operation=%s"
+                        % (d.type, cws.ws_id, cws.operation)
                     )
                     continue
 
-                # broadcast
-                for _, cws in _connected_ws.items():
-                    if cws.types is not None:
-                        # check types
-                        if not entry.type in cws.types:
-                            logger().warning(
-                                "skipping entry type=%s for ws_id=%s, cws.types=%s"
-                                % (entry.type, cws.ws_id, cws.types)
-                            )
-                            continue
-                    if cws.operation is not None:
-                        # check operation/s
-                        if not entry.operation in cws.operation:
-                            logger().warning(
-                                "skipping entry type=%s for ws_id=%s, cws.operation=%s"
-                                % (entry.type, cws.ws_id, cws.operation)
-                            )
-                            continue
+                if cws.ws_id == d.ws_id:
+                    # always relay to the ws async queue for the target websocket
+                    await cws.q.put(d)
+                else:
+                    # not the target websocket
+                    if d.private:
+                        # do not broadcast private data
+                        logger().warning(
+                            "skipping entry type=%s for ws_id=%s, private=True"
+                            % (d.type, cws.ws_id)
+                        )
+                        continue
 
-                    if cws.ws_id == entry.ws_id:
-                        # always relay to the ws async queue for the target websocket
-                        await cws.q.put(d)
-                    else:
-                        # not target websocket
-                        if entry.private:
-                            # do not broadcast
-                            logger().warning(
-                                "skipping entry type=%s for ws_id=%s, private=True"
-                                % (entry.type, cws.ws_id)
-                            )
-                            continue
+                    # only relay collab updates to other ws
+                    if d.type not in [WsQueueDataType.COLLAB_UPDATE]:
+                        continue
 
-                        # only relay collab updates to other ws
-                        if entry.type not in [WsQueueDataType.COLLAB_UPDATE]:
-                            continue
+                    await cws.q.put(d)
 
-                        await cws.q.put(d)
-            except Empty:
-                await asyncio.sleep(1)
-                continue
-
-
-def shared_queue_add_data(
-    type: WsQueueDataType,
-    operation: str,
-    user: str,
-    ws_id: str,
-    req_id: str,
-    data: dict = None,
-) -> None:
+class GulpSharedWsDataQueue():
     """
-    Adds data to the shared multiprocessing queue.
-
-    Args:
-        t (WsQueueDataType): The type of data.
-        operation (str): The operation this data belongs to.
-        username (str): The user who issued the request.
-        ws_id (str): The WebSocket ID.
-        req_id (str): The request ID.
-        data (dict, optional): The data to add. Defaults to None.
+    singleton class to hold all websocket data
     """
-    global _global_shared_q
-    wsd = WsData(
-        type=type, operation=operation, user=user, ws_id=ws_id, req_id=req_id, data=data
-    )
-    logger().debug("adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id))
-    _global_shared_q.put(wsd.to_dict())
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if not hasattr(self, "_initialized"):
+            self._initialized = True
+            self._shared_q: Queue = None
+
+    def init_in_worker_process(self, q: Queue):
+        """
+        Initializes the shared queue in a worker process.
+
+        Args:
+            q (Queue): The shared queue from worker's process initializer
+        """
+        self._shared_q = q
+
+    def init_in_main_process(self):
+        """
+        Initializes the shared queue in the main process.
+        """
+        # in the main process, initialize the shared queue and start the asyncio queue fill task
+        self._shared_q: Queue = Queue()
+        asyncio.create_task(self._fill_ws_queues_from_shared_queue())
 
 
-async def _check_ws_parameters(ws: WebSocket) -> WsParameters:
-    """
-    Check WebSocket parameters.
+    async def _fill_ws_queues_from_shared_queue(self):
+        """
 
-    Args:
-        ws (WebSocket): The WebSocket object.
+        runs continously (in the main process) to walk through the queued data in the multiprocessing shared queue and fill each connected websocket asyncio queue
+        """
 
-    Returns:
-        WsParameters
+        # uses an executor to run the blocking get() call in a separate thread
+        logger().debug("starting asyncio queue fill task ...")
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as pool:
+            while True:
+                if rest_api.is_shutdown():
+                    break
 
-    Raises:
-        gulp.defs.InvalidArgument: If the 'ws_id' parameter is missing in the JSON request.
-        gulp.defs.ObjectNotFound: If the user associated with the token is not found/expired.
-        gulp.defs.MissingPermission: If the user does not have the required permissions.
-    """
-    # receive json request
-    js = await ws.receive_json()
-    params = WsParameters.from_dict(js)
+                # logger().debug("running ws_q.get in executor ...")
+                try:
+                    # get a WsData entry from the shared multiprocessing queue
+                    d: dict = await loop.run_in_executor(pool, self._shared_q.get, True, 1)
+                    self._shared_q.task_done()
+                    entry = WsData.model_validate(d)
 
-    # check token
-    u, _ = await GulpUserSession.check_token(params.token, GulpUserPermission.READ)
+                    # find the websocket associated with this entry
+                    cws = GulpConnectedSockets().find(entry.ws_id)
+                    if not cws:
+                        # no websocket found for this entry, skip (this WsData entry will be lost)
+                        continue
+                    
+                    # broadcast
+                    await GulpConnectedSockets().broadcast_data(entry)
 
-    # also check if we have monitor permission
-    if u.is_monitor():
-        js["is_monitor"] = True
+                except Empty:
+                    # let's not busy wait...
+                    await asyncio.sleep(1)
+                    continue
 
-    # check ws_id, req_id
-    ws_id = js.get("ws_id", None)
-    if ws_id is None:
-        raise gulp.defs.InvalidArgument("ws_id is required.")
+    def close(self) -> None:
+        """
+        Closes the shared multiprocessing queue (flushes it first).
 
-    return js
+        Returns:
+            None
+        """
+        # flush queue first
+        while self._shared_q.qsize() != 0:
+            try:
+                self._shared_q.get_nowait()
+                self._shared_q.task_done()
+            except Exception:
+                pass
 
-
-async def wait_all_connected_ws_close() -> None:
-    """
-    waits for all active websockets to close
-    """
-    global _connected_ws
-    while len(_connected_ws) > 0:
-        logger().debug("waiting for active websockets to close ...")
-        await asyncio.sleep(1)
-    logger().debug("all active websockets closed!")
-
-
-def _find_target_ws(ws_id: str) -> ConnectedWs:
-    """
-    Finds a ConnectedWs object by its ID.
-
-    Args:
-        ws_id (str): The WebSocket ID.
-
-    Returns:
-        ConnectedWs: The ConnectedWs object.
-    """
-    global _connected_ws
-    for _, v in _connected_ws.items():
-        if v.ws_id == ws_id:
-            return v
-    return None
+        self._shared_q.join()
 
 
-def _add_connected_ws(ws: WebSocket, params: dict) -> ConnectedWs:
-    """
-    Adds a WebSocket to the set of active WebSockets.
+    def add_data(self,
+        type: WsQueueDataType,
+        operation: str,
+        user: str,
+        ws_id: str,
+        req_id: str = None,
+        data: dict = None,
+        private: bool = False) -> None:
+        """
+        Adds data to the shared queue.
 
-    Args:
-        ws (WebSocket): The WebSocket to add.
-        params (dict): The parameters to add along with the WebSocket.
-    Returns:
-        ConnectedWs: The ConnectedWs object.
-    """
-    global _connected_ws
-    id_str = str(id(ws))
-
-    # create a new ConnectedWs object, with its own queue, and add it to the dict
-    q = asyncio.Queue()
-    is_monitor: bool = params.get("is_monitor", False)
-    types: list[WsQueueDataType] = params.get("types", None)
-    ws_id: str = params["ws_id"]
-    cws = ConnectedWs(ws, ws_id, q, is_monitor=is_monitor, types=types)
-
-    # _connected_ws is a dict where keys are the ws object internal python id
-    _connected_ws[id_str] = cws
-    logger().debug("added connected ws %s: %s" % (id_str, cws))
-    return cws
-
-
-async def _remove_connected_ws(ws: WebSocket) -> str:
-    """
-    Removes a WebSocket from the set of active WebSockets (also flush the queue).
-
-    Args:
-        ws (WebSocket): The WebSocket to remove.
-    Returns:
-        str: The ID of the WebSocket.
-    """
-    global _connected_ws
-    id_str = str(id(ws))
-    logger().debug("removing connected ws, id=%s" % (id_str))
-    cws = _connected_ws.get(id_str, None)
-    if cws is None:
-        return id_str
-
-    # flush queue first
-    q = cws.q
-    while q.qsize() != 0:
-        try:
-            q.get_nowait()
-            q.task_done()
-        except Exception:
-            pass
-
-    await q.join()
-    logger().debug("queue flush done for ws id=%s" % (id_str))
-    del _connected_ws[id_str]
-    return id_str
+        Args:
+            type (WsQueueDataType): The type of data.
+            operation (str): The operation.
+            user (str): The user.
+            ws_id (str): The WebSocket ID.
+            req_id (str, optional): The request ID. Defaults to None.
+            data (dict, optional): The data. Defaults to None.
+            private (bool, optional): If the data is private. Defaults to False.        
+        """
+        wsd = WsData(
+            timestamp=muty.time.now_msec(),
+            type=type,
+            operation=operation,
+            user=user,
+            ws_id=ws_id,
+            req_id=req_id,
+            private=private,
+            data=data,
+        )
+        logger().debug("adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id))
+        # TODO: try and see if it works without serializing...
+        self._shared_q.put(wsd.model_dump())
 
 
 @_app.websocket_route("/ws")
@@ -389,52 +368,75 @@ class WebSocketHandler(WebSocketEndpoint):
     2. server checks the token and ws_id, and accepts the connection
     3. server sends messages to the client with the same ws_id (plus broadcasting CollabObj objects to the other connected websockets)
     """
-
+    @override
     def __init__(self, scope, receive, send) -> None:
-        self.cws = None
-        self.cancel_event = None
-        self.consumer_task = None
+        self._ws: ConnectedSocket = None
+        self._cancel_event: asyncio.Event = None
+        self._consumer_task: asyncio.Task = None
+
         super().__init__(scope, receive, send)
 
+    @override
     async def on_connect(self, websocket: WebSocket) -> None:
         logger().debug("awaiting accept ...")
+        super().on_connect(websocket)
 
-        await websocket.accept()
         try:
-            ws_parameters = await _check_ws_parameters(websocket)
+            js = await websocket.receive_json()
+            params = WsParameters.model_validate_json(js)
+            await GulpUserSession.check_token_permission(params.token, GulpUserPermission.READ)
         except Exception as ex:
             logger().error("ws rejected: %s" % (ex))
             return
 
         # connection is ok
-        logger().debug("ws accepted for ws_id=%s!" % (ws_parameters["ws_id"]))
-        self.cws = _add_connected_ws(websocket, ws_parameters)
-        self.cancel_event = asyncio.Event()
-        self.consumer_task = asyncio.create_task(self.send_data())
-        logger().debug("created consumer task for ws_id=%s!" % (ws_parameters["ws_id"]))
+        logger().debug("ws accepted for ws_id=%s!" % (params.ws_id))
+        ws = GulpConnectedSockets().add(websocket, params.ws_id, params.type, params.operation)
+        self._ws = ws
+        self._cancel_event = asyncio.Event()
 
+        # start the consumer task to send data to the websocket as it arrives in the queue (via calls GulpSharedWsDataQueue.add_data())
+        self._consumer_task = asyncio.create_task(self.send_data_loop())
+        logger().debug("created consumer task for ws_id=%s!" % (params.ws_id))
+
+    @override
     async def on_disconnect(self, websocket: WebSocket, close_code: int) -> None:
-        logger().debug("on_disconnect")
-        if self.consumer_task is not None:
-            logger().debug("cancelling consumer task ...")
-            self.consumer_task.cancel()
+        logger().debug("on_disconnect, close_code=%d" % (close_code))
+        if self._consumer_task is not None:
+            logger().debug("canceling consumer task ...")
+            self._consumer_task.cancel()
 
         # remove websocket from active list and close it
-        await _remove_connected_ws(websocket)
+        await GulpConnectedSockets().remove(websocket)
 
     async def _read_items(self, q: asyncio.Queue):
+        """
+        Reads items from the websocket's asyncio queue.
+
+        Args:
+            q (asyncio.Queue): The asyncio queue.
+
+        Yields:
+            Any: The item read from the queue.            
+        """
         # logger().debug("reading items from queue ...")
         while True:
             item = await q.get()
             q.task_done()
             yield item
 
-    async def send_data(self) -> None:
-        logger().debug('starting ws "%s" loop ...' % (self.cws.ws_id))
-        async for item in self._read_items(self.cws.q):
+    async def send_data_loop(self) -> None:
+        """
+        Sends data to the websocket as it arrives, infinitely looping until the websocket disconnects.
+
+        Raises:
+            WebSocketDisconnect: If the websocket disconnects.
+        """
+        logger().debug('starting ws "%s" loop ...' % (self._ws.ws_id))
+        async for item in self._read_items(self._ws.q):
             try:
                 # send
-                await self.cws.ws.send_json(item)
+                await self._ws.ws.send_json(item)
 
                 # rate limit
                 ws_delay = config.ws_rate_limit_delay()
@@ -449,7 +451,6 @@ class WebSocketHandler(WebSocketEndpoint):
             except asyncio.CancelledError as ex:
                 logger().exception("ws cancelled: %s" % (ex))
                 break
-
 
 def router() -> APIRouter:
     """

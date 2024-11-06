@@ -393,7 +393,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         if token:
             # check required creation permission
-            GulpCollabBase.check_token_permission(token, permission=required_permission, sess=sess)
+            from gulp.api.collab.user_session import GulpUserSession
+            await GulpUserSession.check_token_permission(token, permission=required_permission, sess=sess)
 
         created=False
         try:
@@ -449,7 +450,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         try:
             if token:
                 # check_token_permission here
-                await GulpCollabBase.check_token_permission(token, permission, sess=sess)
+                from gulp.api.collab.user_session import GulpUserSession
+                await GulpUserSession.check_token_permission(token, permission, sess=sess)
             
             await sess.delete(self)
             
@@ -797,37 +799,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 return None
         return c
 
-    @staticmethod
-    async def check_token_permission(
-        token: str,
-        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
-        sess: AsyncSession = None,
-        throw_on_no_permission: bool = True) -> bool:
-        """
-        Check if the user represented by token has the required permissions.
-
-        Args:
-            token (str): The token representing the user's session.
-            permission (list[GulpUserPermission], optional): A list of required permissions. Defaults to [GulpUserPermission.READ].
-            sess (AsyncSession, optional): The database session to use. Defaults to None.
-            throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
-        
-        Returns:
-            bool: True if the user has the required permissions (or is admin).
-        """
-        from gulp.api.collab.user_session import GulpUserSession
-        # get session
-        user_session: GulpUserSession = await GulpUserSession.get_by_token(
-            token, sess=sess
-        )
-        if user_session.user.has_permission(permission):
-            return True
-        if throw_on_no_permission:
-            raise MissingPermission(
-                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
-            )
-        return False
-            
     async def check_object_permission(self,
                           token: str,
                           permission: list[GulpUserPermission] = [GulpUserPermission.READ],
@@ -850,8 +821,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         # get the user session from the token
         from gulp.api.collab.user_session import GulpUserSession
-        
-        # get session and object
         user_session: GulpUserSession = await GulpUserSession.get_by_token(
             token, sess=sess
         )

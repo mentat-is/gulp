@@ -11,6 +11,8 @@ from gulp.api.collab.structs import (
     GulpCollabBase,
     T,
     GulpCollabType,
+    GulpUserPermission,
+    MissingPermission,
     WrongUsernameOrPassword,
 )
 import gulp.config as config
@@ -78,7 +80,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
             return await GulpUser.get_one_by_id(user, sess, throw_if_not_found)
         return user.session
 
-    @classmethod
+    @staticmethod
     async def get_by_token(cls, token: str, sess: AsyncSession = None) -> T:
         """
         Asynchronously retrieves a logged user session by token.
@@ -121,3 +123,34 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
         # default, get if exists
         s = await GulpUserSession.get_one_by_id(token, sess)
         return s
+
+    @staticmethod
+    async def check_token_permission(
+        token: str,
+        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        sess: AsyncSession = None,
+        throw_on_no_permission: bool = True) -> "GulpUserSession":
+        """
+        Check if the user represented by token has the required permissions.
+
+        Args:
+            token (str): The token representing the user's session.
+            permission (list[GulpUserPermission], optional): A list of required permissions. Defaults to [GulpUserPermission.READ].
+            sess (AsyncSession, optional): The database session to use. Defaults to None.
+            throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
+        
+        Returns:
+            GulpUserSession: The user session object.
+        """
+        # get session
+        user_session: GulpUserSession = await GulpUserSession.get_by_token(
+            token, sess=sess
+        )
+        if user_session.user.has_permission(permission):
+            return user_session
+        if throw_on_no_permission:
+            raise MissingPermission(
+                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
+            )
+        return None
+            
