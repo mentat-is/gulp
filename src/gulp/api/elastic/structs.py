@@ -401,7 +401,7 @@ class GulpDocument(BaseModel):
         alias="gulp.context",
     )
     agent_type: str = Field(
-        ...,
+        None,
         description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
         alias="agent.type",
     )
@@ -435,11 +435,30 @@ class GulpDocument(BaseModel):
         alias="log.file.path",
     )
 
+    @staticmethod
+    def ensure_timestamp(timestamp: str, dayfirst: bool=None, yearfirst: bool=None, fuzzy: bool=None) -> tuple[str, bool]:
+        """
+        Ensure the timestamp is in iso8601 format.
+
+        Args:
+            timestamp (str): The timestamp.
+            dayfirst (bool, optional): If set, parse the timestamp with dayfirst=True. Defaults to None (use dateutil.parser default).
+            yearfirst (bool, optional): If set, parse the timestamp with yearfirst=True. Defaults to None (use dateutil.parser default).
+            fuzzy (bool, optional): If set, parse the timestamp with fuzzy=True. Defaults to None (use dateutil.parser default).
+        Returns:
+            tuple[str, bool]: The timestamp in iso8601 format and a boolean indicating if the timestamp is invalid.
+        """
+        try:
+            return muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy), False
+        except Exception as e:
+            # invalid timestamp
+            return '1970-01-01T00:00:00Z', True
+    
     @override
     def __init__(
         self,
         plugin_instance,
-        timestamp: str|int,
+        timestamp: str,
         operation: str,
         context: str,
         event_original: str,
@@ -453,7 +472,7 @@ class GulpDocument(BaseModel):
         Initialize a GulpDocument instance.
         Args:
             plugin_instance: The calling PluginBase
-            timestamp (str|int): The timestamp of the event, either as a string or integer.
+            timestamp (str): The timestamp of the event as a numeric string (seconds/milliseconds/nanoseconds from unix epoch) or a string in a format supported by dateutil.parser.
             operation (str): The operation type.
             context (str): The context of the event.
             event_original (str): The original event data.
@@ -467,17 +486,18 @@ class GulpDocument(BaseModel):
         """
         
         #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
-        super().__init__(timestamp=str(timestamp), operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
-        try:
-            self.timestamp = muty.time.ensure_iso8601(self.timestamp)
-        except Exception as e:
+        super().__init__(timestamp=timestamp, operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
+        mapping: GulpMapping = plugin_instance.selected_mapping()
+        self.timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
+                                                                dayfirst=mapping.opt_timestamp_dayfirst,
+                                                                yearfirst=mapping.opt_timestamp_yearfirst,
+                                                                fuzzy=mapping.opt_timestamp_fuzzy)
+        if invalid:
             # invalid timestamp
-            self.timestamp='1970-01-01T00:00:00Z'
             self.invalid_timestamp=True
 
         self.operation = operation
         self.context = context
-        mapping: GulpMapping = plugin_instance.selected_mapping()
         if mapping and mapping.opt_agent_type:
             # force agent type from mapping
             self.agent_type = mapping.opt_agent_type
@@ -495,7 +515,7 @@ class GulpDocument(BaseModel):
         self.log_file_path = log_file_path
         self.id = muty.crypto.hash_blake2b(
             f"{self.event_original}{event_code}{self.event_sequence}"
-        )[:32]
+        )
 
         # add gulp_event_code (event code as a number)
         self.gulp_event_code = (

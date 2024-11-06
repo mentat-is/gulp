@@ -15,7 +15,7 @@ class GulpPluginGenericParams(BaseModel):
         # allow extra fields in the model
         extra = "allow"
 
-    mapping_file: Optional[str] = Field(
+    opt_mapping_file: Optional[str] = Field(
         None,
         description="mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )

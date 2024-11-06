@@ -197,10 +197,9 @@ class GulpPluginBase(ABC):
         # this is used by the engine to generate extra documents from a single gulp document
         self._extra_docs: list[dict]
 
-        # to keep track of processed/skipped/failed records
-        self._records_skipped = 0
-        self._records_failed = 0
+        # to keep track of processed/failed records
         self._records_processed = 0
+        self._records_failed = 0
 
     @abstractmethod
     def display_name(self) -> str:
@@ -433,8 +432,10 @@ class GulpPluginBase(ABC):
         doc = doc.model_dump(by_alias=True)
 
         if not self._extra_docs:
+            # logger().debug("no extra documents to generate")
             return [doc]
 
+        # logger().debug(f"generating {len(self._extra_docs)} extra documents...")
         def _update_document(base_doc, extra_fields):
             # copy original doc to a new document
             new_doc = copy(base_doc)
@@ -444,9 +445,7 @@ class GulpPluginBase(ABC):
 
             # recalculate _id and gulp.event.code
             new_doc["_id"] = muty.crypto.hash_blake2b(
-                f"{new_doc['event.original']}{new_doc['event.code']}{new_doc['event.sequence']}"[
-                    :32
-                ]
+                f"{new_doc['event.original']}{new_doc['event.code']}{new_doc['event.sequence']}"
             )
             new_doc["gulp.event.code"] = (
                 int(new_doc["event.code"])
@@ -495,7 +494,7 @@ class GulpPluginBase(ABC):
         if self._upper_record_to_gulp_document_fun:
             # call our record_to_gulp_document
             doc = await self._record_to_gulp_document(record, record_idx)
-            
+
             # call upper which will postprocess the document
             doc = await self._upper_record_to_gulp_document_fun(doc, record_idx)
         else:
@@ -530,31 +529,51 @@ class GulpPluginBase(ABC):
             return {}
 
         # check if we have a mapping for source_key
-        mapping = self.selected_mapping().fields.get(source_key, None)
-        if not mapping:
+        mapping = self.selected_mapping()
+        fields_mapping = mapping.fields.get(source_key, None)
+        if not fields_mapping:
             # missing mapping at all
             return {f"{elastic_api.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
-        if mapping.opt_is_timestamp_chrome:
+        if fields_mapping.opt_is_timestamp_chrome:
             # timestamp chrome, turn to nanoseconds from epoch
             source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
 
-        if mapping.opt_extra_doc_with_event_code:
+        if fields_mapping.opt_extra_doc_with_event_code:
             # this will trigger the creation of an extra document with the given event code
-            self._extra_docs.append(
-                {
-                    "event.code": str(mapping.opt_extra_doc_with_event_code),
-                    "@timestamp": source_value,
-                }
+            timestamp, invalid = GulpDocument.ensure_timestamp(
+                source_value,
+                mapping.opt_timestamp_dayfirst,
+                mapping.opt_timestamp_yearfirst,
+                mapping.opt_timestamp_fuzzy,
             )
+            extra = {
+                "event.code": str(fields_mapping.opt_extra_doc_with_event_code),
+                "@timestamp": timestamp,
+            }
+            if invalid:
+                extra["gulp.invalid.timestamp"] = True
+            self._extra_docs.append(extra)
 
-        if mapping.ecs:
+        if fields_mapping.ecs:
             # map to ECS fields
-            for k in mapping.ecs:
+            for k in fields_mapping.ecs:
                 kk, vv = self._type_checks(k, source_value)
                 if vv is not None:
-                    d[kk] = vv
+                    if kk == '@timestamp':
+                        # ensure timestamp is iso8601
+                        timestamp, invalid = GulpDocument.ensure_timestamp(
+                            source_value,
+                            mapping.opt_timestamp_dayfirst,
+                            mapping.opt_timestamp_yearfirst,
+                            mapping.opt_timestamp_fuzzy,
+                        )
+                        d[kk] = timestamp
+                        if invalid:
+                            d["gulp.invalid.timestamp"] = True                        
+                    else:
+                        d[kk] = vv
         else:
             # unmapped key
             d[f"{elastic_api.UNMAPPED_PREFIX}.{source_key}"] = source_value
@@ -602,6 +621,10 @@ class GulpPluginBase(ABC):
                     stats, flt, wait_for_refresh
                 )
                 # update stats
+                logger().debug(
+                    "updating stats, processed=%d, ingested=%d, skipped=%d"
+                    % (self._records_processed, ingested, skipped)
+                )
                 await stats.update(
                     ws_id=self._ws_id,
                     records_skipped=skipped,
@@ -612,6 +635,7 @@ class GulpPluginBase(ABC):
 
                 # reset buffer
                 self._docs_buffer = []
+                self._records_processed = 0
 
     async def _initialize(
         self,
@@ -661,11 +685,11 @@ class GulpPluginBase(ABC):
                 )
             else:
                 # mapping_file must exist if "mappings" is not set
-                if plugin_params.mapping_file:
-                    mapping_file = plugin_params.mapping_file
+                if plugin_params.opt_mapping_file:
+                    mapping_file = plugin_params.opt_mapping_file
                     logger().debug(
                         "using plugin_params.mapping_file=%s"
-                        % (plugin_params.mapping_file)
+                        % (plugin_params.opt_mapping_file)
                     )
             if plugin_params.opt_mapping_id:
                 # use this mapping_id
@@ -681,9 +705,7 @@ class GulpPluginBase(ABC):
                 raise ValueError(
                     "required plugin parameter '%s' not found in plugin_params !" % (k)
                 )
-            self._specific_params[k] = plugin_params.model_extra.get(
-                k, p.default_value
-            )
+            self._specific_params[k] = plugin_params.model_extra.get(k, p.default_value)
             logger().debug(
                 "setting specific parameter %s=%s" % (k, self._specific_params[k])
             )
@@ -714,9 +736,6 @@ class GulpPluginBase(ABC):
 
         # set mapping_id (if not set, use first mapping found)
         self._mapping_id = mapping_id or list(self._mappings.keys())[0]
-        logger().warning(
-            "no mapping_id provided, using first mapping found: %s" % (self._mapping_id)
-        )
 
         # load mappings from index
         self._index_type_mapping = await elastic_api.datastream_get_key_value_mapping(
@@ -958,6 +977,8 @@ class GulpPluginBase(ABC):
             source_processed=1,
             records_ingested=ingested,
             records_skipped=skipped,
+            records_processed=self._records_processed,
+            records_failed=self._records_failed,
         )
 
     async def _source_failed(

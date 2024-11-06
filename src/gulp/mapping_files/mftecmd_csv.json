@@ -1,123 +1,137 @@
 {
   "metadata": {
-    "plugin": ["csv.py"]
+    "plugin": [
+      "csv.py"
+    ]
   },
-  "mappings": [
-    {
+  "mappings": {
+    "record": {
       "fields": {
         "EntryNumber": {
-          "map_to": "event.sequence"
+          "ecs": [
+            "event.sequence"
+          ]
         },
         "ParentPath": {
-          "map_to": "file.directory"
+          "ecs": [
+            "file.directory"
+          ]
         },
         "FileName": {
-          "map_to": "file.name"
+          "ecs": [
+            "file.name"
+          ]
         },
         "Extension": {
-          "map_to": "file.extension"
+          "ecs": [
+            "file.extension"
+          ]
         },
         "FileSize": {
-          "map_to": "file.size"
+          "ecs": [
+            "file.size"
+          ]
         },
         "Created0x10": {
-          "is_timestamp": true,
-          "event_code": "record_created_0x10"
+          "ecs": ["@timestamp"]
         },
         "Created0x30": {
-          "is_timestamp": true,
-          "event_code": "record_created_0x30"
+          "opt_extra_doc_with_event_code": "record_created_0x30"
         },
         "LastModified0x10": {
-          "is_timestamp": true,
-          "event_code": "record_modified_0x10"
+          "opt_extra_doc_with_event_code": "record_modified_0x10"
         },
         "LastModified0x30": {
-          "is_timestamp": true,
-          "event_code": "record_modified_0x30"
+          "opt_extra_doc_with_event_code": "record_modified_0x30"
         },
         "LastRecordChange0x10": {
-          "is_timestamp": true,
-          "event_code": "record_changed_0x10"
+          "opt_extra_doc_with_event_code": "record_changed_0x10"
         },
         "LastRecordChange0x30": {
-          "is_timestamp": true,
-          "event_code": "record_changed_0x30"
+          "opt_extra_doc_with_event_code": "record_changed_0x30"
         },
         "LastAccess0x10": {
-          "is_timestamp": true,
-          "event_code": "record_access_0x10"
+          "opt_extra_doc_with_event_code": "record_access_0x10"
         },
         "LastAccess0x30": {
-          "is_timestamp": true,
-          "event_code": "record_access_0x30"
+          "opt_extra_doc_with_event_code": "record_access_0x30"
         }
       },
-      "options": {
-        "default_event_code": "record",
-        "agent_type": "mftecmd",
-        "mapping_id": "record"
-      }
+      "opt_agent_type": "mftecmd",
+      "opt_event_code": "record_created_0x10"
     },
-    {
+    "boot": {
       "fields": {
         "SourceFile": {
-          "map_to": "file.path"
+          "ecs": [
+            "file.path"
+          ]
         }
       },
-      "options": {
-        "default_event_code": "boot",
-        "agent_type": "mftecmd",
-        "mapping_id": "boot"
-      }
+      "opt_agent_type": "mftecmd",
+      "opt_event_code": "boot"
     },
-    {
+    "j": {
       "fields": {
         "Name": {
-          "map_to": "file.name"
+          "ecs": [
+            "file.name"
+          ]
         },
         "Extension": {
-          "map_to": "file.extension"
+          "ecs": [
+            "file.extension"
+          ]
         },
         "EntryNumber": {
-          "map_to": "event.sequence"
+          "ecs": [
+            "event.sequence"
+          ]
         },
         "FileAttributes": {
-          "map_to": "file.attributes"
+          "ecs": [
+            "file.attributes"
+          ]
         },
         "UpdateTimestamp": {
-          "is_timestamp": true
+          "ecs": [
+            "@timestamp"
+          ]
         },
         "SourceFile": {
-          "map_to": "file.fork_name"
+          "ecs": [
+            "file.fork_name"
+          ]
         }
       },
-      "options": {
-        "default_event_code": "j",
-        "agent_type": "mftecmd",
-        "mapping_id": "j"
-      }
+      "opt_agent_type": "mftecmd",
+      "opt_event_code": "j"
     },
-    {
+    "sds": {
       "fields": {
         "Id": {
-          "map_to": "event.sequence"
+          "ecs": [
+            "event.sequence"
+          ]
         },
         "OwnerSid": {
-          "map_to": "file.uid"
+          "ecs": [
+            "file.uid"
+          ]
         },
         "GroupSid": {
-          "map_to": "file.gid"
+          "ecs": [
+            "file.gid"
+          ]
         },
         "SourceFile": {
-          "map_to": "file.fork_name"
+          "ecs": [
+            "file.fork_name"
+          ]
         }
       },
-      "options": {
-        "default_event_code": "sds",
-        "agent_type": "mftecmd",
-        "mapping_id": "sds"
-      }
+      "opt_agent_type": "mftecmd",
+      "opt_event_code": "sds"
     }
-  ]
+  }
 }

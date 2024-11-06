@@ -338,7 +338,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             self.source_failed += source_failed
             self.records_failed += records_failed
             self.records_skipped += records_skipped
-            self.records_processed = records_processed
+            self.records_processed += records_processed
             self.records_ingested += records_ingested
             if error:
                 if isinstance(error, Exception):
@@ -370,7 +370,6 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
 
             # check threshold
             failure_threshold = config.ingestion_evt_failure_threshold()
-
             if (
                 failure_threshold > 0
                 and self.type == GulpCollabType.STATS_INGESTION
@@ -390,7 +389,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             ]:
                 self.time_finished = muty.time.now_msec()
                 logger().debug("request \"%s\" COMPLETED with status=%s" % (self.id, self.status))
-
+            
             # update the instance
             await super().update(
                 self.to_dict(),

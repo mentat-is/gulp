@@ -102,14 +102,13 @@ class Plugin(GulpPluginBase):
         timestamp = d.get('@timestamp')
         if not timestamp:
             # not mapped, try to get it from the record
-            timestamp = record[self.selected_mapping().opt_timestamp_field]
+            timestamp = record.get(self.selected_mapping().opt_timestamp_field)
 
         return GulpDocument(
             self,
             timestamp=timestamp,
             operation=self._operation,
             context=self._context,
-            agent_type=self.bare_filename,
             event_original=event_original,
             event_sequence=record_idx,
             log_file_path=self._log_file_path,

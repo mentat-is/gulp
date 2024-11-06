@@ -56,7 +56,7 @@ class WsParameters(BaseModel):
         None,
         description="The types of data this websocket is interested in, defaults to None(=all).",
     )
-
+    
     @staticmethod
     def from_dict(d: dict) -> "WsParameters":
         return WsParameters(**d)
