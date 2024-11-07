@@ -213,7 +213,7 @@ class Plugin(GulpPluginBase):
             flt=flt,
             **kwargs,
         )
-        GulpLogger().debug("ingesting file: %s" % source)
+        GulpLogger.get_instance().debug("ingesting file: %s" % source)
         print("REGEX IS:", r"\s+".join(self._parts) + r".*\Z")
         fs = TmpIngestStats(source)
 

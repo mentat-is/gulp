@@ -4,10 +4,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T, GulpUserPermission
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab_api import session
 from gulp.api.opensearch.structs import GulpAssociatedDocument, GulpDocument
 from gulp.utils import GulpLogger
-
+from gulp.api.collab_api import GulpCollab
 
 class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     """
@@ -42,7 +41,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         throw_if_not_found: bool = True,
         **kwargs,
     ) -> T:
-        sess = await session()
+        sess = GulpCollab.get_instance().session()
         async with sess:
             # get note first
             note: GulpNote = await cls.get_one_by_id(
@@ -77,7 +76,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     async def create(
         cls,
         id: str,
-        owner: str,
         operation: str,
         context: str,
         log_file_path: str,
@@ -97,7 +95,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
         Args:
             id: the id of the note
-            owner: the owner of the note
             operation: the operation associated with the note
             context: the context associated with the note
             log_file_path: the log file path associated with the note
@@ -129,7 +126,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         }
         return await super()._create(
             id,
-            owner,
             token=token,
             ws_id=ws_id,
             req_id=req_id,

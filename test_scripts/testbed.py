@@ -14,11 +14,9 @@ from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpCollabType
 from gulp.api.opensearch.structs import GulpIngestionFilter
 from gulp.api import opensearch_api
-from gulp.api import collab_api
-from gulp.api.collab import db
 from gulp.api.mapping.models import GulpMapping
 from gulp.plugin_params import GulpPluginGenericParameters
-from gulp.utils import GulpLogger, configure_logger
+from gulp.utils import GulpLogger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
@@ -33,6 +31,8 @@ from dotwiz import DotWiz
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncEngine
 from gulp.plugin import GulpPluginBase
+from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch_api import GulpOpenSearch
 
 _os: AsyncOpenSearch = None
 _pg: AsyncEngine = None
@@ -49,7 +49,7 @@ _test_ws_id='test_ws_id'
 _guest_user='guest'
 _admin_user='admin'
 
-configure_logger()
+
 config.init()
 
 print('opt_samples_dir:', _opt_samples_dir)
@@ -157,29 +157,24 @@ async def test_init():
 
     #await testbed()
     #return
-    GulpLogger().debug("---> init")
+    GulpLogger.get_instance().debug("---> init")
     config.init()
-    
-    global _os, _pg
+    os = GulpOpenSearch.get_instance()
+    collab = GulpCollab.get_instance()
+    await collab.get_instance().init()
     if _opt_reset:
-        GulpLogger().debug("resetting...")
-        _os = opensearch_api.elastic()
-        await opensearch_api.datastream_create(_os, _opt_index)
-        await db.setup(force_recreate=True)
-        _pg = await collab_api.engine()
-    else:
-        _os = opensearch_api.elastic()
-        await db.setup()
-        _pg = await collab_api.engine()
-
+        GulpLogger.get_instance().debug("resetting...")
+        await os.datastream_create(_opt_index)
+    await collab.init(force_recreate=_opt_reset)
+    
 async def test_login_logout():
-    GulpLogger().debug("---> test_login_logout")
+    GulpLogger.get_instance().debug("---> test_login_logout")
     session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
     await GulpUser.logout(session.id)
     return
 
 async def test_ingest_windows():
-    GulpLogger().debug("---> test_ingest_windows")
+    GulpLogger.get_instance().debug("---> test_ingest_windows")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -192,12 +187,12 @@ async def test_ingest_windows():
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv():
-    GulpLogger().debug("---> test_ingest_csv")
+    GulpLogger.get_instance().debug("---> test_ingest_csv")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -212,12 +207,12 @@ async def test_ingest_csv():
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv_with_mappings():
-    GulpLogger().debug("---> test_ingest_csv")
+    GulpLogger.get_instance().debug("---> test_ingest_csv")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -232,12 +227,12 @@ async def test_ingest_csv_with_mappings():
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv_stacked():
-    GulpLogger().debug("---> test_ingest_csv_stacked")
+    GulpLogger.get_instance().debug("---> test_ingest_csv_stacked")
 
     # load plugin
     start_time = timeit.default_timer()
@@ -252,24 +247,22 @@ async def test_ingest_csv_stacked():
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 
 async def main():
-    configure_logger()
-    # testbed()
-
-    
     try:       
         await test_init()
+        return
+
         #await test_ingest_windows()
         #await test_ingest_csv()
         #await test_ingest_csv_stacked()
         await test_ingest_csv_with_mappings()
     finally:
-        await opensearch_api.shutdown_client(_os)
+        await GulpOpenSearch.get_instance().shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())

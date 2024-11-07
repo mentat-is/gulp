@@ -97,7 +97,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
 
-        # GulpLogger().debug(custom_mapping"record: %s" % record)
+        # GulpLogger.get_instance().debug(custom_mapping"record: %s" % record)
         event: dict = record
         extra = kwargs.get("extra", {})
         original_id = kwargs.get("original_id", record_idx)
@@ -129,7 +129,7 @@ class Plugin(GulpPluginBase):
             for f in e:
                 fme.append(f)
 
-        # GulpLogger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
+        # GulpLogger.get_instance().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
         event_code = str(
             muty.crypto.hash_crc24(
                 f"{extra["gulp.sqlite.db.name"]}.{extra["gulp.sqlite.db.table.name"]}"
@@ -239,7 +239,7 @@ class Plugin(GulpPluginBase):
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
 
-        GulpLogger().debug("custom_mapping=%s" % (custom_mapping))
+        GulpLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
 
         try:
             custom_mappings: list[GulpMapping] = (
@@ -257,8 +257,8 @@ class Plugin(GulpPluginBase):
         for mapping in custom_mappings:
             tables_to_map.append(mapping.to_dict()["options"]["mapping_id"])
 
-        GulpLogger().debug(plugin_params)
-        GulpLogger().debug(plugin_params.extra)
+        GulpLogger.get_instance().debug(plugin_params)
+        GulpLogger.get_instance().debug(plugin_params.extra)
 
         encryption_key = plugin_params.extra.get("encryption_key", None)
         key_type = plugin_params.extra.get("key_type", "key")
@@ -266,7 +266,7 @@ class Plugin(GulpPluginBase):
 
         # check if key_type is supported
         if key_type.lower() not in ["key", "textkey", "hexkey"]:
-            GulpLogger().warning(
+            GulpLogger.get_instance().warning(
                 "unsupported key type %s, defaulting to 'key'" % (key_type,)
             )
             key_type = "key"
@@ -285,15 +285,15 @@ class Plugin(GulpPluginBase):
                             mapping_file, mapping_id
                         )
                     )
-                    GulpLogger().info("custom mapping for table %s found" % (table,))
+                    GulpLogger.get_instance().info("custom mapping for table %s found" % (table,))
                 except ValueError:
-                    GulpLogger().error("custom mapping for table %s NOT found" % (table,))
+                    GulpLogger.get_instance().error("custom mapping for table %s NOT found" % (table,))
 
         if custom_mapping.options.agent_type is None:
             plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
-            GulpLogger().warning("using plugin name=%s" % (plugin))
+            GulpLogger.get_instance().warning("using plugin name=%s" % (plugin))
 
         ev_idx = 0
         try:
@@ -304,7 +304,7 @@ class Plugin(GulpPluginBase):
                     async with db.execute(
                         "PRAGMA ?='?'", (key_type, encryption_key)
                     ) as cur:
-                        GulpLogger().info(
+                        GulpLogger.get_instance().info(
                             "attempting database decryption with provided key: %s"
                             % (await cur.fetchall())
                         )
@@ -366,7 +366,7 @@ class Plugin(GulpPluginBase):
                                         original_id = v
                                         break
 
-                            # GulpLogger().debug("Mapping: %s" % mapping)
+                            # GulpLogger.get_instance().debug("Mapping: %s" % mapping)
                             try:
                                 fs, must_break = await self.process_record(
                                     index,

@@ -79,7 +79,7 @@ class GulpPluginCache:
         if not config.plugin_cache_enabled():
             return
         if not name in self._cache:
-            GulpLogger().debug("adding plugin %s to cache" % (name))
+            GulpLogger.get_instance().debug("adding plugin %s to cache" % (name))
             self._cache[name] = plugin
 
     def get(self, name: str) -> ModuleType:
@@ -96,7 +96,7 @@ class GulpPluginCache:
 
         p = self._cache.get(name, None)
         if p:
-            GulpLogger().debug("found plugin %s in cache !" % (name))
+            GulpLogger.get_instance().debug("found plugin %s in cache !" % (name))
         return p
 
     def remove(self, name: str):
@@ -109,7 +109,7 @@ class GulpPluginCache:
         if not config.plugin_cache_enabled():
             return
         if name in self._cache:
-            GulpLogger().debug("removing plugin %s from cache" % (name))
+            GulpLogger.get_instance().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
 
 
@@ -306,7 +306,7 @@ class GulpPluginBase(ABC):
         self._req_id = req_id
         self._user = user
         self._operation = operation
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             f"querying external source with plugin {self.name}, user={user}, operation={operation}, ws_id={ws_id}, req_id={req_id}"
         )
         return GulpRequestStatus.ONGOING
@@ -334,7 +334,7 @@ class GulpPluginBase(ABC):
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             f"querying external source with plugin {self.name}, req_id={req_id}, id={id}"
         )
         return {}
@@ -424,7 +424,7 @@ class GulpPluginBase(ABC):
         self._context = context
         self._index = index
         self._log_file_path = log_file_path
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             f"ingesting file {log_file_path} with plugin {self.name}, user={user}, operation={operation}, context={context}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
         return GulpRequestStatus.ONGOING
@@ -481,10 +481,10 @@ class GulpPluginBase(ABC):
             return new_doc.model_dump()
 
         if not self._extra_docs:
-            # GulpLogger().debug("no extra documents to generate")
+            # GulpLogger.get_instance().debug("no extra documents to generate")
             return [doc.model_dump(by_alias=True)]
 
-        # GulpLogger().debug(f"generating {len(self._extra_docs)} extra documents...")
+        # GulpLogger.get_instance().debug(f"generating {len(self._extra_docs)} extra documents...")
         return [doc.model_dump(by_alias=True)] + [_update_document_internal(doc, e) for e in self._extra_docs]
 
     async def _record_to_gulp_document(
@@ -635,7 +635,7 @@ class GulpPluginBase(ABC):
         except Exception as ex:
             # report failure
             self._records_failed += 1
-            GulpLogger().exception(ex)
+            GulpLogger.get_instance().exception(ex)
             return
 
         # ingest record
@@ -647,7 +647,7 @@ class GulpPluginBase(ABC):
                     stats, flt, wait_for_refresh
                 )
                 # update stats
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "updating stats, processed=%d, ingested=%d, skipped=%d"
                     % (self._records_processed, ingested, skipped)
                 )
@@ -685,7 +685,7 @@ class GulpPluginBase(ABC):
                     k: GulpMapping.model_validate(v)
                     for k, v in plugin_params.opt_mappings.items()
                 }
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     'using plugin_params.opt_mappings="%s"' % plugin_params.opt_mappings
                 )
                 self._mappings = mappings_dict                
@@ -693,7 +693,7 @@ class GulpPluginBase(ABC):
                 if plugin_params.opt_mapping_file:
                     # load from file
                     mapping_file = plugin_params.opt_mapping_file
-                    GulpLogger().debug(
+                    GulpLogger.get_instance().debug(
                         "using plugin_params.opt_mapping_file=%s"
                         % (plugin_params.opt_mapping_file)
                     )
@@ -709,7 +709,7 @@ class GulpPluginBase(ABC):
             if plugin_params.opt_mapping_id:
                 # mapping id provided
                 self._mapping_id = plugin_params.opt_mapping_id
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "using plugin_params.mapping_id=%s" % (plugin_params.opt_mapping_id)
                 )
 
@@ -717,7 +717,7 @@ class GulpPluginBase(ABC):
             if not self._mappings and self._mapping_id:
                 raise ValueError("mapping_id is set but mappings/mapping_file is not!")
             if not self._mappings and not self._mapping_id:
-                GulpLogger().warning(
+                GulpLogger.get_instance().warning(
                     "mappings/mapping_file and mapping_id are both None/empty!"
                 )
                 return
@@ -728,7 +728,7 @@ class GulpPluginBase(ABC):
         # ensure we have a plugin_params object
         if not plugin_params:
             plugin_params = GulpPluginGenericParameters()        
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "---> _initialize: plugin=%s, plugin_params=%s"
             % (
                 self.bare_filename,
@@ -744,12 +744,12 @@ class GulpPluginBase(ABC):
                     "required plugin parameter '%s' not found in plugin_params !" % (k)
                 )
             self._additional_params_kv[k] = plugin_params.model_extra.get(k, p.default_value)
-            GulpLogger().debug(
+            GulpLogger.get_instance().debug(
                 "setting specific parameter %s=%s" % (k, self._additional_params_kv[k])
             )
 
         if GulpPluginType.EXTENSION in self.type():
-            GulpLogger().debug("extension plugin, no mappings needed")
+            GulpLogger.get_instance().debug("extension plugin, no mappings needed")
             return
 
         # set mappings
@@ -759,7 +759,7 @@ class GulpPluginBase(ABC):
         self._index_type_mapping = await opensearch_api.datastream_get_key_value_mapping(
             opensearch_api.elastic(), self._index
         )
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "got index type mappings with %d entries" % (len(self._index_type_mapping))
         )
 
@@ -782,7 +782,7 @@ class GulpPluginBase(ABC):
         """
         index_type = self._index_type_mapping.get(k)
         if not index_type:
-            # GulpLogger().warning("key %s not found in index_type_mapping" % (k))
+            # GulpLogger.get_instance().warning("key %s not found in index_type_mapping" % (k))
             # return an unmapped key, so it is guaranteed to be a string
             # k = f"{elastic_api.UNMAPPED_PREFIX}.{k}"
             return k, str(v)
@@ -790,7 +790,7 @@ class GulpPluginBase(ABC):
         # check different types, we may add more ...
         index_type = self._index_type_mapping[k]
         if index_type == "long":
-            # GulpLogger().debug("converting %s:%s to long" % (k, v))
+            # GulpLogger.get_instance().debug("converting %s:%s to long" % (k, v))
             if isinstance(v, str):
                 if v.isnumeric():
                     return k, int(v)
@@ -799,7 +799,7 @@ class GulpPluginBase(ABC):
                 try:
                     return k, int(v)
                 except ValueError:
-                    # GulpLogger().exception("error converting %s:%s to long" % (k, v))
+                    # GulpLogger.get_instance().exception("error converting %s:%s to long" % (k, v))
                     return k, None
             return k, v
 
@@ -808,7 +808,7 @@ class GulpPluginBase(ABC):
                 try:
                     return k, float(v)
                 except ValueError:
-                    # GulpLogger().exception("error converting %s:%s to float" % (k, v))
+                    # GulpLogger.get_instance().exception("error converting %s:%s to float" % (k, v))
                     return k, None
 
             return k, v
@@ -816,29 +816,29 @@ class GulpPluginBase(ABC):
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
             # convert hex to int, then ensure it is a valid timestamp
             try:
-                # GulpLogger().debug("converting %s: %s to date" % (k, v))
+                # GulpLogger.get_instance().debug("converting %s: %s to date" % (k, v))
                 v = muty.time.ensure_iso8601(str(int(v, 16)))
                 return k, v
             except ValueError:
-                # GulpLogger().exception("error converting %s:%s to date" % (k, v))
+                # GulpLogger.get_instance().exception("error converting %s:%s to date" % (k, v))
                 return k, None
 
         if index_type == "keyword" or index_type == "text":
-            # GulpLogger().debug("converting %s:%s to keyword" % (k, v))
+            # GulpLogger.get_instance().debug("converting %s:%s to keyword" % (k, v))
             return k, str(v)
 
         if index_type == "ip":
-            # GulpLogger().debug("converting %s:%s to ip" % (k, v))
+            # GulpLogger.get_instance().debug("converting %s:%s to ip" % (k, v))
             if "local" in v.lower():
                 return k, "127.0.0.1"
             try:
                 ipaddress.ip_address(v)
             except ValueError:
-                # GulpLogger().exception("error converting %s:%s to ip" % (k, v))
+                # GulpLogger.get_instance().exception("error converting %s:%s to ip" % (k, v))
                 return k, None
 
         # add more types here if needed ...
-        # GulpLogger().debug("returning %s:%s" % (k, v))
+        # GulpLogger.get_instance().debug("returning %s:%s" % (k, v))
         return k, v
 
     async def _check_raw_ingestion_enabled(
@@ -855,11 +855,11 @@ class GulpPluginBase(ABC):
         """
         raw_plugin: GulpPluginBase = plugin_params.extra.get("raw_plugin", None)
         if raw_plugin is None:
-            GulpLogger().warning("no raw ingestion plugin found, skipping!")
+            GulpLogger.get_instance().warning("no raw ingestion plugin found, skipping!")
             return None, None
         ingest_index = plugin_params.extra.get("ingest_index", None)
         if ingest_index is None:
-            GulpLogger().warning("no ingest index found, skipping!")
+            GulpLogger.get_instance().warning("no ingest index found, skipping!")
             return None, None
 
         # get kv index mapping for the ingest index
@@ -893,7 +893,7 @@ class GulpPluginBase(ABC):
 
         # ingest events using the raw ingestion plugin
         ingest_index = plugin_params.extra.get("ingest_index", None)
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "ingesting %d events to gulp index %s using the raw ingestion plugin from query plugin"
             % (len(events), ingest_index)
         )
@@ -921,7 +921,7 @@ class GulpPluginBase(ABC):
         ingested_docs: list[dict] = []
         skipped = 0
         if self._docs_buffer:
-            # GulpLogger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
+            # GulpLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
             skipped, ingestion_errors, ingested_docs = await opensearch_api.ingest_bulk(
                 opensearch_api.elastic(),
                 self._index,
@@ -969,7 +969,7 @@ class GulpPluginBase(ABC):
                     opensearch_api.elastic(), self._index
                 )
             )
-            GulpLogger().debug(
+            GulpLogger.get_instance().debug(
                 "got index type mappings with %d entries"
                 % (len(self._index_type_mapping))
             )
@@ -987,7 +987,7 @@ class GulpPluginBase(ABC):
         Returns:
             GulpIngestionStats: The updated ingestion statistics.
         """
-        GulpLogger().debug("INGESTION SOURCE DONE: %s" % (self._log_file_path))
+        GulpLogger.get_instance().debug("INGESTION SOURCE DONE: %s" % (self._log_file_path))
         ingested, skipped = await self._flush_buffer(stats, flt, wait_for_refresh=True)
 
         return await stats.update(
@@ -1016,7 +1016,7 @@ class GulpPluginBase(ABC):
         if not isinstance(err, str):
             # err = muty.log.exception_to_string_lite(err)
             err = muty.log.exception_to_string(err, with_full_traceback=True)
-        GulpLogger().error(
+        GulpLogger.get_instance().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._log_file_path, err)
         )
         # update and force-flush stats
@@ -1043,10 +1043,10 @@ class GulpPluginBase(ABC):
             path_py = muty.file.safe_path_join(base_path, f"{name}.py")
             path_pyc = muty.file.safe_path_join(base_path, f"{name}.pyc")
             if await muty.file.exists_async(path_py):
-                GulpLogger().debug(f"Plugin {name}.py found in {base_path} !")
+                GulpLogger.get_instance().debug(f"Plugin {name}.py found in {base_path} !")
                 return path_py
             if await muty.file.exists_async(path_pyc):
-                GulpLogger().debug(f"Plugin {name}.pyc found in {base_path} !")
+                GulpLogger.get_instance().debug(f"Plugin {name}.pyc found in {base_path} !")
                 return path_pyc
             raise FileNotFoundError(f"Plugin {name} not found !")
 
@@ -1088,7 +1088,7 @@ class GulpPluginBase(ABC):
         bare_name = os.path.splitext(os.path.basename(path))[0]
         m = GulpPluginCache().get(bare_name)
         if ignore_cache:
-            GulpLogger().warning("ignoring cache for plugin %s" % (bare_name))
+            GulpLogger.get_instance().warning("ignoring cache for plugin %s" % (bare_name))
             m = None
         if m:
             # return from cache
@@ -1102,7 +1102,7 @@ class GulpPluginBase(ABC):
         # load from file
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
         p: GulpPluginBase = m.Plugin(path, _pickled=pickled, **kwargs)
-        GulpLogger().debug(f"loaded plugin m={m}, p={p}, name()={p.name}")
+        GulpLogger.get_instance().debug(f"loaded plugin m={m}, p={p}, name()={p.name}")
         GulpPluginCache().add(m, bare_name)
         return p
 
@@ -1119,7 +1119,7 @@ class GulpPluginBase(ABC):
             # do not unload if cache is enabled
             return
 
-        GulpLogger().debug("unloading plugin: %s" % (self.name))
+        GulpLogger.get_instance().debug("unloading plugin: %s" % (self.name))
         self.cleanup()
         GulpPluginCache().remove(self.name)
 
@@ -1149,8 +1149,8 @@ class GulpPluginBase(ABC):
             try:
                 p = await GulpPluginBase.load(f, extension=extension, ignore_cache=True)
             except Exception as ex:
-                GulpLogger().exception(ex)
-                GulpLogger().error("could not load plugin %s" % (f))
+                GulpLogger.get_instance().exception(ex)
+                GulpLogger.get_instance().error("could not load plugin %s" % (f))
                 continue
 
             if name is not None:

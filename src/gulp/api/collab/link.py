@@ -24,7 +24,6 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
     async def create(
         cls,
         id: str,
-        owner: str,
         operation: str,
         document_from: str,
         documents: list[GulpAssociatedDocument],
@@ -42,7 +41,6 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
 
         Args:
             id(str): the id of the link
-            owner(str): the owner of the link
             operation(str): the operation associated with the link
             document_from(str): the source document
             documents(list[GulpAssociatedDocument]): the target documents
@@ -54,7 +52,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             ws_id(str): the websocket id
             req_id(str): the request id
             kwargs: additional arguments
-            
+
         Returns:
             the created link object
         """
@@ -70,7 +68,6 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         }
         return await super()._create(
             id,
-            owner,
             token=token,
             ws_id=ws_id,
             req_id=req_id,

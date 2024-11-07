@@ -160,13 +160,13 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        GulpLogger().debug("custom_mapping=%s" % (custom_mapping))
+        GulpLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
 
         if custom_mapping.options.agent_type is None:
             plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
-            GulpLogger().warning("using plugin name=%s" % (plugin))
+            GulpLogger.get_instance().warning("using plugin name=%s" % (plugin))
 
         # get options
         # attempt_decode = plugin_params.extra.get("decode", True)

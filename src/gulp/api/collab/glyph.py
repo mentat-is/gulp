@@ -24,7 +24,6 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     async def create(
         cls,
         id: str,
-        owner: str,
         img: bytes | str,
         token: str = None,
         **kwargs,
@@ -49,7 +48,6 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
                 **kwargs}
         return await super()._create(
             id,
-            owner,
             token=token,
             required_permission=[GulpUserPermission.EDIT],
             **args,

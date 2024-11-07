@@ -65,10 +65,10 @@ class Plugin(GulpPluginBase):
 
         events: list[dict] = source
         for evt in events:
-            # GulpLogger().debug("processing event: %s" % json.dumps(evt, indent=2))
+            # GulpLogger.get_instance().debug("processing event: %s" % json.dumps(evt, indent=2))
             # ensure these are set
             if "@timestamp" not in evt:
-                # GulpLogger().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
+                # GulpLogger.get_instance().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
                 fs = self._record_failed(fs, evt, source, "no @timestamp, skipping")
                 continue
 

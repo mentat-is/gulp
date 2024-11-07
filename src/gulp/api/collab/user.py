@@ -1,24 +1,22 @@
-from typing import Optional, Union, override
+from typing import Optional, override
 
 import muty.crypto
 import muty.time
 import muty.string
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship, declared_attr, remote
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import (
     GulpCollabBase,
-    GulpCollabFilter,
     GulpCollabType,
     GulpUserPermission,
     T,
     WrongUsernameOrPassword,
 )
-from gulp.api.collab_api import session
 from gulp.utils import GulpLogger
 from gulp import config
-
+from gulp.api.collab_api import GulpCollab
 
 class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     """
@@ -95,11 +93,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "glyph": glyph,
         }
 
-        # owner is the user itself
-        owner = id
         return await super()._create(
             id,
-            owner,
             token=token,
             required_permission=[GulpUserPermission.ADMIN],
             ws_id=ws_id,
@@ -143,7 +138,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             pwd_changed = True
 
         # already checked token above, we can skip check here
-        sess = await session()
+        sess = GulpCollab.get_instance().session()
         async with sess:
             user: GulpUser = await super().update_by_id(
                 id,
@@ -156,7 +151,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             )
             if pwd_changed and user.session:
                 # invalidate (delete) the session if the password was changed
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "password changed, deleting session for user=%s" % (user.id)
                 )
                 sess.add(user.session)
@@ -205,25 +200,25 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     @staticmethod
     async def login(
         user: str, password: str, ws_id: str = None, req_id: str = None
-    ) -> T:
+    ) -> "GulpUserSession":
         """
         Asynchronously logs in a user and creates a session (=obtain token).
         Args:
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
         Returns:
-            T: the user session object.
+            GulpUserSession: the user session object.
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        GulpLogger().debug("---> logging in user=%s ..." % (user))
+        GulpLogger.get_instance().debug("---> logging in user=%s ..." % (user))
 
-        sess = await session()
+        sess = GulpCollab.get_instance().session()
         async with sess:
             u: GulpUser = await GulpUser.get_one_by_id(user, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
-                GulpLogger().debug("resetting previous session for user=%s" % (user))
+                GulpLogger.get_instance().debug("resetting previous session for user=%s" % (user))
                 u.session = None
                 u.session_id = None
                 sess.add(u)  # keep track of the change
@@ -232,11 +227,10 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             if u.pwd_hash != muty.crypto.hash_sha256(password):
                 raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
 
-            # create new session
+            # create new session, token is the session id
             token = muty.string.generate_unique()
             new_session: GulpUserSession = await GulpUserSession._create(
                 token,
-                u.id,
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,
@@ -246,6 +240,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             if config.debug_no_token_expiration():
                 new_session.time_expire = 0
             else:
+                # setup session expiration
                 if u.is_admin():
                     new_session.time_expire = (
                         muty.time.now_msec() + config.token_admin_ttl() * 1000
@@ -255,6 +250,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                         muty.time.now_msec() + config.token_ttl() * 1000
                     )
 
+            # update user with new session and write the new session object itself
             u.session_id = token
             u.session = new_session
             u.time_last_login = muty.time.now_msec()
@@ -274,7 +270,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Returns:
             None
         """
-        GulpLogger().debug("---> logging out token=%s ..." % (token))
+        GulpLogger.get_instance().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
 
         await GulpUserSession.delete_by_id(token, ws_id=ws_id, req_id=req_id)

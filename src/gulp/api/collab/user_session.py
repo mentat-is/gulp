@@ -5,7 +5,6 @@ import muty.time
 from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from gulp.api.collab_api import session
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpCollabBase,
@@ -81,7 +80,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
         return user.session
 
     @staticmethod
-    async def get_by_token(cls, token: str, sess: AsyncSession = None) -> T:
+    async def get_by_token(token: str, sess: AsyncSession = None) -> T:
         """
         Asynchronously retrieves a logged user session by token.
         Args:
@@ -92,7 +91,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
         Raises:
             ObjectNotFound: if the user session is not found.
         """
-        GulpLogger().debug("---> get_by_token: token=%s ..." % (token))
+        GulpLogger.get_instance().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
         if config.debug_allow_any_token_as_admin():
             # return an admin session
             from gulp.api.collab.user import GulpUser
@@ -103,7 +102,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
             )
             if admin_user.session_id:
                 # already exists
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "debug_allow_any_token_as_admin, reusing existing admin session"
                 )
                 return admin_user.session
@@ -115,7 +114,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
                 )
                 admin_user.session_id = token
                 admin_user.session = admin_session
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "debug_allow_any_token_as_admin, created new admin session"
                 )
                 return admin_session
@@ -143,9 +142,11 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
             GulpUserSession: The user session object.
         """
         # get session
+        GulpLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
         user_session: GulpUserSession = await GulpUserSession.get_by_token(
             token, sess=sess
         )
+        GulpLogger.get_instance().debug("---> check_token_permission: user_session=%s ..." % (user_session))
         if user_session.user.has_permission(permission):
             return user_session
         if throw_on_no_permission:

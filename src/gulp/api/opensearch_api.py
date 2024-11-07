@@ -39,10 +39,23 @@ class GulpOpenSearch():
         return cls._instance
     
     def __init__(self):
+        raise RuntimeError("call get_instance() instead")
+
+    def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._opensearch: AsyncOpenSearch = self._get_client()
 
+    @classmethod
+    def get_instance(cls) -> "GulpOpenSearch":
+        """
+        returns the singleton instance of the OpenSearch client.
+        """
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance        
+    
     async def reinit(self):
         """
         reinitializes the OpenSearch client in the singleton instance.
@@ -52,7 +65,6 @@ class GulpOpenSearch():
         
         self._opensearch = self._get_client()
         
-
     def _get_client(self) -> AsyncOpenSearch:
         """
         creates an OpenSearch client instance.
@@ -68,7 +80,7 @@ class GulpOpenSearch():
         parsed = urlparse(url)
 
         # url = "%s://%s:***********@%s:%s" % (parsed.scheme, parsed.username, parsed.hostname, parsed.port)
-        # GulpLogger().debug('%s, opensearch hostname=%s, port=%d, user=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
+        # GulpLogger.get_instance().debug('%s, opensearch hostname=%s, port=%d, user=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
 
         host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
         ca = None
@@ -83,7 +95,7 @@ class GulpOpenSearch():
             client_cert = muty.file.safe_path_join(certs_dir, "os.pem")
             client_key = muty.file.safe_path_join(certs_dir, "os.key")
             if os.path.exists(client_cert) and os.path.exists(client_key):
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "using client certificate: %s, key=%s, ca=%s"
                     % (client_cert, client_key, ca)
                 )
@@ -97,7 +109,7 @@ class GulpOpenSearch():
                     verify_certs=verify_certs,
                 )
             else:
-                GulpLogger().debug(
+                GulpLogger.get_instance().debug(
                     "no client certificate found, using CA certificate only: %s" % (ca)
                 )
                 return AsyncOpenSearch(
@@ -110,7 +122,7 @@ class GulpOpenSearch():
 
         # no https
         el = AsyncOpenSearch(host, http_auth=(parsed.username, parsed.password))
-        GulpLogger().debug("created opensearch client: %s" % (el))
+        GulpLogger.get_instance().debug("created opensearch client: %s" % (el))
         return el
 
     async def shutdown(self) -> None:
@@ -121,7 +133,7 @@ class GulpOpenSearch():
             None
         """
         await self._opensearch.close()
-        GulpLogger().debug("opensearch client shutdown: %s" % (self._opensearch))
+        GulpLogger.get_instance().debug("opensearch client shutdown: %s" % (self._opensearch))
         self._opensearch = None
 
 
@@ -134,7 +146,7 @@ class GulpOpenSearch():
 
         """
         res = await self._opensearch.info()
-        GulpLogger().debug("opensearch info: %s" % (res))
+        GulpLogger.get_instance().debug("opensearch info: %s" % (res))
 
     async def datastream_get_key_value_mapping(self, name: str, return_raw_result: bool = False
     ) -> dict:
@@ -169,10 +181,10 @@ class GulpOpenSearch():
         try:
             res = await self._opensearch.indices.get_mapping(index=name)
         except Exception as e:
-            GulpLogger().warning('no mapping for index "%s" found: %s' % (name, e))
+            GulpLogger.get_instance().warning('no mapping for index "%s" found: %s' % (name, e))
             return {}
 
-        # GulpLogger().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
+        # GulpLogger.get_instance().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
         if return_raw_result:
             return res
 
@@ -213,7 +225,7 @@ class GulpOpenSearch():
         while True:
             try:
                 docs = await self.query_raw(name, q, options)
-                # GulpLogger().debug("docs: %s" % (json.dumps(docs, indent=2)))
+                # GulpLogger.get_instance().debug("docs: %s" % (json.dumps(docs, indent=2)))
             except ObjectNotFound:
                 break
             search_after = docs.get("search_after", None)
@@ -249,10 +261,10 @@ class GulpOpenSearch():
         """
         try:
             template_name = "%s-template" % (name)
-            GulpLogger().debug("deleting index template: %s ..." % (template_name))
+            GulpLogger.get_instance().debug("deleting index template: %s ..." % (template_name))
             await self._opensearch.indices.delete_index_template(name=template_name)
         except Exception as e:
-            GulpLogger().error("error deleting index template: %s" % (e))
+            GulpLogger.get_instance().error("error deleting index template: %s" % (e))
 
     async def index_template_get(self, name: str) -> dict:
         """
@@ -265,7 +277,7 @@ class GulpOpenSearch():
             dict: The index template.
         """
         template_name = "%s-template" % (name)
-        GulpLogger().debug("getting index template: %s ..." % (template_name))
+        GulpLogger.get_instance().debug("getting index template: %s ..." % (template_name))
 
         try:
             res = await self._opensearch.indices.get_index_template(name=template_name)
@@ -287,7 +299,7 @@ class GulpOpenSearch():
             dict: The response from the OpenSearch client.
         """
         template_name = "%s-template" % (name)
-        GulpLogger().debug("putting index template: %s ..." % (template_name))
+        GulpLogger.get_instance().debug("putting index template: %s ..." % (template_name))
         headers = {"accept": "application/json", "content-type": "application/json"}
         return await self._opensearch.indices.put_index_template(
             name=template_name, body=d, headers=headers
@@ -307,7 +319,7 @@ class GulpOpenSearch():
             dict: The response from OpenSearch after setting the index template.
         """
 
-        GulpLogger().debug('loading index template from file "%s" ...' % (path))
+        GulpLogger.get_instance().debug('loading index template from file "%s" ...' % (path))
         d = muty.dict.from_json_file(path)
         return await self.build_and_set_index_template(name, d, apply_patches)
 
@@ -330,7 +342,7 @@ class GulpOpenSearch():
             - It applies specific patches to the mappings and settings before setting the index template.
             - If the OpenSearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
         """
-        GulpLogger().debug('setting index template for "%s" ...' % (index_name))
+        GulpLogger.get_instance().debug('setting index template for "%s" ...' % (index_name))
         template = d.get("template", None)
         if template is None:
             raise ValueError('no "template" key found in the index template')
@@ -370,7 +382,7 @@ class GulpOpenSearch():
             {
                 # force unknown mapping to string
                 "force_unmapped_to_string": {
-                    "match": "%s.*" % (UNMAPPED_PREFIX),
+                    "match": "%s.*" % (GulpOpenSearch.UNMAPPED_PREFIX),
                     # "match":"*",
                     "mapping": {"type": "keyword"},
                 }
@@ -407,7 +419,7 @@ class GulpOpenSearch():
                 # optimize for single node
                 # this also removes "yellow" node in single node mode
                 # this also removes "yellow" node in single node mode
-                GulpLogger().warning("setting number_of_replicas to 0")
+                GulpLogger.get_instance().warning("setting number_of_replicas to 0")
                 settings["index"]["number_of_replicas"] = 0
 
         # write template
@@ -429,7 +441,7 @@ class GulpOpenSearch():
         """
         headers = {"accept": "text/plain,application/json"}
         l = await self._opensearch.indices.get_data_stream(headers=headers)
-        # GulpLogger().debug(json.dumps(l, indent=2))
+        # GulpLogger.get_instance().debug(json.dumps(l, indent=2))
         ll = []
         ds = l.get("data_streams", [])
         for c in ds:
@@ -455,15 +467,15 @@ class GulpOpenSearch():
         # params = {"ignore_unavailable": "true"}
         headers = {"accept": "application/json"}
         try:
-            GulpLogger().debug('deleting datastream "%s" ...' % (name))
+            GulpLogger.get_instance().debug('deleting datastream "%s" ...' % (name))
             await self._opensearch.indices.delete_data_stream(name, headers=headers)
         except Exception as e:
-            GulpLogger().error("error deleting datastream: %s" % (e))
+            GulpLogger.get_instance().error("error deleting datastream: %s" % (e))
             pass
         try:
             await self.index_template_delete(name)
         except Exception as e:
-            GulpLogger().error("error deleting index template: %s" % (e))
+            GulpLogger.get_instance().error("error deleting index template: %s" % (e))
 
 
     async def datastream_create(self, name: str, index_template: str = None
@@ -472,15 +484,15 @@ class GulpOpenSearch():
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
         Args:
-            datastream_name(str): The name of the datastream to be (re)created, the index template will be re/created as "<index_name>-template".
-            total.
+            datastream_name(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
+                if it already exists, it will be deleted first.
             index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
         Returns:
             dict
         """
 
         # attempt to delete the datastream first, if it exists
-        GulpLogger().debug('re/creating datastream "%s" ...' % (name))
+        GulpLogger.get_instance().debug('re/creating datastream "%s" ...' % (name))
         await self.datastream_delete(name)
 
         # create index template, check if we are overriding the default index template.
@@ -490,7 +502,7 @@ class GulpOpenSearch():
             template_path = config.path_index_template()
         else:
             template_path = index_template
-            GulpLogger().debug('using custom index template "%s" ...' % (template_path))
+            GulpLogger.get_instance().debug('using custom index template "%s" ...' % (template_path))
             apply_patches = False
         await self.index_template_set_from_file(name, template_path, apply_patches=apply_patches)
 
@@ -498,7 +510,7 @@ class GulpOpenSearch():
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
             r = await self._opensearch.indices.create_data_stream(name, headers=headers)
-            GulpLogger().debug("datastream created: %s" % (r))
+            GulpLogger.get_instance().debug("datastream created: %s" % (r))
             return r
         except Exception as e:
             # delete the index template
@@ -570,12 +582,12 @@ class GulpOpenSearch():
                 {k: v for k, v in item.items() if k != "_id"},
             )
         ]
-        # GulpLogger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
+        # GulpLogger.get_instance().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
         if len(bulk_docs) == 0:
-            GulpLogger().warning("no document to ingest (flt=%s)" % (flt))
+            GulpLogger.get_instance().warning("no document to ingest (flt=%s)" % (flt))
             return 0, 0, []
 
-        # GulpLogger().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
+        # GulpLogger.get_instance().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
         # bulk ingestion
         timeout = config.ingestion_request_timeout()
@@ -608,7 +620,7 @@ class GulpOpenSearch():
                     if item["create"]["status"] not in [201, 200]
                 ]
                 s = json.dumps(failed_items, indent=2)
-                GulpLogger().error(
+                GulpLogger.get_instance().error(
                     "%d failed ingestion, %d skipped: %s"
                     % (failed, skipped, muty.string.make_shorter(s, max_len=10000))
                 )
@@ -621,12 +633,12 @@ class GulpOpenSearch():
 
         if skipped != 0:
             # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
-            GulpLogger().error(
+            GulpLogger.get_instance().error(
                 "**NOT AN ERROR** total %d skipped, %d failed in this bulk ingestion of %d documents !"
                 % (skipped, failed, len(bulk_docs) / 2)
             )
         if failed > 0:
-            GulpLogger().critical("failed is set, ingestion format needs to be fixed!")
+            GulpLogger.get_instance().critical("failed is set, ingestion format needs to be fixed!")
         return skipped, failed, ingested
 
 
@@ -648,7 +660,7 @@ class GulpOpenSearch():
             dict: The response from the OpenSearch reindex operation.
 
         """
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "rebase index %s to %s with offset=%d, flt=%s ..."
             % (index, dest_index, msec_offset, flt)
         )
@@ -681,7 +693,7 @@ class GulpOpenSearch():
             "content-type": "application/x-ndjson",
         }
 
-        GulpLogger().debug("rebase body=%s" % (body))
+        GulpLogger.get_instance().debug("rebase body=%s" % (body))
         res = await self._opensearch.reindex(body=body, params=params, headers=headers)
         return res
 
@@ -695,9 +707,9 @@ class GulpOpenSearch():
         Returns:
             None
         """
-        GulpLogger().debug("refreshing index: %s" % (index))
+        GulpLogger.get_instance().debug("refreshing index: %s" % (index))
         res = await self._opensearch.indices.refresh(index=index)
-        GulpLogger().debug("refreshed index: %s" % (res))
+        GulpLogger.get_instance().debug("refreshed index: %s" % (res))
 
     async def delete_data_by_operation(
         self, index: str, operation: str, refresh: bool = True
@@ -806,12 +818,12 @@ class GulpOpenSearch():
                     "aggs": aggregations,
                 }
             }
-            GulpLogger().debug(
+            GulpLogger.get_instance().debug(
                 f"aggregations with group_by={group_by}: {json.dumps(aggregations, indent=2)}"
             )
 
         q = flt.to_opensearch_dsl()
-        GulpLogger().debug(f"query_max_min_per_field: q={json.dumps(q, indent=2)}")
+        GulpLogger.get_instance().debug(f"query_max_min_per_field: q={json.dumps(q, indent=2)}")
         body = {"track_total_hits": True, "query": q["query"], "aggregations": aggregations}
         headers = {
             "content-type": "application/json",
@@ -823,7 +835,7 @@ class GulpOpenSearch():
             raise ObjectNotFound()
 
         if group_by:
-            GulpLogger().debug(
+            GulpLogger.get_instance().debug(
                 f"group_by={group_by}, res['aggregations']={json.dumps(res['aggregations'], indent=2)}"
             )
             return self._parse_query_max_min(res["aggregations"])
@@ -870,9 +882,9 @@ class GulpOpenSearch():
         Raises:
             ObjectNotFound: If no results are found.
         """
-        # GulpLogger().debug(json.dumps(results, indent=2))
+        # GulpLogger.get_instance().debug(json.dumps(results, indent=2))
         hits = results["hits"]["hits"]
-        # GulpLogger().debug('hits #=%d, hits node=%s' % (len(hits), hits))
+        # GulpLogger.get_instance().debug('hits #=%d, hits node=%s' % (len(hits), hits))
         if not hits:
             raise ObjectNotFound("no results found!")
 
@@ -885,13 +897,13 @@ class GulpOpenSearch():
             parsed_result["aggregations"] = results["aggregations"]
 
         total_hits = results["hits"]["total"]["value"]
-        # GulpLogger().debug("hits.total.value: %d ..." % (n["total"]))
+        # GulpLogger.get_instance().debug("hits.total.value: %d ..." % (n["total"]))
         parsed_result["total"] = total_hits
 
         if hits[-1]["sort"]:
             parsed_result["search_after"] = hits[-1]["sort"]
 
-        # GulpLogger().debug(json.dumps(n, indent=2))
+        # GulpLogger.get_instance().debug(json.dumps(n, indent=2))
         return parsed_result
 
     async def query_operations(self, index: str):
@@ -939,7 +951,7 @@ class GulpOpenSearch():
         res = await self._opensearch.search(body=body, index=index, headers=headers)
         hits = res["hits"]["total"]["value"]
         if not hits:
-            GulpLogger().warning(
+            GulpLogger.get_instance().warning(
                 "no results found, returning empty aggregations (possibly no data on opensearch)!"
             )
             # raise ObjectNotFound()
@@ -1006,7 +1018,7 @@ class GulpOpenSearch():
             options = GulpQueryAdditionalOptions()
         parsed_options = options.parse()
 
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "query_raw: %s, options=%s"
             % (json.dumps(q, indent=2), json.dumps(parsed_options, indent=2))
         )
@@ -1019,7 +1031,7 @@ class GulpOpenSearch():
         }
         res = await self._opensearch.search(body=body, index=index, headers=headers)
 
-        # GulpLogger().debug("query_raw: res=%s" % (json.dumps(res, indent=2)))
+        # GulpLogger.get_instance().debug("query_raw: res=%s" % (json.dumps(res, indent=2)))
         js = GulpOpenSearch.parse_query_raw_result(res)
         return js
 
@@ -1048,7 +1060,7 @@ class GulpOpenSearch():
             options = GulpQueryAdditionalOptions()
         parsed_options = options.parse()
 
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "query_raw_elastic: %s, options=%s"
             % (json.dumps(q, indent=2), json.dumps(parsed_options, indent=2))
         )

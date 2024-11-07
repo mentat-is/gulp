@@ -79,7 +79,7 @@ class Plugin(GulpPluginBase):
         self, record: GulpDocument, record_idx: int
     ) -> GulpDocument:
 
-        # GulpLogger().debug("record: %s" % record)
+        # GulpLogger.get_instance().debug("record: %s" % record)
         # tweak event duration ...
         record.event_duration = 9999
         return record

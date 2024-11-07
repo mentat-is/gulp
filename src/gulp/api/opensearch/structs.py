@@ -146,7 +146,7 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         Returns:
             GulpEventFilterResult: The result of the filter check.
         """
-        # GulpLogger().error(flt)
+        # GulpLogger.get_instance().error(flt)
         if not flt or flt.opt_storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
@@ -357,7 +357,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             }
         
             
-        # GulpLogger().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
+        # GulpLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
 class GulpQueryAdditionalOptions(BaseModel):
@@ -426,7 +426,7 @@ class GulpQueryAdditionalOptions(BaseModel):
         else:
             n["search_after"] = None
 
-        # GulpLogger().debug("query options: %s" % (json.dumps(n, indent=2)))
+        # GulpLogger.get_instance().debug("query options: %s" % (json.dumps(n, indent=2)))
         return n  
       
 class GulpAssociatedDocument(BaseModel):
@@ -578,7 +578,7 @@ class GulpDocument(BaseModel):
             None
         """
         
-        #GulpLogger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
+        #GulpLogger.get_instance().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
         super().__init__(timestamp=str(timestamp), operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
         mapping: GulpMapping = plugin_instance.selected_mapping()        
         
@@ -623,7 +623,7 @@ class GulpDocument(BaseModel):
         
         # finally check for consistency
         GulpDocument.model_validate(self)
-        #GulpLogger().debug(self.model_dump(by_alias=True, exclude='event_original'))
+        #GulpLogger.get_instance().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     def __repr__(self) -> str:
         return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"

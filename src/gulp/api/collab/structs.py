@@ -1,4 +1,4 @@
-from enum import Flag, StrEnum, auto
+from enum import StrEnum
 import json
 from typing import Optional, TypeVar, override
 import muty.time
@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Tuple,
     func,
+    inspect,
     or_,
     select,
     text,
@@ -28,11 +29,10 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins.serialize import SerializeMixin
-from gulp.api.collab_api import session
 from gulp.api.opensearch.structs import GulpAssociatedDocument
 from gulp.defs import ObjectNotFound
 from gulp.utils import GulpLogger
-
+from gulp.api.collab_api import GulpCollab
 
 class SessionExpired(Exception):
     """if the user session has expired"""
@@ -272,9 +272,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         SqlEnum(GulpCollabType), doc="The type of the object."
     )
     owner: Mapped[str] = mapped_column(
-        ForeignKey("user.id", ondelete="SET NULL"),
-        doc="The user who 'owns' the object. If None, this is a root object which cannot be deleted.",
-        nullable=True,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        doc="The id of the user who created the object."
     )
     time_created: Mapped[int] = mapped_column(
         BIGINT,
@@ -333,16 +332,18 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             T: The object with the specified ID.
         """
+        GulpLogger.get_instance().debug("---> get: eager_load_by_id: %s, sess=%s" % (id, sess))
         created=False
         if not sess:
-            sess = await session()
+            sess = GulpCollab.get_instance().session()
             created=True
 
         try:
             instance = await sess.execute(
-                select(cls).options(joinedload('*')).filter_by(id=id)
+                select(cls).options(joinedload("*")).filter_by(id=id)
             )
-            instance = instance.scalar_one()
+            instance = instance.scalars().one()
+            print(instance)
             return instance
         finally:
             if created:
@@ -352,7 +353,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     async def _create(
         cls,
         id: str,
-        owner: str,
         token: str = None,
         required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         ws_id: str = None,
@@ -365,7 +365,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously creates and stores an instance of the class.
         Args:
             id (str): The unique identifier for the instance.
-            owner (str): The ID of the user associated with the instance.
             token (str, optional): The token of the user making the request. Defaults to None (no check).
             required_permission (list[GulpUserPermission], optional): The required permission to create the object. Defaults to [GulpUserPermission.READ].
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
@@ -379,9 +378,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
-
+        if token:
+            # check required creation permission
+            from gulp.api.collab.user_session import GulpUserSession
+            user_session = await GulpUserSession.check_token_permission(token, permission=required_permission, sess=sess)
+            owner = user_session.user_id
+        else:
+            # no token, use default owner
+            owner = "admin"
+            
         # create instance
-        GulpLogger().debug(f"---> _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}, token={token}, required_permission={required_permission}, ws_id={ws_id}, req_id={req_id}, sess={sess}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}")
+        GulpLogger.get_instance().debug(f"---> _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}, token={token}, required_permission={required_permission}, ws_id={ws_id}, req_id={req_id}, sess={sess}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}")
         instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
         instance.id = id        
         instance.owner = owner
@@ -391,18 +398,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         instance.time_created = muty.time.now_msec()
         instance.time_updated = instance.time_created
 
-        if token:
-            # check required creation permission
-            from gulp.api.collab.user_session import GulpUserSession
-            await GulpUserSession.check_token_permission(token, permission=required_permission, sess=sess)
-
         created=False
         try:
             if sess:
                 # just add
                 sess.add(instance)            
             else:
-                sess = await session()
+                sess = GulpCollab.get_instance().session()
                 created=True
                 sess.add(instance)                
                 await sess.commit()
@@ -442,11 +444,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        GulpLogger().debug("---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess))
+        GulpLogger.get_instance().debug("---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess))
         created = False
         if not sess:
             created=True
-            sess = await session()
+            sess = GulpCollab.get_instance().session()
         try:
             if token:
                 # check_token_permission here
@@ -494,12 +496,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         created=False
         if not sess:
             created = True
-            sess = await session()
+            sess = GulpCollab.get_instance().session()
 
         try:
             obj:GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess=sess, throw_if_not_found=throw_if_not_found)
             if obj:
-                #GulpLogger().debug("---> delete_by_id: obj=%s" % (await obj))
+                #GulpLogger.get_instance().debug("---> delete_by_id: obj=%s" % (await obj))
                 await obj.delete(token=token, permission=permission, ws_id=ws_id, req_id=req_id, sess=sess, throw_if_not_found=throw_if_not_found)
         finally:
             if created:
@@ -541,7 +543,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         created=False
         if not sess:
             created = True
-            sess = await session()
+            sess = GulpCollab.get_instance().session()
 
         try:
             obj: GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
@@ -606,15 +608,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 obj.time_updated = muty.time.now_msec()
 
                 sess.add(obj)
-                GulpLogger().debug("---> updated: %s" % (obj))
+                GulpLogger.get_instance().debug("---> updated: %s" % (obj))
 
             return obj
 
-        GulpLogger().debug(f"---> update: obj_id={self.id}, type={self.__class__}, d={d}")
+        GulpLogger.get_instance().debug(f"---> update: obj_id={self.id}, type={self.__class__}, d={d}")
         created=False
         if not sess:
-            created = True
-            sess = await session()
+            sess = GulpCollab.get_instance().session()
 
         try:
             obj = await _update_internal(
@@ -653,7 +654,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        GulpLogger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}")
+        GulpLogger.get_instance().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}")
         o = await cls.get_one(
             GulpCollabFilter(id=[id], type=[cls.__gulp_collab_type__]),
             ws_id,
@@ -686,7 +687,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
 
-        GulpLogger().debug("---> get_one: type=%s, filter=%s" % (cls.__name__, flt))
+        GulpLogger.get_instance().debug("---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))
         c = await cls.get(flt, ws_id, req_id, sess, throw_if_not_found)
         if c:
             return c[0]
@@ -706,7 +707,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously retrieves a list of objects based on the provided filter.
         Args:
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None.
-            sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
             sess(AsyncSession, optional): The database session to use. If None, a new session is created and used as a transaction. Defaults to None.
@@ -717,33 +717,33 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If there is an error during the query execution or result processing.
         """
-
-        # TODO: handle websocket
-        GulpLogger().debug("---> get: type=%s, filter=%s" % (cls.__name__, flt))
-        flt = flt or GulpCollabFilter()
-        created: bool = False
-        if sess is None:
-            sess = await session()
-            created = True
-        try:
-            # build query
+        async def _get_internal(flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load):
             q = flt.to_select_query(cls)
-            GulpLogger().debug("---> get: sess_created=%r, query=\n%s\n" % (created, q))
+            GulpLogger.get_instance().debug("---> get: sess_created=%r, query=\n%s\n" % (created, q))
             res = await sess.execute(q)
-            c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found, detail=q)
+            c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found, detail=flt)
             if c:
                 if ensure_eager_load:
-                    # eagerly load all related attributes                    
-                    for cc in c:
-                        await cls.eager_load_by_id(cc.id, sess=sess)
+                    # eagerly load all related attributes
+                    for i, cc in enumerate(c):
+                        instance = await cls.eager_load_by_id(cc.id, sess=sess)   
+                        GulpLogger.get_instance().debug("---> get: eager_load_by_id: %s" % (instance))                     
+                        c[i] = instance
 
-                GulpLogger().debug("---> get: found %d objects" % (len(c)))
+                GulpLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
                 return c
 
-            return []
-        finally:
-            if created:
-                await sess.close()
+            # TODO: handle websocket
+        
+        GulpLogger.get_instance().debug("---> get: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))        
+        flt = flt or GulpCollabFilter()        
+        created: bool = False
+        if sess is None:
+            created = True
+            async with GulpCollab.get_instance().session() as sess:
+                return await _get_internal(flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load)
+        else:
+            return await _get_internal(flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load)
 
     @classmethod
     def get_all_results_or_throw(
@@ -766,7 +766,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                GulpLogger().warning(msg)
+                GulpLogger.get_instance().warning(msg)
                 return None
 
         return c
@@ -795,7 +795,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                GulpLogger().warning(msg)
+                GulpLogger.get_instance().warning(msg)
                 return None
         return c
 
@@ -877,7 +877,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     base for all collaboration objects (notes, links, stories, highlights)
     """
     # the following are present in all collab objects regardless of type
-    operation: Mapped[str] = mapped_column(
+    operation: Mapped[Optional[str]] = mapped_column(
         ForeignKey(
             "operation.id",
             ondelete="CASCADE",
@@ -886,17 +886,14 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     )
     glyph: Mapped[Optional[str]] = mapped_column(
         ForeignKey("glyph.id", ondelete="SET NULL"), doc="The glyph ID.",
-        default=None
     )
     tags: Mapped[Optional[list[str]]] = mapped_column(
         ARRAY(String), doc="The tags associated with the object.",
-        default_factory=lambda: []
     )
-    title: Mapped[Optional[str]] = mapped_column(String, doc="The title of the object.", default=None)
+    title: Mapped[Optional[str]] = mapped_column(String, doc="The title of the object.")
     private: Mapped[Optional[bool]] = mapped_column(
         Boolean,
         doc="If True, the object is private (only the owner can see it).",
-        default=False,
     )
 
     @override
@@ -905,7 +902,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         id: str,
         type: GulpCollabType,
         owner: str,
-        operation: str,
+        operation: str=None,
         glyph: str = None,
         tags: list[str] = None,
         title: str = None,
@@ -918,7 +915,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             id (str): The unique identifier for the collaboration object.
             type (GulpCollabType): The type of the collaboration object.
             owner (str): The user ID of the owner of the collaboration object.
-            operation (str): The operation performed on the collaboration object.
+            operation (str, optional): The operation performed on the collaboration object. Defaults to None.
             glyph (str, optional): The glyph associated with the collaboration object. Defaults to None.
             tags (list[str], optional): A list of tags associated with the collaboration object. Defaults to None.
             title (str, optional): The title of the collaboration object. Defaults to None.
@@ -936,7 +933,8 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         self.tags = tags
         self.title = title
         self.private = private
-        GulpLogger().debug(
+        GulpLogger.get_instance().error("barabbaaaaaaaaaaaaaaaaaaaaaaaaaaaa  ")
+        GulpLogger.get_instance().debug(
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s"
             % (id, type, owner, operation, glyph, tags, title, private)
         )
@@ -948,4 +946,4 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             private (bool): The value to set the private flag to.
         """
         self.private = private
-        GulpLogger().debug(f"---> set_private: id={self.id}, private={private}")
+        GulpLogger.get_instance().debug(f"---> set_private: id={self.id}, private={private}")

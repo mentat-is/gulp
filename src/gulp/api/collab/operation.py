@@ -31,7 +31,6 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     async def create(
         cls,
         id: str,
-        owner: str,
         index: str = None,
         glyph: str = None,
         description: str = None,
@@ -43,7 +42,6 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
 
         Args:
             id: The unique identifier of the operation.
-            owner: The owner of the operation.
             index: The opensearch index to associate the operation with.
             glyph: The glyph associated with the operation.
             description: The description of the operation.
@@ -61,7 +59,6 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         }
         return await super()._create(
             id,
-            owner,
             token=token,
             required_permission=[GulpUserPermission.ADMIN],
             **args,

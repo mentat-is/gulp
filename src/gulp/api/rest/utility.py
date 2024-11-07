@@ -564,7 +564,7 @@ async def mapping_file_list_handler(
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
         path = config.path_mapping_files()
-        GulpLogger().debug("listing mapping files in %s" % (path))
+        GulpLogger.get_instance().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
 
         # purge paths

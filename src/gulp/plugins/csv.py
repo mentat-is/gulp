@@ -87,7 +87,7 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int
     ) -> GulpDocument:
 
-        # GulpLogger().debug("record: %s" % record)
+        # GulpLogger.get_instance().debug("record: %s" % record)
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]

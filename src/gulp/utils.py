@@ -10,7 +10,7 @@ import muty.log
 import muty.string
 import muty.time
 import muty.version
-
+from logging import Logger
 from gulp import mapping_files
 
 class GulpLogger:
@@ -21,57 +21,25 @@ class GulpLogger:
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
         return cls._instance
+
     def __init__(self):
+        raise RuntimeError("call get_instance() instead")
+
+    def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._logger = self.create()
 
-    def debug(self, msg:object, *args:object) -> None:
+    @classmethod
+    def get_instance(cls) -> Logger:
         """
-        log a debug message
+        returns the singleton instance
         """
-        self._logger.debug(msg, args)
-    
-    def warning(self, msg:object, *args:object) -> None:
-        """
-        log a warning message
-        """
-        self._logger.warning(msg, args)
-    
-    def error(self, msg:object, *args:object) -> None:
-        """
-        log an error message
-        """
-        self._logger.error(msg, args)
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance._logger    
 
-    def info(self, msg:object, *args:object) -> None:
-        """
-        log an info message
-        """
-        self._logger.info(msg, args)
-
-    
-    def exception(self, msg:object, *args:object) -> None:
-        """
-        log an exception message
-        """
-        self._logger.exception(msg, args)
-    
-    def critical(self, msg:object, *args:object) -> None:
-        """
-        log a critical message
-        """
-        self._logger.critical(msg, args)
-
-    def get(self) -> logging.Logger:
-        """
-        get the logger instance
-        
-        Returns:
-            logging.Logger: the logger
-        """
-        return self._logger
-    
     def reconfigure(self, log_to_file: str = None, level: int = logging.DEBUG, prefix: str = None) -> logging.Logger:
         """
         reconfigure the logger instance with the given parameters and return it
@@ -126,16 +94,6 @@ class GulpLogger:
         )
         return l
 
-def logger() -> logging.Logger:
-    """
-    Returns the global logger.
-
-    Returns:
-        logging.Logger: The global logger.
-    """
-    return GulpLogger().get()
-
-
 async def send_mail(
     smtp_server: str,
     subject: str,
@@ -172,7 +130,7 @@ async def send_mail(
         cc_list = to[1:]
 
     m = EmailMessage()
-    GulpLogger().info(
+    GulpLogger.get_instance().info(
         "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
         % (server, port, sender, to_email, cc_list, subject)
     )

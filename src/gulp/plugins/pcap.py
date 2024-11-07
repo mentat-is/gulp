@@ -82,18 +82,18 @@ class Plugin(GulpPluginBase):
             # get field names and map attributes
             field_names = [field.name for field in p.getlayer(layer_name).fields_desc]
 
-            # GulpLogger().debug(f"Dissecting layer: {layer_name}")
-            # GulpLogger().debug(f"Field names: {field_names}")
+            # GulpLogger.get_instance().debug(f"Dissecting layer: {layer_name}")
+            # GulpLogger.get_instance().debug(f"Field names: {field_names}")
 
             fields = {}
             for field_name in field_names:
                 try:
                     fields[field_name] = getattr(p.getlayer(layer_name), field_name)
-                    # GulpLogger().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
+                    # GulpLogger.get_instance().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
                 except Exception as ex:
                     # skip fields that cannot be accessed
-                    # GulpLogger().exception(ex)
-                    # GulpLogger().debug(f"Fields: {field_name} failed to access ({ex})")
+                    # GulpLogger.get_instance().exception(ex)
+                    # GulpLogger.get_instance().debug(f"Fields: {field_name} failed to access ({ex})")
                     pass
 
             # make sure we have a valid json serializable dict
@@ -137,10 +137,10 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
-        # GulpLogger().debug(record)
+        # GulpLogger.get_instance().debug(record)
         evt_json = self._pkt_to_dict(record)
         # evt_str: str = record.show2(dump=True)
-        # GulpLogger().debug(evt_str)
+        # GulpLogger.get_instance().debug(evt_str)
 
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
 
@@ -259,15 +259,15 @@ class Plugin(GulpPluginBase):
             # fallback to pcap
             file_format = "pcap"
 
-        GulpLogger().debug("detected file format: %s for file %s" % (file_format, source))
+        GulpLogger.get_instance().debug("detected file format: %s for file %s" % (file_format, source))
 
         try:
-            GulpLogger().debug("parsing file: %s" % source)
+            GulpLogger.get_instance().debug("parsing file: %s" % source)
             if file_format == "pcapng":
-                GulpLogger().debug("using PcapNgReader reader on file: %s" % (source))
+                GulpLogger.get_instance().debug("using PcapNgReader reader on file: %s" % (source))
                 parser = PcapNgReader(source)
             else:
-                GulpLogger().debug("using PcapReader reader on file: %s" % (source))
+                GulpLogger.get_instance().debug("using PcapReader reader on file: %s" % (source))
                 parser = PcapReader(source)
             # TODO: support other scapy file readers like ERF?
         except Exception as ex:

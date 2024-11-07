@@ -217,7 +217,7 @@ async def query_multi_handler(
         # use default fields filter
         options.fields_filter = ",".join(query_utils.QUERY_DEFAULT_FIELDS)
 
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
         % (q, flt, options, sigma_group_flts)
     )
@@ -398,7 +398,7 @@ async def query_gulp_handler(
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "query_gulp_handler: flt=%s, name=%s, options=%s" % (flt, name, options)
     )
     gqp = GulpQueryParameter(rule=flt.to_dict(), type=GulpQueryType.GULP_FILTER)
@@ -451,7 +451,7 @@ async def query_stored_sigma_tags_handler(
     sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
     req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "query_sigma_tags_handler: flt=%s, options=%s, tags=%s, sigma_group_flts=%s"
         % (flt, options, tags, sigma_group_flts)
     )
@@ -629,7 +629,7 @@ async def query_sigma_files_handler(
     try:
         # download files to tmp
         files_path, files = await muty.uploadfile.to_path_multi(sigma_files)
-        GulpLogger().debug("%d files downloaded to %s ..." % (len(files), files_path))
+        GulpLogger.get_instance().debug("%d files downloaded to %s ..." % (len(files), files_path))
 
         # create queries and call query_multi
         l = await query_utils.sigma_directory_to_gulpqueryparams(
@@ -806,7 +806,7 @@ async def query_max_min_handler(
             res = await opensearch_api.query_max_min_per_field(
                 opensearch_api.elastic(), index, group_by, flt
             )
-            # GulpLogger().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
+            # GulpLogger.get_instance().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
             return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
         except ObjectNotFound:
             # return an empty result
@@ -937,7 +937,7 @@ async def query_operations_handler(
         )
         # query
         res = await opensearch_api.query_operations(opensearch_api.elastic(), index)
-        GulpLogger().debug(
+        GulpLogger.get_instance().debug(
             "query_operations (before parsing): %s", json.dumps(res, indent=2)
         )
         res = await _parse_operation_aggregation(res)
@@ -1089,7 +1089,7 @@ async def query_external_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
 
     # print the request
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "query_external_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s"
         % (
             token,
@@ -1214,7 +1214,7 @@ async def query_external_single_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
 
     # print the request
-    GulpLogger().debug(
+    GulpLogger.get_instance().debug(
         "query_external_single_handler: token=%s, plugin=%s, plugin_params=%s, event=%s, req_id=%s"
         % (token, plugin, plugin_params, event, req_id)
     )

@@ -24,7 +24,7 @@ from gulp.api.collab.db import setup, session
 
 async def _init():
     configure_logger()
-    GulpLogger().debug("---> init")
+    GulpLogger.get_instance().debug("---> init")
     config.init()
     await setup(force_recreate=True)
 

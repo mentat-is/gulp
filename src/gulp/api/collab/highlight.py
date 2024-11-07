@@ -22,7 +22,6 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
     async def create(
         cls,
         id: str,
-        owner: str,
         operation: str,
         time_range: tuple[int, int],
         log_file_path: str,
@@ -40,7 +39,6 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
 
         Args:
             id: the id of the highlight
-            owner: the owner of the highlight
             operation: the operation associated with the highlight
             time_range: the time range of the highlight
             log_file_path: the log file path associated with the highlight
@@ -68,7 +66,6 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         }
         return await super()._create(
             id,
-            owner,
             token=token,            
             ws_id=ws_id,
             req_id=req_id,

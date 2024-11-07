@@ -28,7 +28,6 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     async def create(
         cls,
         id: str,
-        owner: str,
         color: str = None,
         glyph: str = None,
         token: str = None,
@@ -39,7 +38,6 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
 
         Args:
             id (str): The unique identifier of the context.
-            owner (str): The owner of the context.
             color (str, optional): The color of the context. Defaults to None.
             glyph (str, optional): The glyph associated with the context. Defaults to None.
             token (str, optional): The authentication token. Defaults to None
@@ -50,7 +48,6 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         args = {"color": color, "glyph": glyph, **kwargs}
         return await super()._create(
             id,
-            owner,
             token=token,
             required_permission=[GulpUserPermission.ADMIN],
             **args,
