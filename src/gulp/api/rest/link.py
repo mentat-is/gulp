@@ -21,14 +21,11 @@ import gulp.api.rest.collab_utility as collab_utility
 import gulp.defs
 import gulp.plugin
 import gulp.utils
-from gulp.api.collab.base import (
-    GulpAssociatedEvent,
+from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpCollabLevel,
     GulpCollabType,
 )
-from gulp.api.collab.base import GulpCollabObject
-from gulp.defs import InvalidArgument
+from gulp.api.collab.structs import GulpCollabObject
 
 _app: APIRouter = APIRouter()
 

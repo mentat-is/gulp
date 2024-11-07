@@ -12,13 +12,13 @@ from gulp import config
 from typing import Optional, Type, TypeVar
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpCollabType
-from gulp.api.elastic.structs import GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpIngestionFilter
 from gulp.api import opensearch_api
 from gulp.api import collab_api
 from gulp.api.collab import db
 from gulp.api.mapping.models import GulpMapping
-from gulp.plugin_params import GulpPluginGenericParams
-from gulp.utils import logger, configure_logger
+from gulp.plugin_params import GulpPluginGenericParameters
+from gulp.utils import GulpLogger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
@@ -157,12 +157,12 @@ async def test_init():
 
     #await testbed()
     #return
-    logger().debug("---> init")
+    GulpLogger().debug("---> init")
     config.init()
     
     global _os, _pg
     if _opt_reset:
-        logger().debug("resetting...")
+        GulpLogger().debug("resetting...")
         _os = opensearch_api.elastic()
         await opensearch_api.datastream_create(_os, _opt_index)
         await db.setup(force_recreate=True)
@@ -173,13 +173,13 @@ async def test_init():
         _pg = await collab_api.engine()
 
 async def test_login_logout():
-    logger().debug("---> test_login_logout")
+    GulpLogger().debug("---> test_login_logout")
     session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
     await GulpUser.logout(session.id)
     return
 
 async def test_ingest_windows():
-    logger().debug("---> test_ingest_windows")
+    GulpLogger().debug("---> test_ingest_windows")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -192,12 +192,12 @@ async def test_ingest_windows():
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    logger().debug(
+    GulpLogger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv():
-    logger().debug("---> test_ingest_csv")
+    GulpLogger().debug("---> test_ingest_csv")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -208,16 +208,16 @@ async def test_ingest_csv():
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
     
     generic_mapping = GulpMapping(opt_timestamp_field="UpdateTimestamp")
-    params: GulpPluginGenericParams = GulpPluginGenericParams(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
+    params: GulpPluginGenericParameters = GulpPluginGenericParameters(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    logger().debug(
+    GulpLogger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv_with_mappings():
-    logger().debug("---> test_ingest_csv")
+    GulpLogger().debug("---> test_ingest_csv")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -228,16 +228,16 @@ async def test_ingest_csv_with_mappings():
     # create stats upfront
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
 
-    params: GulpPluginGenericParams = GulpPluginGenericParams(opt_mapping_file="mftecmd_csv.json", opt_mapping_id="record")
+    params: GulpPluginGenericParameters = GulpPluginGenericParameters(opt_mapping_file="mftecmd_csv.json", opt_mapping_id="record")
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    logger().debug(
+    GulpLogger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv_stacked():
-    logger().debug("---> test_ingest_csv_stacked")
+    GulpLogger().debug("---> test_ingest_csv_stacked")
 
     # load plugin
     start_time = timeit.default_timer()
@@ -248,11 +248,11 @@ async def test_ingest_csv_stacked():
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
 
     generic_mapping = GulpMapping(opt_timestamp_field="UpdateTimestamp", opt_agent_type="mftecmd", opt_event_code="j")
-    params: GulpPluginGenericParams = GulpPluginGenericParams(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
+    params: GulpPluginGenericParameters = GulpPluginGenericParameters(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    logger().debug(
+    GulpLogger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 

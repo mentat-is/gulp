@@ -8,10 +8,10 @@ import muty.xml
 
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginSpecificParam, GulpPluginGenericParams
+from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters
 
 try:
     from aiocsv import AsyncDictReader
@@ -79,7 +79,7 @@ class Plugin(GulpPluginBase):
         self, record: GulpDocument, record_idx: int
     ) -> GulpDocument:
 
-        # logger().debug("record: %s" % record)
+        # GulpLogger().debug("record: %s" % record)
         # tweak event duration ...
         record.event_duration = 9999
         return record
@@ -93,7 +93,7 @@ class Plugin(GulpPluginBase):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginGenericParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(

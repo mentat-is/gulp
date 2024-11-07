@@ -5,8 +5,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T, GulpUserPermission
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab_api import session
-from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
-from gulp.utils import logger
+from gulp.api.opensearch.structs import GulpAssociatedDocument, GulpDocument
+from gulp.utils import GulpLogger
 
 
 class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
@@ -107,7 +107,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             tags: the tags associated with the note
             title: the title of the note
             private: whether the note is private
-            token: the token of the user
+            token: the token of the user who is creating the object, for access check
             ws_id: the websocket id
             req_id: the request id
             kwargs: additional arguments

@@ -19,7 +19,7 @@ from gulp.api.collab_api import (
     shutdown,
 )
 from gulp.defs import ObjectNotFound
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 async def exists(url: str) -> bool:
@@ -33,7 +33,7 @@ async def exists(url: str) -> bool:
         bool: True if the database exists, False otherwise.
     """
     b = await asyncio.to_thread(database_exists, url=url)
-    logger().debug("---> exists: url=%s, result=%r" % (url, b))
+    GulpLogger().debug("---> exists: url=%s, result=%r" % (url, b))
     return b
 
 
@@ -54,15 +54,15 @@ async def drop(url: str, raise_if_not_exists: bool = False) -> None:
         internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
         """
         if database_exists(url):
-            logger().info("--> drop: dropping database %s ..." % (url))
+            GulpLogger().info("--> drop: dropping database %s ..." % (url))
             drop_database(url)
-            logger().info("--> drop: database %s dropped ..." % (url))
+            GulpLogger().info("--> drop: database %s dropped ..." % (url))
         else:
-            logger().warning("--> drop: database %s does not exist!" % (url))
+            GulpLogger().warning("--> drop: database %s does not exist!" % (url))
             if raise_if_not_exists:
                 raise ObjectNotFound("database %s does not exist!" % (url))
 
-    logger().debug(
+    GulpLogger().debug(
         "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
     )
     await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
@@ -75,13 +75,13 @@ async def create(url: str) -> None:
     Args:
         url (str): The URL of the database to create.
     """
-    logger().debug("---> create: url=%s" % (url))
+    GulpLogger().debug("---> create: url=%s" % (url))
     await asyncio.to_thread(create_database, url=url)
 
 
 async def _setup_collab_expirations() -> None:
     # TODO: check issues with pg-cron process dying
-    logger().debug("setting up stats and tokens expiration with pg_cron ...")
+    GulpLogger().debug("setting up stats and tokens expiration with pg_cron ...")
 
     async with await session() as sess:
         # create pg_cron extension
@@ -237,7 +237,7 @@ async def setup(force_recreate: bool = False) -> None:
 
     url = config.postgres_url()
     if force_recreate:
-        logger().warning(
+        GulpLogger().warning(
             "force_recreate=True, dropping and recreating collab database ..."
         )
         await _recreate_internal(url)
@@ -251,9 +251,9 @@ async def setup(force_recreate: bool = False) -> None:
                 )
                 if res.scalar_one_or_none():
                     # tables ok
-                    logger().info("collab database exists and tables are ok.")
+                    GulpLogger().info("collab database exists and tables are ok.")
                     return
 
             # recreate tables
-            logger().warning("collab database exists but tables are missing.")
+            GulpLogger().warning("collab database exists but tables are missing.")
             await _recreate_internal(url)

@@ -17,7 +17,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
 )
 from gulp.api.collab_api import session
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 from dotwiz import DotWiz
 
 
@@ -55,7 +55,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     )
 
     def __init__(self, *args, **kwargs):
-        logger().debug(f"---> GulpStatsBase: args={args}, kwargs={kwargs}")
+        GulpLogger().debug(f"---> GulpStatsBase: args={args}, kwargs={kwargs}")
         if type(self) is GulpStatsBase:
             raise TypeError("GulpStatsBase cannot be instantiated directly")
         super().__init__(*args, **kwargs)
@@ -118,7 +118,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         Returns:
             T: The created instance.
         """
-        logger().debug(
+        GulpLogger().debug(
             f"--->_create: id={id}, owner={owner}, ws_id={ws_id}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}"
         )
         operation: str = kwargs.get("operation", None)
@@ -129,7 +129,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         if time_expire > 0:
             now = muty.time.now_msec()
             time_expire = muty.time.now_msec() + time_expire
-            logger().debug(f"now={now}, setting stats \"{id}\".time_expire to {time_expire}")
+            GulpLogger().debug(f"now={now}, setting stats \"{id}\".time_expire to {time_expire}")
 
         args = {
             "operation": operation,
@@ -158,7 +158,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         ensure_eager_load: bool=True,
         **kwargs,
     ) -> T:
-        logger().debug(
+        GulpLogger().debug(
             f"--->_create_or_get: id={id}, owner={owner}, operation={operation}, context={context}, kwargs={kwargs}"    
         )
         existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
@@ -238,7 +238,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Returns:
             GulpIngestionStats: The created CollabStats object.
         """
-        logger().debug(
+        GulpLogger().debug(
             f"---> create_or_get: id={id}, owner={owner}, operation={operation}, context={context}, source_total={source_total}, kwargs={kwargs}"
         )
         return await cls._create_or_get(
@@ -261,7 +261,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             id (str): The request ID.
             ws_id (str, optional): The websocket ID. Defaults to None.
         """
-        logger().debug(f"---> cancel_by_id: id={id}, ws_id={ws_id}")
+        GulpLogger().debug(f"---> cancel_by_id: id={id}, ws_id={ws_id}")
         await cls.update_by_id(
             id,
             {"status": GulpRequestStatus.CANCELED},
@@ -278,7 +278,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         Returns:
             None
         """
-        logger().debug(f"---> cancel: {self}, ws_id={ws_id}")
+        GulpLogger().debug(f"---> cancel: {self}, ws_id={ws_id}")
         await self.update(
             {"status": GulpRequestStatus.CANCELED},
             ws_id=ws_id,
@@ -324,9 +324,9 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         """
         msg = f"---> update: ws_id={ws_id}, throw_if_not_found={throw_if_not_found}, error={error}, status={status}, source_processed={source_processed}, source_failed={source_failed}, records_failed={records_failed}, records_skipped={records_skipped}, records_processed={records_processed}, records_ingested={records_ingested}, kwargs={kwargs}"
         if error:
-            logger().error(msg)
+            GulpLogger().error(msg)
         else:
-            logger().debug(msg)
+            GulpLogger().debug(msg)
 
         async with await session() as sess:
             # be sure to read the latest version from db
@@ -357,13 +357,13 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 self.status = status
 
             if self.source_processed == self.source_total:
-                logger().debug(
+                GulpLogger().debug(
                     "source_processed == source_total, setting request \"%s\" to DONE" % (self.id)
                 )
                 self.status = GulpRequestStatus.DONE
             
             if self.source_failed == self.source_total:
-                logger().error(
+                GulpLogger().error(
                     "source_failed == source_total, setting request \"%s\" to FAILED" % (self.id)
                 )
                 self.status = GulpRequestStatus.FAILED
@@ -376,7 +376,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 and self.source_failed >= failure_threshold
             ):
                 # too many failures, abort
-                logger().error(
+                GulpLogger().error(
                     "TOO MANY FAILURES req_id=%s (failed=%d, threshold=%d), aborting ingestion!"
                     % (self.id, self.source_failed, failure_threshold)
                 )
@@ -388,7 +388,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 GulpRequestStatus.DONE,
             ]:
                 self.time_finished = muty.time.now_msec()
-                logger().debug("request \"%s\" COMPLETED with status=%s" % (self.id, self.status))
+                GulpLogger().debug("request \"%s\" COMPLETED with status=%s" % (self.id, self.status))
             
             # update the instance
             await super().update(
@@ -406,5 +406,5 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
                 pass
 
             if status == GulpRequestStatus.CANCELED:
-                logger().error("request \"%s\" set to CANCELED" % (self.id))
+                GulpLogger().error("request \"%s\" set to CANCELED" % (self.id))
                 raise RequestCanceledError()

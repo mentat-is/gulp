@@ -1,23 +1,34 @@
-from typing import Optional
-from sqlalchemy import String
+from typing import Optional, Union, override
+from sqlalchemy import BIGINT, Boolean, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabObject, GulpCollabType, T
+from gulp.utils import GulpLogger
 
 
-class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
+class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     """
-    an highlight in the gulp collaboration system
+    a stored query in the gulp collaboration system
     """
-
-    time_range: Mapped[tuple[int, int]] = mapped_column(
+    dsl: Mapped[dict] = mapped_column(
         JSONB,
-        doc="The time range of the highlight, in nanoseconds from unix epoch.",
+        doc="The query in OpenSearch DSL format, ready to be used by the opensearch query api.",
     )
-    log_file_path: Mapped[Optional[str]] = mapped_column(
-        String, default=None, doc="The associated log file path or name."
+    sigma: Mapped[Optional[bool]] = mapped_column(
+        Boolean,
+        default=False,
+        doc="Whether the query is a sigma query.",
     )
-
+    text: Mapped[Optional[str]] = mapped_column(
+        String, doc="The text of the query in the original format.",
+        default=None,
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        String, doc="Query description.",
+        default=None,
+    )
+    
     @classmethod
     async def create(
         cls,
@@ -48,7 +59,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             tags: the tags associated with the highlight
             title: the title of the highlight
             private: whether the highlight is private
-            token: the token of the user creating the object, for access check
+            token: the token of the user
             ws_id: the websocket id
             req_id: the request id
             kwargs: additional arguments

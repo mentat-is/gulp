@@ -22,7 +22,7 @@ import gulp.plugin
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
 
@@ -564,7 +564,7 @@ async def mapping_file_list_handler(
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
         path = config.path_mapping_files()
-        logger().debug("listing mapping files in %s" % (path))
+        GulpLogger().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
 
         # purge paths

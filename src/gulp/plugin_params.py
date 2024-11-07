@@ -4,7 +4,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, SkipValidation, model_validator
 from gulp.api.mapping.models import GulpMapping
 
-class GulpPluginGenericParams(BaseModel):
+class GulpPluginGenericParameters(BaseModel):
     """
     parameters for a plugin, to be passed to ingest and query API.
 
@@ -41,7 +41,7 @@ class GulpPluginGenericParams(BaseModel):
         return json.loads(data)
 
 
-class GulpPluginSpecificParam(BaseModel):
+class GulpPluginAdditionalParameter(BaseModel):
     """
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
 

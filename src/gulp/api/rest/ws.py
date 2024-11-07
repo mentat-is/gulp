@@ -23,7 +23,7 @@ from gulp.api.collab.user_session import GulpUserSession
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 from gulp.api.collab.structs import GulpUserPermission
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
 
@@ -63,10 +63,10 @@ class WsData(BaseModel):
     type: WsQueueDataType = Field(
         ..., description="The type of data carried by the websocket."
     )
-    operation: str = Field(..., description="The operation this data belongs to.")
     user: str = Field(..., description="The user who issued the request.")
     ws_id: str = Field(..., description="The WebSocket ID.")
     req_id: Optional[str] = Field(None, description="The request ID.")
+    operation: Optional[str] = Field(None, description="The operation this data belongs to.")
     private: Optional[bool] = Field(
         False,
         description="If the data is private(=only ws=ws_id can receive it).",
@@ -126,7 +126,7 @@ class GulpConnectedSockets():
         """
         ws = ConnectedSocket(ws=ws, ws_id=ws_id, type=type, operation=operation)
         self._sockets[str(id(ws))] = ws
-        logger().debug(f"added connected ws {id(ws)}: {ws}")
+        GulpLogger().debug(f"added connected ws {id(ws)}: {ws}")
         return ws
     
     async def remove(self, ws: WebSocket, flush: bool=True) -> None:
@@ -141,7 +141,7 @@ class GulpConnectedSockets():
         id_str = str(id(ws))
         cws = self._sockets.get(id_str, None)
         if cws is None:
-            logger().warning(f"no websocket found for ws_id={id_str}")
+            GulpLogger().warning(f"no websocket found for ws_id={id_str}")
             return
 
         # flush queue first
@@ -155,9 +155,9 @@ class GulpConnectedSockets():
                     pass
 
             await q.join()
-            logger().debug(f"queue flush done for ws id={id_str}")
+            GulpLogger().debug(f"queue flush done for ws id={id_str}")
 
-        logger().debug(f"removed connected ws, id={id_str}")
+        GulpLogger().debug(f"removed connected ws, id={id_str}")
         del self._sockets[id_str]
 
     def find(self, ws_id: str) -> ConnectedSocket:
@@ -174,7 +174,7 @@ class GulpConnectedSockets():
             if v.ws_id == ws_id:
                 return v
             
-        logger().warning(f"no websocket found for ws_id={ws_id}")
+        GulpLogger().warning(f"no websocket found for ws_id={ws_id}")
         return None
     
     async def wait_all_close(self) -> None:
@@ -182,9 +182,9 @@ class GulpConnectedSockets():
         Waits for all active websockets to close.
         """
         while len(self._sockets) > 0:
-            logger().debug("waiting for active websockets to close ...")
+            GulpLogger().debug("waiting for active websockets to close ...")
             await asyncio.sleep(1)
-        logger().debug("all active websockets closed!")
+        GulpLogger().debug("all active websockets closed!")
 
     async def close_all(self) -> None:
         """
@@ -192,7 +192,7 @@ class GulpConnectedSockets():
         """
         for _, cws in self._sockets.items():
             await self.remove(cws.ws, flush=True)
-        logger().debug("all active websockets closed!")
+        GulpLogger().debug("all active websockets closed!")
     
     async def broadcast_data(self, d: WsData):
         """
@@ -205,7 +205,7 @@ class GulpConnectedSockets():
             if cws.type:
                 # check types
                 if not d.type in cws.type:
-                    logger().warning(
+                    GulpLogger().warning(
                         "skipping entry type=%s for ws_id=%s, cws.types=%s"
                         % (d.type, cws.ws_id, cws.type)
                     )
@@ -213,7 +213,7 @@ class GulpConnectedSockets():
             if cws.operation:
                 # check operation/s
                 if not d.operation in cws.operation:
-                    logger().warning(
+                    GulpLogger().warning(
                         "skipping entry type=%s for ws_id=%s, cws.operation=%s"
                         % (d.type, cws.ws_id, cws.operation)
                     )
@@ -226,7 +226,7 @@ class GulpConnectedSockets():
                     # not the target websocket
                     if d.private:
                         # do not broadcast private data
-                        logger().warning(
+                        GulpLogger().warning(
                             "skipping entry type=%s for ws_id=%s, private=True"
                             % (d.type, cws.ws_id)
                         )
@@ -277,14 +277,14 @@ class GulpSharedWsDataQueue():
         """
 
         # uses an executor to run the blocking get() call in a separate thread
-        logger().debug("starting asyncio queue fill task ...")
+        GulpLogger().debug("starting asyncio queue fill task ...")
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as pool:
             while True:
                 if rest_api.is_shutdown():
                     break
 
-                # logger().debug("running ws_q.get in executor ...")
+                # GulpLogger().debug("running ws_q.get in executor ...")
                 try:
                     # get a WsData entry from the shared multiprocessing queue
                     d: dict = await loop.run_in_executor(pool, self._shared_q.get, True, 1)
@@ -325,9 +325,9 @@ class GulpSharedWsDataQueue():
 
     def add_data(self,
         type: WsQueueDataType,
-        operation: str,
         user: str,
         ws_id: str,
+        operation: str=None,
         req_id: str = None,
         data: dict = None,
         private: bool = False) -> None:
@@ -336,9 +336,9 @@ class GulpSharedWsDataQueue():
 
         Args:
             type (WsQueueDataType): The type of data.
-            operation (str): The operation.
             user (str): The user.
             ws_id (str): The WebSocket ID.
+            operation (str, optional): The operation.
             req_id (str, optional): The request ID. Defaults to None.
             data (dict, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.        
@@ -353,7 +353,7 @@ class GulpSharedWsDataQueue():
             private=private,
             data=data,
         )
-        logger().debug("adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id))
+        GulpLogger().debug("adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id))
         # TODO: try and see if it works without serializing...
         self._shared_q.put(wsd.model_dump())
 
@@ -377,7 +377,7 @@ class WebSocketHandler(WebSocketEndpoint):
 
     @override
     async def on_connect(self, websocket: WebSocket) -> None:
-        logger().debug("awaiting accept ...")
+        GulpLogger().debug("awaiting accept ...")
         super().on_connect(websocket)
 
         try:
@@ -385,24 +385,24 @@ class WebSocketHandler(WebSocketEndpoint):
             params = WsParameters.model_validate_json(js)
             await GulpUserSession.check_token_permission(params.token, GulpUserPermission.READ)
         except Exception as ex:
-            logger().error("ws rejected: %s" % (ex))
+            GulpLogger().error("ws rejected: %s" % (ex))
             return
 
         # connection is ok
-        logger().debug("ws accepted for ws_id=%s!" % (params.ws_id))
+        GulpLogger().debug("ws accepted for ws_id=%s!" % (params.ws_id))
         ws = GulpConnectedSockets().add(websocket, params.ws_id, params.type, params.operation)
         self._ws = ws
         self._cancel_event = asyncio.Event()
 
         # start the consumer task to send data to the websocket as it arrives in the queue (via calls GulpSharedWsDataQueue.add_data())
         self._consumer_task = asyncio.create_task(self.send_data_loop())
-        logger().debug("created consumer task for ws_id=%s!" % (params.ws_id))
+        GulpLogger().debug("created consumer task for ws_id=%s!" % (params.ws_id))
 
     @override
     async def on_disconnect(self, websocket: WebSocket, close_code: int) -> None:
-        logger().debug("on_disconnect, close_code=%d" % (close_code))
+        GulpLogger().debug("on_disconnect, close_code=%d" % (close_code))
         if self._consumer_task is not None:
-            logger().debug("canceling consumer task ...")
+            GulpLogger().debug("canceling consumer task ...")
             self._consumer_task.cancel()
 
         # remove websocket from active list and close it
@@ -418,7 +418,7 @@ class WebSocketHandler(WebSocketEndpoint):
         Yields:
             Any: The item read from the queue.            
         """
-        # logger().debug("reading items from queue ...")
+        # GulpLogger().debug("reading items from queue ...")
         while True:
             item = await q.get()
             q.task_done()
@@ -431,7 +431,7 @@ class WebSocketHandler(WebSocketEndpoint):
         Raises:
             WebSocketDisconnect: If the websocket disconnects.
         """
-        logger().debug('starting ws "%s" loop ...' % (self._ws.ws_id))
+        GulpLogger().debug('starting ws "%s" loop ...' % (self._ws.ws_id))
         async for item in self._read_items(self._ws.q):
             try:
                 # send
@@ -442,13 +442,13 @@ class WebSocketHandler(WebSocketEndpoint):
                 await asyncio.sleep(ws_delay)
 
             except WebSocketDisconnect as ex:
-                logger().exception("ws disconnected: %s" % (ex))
+                GulpLogger().exception("ws disconnected: %s" % (ex))
                 break
             except Exception as ex:
-                logger().exception("ws error: %s" % (ex))
+                GulpLogger().exception("ws error: %s" % (ex))
                 break
             except asyncio.CancelledError as ex:
-                logger().exception("ws cancelled: %s" % (ex))
+                GulpLogger().exception("ws cancelled: %s" % (ex))
                 break
 
 def router() -> APIRouter:

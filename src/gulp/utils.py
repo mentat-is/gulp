@@ -172,7 +172,7 @@ async def send_mail(
         cc_list = to[1:]
 
     m = EmailMessage()
-    logger().info(
+    GulpLogger().info(
         "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
         % (server, port, sender, to_email, cc_list, subject)
     )

@@ -32,9 +32,9 @@ from gulp.api.collab.client import Client
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import GulpUser
-from gulp.api.elastic.structs import GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpIngestionFilter
 from gulp.plugin_internal import GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
 
@@ -95,7 +95,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     """
 
     # get headers and body
-    logger().debug("request headers: %s" % (r.headers))
+    GulpLogger().debug("request headers: %s" % (r.headers))
     continue_offset: int = int(r.headers.get("continue_offset", 0))
     total_file_size: int = int(r.headers["size"])
     body = await r.body()
@@ -106,8 +106,8 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     file_content: bytes = None
     json_payload_part = data.parts[0]
     file_part = data.parts[1]
-    logger().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
-    logger().debug("file_part.headers=\n%s" % (file_part.headers))
+    GulpLogger().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
+    GulpLogger().debug("file_part.headers=\n%s" % (file_part.headers))
     fsize: int = 0
 
     # ingestion filter
@@ -115,16 +115,16 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     payload_dict = None
     try:
         payload_dict = json.loads(payload)
-        logger().debug("ingestion json payload: %s" % (payload_dict))
+        GulpLogger().debug("ingestion json payload: %s" % (payload_dict))
         if len(payload_dict) == 0:
-            logger().warning('empty "payload" part')
+            GulpLogger().warning('empty "payload" part')
             payload_dict = None
     except:
-        logger().exception('invalid or None "payload" part: %s' % (payload))
+        GulpLogger().exception('invalid or None "payload" part: %s' % (payload))
 
     # download file chunk (also ensure cache dir exists)
     content_disposition = file_part.headers[b"Content-Disposition"].decode("utf-8")
-    logger().debug("Content-Disposition: %s" % (content_disposition))
+    GulpLogger().debug("Content-Disposition: %s" % (content_disposition))
     fname_start: int = content_disposition.find("filename=") + len("filename=")
     fname_end: int = content_disposition.find(";", fname_start)
     filename: str = content_disposition[fname_start:fname_end]
@@ -135,7 +135,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     if filename[-1] in ['"', "'"]:
         filename = filename[:-1]
 
-    logger().debug("filename (extracted from Content-Disposition): %s" % (filename))
+    GulpLogger().debug("filename (extracted from Content-Disposition): %s" % (filename))
     cache_dir = config.upload_tmp_dir()
     cache_file_path = muty.file.safe_path_join(
         cache_dir, "%s/%s" % (req_id, filename), allow_relative=True
@@ -144,7 +144,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     fsize = await muty.file.get_size(cache_file_path)
     if fsize == total_file_size:
         # upload is already complete
-        logger().info("file size matches, upload is already complete!")
+        GulpLogger().info("file size matches, upload is already complete!")
         js = {"file_path": cache_file_path, "done": True}
         if payload_dict is not None:
             # valid payload
@@ -154,7 +154,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     file_content = file_part.content
     # LOGGER.debug("filename=%s, file chunk size=%d" % (filename, len(file_content)))
     async with aiofiles.open(cache_file_path, "ab+") as f:
-        logger().debug(
+        GulpLogger().debug(
             "writing chunk of size=%d at offset=%d in %s ..."
             % (len(file_content), continue_offset, cache_file_path)
         )
@@ -164,12 +164,12 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
 
     # get written file size
     fsize = await muty.file.get_size(cache_file_path)
-    logger().debug("current size of %s: %d" % (cache_file_path, fsize))
+    GulpLogger().debug("current size of %s: %d" % (cache_file_path, fsize))
     if fsize == total_file_size:
-        logger().info("file size matches, upload complete!")
+        GulpLogger().info("file size matches, upload complete!")
         js = {"file_path": cache_file_path, "done": True}
     else:
-        logger().warning(
+        GulpLogger().warning(
             "file size mismatch(total=%d, current=%d), upload incomplete!"
             % (total_file_size, fsize)
         )
@@ -181,7 +181,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
     if payload_dict is not None:
         # valid payload
         js["payload"] = payload_dict
-    logger().debug("type=%s, payload=%s" % (type(js), js))
+    GulpLogger().debug("type=%s, payload=%s" % (type(js), js))
     return js
 
 
@@ -201,7 +201,7 @@ def _get_ingest_payload(
     payload = multipart_result.get("payload", None)
     if payload is None or len(payload) == 0:
         #  no payload
-        logger().debug("no payload found in multipart")
+        GulpLogger().debug("no payload found in multipart")
         return GulpPluginGenericParams(), GulpIngestionFilter()
 
     # parse each part of the payload
@@ -220,7 +220,7 @@ def _get_ingest_payload(
     else:
         plugin_params = GulpPluginGenericParams.from_dict(plugin_params)
 
-    logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
+    GulpLogger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
     return plugin_params, flt
 
 
@@ -507,7 +507,7 @@ async def ingest_file_handler(
     )
 
     # handle multipart request manually
-    logger().debug("headers=%s" % (r.headers))
+    GulpLogger().debug("headers=%s" % (r.headers))
     multipart_result = await _request_handle_multipart(r, req_id)
     done: bool = multipart_result["done"]
     file_path: str = multipart_result["file_path"]

@@ -11,7 +11,7 @@ import muty.xml
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase

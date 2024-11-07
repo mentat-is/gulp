@@ -1,6 +1,6 @@
 import json
-from enum import IntEnum, StrEnum
-from typing import Any, Dict, Literal, Optional, Set, Union, TypeVar, override
+from enum import IntEnum
+from typing import Optional, Union, TypeVar, override
 
 import muty.crypto
 import muty.dict
@@ -8,10 +8,8 @@ import muty.string
 import muty.time
 from pydantic import BaseModel, Field, model_validator
 
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
-from gulp.defs import GulpLogLevel, GulpSortOrder
-from gulp.plugin_params import GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.api.mapping.models import GulpMapping
+from gulp.defs import GulpSortOrder
 
 EXAMPLE_QUERY_OPTIONS = {
     "example": {
@@ -278,76 +276,56 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         return True
     """
 
-    def to_opensearch_dsl(self, timestamp_field: str = "@timestamp") -> dict:
+    def to_opensearch_dsl(self, timestamp_field: str = "@timestamp", flt: "GulpQueryFilter"=None) -> dict:
         """
         convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
 
         Args:
             timestamp_field (str, optional): The timestamp field, default="@timestamp"
+            flt (GulpQueryFilter, optional): used to pre-filter the query, default=None
         Returns:
-            dict: The Elasticsearch query dictionary.
-
+            dict: a ready to be used query object for the search API, like:
+            ```json
+            {
+                "query": {
+                    "query_string": {
+                        "query": "agent.type: \"winlogbeat\" AND gulp.operation: \"test\" AND gulp.context: \"testcontext\" AND log.file.path: \"test.log\" AND _id: \"testid\" AND event.original: \"test event\" AND event.code: \"5152\" AND @timestamp: >=1609459200000 AND @timestamp: <=1609545600000",
+                        "analyze_wildcard": true,
+                        "default_field": "_id"
+                    }
+                }
+            }
+            ```
         """
-        d = self.model_dump(exclude_none=True)
-        if not d:
-            # empty filter
-            qs = "*"
-        else:
-            # build the query string
+        def _build_clauses():
             clauses = []
             if self.agent_type:
-                clauses.append(
-                    self._query_string_build_or_clauses("agent.type", self.agent_type)
-                )
+                clauses.append(self._query_string_build_or_clauses("agent.type", self.agent_type))
             if self.operation:
-                clauses.append(
-                    self._query_string_build_or_clauses(
-                        "gulp.operation", self.operation
-                    )
-                )
+                clauses.append(self._query_string_build_or_clauses("gulp.operation", self.operation))
             if self.context:
-                clauses.append(
-                    self._query_string_build_or_clauses("gulp.context", self.context)
-                )
+                clauses.append(self._query_string_build_or_clauses("gulp.context", self.context))
             if self.log_file_path:
-                clauses.append(
-                    self._query_string_build_or_clauses(
-                        "log.file.path", self.log_file_path
-                    )
-                )
+                clauses.append(self._query_string_build_or_clauses("log.file.path", self.log_file_path))
             if self.id:
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
-                field = (
-                    "event.original.text"
-                    if self.opt_event_original_full_text_search
-                    else "event.original"
-                )
-                clauses.append(
-                    self._query_string_build_eq_clause(field, self.event_original)
-                )
+                field = "event.original.text" if self.opt_event_original_full_text_search else "event.original"
+                clauses.append(self._query_string_build_eq_clause(field, self.event_original))
             if self.event_code:
-                clauses.append(
-                    self._query_string_build_or_clauses("event.code", self.event_code)
-                )
+                clauses.append(self._query_string_build_or_clauses("event.code", self.event_code))
             if self.time_range:
                 if self.time_range[0]:
-                    clauses.append(
-                        self._query_string_build_gte_clause(
-                            timestamp_field, self.time_range[0]
-                        )
-                    )
+                    clauses.append(self._query_string_build_gte_clause(timestamp_field, self.time_range[0]))
                 if self.time_range[1]:
-                    clauses.append(
-                        self._query_string_build_lte_clause(
-                            timestamp_field, self.time_range[1]
-                        )
-                    )
+                    clauses.append(self._query_string_build_lte_clause(timestamp_field, self.time_range[1]))
             if self.extra:
                 for k, v in self.extra.items():
                     clauses.append(self._query_string_build_or_clauses(k, v))
+            return clauses
 
-            qs = " AND ".join(filter(None, clauses)) or "*"
+        d = self.model_dump(exclude_none=True)
+        qs = "*" if not d else " AND ".join(filter(None, _build_clauses())) or "*"
 
         # default_field: _id below is an attempt to fix "field expansion matches too many fields"
         # https://discuss.elastic.co/t/no-detection-of-fields-in-query-string-query-strings-results-in-field-expansion-matches-too-many-fields/216137/2
@@ -365,7 +343,21 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         if qs != "*" and self.opt_query_string_parameters:
             query_dict["query"]["query_string"].update(self.opt_query_string_parameters)
 
-        # print('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
+        if flt:
+            # merge with the provided filter using a bool query
+            query_dict = {
+                "query": {
+                    "bool": {
+                        "filter": [
+                            flt.to_opensearch_dsl()['query'],
+                            query_dict["query"],
+                        ]
+                    }
+                }
+            }
+        
+            
+        # GulpLogger().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
 class GulpQueryAdditionalOptions(BaseModel):
@@ -537,23 +529,31 @@ class GulpDocument(BaseModel):
         Returns:
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid. 
         """
-        try:
+        epoch_start: str='1970-01-01T00:00:00Z'
+        if not timestamp:
+            return epoch_start, 0, True
+        
+        try:            
             ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy), False
-            ns = muty.time.string_to_epoch_nsec(ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy)
+            if timestamp.isdigit():
+                # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
+                ns = muty.time.number_to_nanos(timestamp)
+            else:
+                ns = muty.time.string_to_epoch_nsec(ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy)
             return ts, ns, False
         except Exception as e:
             # invalid timestamp
-            return '1970-01-01T00:00:00Z', 0, True
+            return epoch_start, 0, True
     
     @override
     def __init__(
         self,
         plugin_instance,
-        timestamp: str,
-        operation: str,
+        operation: str|int,
         context: str,
         event_original: str,
         event_sequence: int,
+        timestamp: str=None,
         event_code: str = "0",
         event_duration: int = 1,
         log_file_path: str = None,
@@ -563,11 +563,13 @@ class GulpDocument(BaseModel):
         Initialize a GulpDocument instance.
         Args:
             plugin_instance: The calling PluginBase
-            timestamp (str): The timestamp of the event as a numeric string (seconds/milliseconds/nanoseconds from unix epoch) or a string in a format supported by dateutil.parser.
             operation (str): The operation type.
             context (str): The context of the event.
             event_original (str): The original event data.
             event_sequence (int): The sequence number of the event.
+            timestamp (str, optional): The timestamp of the event as a number or numeric string (seconds/milliseconds/nanoseconds from unix epoch)<br>
+                or a string in a format supported by dateutil.parser.<br>
+                if None, assumes **kwargs has been processed by the mapping engine and contains {"@timestamp", "gulp.timestamp" and possibly "gulp.timestamp.invalid" flag}
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
             source (str, optional): The source log file path. Defaults to None.
@@ -576,8 +578,8 @@ class GulpDocument(BaseModel):
             None
         """
         
-        #logger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
-        super().__init__(timestamp=timestamp, operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
+        #GulpLogger().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
+        super().__init__(timestamp=str(timestamp), operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
         mapping: GulpMapping = plugin_instance.selected_mapping()        
         
         self.operation = operation
@@ -599,11 +601,7 @@ class GulpDocument(BaseModel):
         self.log_file_path = log_file_path
 
         # add gulp_event_code (event code as a number)
-        self.gulp_event_code = (
-            int(self.event_code)
-            if self.event_code.isnumeric()
-            else muty.crypto.hash_crc24(self.event_code)
-        )
+        self.gulp_event_code = int(self.event_code) if self.event_code.isnumeric() else muty.crypto.hash_crc24(self.event_code)
 
         # add each kwargs as an attribute as-is
         # @timestamp may have been mapped and already checked for validity in plugin._process_key()
@@ -612,25 +610,24 @@ class GulpDocument(BaseModel):
             setattr(self, k, v)
 
         if not self.timestamp:
-            # if not mapped, means we must use the one provided
+            # it was not in the kwargs, check if it's being passed in the arguments, either flag it as invalid
             self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
                 dayfirst=mapping.opt_timestamp_dayfirst, yearfirst=mapping.opt_timestamp_yearfirst, fuzzy=mapping.opt_timestamp_fuzzy)
             if invalid:
                 # invalid timestamp
                 self.invalid_timestamp=True
         
-        # id is a hash of the event
+        # id is a hash of the document
         self.id = muty.crypto.hash_blake2b(
-            f"{self.event_original}{event_code}{self.event_sequence}"
-        )
-
+            f"{self.event_original}{self.event_code}{self.event_sequence}")
+        
         # finally check for consistency
         GulpDocument.model_validate(self)
-        #logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
+        #GulpLogger().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     def __repr__(self) -> str:
         return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
-
+    
     @override
     def model_dump(self, lite: bool=False, exclude_none: bool=True, exclude_unset: bool=True, **kwargs) -> dict:
         """

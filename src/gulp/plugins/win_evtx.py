@@ -1,4 +1,3 @@
-import json
 from typing import override
 
 import muty.dict
@@ -13,11 +12,10 @@ from lxml import etree
 
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.plugin_params import GulpPluginGenericParameters
 
 
 class Plugin(GulpPluginBase):
@@ -100,24 +98,24 @@ class Plugin(GulpPluginBase):
         d = {}
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
-            # logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
+            # GulpLogger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
 
             # map attrs and values
             if len(e.attrib) == 0:
                 # no attribs, i.e. <Opcode>0</Opcode>
                 if not e.text or not e.text.strip():
                     # none/empty text
-                    # logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
+                    # GulpLogger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
                     continue
 
-                # logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
+                # GulpLogger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
                 mapped = self._process_key(e.tag, e.text)
                 d.update(mapped)
             else:
                 # attribs, i.e. <TimeCreated SystemTime="2019-11-08T23:20:54.670500400Z" />
                 for attr_k, attr_v in e.attrib.items():
                     if not attr_v or not attr_v.strip():
-                        # logger().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
+                        # GulpLogger().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
                         continue
                     if attr_k == "Name":
                         if e.text:
@@ -127,11 +125,11 @@ class Plugin(GulpPluginBase):
                         else:
                             k = e.tag
                             v = attr_v
-                        # logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # GulpLogger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
                         k = "%s.%s" % (e.tag, attr_k)
                         v = attr_v
-                        # logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # GulpLogger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     mapped = self._process_key(k, v)
                     d.update(mapped)
 
@@ -159,7 +157,7 @@ class Plugin(GulpPluginBase):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginGenericParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
@@ -180,7 +178,9 @@ class Plugin(GulpPluginBase):
         )
         try:
             # initialize plugin
-            await self._initialize(mapping_file="windows.json", plugin_params=plugin_params)
+            if plugin_params is None:
+                plugin_params = GulpPluginGenericParameters(opt_mapping_file="windows.json")
+            await self._initialize(plugin_params)
 
             # init parser
             parser = PyEvtxParser(log_file_path)

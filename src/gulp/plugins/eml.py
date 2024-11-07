@@ -11,12 +11,12 @@ import muty.time
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class Plugin(GulpPluginBase):
@@ -29,7 +29,7 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParam]:
+    def additional_parameters(self) -> list[GulpPluginSpecificParam]:
         return [
             GulpPluginSpecificParam(
                 "decode", "bool", "attempt to decode messages wherever possible", True
@@ -160,13 +160,13 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        logger().debug("custom_mapping=%s" % (custom_mapping))
+        GulpLogger().debug("custom_mapping=%s" % (custom_mapping))
 
         if custom_mapping.options.agent_type is None:
             plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
-            logger().warning("using plugin name=%s" % (plugin))
+            GulpLogger().warning("using plugin name=%s" % (plugin))
 
         # get options
         # attempt_decode = plugin_params.extra.get("decode", True)

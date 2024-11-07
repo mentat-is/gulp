@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
@@ -47,7 +47,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             index: The opensearch index to associate the operation with.
             glyph: The glyph associated with the operation.
             description: The description of the operation.
-            token: The token of the user.
+            token: The token of the user creating the object, for permission check (needs ADMIN permission).
             kwargs: Arbitrary keyword arguments.
 
         Returns:

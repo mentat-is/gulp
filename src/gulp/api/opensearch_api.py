@@ -9,7 +9,7 @@ import muty.string
 import muty.time
 
 import gulp.config as config
-from gulp.api.elastic.structs import (
+from gulp.api.opensearch.structs import (
     GulpDocumentFilterResult,
     GulpIngestionFilter,
     GulpQueryAdditionalOptions,

@@ -29,9 +29,9 @@ from sqlalchemy.orm import (
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins.serialize import SerializeMixin
 from gulp.api.collab_api import session
-from gulp.api.elastic.structs import GulpAssociatedDocument
+from gulp.api.opensearch.structs import GulpAssociatedDocument
 from gulp.defs import ObjectNotFound
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class SessionExpired(Exception):
@@ -56,6 +56,7 @@ class GulpRequestStatus(StrEnum):
     DONE = "done"
     FAILED = "failed"
     CANCELED = "canceled"
+    PENDING = "pending"
 
 
 class GulpUserPermission(StrEnum):
@@ -85,7 +86,6 @@ class GulpCollabType(StrEnum):
     STORY = "story"
     LINK = "link"
     STORED_QUERY = "stored_query"
-    STORED_SIGMA = "stored_sigma"
     STATS_INGESTION = "stats_ingestion"
     USER_DATA = "user_data"
     CONTEXT = "context"
@@ -381,7 +381,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         # create instance
-        logger().debug(f"---> _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}, token={token}, required_permission={required_permission}, ws_id={ws_id}, req_id={req_id}, sess={sess}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}")
+        GulpLogger().debug(f"---> _create: id={id}, type={cls.__gulp_collab_type__}, owner={owner}, token={token}, required_permission={required_permission}, ws_id={ws_id}, req_id={req_id}, sess={sess}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}")
         instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
         instance.id = id        
         instance.owner = owner
@@ -442,7 +442,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        logger().debug("---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess))
+        GulpLogger().debug("---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess))
         created = False
         if not sess:
             created=True
@@ -499,7 +499,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         try:
             obj:GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess=sess, throw_if_not_found=throw_if_not_found)
             if obj:
-                #logger().debug("---> delete_by_id: obj=%s" % (await obj))
+                #GulpLogger().debug("---> delete_by_id: obj=%s" % (await obj))
                 await obj.delete(token=token, permission=permission, ws_id=ws_id, req_id=req_id, sess=sess, throw_if_not_found=throw_if_not_found)
         finally:
             if created:
@@ -606,11 +606,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 obj.time_updated = muty.time.now_msec()
 
                 sess.add(obj)
-                logger().debug("---> updated: %s" % (obj))
+                GulpLogger().debug("---> updated: %s" % (obj))
 
             return obj
 
-        logger().debug(f"---> update: obj_id={self.id}, type={self.__class__}, d={d}")
+        GulpLogger().debug(f"---> update: obj_id={self.id}, type={self.__class__}, d={d}")
         created=False
         if not sess:
             created = True
@@ -653,7 +653,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}")
+        GulpLogger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}")
         o = await cls.get_one(
             GulpCollabFilter(id=[id], type=[cls.__gulp_collab_type__]),
             ws_id,
@@ -686,7 +686,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
 
-        logger().debug("---> get_one: type=%s, filter=%s" % (cls.__name__, flt))
+        GulpLogger().debug("---> get_one: type=%s, filter=%s" % (cls.__name__, flt))
         c = await cls.get(flt, ws_id, req_id, sess, throw_if_not_found)
         if c:
             return c[0]
@@ -719,7 +719,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
 
         # TODO: handle websocket
-        logger().debug("---> get: type=%s, filter=%s" % (cls.__name__, flt))
+        GulpLogger().debug("---> get: type=%s, filter=%s" % (cls.__name__, flt))
         flt = flt or GulpCollabFilter()
         created: bool = False
         if sess is None:
@@ -728,7 +728,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         try:
             # build query
             q = flt.to_select_query(cls)
-            logger().debug("---> get: sess_created=%r, query=\n%s\n" % (created, q))
+            GulpLogger().debug("---> get: sess_created=%r, query=\n%s\n" % (created, q))
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(res, throw_if_not_found=throw_if_not_found, detail=q)
             if c:
@@ -737,7 +737,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     for cc in c:
                         await cls.eager_load_by_id(cc.id, sess=sess)
 
-                logger().debug("---> get: found %d objects" % (len(c)))
+                GulpLogger().debug("---> get: found %d objects" % (len(c)))
                 return c
 
             return []
@@ -766,7 +766,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                logger().warning(msg)
+                GulpLogger().warning(msg)
                 return None
 
         return c
@@ -795,7 +795,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                logger().warning(msg)
+                GulpLogger().warning(msg)
                 return None
         return c
 
@@ -885,15 +885,18 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         doc="The operation associated with the object.",
     )
     glyph: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), doc="The glyph ID."
+        ForeignKey("glyph.id", ondelete="SET NULL"), doc="The glyph ID.",
+        default=None
     )
     tags: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String), doc="The tags associated with the object."
+        ARRAY(String), doc="The tags associated with the object.",
+        default_factory=lambda: []
     )
-    title: Mapped[Optional[str]] = mapped_column(String, doc="The title of the object.")
+    title: Mapped[Optional[str]] = mapped_column(String, doc="The title of the object.", default=None)
     private: Mapped[Optional[bool]] = mapped_column(
         Boolean,
         doc="If True, the object is private (only the owner can see it).",
+        default=False,
     )
 
     @override
@@ -933,7 +936,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         self.tags = tags
         self.title = title
         self.private = private
-        logger().debug(
+        GulpLogger().debug(
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, tags=%s, title=%s, private=%s"
             % (id, type, owner, operation, glyph, tags, title, private)
         )
@@ -945,4 +948,4 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             private (bool): The value to set the private flag to.
         """
         self.private = private
-        logger().debug(f"---> set_private: id={self.id}, private={private}")
+        GulpLogger().debug(f"---> set_private: id={self.id}, private={private}")

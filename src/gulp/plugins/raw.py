@@ -7,10 +7,10 @@ import json
 import muty.crypto
 import muty.time
 import muty.xml
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.elastic.structs import GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginGenericParams
@@ -65,10 +65,10 @@ class Plugin(GulpPluginBase):
 
         events: list[dict] = source
         for evt in events:
-            # logger().debug("processing event: %s" % json.dumps(evt, indent=2))
+            # GulpLogger().debug("processing event: %s" % json.dumps(evt, indent=2))
             # ensure these are set
             if "@timestamp" not in evt:
-                # logger().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
+                # GulpLogger().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
                 fs = self._record_failed(fs, evt, source, "no @timestamp, skipping")
                 continue
 

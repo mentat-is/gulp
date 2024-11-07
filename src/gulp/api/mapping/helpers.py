@@ -7,7 +7,7 @@ from sigma.processing.pipeline import ProcessingItem, ProcessingPipeline
 from sigma.processing.transformations import FieldMappingTransformation
 
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 async def _get_mappings_internal(mapping_file_path: str) -> dict:

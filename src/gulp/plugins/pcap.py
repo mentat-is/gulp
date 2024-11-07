@@ -13,7 +13,7 @@ import muty.string
 import muty.time
 import muty.xml
 
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 try:
     from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
@@ -25,7 +25,7 @@ except Exception:
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase
@@ -55,7 +55,7 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParam]:
+    def additional_parameters(self) -> list[GulpPluginSpecificParam]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng
         # hence a safe default could be pcapng regardless of type
         return [
@@ -82,18 +82,18 @@ class Plugin(GulpPluginBase):
             # get field names and map attributes
             field_names = [field.name for field in p.getlayer(layer_name).fields_desc]
 
-            # logger().debug(f"Dissecting layer: {layer_name}")
-            # logger().debug(f"Field names: {field_names}")
+            # GulpLogger().debug(f"Dissecting layer: {layer_name}")
+            # GulpLogger().debug(f"Field names: {field_names}")
 
             fields = {}
             for field_name in field_names:
                 try:
                     fields[field_name] = getattr(p.getlayer(layer_name), field_name)
-                    # logger().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
+                    # GulpLogger().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
                 except Exception as ex:
                     # skip fields that cannot be accessed
-                    # logger().exception(ex)
-                    # logger().debug(f"Fields: {field_name} failed to access ({ex})")
+                    # GulpLogger().exception(ex)
+                    # GulpLogger().debug(f"Fields: {field_name} failed to access ({ex})")
                     pass
 
             # make sure we have a valid json serializable dict
@@ -137,10 +137,10 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
-        # logger().debug(record)
+        # GulpLogger().debug(record)
         evt_json = self._pkt_to_dict(record)
         # evt_str: str = record.show2(dump=True)
-        # logger().debug(evt_str)
+        # GulpLogger().debug(evt_str)
 
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
 
@@ -259,15 +259,15 @@ class Plugin(GulpPluginBase):
             # fallback to pcap
             file_format = "pcap"
 
-        logger().debug("detected file format: %s for file %s" % (file_format, source))
+        GulpLogger().debug("detected file format: %s for file %s" % (file_format, source))
 
         try:
-            logger().debug("parsing file: %s" % source)
+            GulpLogger().debug("parsing file: %s" % source)
             if file_format == "pcapng":
-                logger().debug("using PcapNgReader reader on file: %s" % (source))
+                GulpLogger().debug("using PcapNgReader reader on file: %s" % (source))
                 parser = PcapNgReader(source)
             else:
-                logger().debug("using PcapReader reader on file: %s" % (source))
+                GulpLogger().debug("using PcapReader reader on file: %s" % (source))
                 parser = PcapReader(source)
             # TODO: support other scapy file readers like ERF?
         except Exception as ex:

@@ -3,7 +3,7 @@ from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabType, GulpCollabObject, T
-from gulp.api.elastic.structs import GulpAssociatedDocument
+from gulp.api.opensearch.structs import GulpAssociatedDocument
 
 
 class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
@@ -35,6 +35,27 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         req_id: str = None,
         **kwargs,
     ) -> T:
+        """
+        Create a new story object
+
+        Args:
+            id(str): the id of the story
+            owner(str): the owner of the story
+            operation(str): the operation associated with the story
+            documents(list[GulpAssociatedDocument]): the events associated with the story
+            text(str): the description of the story
+            glyph(str): the glyph associated with the story
+            tags(list[str]): the tags associated with the story
+            title(str): the title of the story
+            private(bool): whether the story is private
+            token(str): the token of the user creating the object, for access check
+            ws_id(str): the websocket id
+            req_id(str): the request id
+            kwargs: additional arguments
+        
+        Returns:
+            the created story object    
+        """
         args = {
             "operation": operation,
             "documents": documents,

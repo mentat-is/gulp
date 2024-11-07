@@ -6,7 +6,7 @@ import sys
 from multiprocessing import freeze_support
 import art
 
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 import gulp.api.rest_api as rest_api
 import gulp.config as config
 import gulp.utils

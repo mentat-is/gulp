@@ -16,7 +16,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 import gulp.config as config
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
@@ -92,7 +92,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
         Raises:
             ObjectNotFound: if the user session is not found.
         """
-        logger().debug("---> get_by_token: token=%s ..." % (token))
+        GulpLogger().debug("---> get_by_token: token=%s ..." % (token))
         if config.debug_allow_any_token_as_admin():
             # return an admin session
             from gulp.api.collab.user import GulpUser
@@ -103,7 +103,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
             )
             if admin_user.session_id:
                 # already exists
-                logger().debug(
+                GulpLogger().debug(
                     "debug_allow_any_token_as_admin, reusing existing admin session"
                 )
                 return admin_user.session
@@ -115,7 +115,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.SESSION):
                 )
                 admin_user.session_id = token
                 admin_user.session = admin_session
-                logger().debug(
+                GulpLogger().debug(
                     "debug_allow_any_token_as_admin, created new admin session"
                 )
                 return admin_session

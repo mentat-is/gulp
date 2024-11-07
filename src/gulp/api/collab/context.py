@@ -5,17 +5,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     """
-    Represents a context object: in gulp terms, a context is used to group a set of data coming from the same host.
-
-    Attributes:
-        id (int): The unique identifier of the context.
-        name (str): The name of the context.
-        color (str): A color hex string (0xffffff, #ffffff)
+    Represents a context object
+    
+    in gulp terms, a context is used to group a set of data coming from the same host.
     """
 
     color: Mapped[Optional[str]] = mapped_column(
@@ -32,9 +29,9 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         cls,
         id: str,
         owner: str,
-        token: str = None,
         color: str = None,
         glyph: str = None,
+        token: str = None,
         **kwargs,
     ) -> T:
         """
@@ -43,8 +40,9 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         Args:
             id (str): The unique identifier of the context.
             owner (str): The owner of the context.
-            color (str): The color of the context.
-            glyph (str): The glyph associated with the context.
+            color (str, optional): The color of the context. Defaults to None.
+            glyph (str, optional): The glyph associated with the context. Defaults to None.
+            token (str, optional): The authentication token. Defaults to None
             **kwargs: Arbitrary keyword arguments.  
         Returns:
             T: The created context object

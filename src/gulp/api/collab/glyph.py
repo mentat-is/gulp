@@ -5,16 +5,12 @@ from sqlalchemy import ForeignKey, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     """
     Represents a glyph object.
-
-    Attributes:
-        id (int): The unique identifier of the glyph (name).
-        img (bytes): The image data of the glyph as binary blob.
     """
 
     img: Mapped[bytes] = mapped_column(
@@ -34,12 +30,12 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
         **kwargs,
     ) -> T:
         """
-        Create a new glyph object.
+        Create a new glyph object
         Args:
             id (str): The unique identifier of the glyph (name).
             owner (str): The owner of the glyph.
             img (bytes | str): The image data of the glyph as binary blob or file path.
-            token (str): The token of the user creating the glyph.
+            token (str): The token of the user creating the object, for permission check (needs EDIT permission).
             **kwargs: Arbitrary keyword arguments.
 
         Returns:
@@ -55,7 +51,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
             id,
             owner,
             token=token,
-            required_permission=[GulpUserPermission.ADMIN],
+            required_permission=[GulpUserPermission.EDIT],
             **args,
         )
 

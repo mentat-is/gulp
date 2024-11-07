@@ -8,10 +8,10 @@ import muty.xml
 
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginSpecificParam, GulpPluginGenericParams
+from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters
 
 try:
     from aiocsv import AsyncDictReader
@@ -71,9 +71,9 @@ class Plugin(GulpPluginBase):
         return """generic CSV file processor"""
 
     @override
-    def specific_params(self) -> list[GulpPluginSpecificParam]:
+    def additional_parameters(self) -> list[GulpPluginAdditionalParameter]:
         return [
-            GulpPluginSpecificParam(
+            GulpPluginAdditionalParameter(
                name="delimiter", type="str", desc="delimiter for the CSV file", default_value=","
             )
         ]
@@ -87,7 +87,7 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int
     ) -> GulpDocument:
 
-        # logger().debug("record: %s" % record)
+        # GulpLogger().debug("record: %s" % record)
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]
@@ -101,7 +101,7 @@ class Plugin(GulpPluginBase):
 
         timestamp = d.get('@timestamp')
         if not timestamp:
-            # not mapped, try to get it from the record
+            # not mapped, last resort is to use the timestamp field, if set
             timestamp = record.get(self.selected_mapping().opt_timestamp_field)
 
         return GulpDocument(
@@ -124,7 +124,7 @@ class Plugin(GulpPluginBase):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginGenericParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
@@ -145,7 +145,11 @@ class Plugin(GulpPluginBase):
         )
         try:
             # initialize plugin
-            await self._initialize(plugin_params=plugin_params)
+            if plugin_params is None:
+                plugin_params = GulpPluginGenericParameters()
+
+            # initialize plugin
+            await self._initialize(plugin_params)
             
             # csv plugin needs a mapping or a timestamp field
             selected_mapping = self.selected_mapping()

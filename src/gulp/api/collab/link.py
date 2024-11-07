@@ -4,8 +4,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
-from gulp.api.elastic.structs import GulpAssociatedDocument, GulpDocument
-from gulp.utils import logger
+from gulp.api.opensearch.structs import GulpAssociatedDocument, GulpDocument
+from gulp.utils import GulpLogger
 
 
 class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
@@ -41,20 +41,20 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         Create a new link object
 
         Args:
-            id: the id of the link
-            owner: the owner of the link
-            operation: the operation associated with the link
-            document_from: the source document
-            documents: the target documents
-            glyph: the glyph associated with the link
-            tags: the tags associated with the link
-            title: the title of the link
-            private: whether the link is private
-            token: the token of the user
-            ws_id: the websocket id
-            req_id: the request id
+            id(str): the id of the link
+            owner(str): the owner of the link
+            operation(str): the operation associated with the link
+            document_from(str): the source document
+            documents(list[GulpAssociatedDocument]): the target documents
+            glyph(str): the glyph associated with the link
+            tags(list[str]): the tags associated with the link
+            title(str): the title of the link
+            private(bool): whether the link is private
+            token(str): the token of the user creating the object, for access check
+            ws_id(str): the websocket id
+            req_id(str): the request id
             kwargs: additional arguments
-
+            
         Returns:
             the created link object
         """

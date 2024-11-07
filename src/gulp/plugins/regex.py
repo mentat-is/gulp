@@ -10,12 +10,12 @@ from typing_extensions import Match
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class Plugin(GulpPluginBase):
@@ -28,7 +28,7 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParam]:
+    def additional_parameters(self) -> list[GulpPluginSpecificParam]:
         return [
             GulpPluginSpecificParam(
                 "regex", "str", "regex to apply - must use named groups", default_value=None
@@ -118,7 +118,7 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        logger().debug("custom_mapping=%s" % (custom_mapping))
+        GulpLogger().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         regex = plugin_params.extra.get("regex", None)
@@ -129,7 +129,7 @@ class Plugin(GulpPluginBase):
 
             # make sure we have at least 1 named group
             if regex.groups == 0:
-                logger().error("no named groups provided, invalid regex")
+                GulpLogger().error("no named groups provided, invalid regex")
                 fs = self._source_failed(fs, source, "no named groups provided")
                 return await self._finish_ingestion(
                     index, source, req_id, client_id, ws_id, fs=fs, flt=flt
@@ -142,7 +142,7 @@ class Plugin(GulpPluginBase):
                     valid = True
 
             if not valid:
-                logger().error("no timestamp named group provided, invalid regex")
+                GulpLogger().error("no timestamp named group provided, invalid regex")
                 fs = self._source_failed(
                     fs, source, "no timestamp named group provided"
                 )

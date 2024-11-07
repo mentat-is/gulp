@@ -9,7 +9,7 @@ import muty.file
 import muty.os
 
 from gulp.defs import GulpPluginType
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 _config: dict = None
 _config_file_path = None
@@ -56,10 +56,10 @@ async def initialize_custom_directories():
     if custom_plugins_path is not None:
         custom_plugins_path = os.path.abspath(custom_plugins_path)
 
-    logger().debug("default_mapping_files_path: %s" % (default_mapping_files_path))
-    logger().debug("custom_mapping_files_path: %s" % (custom_mapping_files_path))
-    logger().debug("default_plugins_path: %s" % (default_plugins_path))
-    logger().debug("custom_plugins_path: %s" % (custom_plugins_path))
+    GulpLogger().debug("default_mapping_files_path: %s" % (default_mapping_files_path))
+    GulpLogger().debug("custom_mapping_files_path: %s" % (custom_mapping_files_path))
+    GulpLogger().debug("default_plugins_path: %s" % (default_plugins_path))
+    GulpLogger().debug("custom_plugins_path: %s" % (custom_plugins_path))
 
     if (
         custom_mapping_files_path is not None
@@ -68,7 +68,7 @@ async def initialize_custom_directories():
     ):
         # we will use custom_mapping_files_path so, copy the whole directory there
         if not await aiofiles.ospath.exists(custom_mapping_files_path):
-            logger().info(
+            GulpLogger().info(
                 "copying mapping files to custom directory: %s"
                 % (custom_mapping_files_path)
             )
@@ -76,7 +76,7 @@ async def initialize_custom_directories():
                 default_mapping_files_path, custom_mapping_files_path
             )
         else:
-            logger().warning(
+            GulpLogger().warning(
                 "custom mapping files directory already exists: %s"
                 % (custom_mapping_files_path)
             )
@@ -89,12 +89,12 @@ async def initialize_custom_directories():
         # we will use custom_plugins_path so, copy the whole directory there
 
         if not await aiofiles.ospath.exists(custom_plugins_path):
-            logger().info(
+            GulpLogger().info(
                 "copying plugins to custom directory: %s" % (custom_plugins_path)
             )
             await muty.file.copy_dir_async(default_plugins_path, custom_plugins_path)
         else:
-            logger().warning(
+            GulpLogger().warning(
                 "custom plugins directory already exists: %s" % (custom_plugins_path)
             )
 
@@ -112,7 +112,7 @@ def override_runtime_parameter(k: str, v: any):
     """
     global _config
     old_value = _config.get(k, None)
-    logger().warning(
+    GulpLogger().warning(
         'overriding configuration parameter "%s": old value=%s, new value=%s'
         % (k, old_value, v)
     )
@@ -142,10 +142,10 @@ def bind_to() -> tuple[str,int]:
     if p is None:
         p = _config.get("bind_to", None)
         if p is None:
-            logger().warning("bind_to not set, using default!")
+            GulpLogger().warning("bind_to not set, using default!")
             p = '0.0.0.0:8080'
 
-    logger().debug("bind_to: %s" % (p))
+    GulpLogger().debug("bind_to: %s" % (p))
     splitted = p.split(":")
     if len(splitted) != 2:
         raise ValueError("invalid bind_to format: %s" % (p))
@@ -159,9 +159,9 @@ def index_template_default_total_fields_limit() -> int:
     n = _config.get("index_template_default_total_fields_limit", None)
     if n is None:
         n = 10000
-        logger().warning("using default total fields limit")
+        GulpLogger().warning("using default total fields limit")
 
-    logger().debug("index_template_default_total_fields_limit: %d" % (n))
+    GulpLogger().debug("index_template_default_total_fields_limit: %d" % (n))
     return n
 
 def index_template_default_refresh_interval() -> str:
@@ -171,9 +171,9 @@ def index_template_default_refresh_interval() -> str:
     n = _config.get("index_template_default_refresh_interval", None)
     if n is None:
         n = "5s"
-        logger().warning("using default refresh interval for index template")
+        GulpLogger().warning("using default refresh interval for index template")
 
-    logger().debug("index_template_default_refresh_interval: %s" % (n))
+    GulpLogger().debug("index_template_default_refresh_interval: %s" % (n))
     return n
 
 def ingestion_request_timeout() -> int:
@@ -188,7 +188,7 @@ def _read_or_init_configuration(path: str = None) -> dict:
     global _config, _config_file_path
     _config_file_path = path_config()
 
-    logger().info("configuration path: %s" % (_config_file_path))
+    GulpLogger().info("configuration path: %s" % (_config_file_path))
 
     if not os.path.exists(_config_file_path):
         # copy default configuration file
@@ -197,13 +197,13 @@ def _read_or_init_configuration(path: str = None) -> dict:
         )
         muty.file.copy_file(src, _config_file_path)
         os.chmod(_config_file_path, 0o0600)
-        logger().warning(
+        GulpLogger().warning(
             "no configuration file found, applying defaults from %s ..." % (src)
         )
 
     cfg_perms = oct(os.stat(_config_file_path).st_mode & 0o777)
     if cfg_perms != oct(0o0600):
-        logger().warning(
+        GulpLogger().warning(
             "careful, weak configuration file permissions %s != 0600" % cfg_perms
         )
 
@@ -283,7 +283,7 @@ def token_ttl() -> int:
     n = _config.get("token_ttl", None)
     if n is None:
         n = 604800
-        logger().warning(
+        GulpLogger().warning(
             "using default number of seconds for token expiration=%d (%f days)"
             % (n, n / 86400)
         )
@@ -297,7 +297,7 @@ def token_admin_ttl() -> int:
     n = _config.get("token_admin_ttl", None)
     if n is None:
         n = 600
-        logger().warning(
+        GulpLogger().warning(
             "using default number of seconds for admin token expiration=%d (%f days)"
             % (n, n / 86400)
         )
@@ -332,14 +332,14 @@ def debug_no_token_expiration() -> bool:
 
     if __debug__:
         if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-            logger().warning(
+            GulpLogger().warning(
                 "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_no_token_expiration disabled!"
             )
             return False
 
         n = _config.get("debug_no_token_expiration", False)
         if n:
-            logger().warning("!!!WARNING!!! debug_no_token_expiration is set to True !")
+            GulpLogger().warning("!!!WARNING!!! debug_no_token_expiration is set to True !")
     return n
 
 
@@ -350,7 +350,7 @@ def stats_ttl() -> int:
     n = _config.get("stats_ttl", None)
     if n is None:
         n = 86400
-        logger().warning(
+        GulpLogger().warning(
             "using default number of seconds for stats expiration=%d (%d days)"
             % (n, n / 86400)
         )
@@ -387,14 +387,14 @@ def debug_allow_any_token_as_admin() -> bool:
     n = False
     if __debug__:
         if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-            logger().warning(
+            GulpLogger().warning(
                 "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_allow_any_token_as_admin disabled!"
             )
             return False
 
         n = _config.get("debug_allow_any_token_as_admin", False)
         if n:
-            logger().warning(
+            GulpLogger().warning(
                 "!!!WARNING!!! debug_allow_any_token_as_admin is set to True !"
             )
     return n
@@ -408,7 +408,7 @@ def debug_abort_on_opensearch_ingestion_error() -> bool:
     if __debug__:
         n = _config.get("debug_abort_on_opensearch_ingestion_error", True)
 
-    # logger().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
+    # GulpLogger().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
     return n
 
 
@@ -419,7 +419,7 @@ def multiprocessing_batch_size() -> int:
     n = _config.get("multiprocessing_batch_size", 0)
     if n == 0 or n is None:
         n = multiprocessing.cpu_count()
-        logger().warning(
+        GulpLogger().warning(
             "using default multiprocessing_batch_size(=number of cores)=%d" % (n)
         )
     return n
@@ -432,7 +432,7 @@ def concurrency_max_tasks() -> int:
     n = _config.get("concurrency_max_tasks", 0)
     if n == 0 or n is None:
         n = 16
-        logger().warning("using default number of tasks per process=%d" % (n))
+        GulpLogger().warning("using default number of tasks per process=%d" % (n))
     return n
 
 
@@ -460,7 +460,7 @@ def parallel_processes_max() -> int:
     n = _config.get("parallel_processes_max", 0)
     if n == 0 or n is None:
         n = multiprocessing.cpu_count()
-        logger().warning(
+        GulpLogger().warning(
             "using default number of processes for ingestion (=number of cores=%d)."
             % (n)
         )
@@ -486,7 +486,7 @@ def debug_allow_insecure_passwords() -> bool:
     if __debug__:
         n = _config.get("debug_allow_insecure_passwords", False)
 
-    logger().warning("!!!WARNING!!! debug_allow_insecure_passwords is set to True !")
+    GulpLogger().warning("!!!WARNING!!! debug_allow_insecure_passwords is set to True !")
     return n
 
 
@@ -605,7 +605,7 @@ def path_plugins(extension: bool=False) -> str:
             p = default_path
 
     pp = os.path.expanduser(p)
-    logger().debug("plugins path: %s" % (pp))    
+    GulpLogger().debug("plugins path: %s" % (pp))    
     if extension:
         return muty.file.safe_path_join(pp, "extension")
     return pp
@@ -626,7 +626,7 @@ def path_index_template() -> str:
             p = default_path
 
     pp = os.path.expanduser(p)
-    logger().debug("path_index_template: %s" % (pp))
+    GulpLogger().debug("path_index_template: %s" % (pp))
     return p
 
 def path_mapping_files() -> str:
@@ -643,7 +643,7 @@ def path_mapping_files() -> str:
             p = default_path
 
     pp = os.path.expanduser(p)
-    logger().debug("mapping files path: %s" % (pp))
+    GulpLogger().debug("mapping files path: %s" % (pp))
     return p
 
 
@@ -657,11 +657,11 @@ def path_certs() -> str:
         # try configuration
         p = _config.get("path_certs", None)
         if not p:
-            logger().warning('"path_certs" is not set !')
+            GulpLogger().warning('"path_certs" is not set !')
             return None
     
     pp = os.path.expanduser(p)
-    logger().debug("certs directory: %s" % (pp))
+    GulpLogger().debug("certs directory: %s" % (pp))
     return pp
 
 

@@ -31,7 +31,7 @@ from gulp.api.elastic.query import (
     SigmaGroupFilter,
     gulpqueryflt_to_elastic_dsl,
 )
-from gulp.api.elastic.structs import (
+from gulp.api.opensearch.structs import (
     QUERY_DEFAULT_FIELDS,
     GulpQueryFilter,
     GulpQueryOptions,
@@ -45,7 +45,7 @@ from gulp.defs import (
     ObjectNotFound,
 )
 from gulp.plugin_internal import GulpPluginGenericParams
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 def _parse_expression(expr: str) -> tuple:
@@ -185,7 +185,7 @@ async def preprocess_sigma_group_filters(
             shared_data = shared_data[0]
             d: dict = {"name": shared_data.name, "expr": shared_data.data["expr"]}
             flt = SigmaGroupFilter.from_dict(d)
-            logger().debug(
+            GulpLogger().debug(
                 "sigma group filter with id=%d retrieved from db: %s"
                 % (shared_data_id, flt)
             )
@@ -237,7 +237,7 @@ async def apply_sigma_group_filters(
 
     l = []
     for f in flts:
-        logger().debug("applying sigma group filter: %s ..." % (f))
+        GulpLogger().debug("applying sigma group filter: %s ..." % (f))
         if await apply_sigma_group_filter(f, qrs):
             if f.name not in l:
                 l.append(f.name)
@@ -254,7 +254,7 @@ async def check_canceled_or_failed(req_id: str) -> bool:
         GulpRequestStatus.FAILED,
         GulpRequestStatus.CANCELED,
     ]:
-        logger().error("request %s failed or canceled!" % (req_id))
+        GulpLogger().error("request %s failed or canceled!" % (req_id))
         return True
 
     return False
@@ -308,7 +308,7 @@ async def _create_notes_on_match(
 
         try:
             description = gulp_query.sigma_rule_text
-            # logger().debug("create note for event %s, id=%s, timestamp=%d, ws_id=%s" % (e, ev_id, ev_ts, ws_id))
+            # GulpLogger().debug("create note for event %s, id=%s, timestamp=%d, ws_id=%s" % (e, ev_id, ev_ts, ws_id))
 
             # create note on db
             cs = await GulpCollabObject.create(
@@ -346,7 +346,7 @@ async def _create_notes_on_match(
 
         if num_notes % notes_on_match_batch_size == 0:
             # send batch over ws
-            logger().error(
+            GulpLogger().error(
                 "**NOT AN ERROR**: creating batch of notes on ws, num notes=%d"
                 % (num_notes)
             )
@@ -366,7 +366,7 @@ async def _create_notes_on_match(
                 break
 
     if len(cs_batch) > 0:
-        logger().error(
+        GulpLogger().error(
             "**NOT AN ERROR**: creating LAST batch of notes on ws, num notes=%d"
             % (len(cs_batch))
         )
@@ -379,7 +379,7 @@ async def _create_notes_on_match(
             username=username,
             ws_id=ws_id,
         )
-    logger().debug(
+    GulpLogger().debug(
         "created %d notes for query_res name=%s, sigma_id=%s, num events=%d"
         % (
             num_notes,
@@ -420,7 +420,7 @@ async def query_by_gulpconvertedquery(
     if options is None:
         options = GulpQueryOptions()
 
-    logger().debug("gulp_query=%s" % (gulp_query))
+    GulpLogger().debug("gulp_query=%s" % (gulp_query))
     query_res = QueryResult()
     try:
         # add query name to result
@@ -443,13 +443,13 @@ async def query_by_gulpconvertedquery(
             query_res.query_sigma_text = gulp_query.sigma_rule_text
 
         # issue raw query
-        # logger().debug("options.fields_filters=%s ..." % (options.fields_filter))
+        # GulpLogger().debug("options.fields_filters=%s ..." % (options.fields_filter))
         res = None
         create_notes: bool = False
         search_after_loop: bool = True
         if gulp_query.sigma_rule_id is None:
             # non sigma query
-            logger().debug("non-sigma query, collect events.")
+            GulpLogger().debug("non-sigma query, collect events.")
             # options.disable_notes_on_match = True
         else:
             # sigma query
@@ -457,11 +457,11 @@ async def query_by_gulpconvertedquery(
                 # disable notes on match for sigma queries, collect events instead (but no search_after loop)
                 create_notes = False
                 # search_after_loop = False
-                logger().debug("disable_notes_on_match set for sigma query.")
+                GulpLogger().debug("disable_notes_on_match set for sigma query.")
             else:
                 # create notes on match for sigma queries (default), do not collect events, search_after loop
                 create_notes = True
-                logger().debug("setting search_after_loop=True for sigma query.")
+                GulpLogger().debug("setting search_after_loop=True for sigma query.")
 
         try:
             # loop until search_after allows ...
@@ -469,7 +469,7 @@ async def query_by_gulpconvertedquery(
             processed: int = 0
             chunk: int = 0
             while True:
-                # logger().debug("calling query_raw from query_by_gulpconvertedquery ...")
+                # GulpLogger().debug("calling query_raw from query_by_gulpconvertedquery ...")
                 res: dict = None
                 try:
                     res = await opensearch_api.query_raw(
@@ -477,9 +477,9 @@ async def query_by_gulpconvertedquery(
                     )
                     had_result = True
                 except Exception as ex:
-                    logger().exception(ex)
+                    GulpLogger().exception(ex)
                     if not had_result:
-                        logger().error(
+                        GulpLogger().error(
                             "NOT_FOUND sigma_rule_id=%s, ex=%s)"
                             % (gulp_query.sigma_rule_id, str(ex))
                         )
@@ -497,7 +497,7 @@ async def query_by_gulpconvertedquery(
                 query_res.search_after = res.get("search_after", None)
                 query_res.query_glyph_id = gulp_query.glyph_id
                 query_res.total_hits = res.get("total", 0)
-                logger().debug(
+                GulpLogger().debug(
                     "%d results (TOTAL), this chunk=%d, for FOUND sigma_rule_id=%s"
                     % (query_res.total_hits, len_evts, query_res.sigma_rule_id)
                 )
@@ -519,14 +519,14 @@ async def query_by_gulpconvertedquery(
                 # processed an event chunk (evts)
                 processed += len_evts
                 chunk += 1
-                logger().error(
+                GulpLogger().error(
                     "sent %d events to ws, num processed events=%d, chunk=%d ..."
                     % (len(evts), processed, chunk)
                 )
                 max_notes = config.query_sigma_max_notes()
                 max_notes_reached = False
                 if create_notes and not max_notes_reached:
-                    logger().debug(
+                    GulpLogger().debug(
                         "creating notes for %d events, total hits=%d, sigma_id=%s, max_notes=%d, max_notes_reached=%r"
                         % (
                             len(evts),
@@ -559,23 +559,23 @@ async def query_by_gulpconvertedquery(
 
                 if create_notes and max_notes > 0 and processed >= max_notes:
                     # limit the number of notes to create
-                    logger().debug("max_notes=%d reached!" % (max_notes))
+                    GulpLogger().debug("max_notes=%d reached!" % (max_notes))
                     max_notes_reached = True
 
                 if query_res.last_chunk:
-                    logger().debug("last chunk, no more events found, query done!")
+                    GulpLogger().debug("last chunk, no more events found, query done!")
                     break
 
                 # next batch of events (if any, and if search_after_loop is not disabled,i.e. on non-sigma queries)
                 query_res.chunk += 1
                 if not search_after_loop or query_res.search_after is None:
-                    logger().debug(
+                    GulpLogger().debug(
                         "search_after=None or search_after_loop=False, query done!"
                     )
                     break
 
                 options.search_after = query_res.search_after
-                logger().debug(
+                GulpLogger().debug(
                     "search_after=%s, total_hits=%d, running another query to get more results ...."
                     % (query_res.search_after, query_res.total_hits)
                 )
@@ -583,7 +583,7 @@ async def query_by_gulpconvertedquery(
         except ObjectNotFound as ex:
             # objectnotfound is not considered an error here
             if not had_result:
-                logger().warning(
+                GulpLogger().warning(
                     "ObjectNotFound, query_by_gulpconvertedquery: %s (query=%s)"
                     % (ex, raw_query_dict)
                 )
@@ -643,13 +643,13 @@ async def query_by_gulpqueryparam(
         )
     except Exception as ex:
         rex = muty.log.exception_to_string(ex, with_full_traceback=True)
-        logger().error(rex)
+        GulpLogger().error(rex)
         query_res = QueryResult()
         query_res.query_name = gqp.name
         query_res.error = rex
         return query_res
 
-    # logger().debug('calling query_by_gulpconvertedquery ...')
+    # GulpLogger().debug('calling query_by_gulpconvertedquery ...')
     qres = await query_by_gulpconvertedquery(
         user_id, username, req_id, ws_id, index, gulp_query, options
     )
@@ -683,7 +683,7 @@ async def sigma_to_raw(
     """
 
     # load sigma
-    logger().debug(
+    GulpLogger().debug(
         "converting sigma rule: %s ..." % (muty.string.make_shorter(str(rule)))
     )
     if isinstance(rule, SigmaRule):
@@ -692,7 +692,7 @@ async def sigma_to_raw(
         r = SigmaRule.from_yaml(rule)
 
     if pysigma_plugin is None:
-        logger().warning(
+        GulpLogger().warning(
             "pysigma_plugin is None, using sigma rule logsource.product=%s instead!"
             % (r.logsource.product)
         )
@@ -717,7 +717,7 @@ async def sigma_to_raw(
 
     except:
         # revert to empty pipeline
-        logger().exception(
+        GulpLogger().exception(
             'cannot load pysigma plugin "%s", reverting to empty pipeline.'
             % (pysigma_plugin)
         )
@@ -725,7 +725,7 @@ async def sigma_to_raw(
 
     # transform
     q = backend.convert_rule(r, "dsl_lucene")
-    logger().info("converted rule: %s" % (q))
+    GulpLogger().info("converted rule: %s" % (q))
     if len(q) > 1:
         raise SigmaError(
             "Sigma rule %s generated more than one query (must fix!)" % (rule)
@@ -765,7 +765,7 @@ async def gulpqueryparam_to_gulpquery(
             raise InvalidArgument("name must be set for GulpQueryType.RAW")
 
         # already dsl
-        logger().debug(
+        GulpLogger().debug(
             "using existing dsl query: %s: %s, flt=%s ..." % (g.name, g.rule, flt)
         )
         r = g.rule.get("query", None)
@@ -777,7 +777,7 @@ async def gulpqueryparam_to_gulpquery(
         gq = GulpQuery(
             name=g.name, rule={"query": g.rule}, flt=flt, glyph_id=g.glyph_id
         )
-        logger().debug("converted RAW to GulpQuery: %s" % (gq))
+        GulpLogger().debug("converted RAW to GulpQuery: %s" % (gq))
         return gq
     if g.type == GulpQueryType.SIGMA_YAML:
         sigma, dsl = await sigma_to_raw(g.rule, g.pysigma_plugin, g.plugin_params)
@@ -917,7 +917,7 @@ async def sigma_to_stored_query(
     # take it from process
     engine = await collab_api.session()
 
-    logger().debug("reading sigma file %s ..." % (f))
+    GulpLogger().debug("reading sigma file %s ..." % (f))
     content = await muty.file.read_file_async(f)
 
     # convert to gulprule
@@ -1020,25 +1020,25 @@ async def sigma_directory_to_gulpqueryparams(
     if len(files) == 0:
         raise ObjectNotFound("no sigma files found in directory %s" % (directory))
 
-    logger().debug("sigma files in directory %s: %s" % (directory, files))
+    GulpLogger().debug("sigma files in directory %s: %s" % (directory, files))
 
     # read each file
     l = []
     for f in files:
         if os.path.basename(f).startswith("."):
-            logger().warning("skipping (probably invalid) file %s ..." % (f))
+            GulpLogger().warning("skipping (probably invalid) file %s ..." % (f))
             continue
 
-        logger().debug("reading sigma file %s ..." % (f))
+        GulpLogger().debug("reading sigma file %s ..." % (f))
 
         # convert
         content = await muty.file.read_file_async(f)
-        logger().debug("content: %s" % (muty.string.make_shorter(content.decode())))
+        GulpLogger().debug("content: %s" % (muty.string.make_shorter(content.decode())))
         try:
             rr = SigmaRule.from_yaml(content)
         except Exception as e:
             # cannot parse this rule
-            logger().exception("cannot parse sigma file %s: %s" % (f, e))
+            GulpLogger().exception("cannot parse sigma file %s: %s" % (f, e))
             continue
 
         # get rule tags
@@ -1062,7 +1062,7 @@ async def sigma_directory_to_gulpqueryparams(
                     match = True
                     break
             if not match:
-                logger().debug(
+                GulpLogger().debug(
                     "skipping sigma file %s, tags do not match: %s != %s ..."
                     % (f, rr.tags, tags_filter)
                 )
@@ -1097,7 +1097,7 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
     Returns:
         dict: The built query options.
     """
-    logger().debug(opt)
+    GulpLogger().debug(opt)
     if opt is None:
         # use default
         opt = GulpQueryOptions()
@@ -1137,7 +1137,7 @@ def build_elastic_query_options(opt: GulpQueryOptions = None) -> dict:
     else:
         n["search_after"] = None
 
-    # logger().debug("query options: %s" % (json.dumps(n, indent=2)))
+    # GulpLogger().debug("query options: %s" % (json.dumps(n, indent=2)))
     return n
 
 

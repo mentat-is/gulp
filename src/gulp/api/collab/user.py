@@ -16,7 +16,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.api.collab_api import session
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 from gulp import config
 
 
@@ -60,7 +60,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         id: str,
         password: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
-        owner: str = None,
         email: str = None,
         glyph: str = None,
         token: str = None,
@@ -68,7 +67,23 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         req_id: str = None,
         **kwargs,
     ) -> T:  
-              
+        """
+        Create a new user object.
+
+        Args:
+            id: The unique identifier of the user.
+            password: The password of the user.
+            permission: The permission of the user.
+            email: The email of the user.
+            glyph: The glyph associated with the user.
+            token: The token of the user creating the object, for permission check (needs ADMIN permission).
+            ws_id: The websocket id.
+            req_id: The request id.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            The created user object.
+        """
         if GulpUserPermission.READ not in permission:
             # ensure that all users have read permission
             permission.append(GulpUserPermission.READ)
@@ -79,6 +94,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "email": email,
             "glyph": glyph,
         }
+
+        # owner is the user itself
         owner = id
         return await super()._create(
             id,
@@ -139,7 +156,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             )
             if pwd_changed and user.session:
                 # invalidate (delete) the session if the password was changed
-                logger().debug(
+                GulpLogger().debug(
                     "password changed, deleting session for user=%s" % (user.id)
                 )
                 sess.add(user.session)
@@ -199,14 +216,14 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        logger().debug("---> logging in user=%s ..." % (user))
+        GulpLogger().debug("---> logging in user=%s ..." % (user))
 
         sess = await session()
         async with sess:
             u: GulpUser = await GulpUser.get_one_by_id(user, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
-                logger().debug("resetting previous session for user=%s" % (user))
+                GulpLogger().debug("resetting previous session for user=%s" % (user))
                 u.session = None
                 u.session_id = None
                 sess.add(u)  # keep track of the change
@@ -257,7 +274,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Returns:
             None
         """
-        logger().debug("---> logging out token=%s ..." % (token))
+        GulpLogger().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
 
         await GulpUserSession.delete_by_id(token, ws_id=ws_id, req_id=req_id)

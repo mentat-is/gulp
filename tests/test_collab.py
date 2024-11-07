@@ -12,7 +12,7 @@ import muty.json
 from gulp import config
 from typing import Optional, TypeVar
 from gulp.api.collab.structs import GulpCollabType
-from gulp.utils import logger, configure_logger
+from gulp.utils import GulpLogger, configure_logger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
@@ -24,7 +24,7 @@ from gulp.api.collab.db import setup, session
 
 async def _init():
     configure_logger()
-    logger().debug("---> init")
+    GulpLogger().debug("---> init")
     config.init()
     await setup(force_recreate=True)
 

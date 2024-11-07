@@ -10,10 +10,10 @@ import muty.log
 import muty.string
 import muty.time
 import muty.xml
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.elastic.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase
@@ -73,7 +73,7 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def specific_params(self) -> list[GulpPluginSpecificParam]:
+    def additional_parameters(self) -> list[GulpPluginSpecificParam]:
         return [
             GulpPluginSpecificParam(
                 "locale", "str", "original server's locale", default_value=None
@@ -213,7 +213,7 @@ class Plugin(GulpPluginBase):
             flt=flt,
             **kwargs,
         )
-        logger().debug("ingesting file: %s" % source)
+        GulpLogger().debug("ingesting file: %s" % source)
         print("REGEX IS:", r"\s+".join(self._parts) + r".*\Z")
         fs = TmpIngestStats(source)
 

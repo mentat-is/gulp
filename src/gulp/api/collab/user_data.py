@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T
-from gulp.utils import logger
+from gulp.utils import GulpLogger
 
 
 class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
@@ -47,7 +47,7 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
             id (str): The unique identifier for the user data entry.
             owner (str): The owner of the user data entry.
             data (dict): The data to be stored in the user data entry.
-            token (str, optional): The authentication token. Defaults to None (no check).
+            token (str, optional): The authentication token, for permission check. Defaults to None.
             ws_id (str, optional): The websocket ID. Defaults to None.
             req_id (str, optional): The request ID. Defaults to None.
             **kwargs: Additional keyword arguments.

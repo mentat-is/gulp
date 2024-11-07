@@ -25,7 +25,7 @@ from gulp.api import collab_api, opensearch_api, rest_api
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats, TmpQueryStats
 from gulp.api.elastic.query import QueryResult, SigmaGroupFilter
-from gulp.api.elastic.structs import (
+from gulp.api.opensearch.structs import (
     GulpIngestionFilter,
     GulpQueryFilter,
     GulpQueryOptions,
@@ -81,12 +81,12 @@ class GulpWorker:
         lock.acquire()
         spawned_processes.value += 1
         lock.release()
-        logger().warning(
+        GulpLogger().warning(
             "workerprocess initializer DONE, sys.path=%s, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
             % (
                 sys.path,
                 logger(),
-                logger().level,
+                GulpLogger().level,
                 log_file_path,
                 spawned_processes.value,
                 ws_queue,
@@ -151,7 +151,7 @@ async def _print_debug_ingestion_stats(collab: AsyncEngine, req_id: str):
         started_at = muty.time.unix_millis_to_datetime(cs.time_created).isoformat()
 
         # we use error just to print the exception in any case, even when most of the debug messages are skipped
-        logger().error(
+        GulpLogger().error(
             "(NOT AN ERROR) req_id=%s, started_at=%s, took seconds=%f, (minutes=%f, hours=%f)\n"
             "final stats req_id=%s: processed=%d, failed=%d, skipped=%d, num (UNIQUE) ingest_errors=%d, QueuePool status=%s"
             % (
@@ -215,12 +215,12 @@ async def _ingest_file_task_internal(
     mod = None
     if plugin == "raw":
         # src_file is a list of events
-        logger().debug(
+        GulpLogger().debug(
             "ingesting %d raw events with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
             % (len(src_file), plugin, collab, elastic, type(flt), flt, plugin_params)
         )
     else:
-        logger().debug(
+        GulpLogger().debug(
             "ingesting file=%s with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
             % (src_file, plugin, collab, elastic, type(flt), flt, plugin_params)
         )
@@ -260,7 +260,7 @@ async def _ingest_file_task_internal(
     )
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    logger().debug(
+    GulpLogger().debug(
         "execution time for ingesting file %s: %f sec." % (src_file, execution_time)
     )
 
@@ -313,7 +313,7 @@ async def ingest_directory_task(
 
     # ingestion started for this request
     files = await muty.file.list_directory_async(directory)
-    logger().info("ingesting directory %s with files=%s ..." % (directory, files))
+    GulpLogger().info("ingesting directory %s with files=%s ..." % (directory, files))
     if len(files) == 0:
         ex = ObjectNotFound("directory %s empty or not found!" % (directory))
         await GulpStats.create(
@@ -498,21 +498,21 @@ async def ingest_zip_task(
     user_id = kwargs.get("user_id", None)
     files_path = None
 
-    logger().debug("ingesting zip file %s ..." % (f))
+    GulpLogger().debug("ingesting zip file %s ..." % (f))
 
     try:
         # decompress
         files_path = await muty.file.unzip(f)
-        logger().debug("zipfile unzipped to %s" % (files_path))
+        GulpLogger().debug("zipfile unzipped to %s" % (files_path))
 
         # read metadata file
         metadata_path = muty.file.safe_path_join(files_path, "metadata.json")
         metadata = json5.loads(await muty.file.read_file_async(metadata_path))
-        logger().debug(
+        GulpLogger().debug(
             "metadata.json content:\n %s" % (json5.dumps(metadata, indent=2))
         )
     except Exception as ex:
-        logger().exception(ex)
+        GulpLogger().exception(ex)
         await GulpStats.create(
             collab,
             GulpCollabType.STATS_INGESTION,
@@ -642,7 +642,7 @@ async def _rebase_internal(
         )
     except Exception as ex:
         # can't rebase, delete the datastream
-        logger().exception(ex)
+        GulpLogger().exception(ex)
         ws_api.shared_queue_add_data(
             ws_api.WsQueueDataType.REBASE_DONE,
             req_id,
@@ -662,7 +662,7 @@ async def _rebase_internal(
         if template_file is not None:
             await muty.file.delete_file_or_dir_async(template_file)
     # done
-    logger().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
+    GulpLogger().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
     ws_api.shared_queue_add_data(
         ws_api.WsQueueDataType.REBASE_DONE,
         req_id,
@@ -753,7 +753,7 @@ async def _query_external_internal(
         )
     except Exception as ex:
         # can't load plugin ...
-        logger().exception(ex)
+        GulpLogger().exception(ex)
         await GulpStats.update(
             collab,
             req_id,
@@ -791,12 +791,12 @@ async def _query_external_internal(
 
         end_time = timeit.default_timer()
         execution_time = end_time - start_time
-        logger().debug(
+        GulpLogger().debug(
             "execution time for querying plugin %s: %f sec." % (plugin, execution_time)
         )
     except Exception as ex:
         # can't query external source ...
-        logger().exception(ex)
+        GulpLogger().exception(ex)
         await GulpStats.update(
             collab,
             req_id,
@@ -911,7 +911,7 @@ async def query_multi_task(**kwargs):
         None
     """
 
-    # logger().debug("query_multi_task: %s" % (kwargs))
+    # GulpLogger().debug("query_multi_task: %s" % (kwargs))
     index = kwargs["index"]
     user_id = kwargs["user_id"]
     username = kwargs["username"]
@@ -935,7 +935,7 @@ async def query_multi_task(**kwargs):
     qres_list: list[QueryResult] = []
     batch_size = config.multiprocessing_batch_size()
     status: GulpRequestStatus = GulpRequestStatus.ONGOING
-    # logger().debug("sigma_group_filters=%s" % (sigma_group_flts))
+    # GulpLogger().debug("sigma_group_filters=%s" % (sigma_group_flts))
 
     # run tasks in batch_size chunks
     for i in range(0, len(q), batch_size):
@@ -971,7 +971,7 @@ async def query_multi_task(**kwargs):
             )
 
         # run a batch of tasks
-        logger().debug("running %d query tasks ..." % (len(tasks)))
+        GulpLogger().debug("running %d query tasks ..." % (len(tasks)))
         ql: list[QueryResult] = await asyncio.gather(*tasks, return_exceptions=True)
         qres_list.extend(ql)
 
@@ -989,7 +989,7 @@ async def query_multi_task(**kwargs):
             force=True,
         )
         if status in [GulpRequestStatus.FAILED, GulpRequestStatus.CANCELED]:
-            logger().error(
+            GulpLogger().error(
                 "query_multi_task: request failed or canceled, stopping further queries!"
             )
             break
@@ -1018,13 +1018,13 @@ async def query_multi_task(**kwargs):
             if isinstance(r, QueryResult):
                 if len(r.events) > 0:
                     qr.append(r)
-        logger().debug("applying sigma group filters on %d results ..." % (len(qr)))
+        GulpLogger().debug("applying sigma group filters on %d results ..." % (len(qr)))
         sgr = await query_utils.apply_sigma_group_filters(
             sigma_group_flts,
             [x.to_dict() for x in qr],
         )
         if sgr is not None and len(sgr) > 0:
-            logger().debug("sigma group filter %s matched!" % (len(qr)))
+            GulpLogger().debug("sigma group filter %s matched!" % (len(qr)))
             # send sigma group result over websocket
             ws_api.shared_queue_add_data(
                 WsQueueDataType.SIGMA_GROUP_RESULT,
@@ -1072,11 +1072,11 @@ async def gather_sigma_directories_to_stored_queries(
     if len(files) == 0:
         raise ObjectNotFound("no sigma files found in directory %s" % (files_path))
 
-    logger().debug("sigma files in directory %s: %s" % (files_path, files))
+    GulpLogger().debug("sigma files in directory %s: %s" % (files_path, files))
 
     # parallelize queries through multiple worker processes, each one running asyncio tasks
     tasks = []
-    logger().debug(
+    GulpLogger().debug(
         "gathering results for %d sigma files to be converted ..." % (len(files))
     )
     for f in files:
