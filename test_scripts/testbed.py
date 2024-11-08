@@ -34,9 +34,6 @@ from gulp.plugin import GulpPluginBase
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 
-_os: AsyncOpenSearch = None
-_pg: AsyncEngine = None
-
 _opt_samples_dir= os.environ.get('GULP_SAMPLES_DIR', '~/repos/gulp/samples')
 _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
 _opt_reset = os.environ.get('GULP_RESET', False)
@@ -182,7 +179,8 @@ async def test_ingest_windows():
     plugin = await GulpPluginBase.load("win_evtx")
     
     # create stats upfront
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
+        _test_req_id, operation=_operation, context=_context, source_total=1)
     
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
     end_time = timeit.default_timer()
@@ -256,7 +254,7 @@ async def main():
     try:       
         await test_init()
 
-        #await test_ingest_windows()
+        await test_ingest_windows()
         #await test_ingest_csv()
         #await test_ingest_csv_stacked()
         #await test_ingest_csv_with_mappings()

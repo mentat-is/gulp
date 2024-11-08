@@ -618,14 +618,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ) -> T:
             if token:
                 await self.check_object_permission(token, permission, sess=sess)
-            """
-            q = select(self.__class__).where(self.__class__.id == id).with_for_update()
-            res = await sess.execute(q)
-            obj: GulpCollabBase = self.__class__.get_one_result_or_throw(
-                res, obj_id=id, throw_if_not_found=throw_if_not_found
-            )
-            if obj:
-            """
+
             # ensure d has no 'id' (cannot be updated)
             d.pop("id", None)
 

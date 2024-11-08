@@ -6,7 +6,7 @@ import json
 import os
 from abc import ABC, abstractmethod
 from types import ModuleType
-from typing import Any, Callable
+from typing import Callable
 from copy import copy
 import muty.crypto
 import muty.dynload
@@ -19,7 +19,6 @@ from gulp.api.opensearch.query import GulpExternalQuery
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp import config
 from gulp import utils as gulp_utils
-from gulp.api import opensearch_api
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.opensearch.structs import (
@@ -30,12 +29,10 @@ from gulp.api.opensearch.structs import (
     QUERY_DEFAULT_FIELDS,
 )
 from gulp.api.mapping.models import (
-    GulpMappingField,
     GulpMapping,
     GulpMappingFile,
 )
 from gulp.defs import (
-    GulpLogLevel,
     GulpPluginType,
 )
 from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters
@@ -756,8 +753,8 @@ class GulpPluginBase(ABC):
         _setup_mapping(plugin_params)
 
         # initialize index types k,v mapping from opensearch
-        self._index_type_mapping = await opensearch_api.datastream_get_key_value_mapping(
-            opensearch_api.elastic(), self._index
+        self._index_type_mapping = await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
+            self._index
         )
         GulpLogger.get_instance().debug(
             "got index type mappings with %d entries" % (len(self._index_type_mapping))
@@ -784,7 +781,7 @@ class GulpPluginBase(ABC):
         if not index_type:
             # GulpLogger.get_instance().warning("key %s not found in index_type_mapping" % (k))
             # return an unmapped key, so it is guaranteed to be a string
-            # k = f"{elastic_api.UNMAPPED_PREFIX}.{k}"
+            #k = f{GulpOpenSearch.UNMAPPED_PREFIX}.{k}
             return k, str(v)
 
         # check different types, we may add more ...
@@ -863,10 +860,8 @@ class GulpPluginBase(ABC):
             return None, None
 
         # get kv index mapping for the ingest index
-        el = opensearch_api.elastic()
-        index_type_mapping = await opensearch_api.index_get_key_value_mapping(
-            el, ingest_index, False
-        )
+        el = GulpOpenSearch.get_instance()
+        index_type_mapping = await el.datastream_get_key_value_mapping(ingest_index, False)
         return ingest_index, index_type_mapping
 
     async def _perform_raw_ingest_from_query_plugin(
@@ -920,10 +915,10 @@ class GulpPluginBase(ABC):
         """
         ingested_docs: list[dict] = []
         skipped = 0
+        el = GulpOpenSearch.get_instance()
         if self._docs_buffer:
             # GulpLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-            skipped, ingestion_errors, ingested_docs = await opensearch_api.ingest_bulk(
-                opensearch_api.elastic(),
+            skipped, ingestion_errors, ingested_docs = await el.ingest_bulk(
                 self._index,
                 self._docs_buffer,
                 flt=flt,
@@ -951,7 +946,7 @@ class GulpPluginBase(ABC):
                 # use only a minimal fields set to avoid sending too much data to the ws
                 {field: doc[field] for field in QUERY_DEFAULT_FIELDS}
                 for doc in ingested_docs
-                if opensearch_api.filter_doc_for_ingestion(doc, flt)
+                if GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
                 == GulpDocumentFilterResult.ACCEPT
             ]
             if ws_docs:
@@ -965,9 +960,7 @@ class GulpPluginBase(ABC):
 
             # update index type mapping too
             self._index_type_mapping = (
-                await opensearch_api.datastream_get_key_value_mapping(
-                    opensearch_api.elastic(), self._index
-                )
+                await el.datastream_get_key_value_mapping(self._index)
             )
             GulpLogger.get_instance().debug(
                 "got index type mappings with %d entries"

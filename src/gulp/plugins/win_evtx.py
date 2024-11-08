@@ -174,7 +174,7 @@ class Plugin(GulpPluginBase):
 
         # initialize stats
         stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-            req_id, user, operation=operation, context=context
+            req_id, oeration=operation, context=context
         )
         try:
             # initialize plugin
