@@ -325,36 +325,38 @@ class GulpCollab:
         )
 
         # login admin user        
-        admin_session = await GulpUser.login("admin", "admin")
-        token='12'
+        admin_user, admin_session = await GulpUser.login("admin", "admin")
+        
         # create glyphs
-        user_glyph = await GulpGlyph.create("user", user_b, token=token)
-        return
-        operation_glyph = await GulpGlyph.create("operation", operation_b)
-        await admin_user.update({"glyph": user_glyph.id})
+        user_glyph = await GulpGlyph.create("user", user_b, token=admin_session.id)
+        
+        operation_glyph = await GulpGlyph.create("operation", operation_b, token=admin_session.id)
+
+        await admin_user.update({"glyph": user_glyph.id}, token=admin_session.id)
 
         # create default context
-        context = await GulpContext.create("test_context")
+        context = await GulpContext.create("test_context", token=admin_session.id)
 
         # create default operation
         operation = await GulpOperation.create(
-            "test_operation", index="testidx", glyph=operation_glyph.id
+            "test_operation", index="testidx", glyph=operation_glyph.id, token=admin_session.id
         )
 
         # create other users
         guest_user = await GulpUser.create(
             "guest",
             "guest",
-            glyph=user_glyph.id,
+            glyph=user_glyph.id, token=admin_session.id
         )
         editor_user = await GulpUser.create(
             "editor",
             "editor",
             permission=PERMISSION_MASK_EDIT,
             glyph=user_glyph.id,
+            token=admin_session.id
         )
         power_user = await GulpUser.create(
-            "power", "power", permission=PERMISSION_MASK_DELETE, glyph=user_glyph.id
+            "power", "power", permission=PERMISSION_MASK_DELETE, glyph=user_glyph.id, token=admin_session.id
         )
 
 

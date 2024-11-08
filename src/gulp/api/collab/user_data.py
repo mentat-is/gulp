@@ -21,10 +21,10 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
     user: Mapped["GulpUser"] = relationship(
         "GulpUser",
         back_populates="user_data",
-        foreign_keys="[GulpUser.user_data_id]",
-        cascade="all,delete-orphan",
+        foreign_keys=[user_id],
         single_parent=True,
         uselist=False,
+        innerjoin=True,
     )
     data: Mapped[dict] = mapped_column(
         JSONB, doc="The data to be associated with user."

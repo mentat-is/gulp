@@ -255,12 +255,11 @@ async def test_ingest_csv_stacked():
 async def main():
     try:       
         await test_init()
-        return
 
         #await test_ingest_windows()
         #await test_ingest_csv()
         #await test_ingest_csv_stacked()
-        await test_ingest_csv_with_mappings()
+        #await test_ingest_csv_with_mappings()
     finally:
         await GulpOpenSearch.get_instance().shutdown()
 

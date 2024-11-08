@@ -3,8 +3,8 @@ from typing import Optional, override
 import muty.crypto
 import muty.time
 import muty.string
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, String, select
+from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import (
@@ -17,7 +17,6 @@ from gulp.api.collab.structs import (
 from gulp.utils import GulpLogger
 from gulp import config
 from gulp.api.collab_api import GulpCollab
-
 class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     """
     Represents a user in the system.
@@ -32,26 +31,23 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     )
     email: Mapped[Optional[str]] = mapped_column(String, default=None)
     time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
-    session_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("session.id", ondelete="SET NULL"), default=None, unique=True
-    )
     session: Mapped[Optional["GulpUserSession"]] = relationship(
         "GulpUserSession",
         back_populates="user",
-        foreign_keys=[session_id],
+        cascade="all,delete-orphan",
         default=None,
+        foreign_keys="[GulpUserSession.user_id]",
     )
 
-    user_data_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("user_data.id", ondelete="SET NULL"), default=None, unique=True
-    )
     user_data: Mapped[Optional["GulpUserData"]] = relationship(
         "GulpUserData",
         back_populates="user",
-        foreign_keys=[user_data_id],
+        cascade="all,delete-orphan",
         uselist=False,
         default=None,
-    )    
+        foreign_keys="[GulpUserData.user_id]",
+    )   
+
     @classmethod
     async def create(
         cls,        
@@ -99,6 +95,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             required_permission=[GulpUserPermission.ADMIN],
             ws_id=ws_id,
             req_id=req_id,
+            ensure_eager_load=True,
             **args,
         )
 
@@ -155,7 +152,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                     "password changed, deleting session for user=%s" % (user.id)
                 )
                 sess.add(user.session)
-                user.session_id = None
                 user.session = None
 
             # commit in the end
@@ -200,14 +196,14 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     @staticmethod
     async def login(
         user: str, password: str, ws_id: str = None, req_id: str = None
-    ) -> "GulpUserSession":
+    ) -> tuple["GulpUser", "GulpUserSession"]:
         """
         Asynchronously logs in a user and creates a session (=obtain token).
         Args:
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
         Returns:
-            GulpUserSession: the user session object.
+            tuple[GulpUser, GulpUserSession]: The updated user and the session object.
         """
         from gulp.api.collab.user_session import GulpUserSession
 
@@ -215,12 +211,11 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         sess = GulpCollab.get_instance().session()
         async with sess:
-            u: GulpUser = await GulpUser.get_one_by_id(user, sess=sess)
+            u: GulpUser = await GulpUser.get_one_by_id(id=user, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
                 GulpLogger.get_instance().debug("resetting previous session for user=%s" % (user))
                 u.session = None
-                u.session_id = None
                 sess.add(u)  # keep track of the change
 
             # check password
@@ -251,13 +246,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                     )
 
             # update user with new session and write the new session object itself
-            u.session_id = token
             u.session = new_session
             u.time_last_login = muty.time.now_msec()
             sess.add(u)
             sess.add(new_session)
             await sess.commit()  # this will also delete the previous session from above, if needed
-            return new_session
+            return u, new_session
 
     @staticmethod
     async def logout(token: str, ws_id: str = None, req_id: str = None) -> None:
