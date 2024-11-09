@@ -858,7 +858,7 @@ class GulpOpenSearch():
         return self._parse_query_max_min(d)
 
     @staticmethod
-    def parse_query_raw_result(
+    def _parse_query_raw_result(
         results: dict,
         include_hits: bool = True,
         include_aggregations: bool = True,
@@ -1018,13 +1018,11 @@ class GulpOpenSearch():
             options = GulpQueryAdditionalOptions()
         parsed_options = options.parse()
 
-        GulpLogger.get_instance().debug(
-            "query_raw: %s, options=%s"
-            % (json.dumps(q, indent=2), json.dumps(parsed_options, indent=2))
-        )
-
         body = {"track_total_hits": True, "query": q}
         body.update(parsed_options)
+        GulpLogger.get_instance().debug(
+            "query_raw body=%s" % (json.dumps(body, indent=2))
+        )
 
         headers = {
             "content-type": "application/json",
@@ -1032,7 +1030,7 @@ class GulpOpenSearch():
         res = await self._opensearch.search(body=body, index=index, headers=headers)
 
         # GulpLogger.get_instance().debug("query_raw: res=%s" % (json.dumps(res, indent=2)))
-        js = GulpOpenSearch.parse_query_raw_result(res)
+        js = GulpOpenSearch._parse_query_raw_result(res)
         return js
 
 
@@ -1074,6 +1072,6 @@ class GulpOpenSearch():
             search_after=parsed_options["search_after"],
             source=parsed_options["source"],
         )
-        return GulpOpenSearch().parse_query_raw_result(res)
+        return GulpOpenSearch()._parse_query_raw_result(res)
 
 

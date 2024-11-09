@@ -15,7 +15,7 @@ import muty.jsend
 import muty.log
 import muty.string
 import muty.time
-from gulp.api.opensearch.query import GulpExternalQuery
+from gulp.api.opensearch.query import GulpExternalQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp import config
 from gulp import utils as gulp_utils
@@ -274,7 +274,7 @@ class GulpPluginBase(ABC):
         req_id: str,
         ws_id: str,
         user: str,
-        query: GulpExternalQuery,
+        query: GulpExternalQueryParameters,
         operation: str=None,
         ingest_to_index: str=None,
         flt: GulpIngestionFilter = None,
@@ -311,7 +311,7 @@ class GulpPluginBase(ABC):
     async def query_external_single(
         self,
         req_id: str,
-        id: GulpExternalQuery,
+        id: GulpExternalQueryParameters,
         plugin_params: GulpPluginGenericParameters = None,
     ) -> dict:
         """

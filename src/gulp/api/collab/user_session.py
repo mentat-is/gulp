@@ -141,6 +141,9 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         
         Returns:
             GulpUserSession: The user session object.
+
+        Raises:
+            MissingPermission: If the user does not have the required permissions.
         """
         # get session
         GulpLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))

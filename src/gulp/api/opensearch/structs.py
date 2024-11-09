@@ -87,7 +87,8 @@ class GulpBaseDocumentFilter(BaseModel):
     time_range: Optional[tuple[int, int, bool]] = Field(
         None,
         description="include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.<br>"
-            "if the third element is True, matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).",
+            "if the third element is True, matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).<br><br>"
+            "**for ingestion filtering, `gulp.timestamp` is always used and the third element is ignored**.",
     )
 
     query_string_parameters: Optional[dict] = Field(
@@ -257,12 +258,11 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             qs = f"NOT _exists_: {field}"
         return qs
     
-    def to_opensearch_dsl(self, timestamp_field: str = "gulp.timestamp", flt: "GulpQueryFilter"=None) -> dict:
+    def to_opensearch_dsl(self, flt: "GulpQueryFilter"=None) -> dict:
         """
         convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
 
         Args:
-            timestamp_field (str, optional): The timestamp field, default="gulp.timestamp"
             flt (GulpQueryFilter, optional): used to pre-filter the query, default=None
         Returns:
             dict: a ready to be used query object for the search API, like:
@@ -299,6 +299,8 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             if self.event_code:
                 clauses.append(self._query_string_build_or_clauses("event.code", self.event_code))
             if self.time_range:
+                # use string or numeric field depending on the third element (default to numeric)
+                timestamp_field = "@timestamp" if self.time_range[2] else "gulp.timestamp"
                 if self.time_range[0]:
                     clauses.append(self._query_string_build_gte_clause(timestamp_field, self.time_range[0]))
                 if self.time_range[1]:
@@ -345,6 +347,43 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         # GulpLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
+    def merge_to_opensearch_dsl(self, dsl: dict) -> dict:
+        """
+        merge the filter with an existing OpenSearch DSL query.
+
+        Args:
+            dsl (dict): the existing OpenSearch DSL query.
+        Returns:
+            dict: the merged query.
+        """
+        return {
+            "query": {
+                "bool": {
+                    "filter": [
+                        self.to_opensearch_dsl()["query"],
+                        dsl["query"],
+                    ]
+                }
+            }
+        }
+    
+    def is_empty(self) -> bool:
+        """
+        Check if the filter is empty.
+
+        Returns:
+            bool: True if the filter is empty, False otherwise.
+        """
+        return not any([self.agent_type, 
+                        self.id, 
+                        self.operation, 
+                        self.context, 
+                        self.log_file_path, 
+                        self.event_code, 
+                        self.event_original, 
+                        self.time_range,
+                        self.model_extra
+                        ])
 class GulpQueryAdditionalOptions(BaseModel):
     """
     additional options for a query.
@@ -370,7 +409,14 @@ class GulpQueryAdditionalOptions(BaseModel):
         None,
         description="for pagination: this is the last value returned as \"search_after\" from the previous query, to be used as start offset.",
     )
-
+    loop: Optional[bool] = Field(
+        False,
+        description="if set, keep querying until all documents are returned (default=False).",
+    )
+    skip_annotation_for_sigma_query: Optional[bool] = Field(
+        False,
+        description="if set, skip annotation for sigma queries (default=False).",
+    )
     def parse(self) -> dict:
         """
         Parse the additional options to a dictionary for the OpenSearch query api.
