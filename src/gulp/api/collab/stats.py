@@ -1,3 +1,4 @@
+import inspect
 from typing import Optional, override
 import muty.log
 import muty.time
@@ -60,9 +61,9 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     @classmethod
     async def update_by_id(
         cls,
+        token: str,
         id: str,
         d: dict,
-        token: str = None,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
@@ -70,16 +71,33 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         throw_if_not_found: bool = True,
         **kwargs,
     ) -> T:
-        raise NotImplementedError(
-            "update_by_id @classmethod not implemented, use instance method instead"
+        
+        # Check if the caller is 'cancel_by_id'
+        stack = inspect.stack()
+        callers = [frame.function for frame in stack]
+        if 'cancel_by_id' not in callers:
+            raise NotImplementedError(
+                "update_by_id @classmethod can only be called from 'cancel_by_id'"
+            )        
+        
+        return await super().update_by_id(
+            token,
+            id,
+            d,
+            permission,
+            ws_id,
+            req_id,
+            sess,
+            throw_if_not_found,
+            **kwargs,
         )
 
     @override
     @classmethod
     async def delete_by_id(
         cls,
+        token: str,
         id: str,
-        token: str = None,
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
@@ -242,37 +260,24 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
 
 
     @classmethod
-    async def cancel_by_id(cls, id: str, ws_id: str = None) -> None:
+    async def cancel_by_id(cls, token: str, id: str, ws_id: str = None) -> None:
         """
         Cancels a running request.
 
         Args:
+            token(str): The authentication token.
             id (str): The request ID.
             ws_id (str, optional): The websocket ID. Defaults to None.
         """
         GulpLogger.get_instance().debug(f"---> cancel_by_id: id={id}, ws_id={ws_id}")
         await cls.update_by_id(
-            id,
-            {"status": GulpRequestStatus.CANCELED},
+            token=token,
+            id=id,
+            d={"status": GulpRequestStatus.CANCELED},
+            permission=[GulpUserPermission.READ],
             ws_id=ws_id,
             req_id=id,
             throw_if_not_found=False,
-        )
-
-    async def cancel(self, ws_id: str = None) -> None:
-        """
-        Camcels the current request.
-        Args:
-            ws_id (str, optional): The websocket ID. Defaults to None.
-        Returns:
-            None
-        """
-        GulpLogger.get_instance().debug(f"---> cancel: {self}, ws_id={ws_id}")
-        await self.update(
-            {"status": GulpRequestStatus.CANCELED},
-            ws_id=ws_id,
-            req_id=self.id,
-            throw_if_not_found=False
         )
 
     @override
@@ -386,7 +391,8 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             
             # update the instance
             await super().update(
-                self.to_dict(),
+                token=None, # no token needed
+                d=self.to_dict(),
                 ws_id=ws_id,
                 req_id=self.id,
                 sess=sess,

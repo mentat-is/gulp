@@ -129,23 +129,23 @@ class GulpCollabFilter(BaseModel):
         None,
         description="filter by the given event ID/s in a CollabObj.documents list of GulpAssociatedDocument.",
     )
-    opt_time_range: Optional[tuple[int, int]] = Field(
+    time_range: Optional[tuple[int, int]] = Field(
         None,
-        description="if set, a `@timestamp` range [start, end] relative to CollabObject.documents, inclusive, in nanoseconds from unix epoch.",
+        description="if set, a `gulp.timestamp` range [start, end] relative to CollabObject.documents, inclusive, in nanoseconds from unix epoch.",
     )
-    opt_private: Optional[bool] = Field(
+    private: Optional[bool] = Field(
         False,
         description="if True, return only private objects. Default=False (return all).",
     )
-    opt_limit: Optional[int] = Field(
+    limit: Optional[int] = Field(
         None,
         description='to be used together with "offset", maximum number of results to return. default=return all.',
     )
-    opt_offset: Optional[int] = Field(
+    offset: Optional[int] = Field(
         None,
         description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
     )
-    opt_tags_and: Optional[bool] = Field(
+    tags_and: Optional[bool] = Field(
         False,
         description="if True, all tags must match. Default=False (at least one tag must match).",
     )
@@ -204,7 +204,7 @@ class GulpCollabFilter(BaseModel):
             q = q = q.filter(self._case_insensitive_or_ilike(type.owner, self.owner))
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
-            if self.opt_tags_and:
+            if self.tags_and:
                 # all tags must match (CONTAINS operator)
                 q = q.filter(func.lower(type.tags).op("@>")(lower_tags))
             else:
@@ -216,7 +216,7 @@ class GulpCollabFilter(BaseModel):
             q = q.filter(self._case_insensitive_or_ilike(type.text, self.text))
 
         if self.documents and "documents" in type.columns:
-            if not self.opt_time_range:
+            if not self.time_range:
                 # filter by collabobj.documents id
                 lower_documents = [{"_id": doc_id.lower()} for doc_id in self.documents]
                 conditions = [
@@ -225,15 +225,15 @@ class GulpCollabFilter(BaseModel):
                 ]
                 q = q.filter(or_(*conditions))
             else:
-                # filter by time range on collabobj.documents["@timestamp"]
+                # filter by time range on collabobj.documents["gulp.timestamp"]
                 conditions = []
-                if self.opt_time_range[0]:
+                if self.time_range[0]:
                     conditions.append(
-                        f"(doc->>'@timestamp')::bigint >= {self.opt_time_range[0]}"
+                        f"(doc->>'gulp.timestamp')::bigint >= {self.time_range[0]}"
                     )
-                if self.opt_time_range[1]:
+                if self.time_range[1]:
                     conditions.append(
-                        f"(doc->>'@timestamp')::bigint <= {self.opt_time_range[1]}"
+                        f"(doc->>'gulp.timestamp')::bigint <= {self.time_range[1]}"
                     )
 
                 # use a raw query to filter for the above conditions
@@ -248,11 +248,11 @@ class GulpCollabFilter(BaseModel):
                 """
                 q = q.filter(text(raw_sql))
 
-        if self.opt_limit:
-            q = q.limit(self.opt_limit)
-        if self.opt_offset:
-            q = q.offset(self.opt_offset)
-        if self.opt_private:
+        if self.limit:
+            q = q.limit(self.limit)
+        if self.offset:
+            q = q.offset(self.offset)
+        if self.private:
             q = q.where(GulpCollabObject.private is True)
 
         return q
@@ -416,6 +416,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class.
+
         Args:
             id (str): The unique identifier for the instance.
             token (str, optional): The token of the user making the request. Defaults to None (no check).
@@ -427,6 +428,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             ensure_eager_load (bool, optional): If True, eagerly load the instance with all related attributes. Defaults to False.
             **kwargs: Additional keyword arguments to set as attributes on the instance.
+                - "owner_id" is a special keyword argument that can be used to set the owner of the instance to the specified ID.
         Returns:
             T: The created instance of the class.
         Raises:
@@ -443,6 +445,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             else:
                 # no token, use default owner
                 owner = "admin"            
+
+            if "owner_id" in kwargs:
+                # force owner to id
+                owner = kwargs.pop("owner_id")
+                owner= id
 
             # create instance
             instance = cls(id, cls.__gulp_collab_type__, owner, 0, 0, **kwargs)
@@ -473,7 +480,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
     async def delete(
         self,
-        token: str = None,
+        token: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
@@ -483,7 +490,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously deletes an object from the database.
         Args:
-            token (str, optional): The token of the user making the request. Defaults to None.
+            token (str): The token of the user making the request.
             permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
@@ -500,7 +507,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             token: str, permission: list[GulpUserPermission], sess: AsyncSession
         ) -> None:
             if token:
-                await self.check_object_permission(token, permission, sess=sess)
+                await self.check_token_against_object(token, permission, sess=sess)
             sess.delete(self)
             await sess.commit()
 
@@ -517,8 +524,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @classmethod
     async def delete_by_id(
         cls,
+        token: str,
         id: str,
-        token: str = None,
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
@@ -528,8 +535,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously deletes an object of the specified type by its ID.
         Args:
+            token (str): The token of the user making the request
             id (str): The ID of the object to be deleted.
-            token (str, optional): The token of the user making the request. Defaults to None.
             permission (list[GulpUserPermission], optional): The required permission to delete the object. Defaults to [GulpUserPermission.DELETE].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
@@ -550,9 +557,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @classmethod
     async def update_by_id(
         cls,
+        token: str,
         id: str,
         d: dict,
-        token: str=None,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
@@ -563,9 +570,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously updates an object of the specified type with the given data.
         Args:
+            token (str): The token of the user making the request.
             id (str): The ID of the object to update.
             d (dict): A dictionary containing the fields to update and their new values.
-            token (str, optional): The token of the user making the request.
             permission (list[GulpUserPermission], optional): The required permission to update the object. Defaults to [GulpUserPermission.EDIT].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
@@ -582,12 +589,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         GulpLogger.get_instance().debug(f"---> update_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, d={d}")
         obj: GulpCollabBase = await cls.get_one_by_id(id, ws_id, req_id, sess, throw_if_not_found)
         if obj:
-            return await obj.update(d, token, permission, ws_id, req_id, sess, throw_if_not_found, **kwargs)
+            return await obj.update(token=token, d=d, permission=permission, 
+                                    ws_id=ws_id, req_id=req_id, sess=sess, 
+                                    throw_if_not_found=throw_if_not_found, **kwargs)
 
     async def update(
         self,
+        token: str,
         d: dict,
-        token: str=None,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
@@ -598,8 +607,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Asynchronously updates the object with the specified fields and values.
         Args:
+            token (str): The token of the user making the request.
             d (dict): A dictionary containing the fields to update and their new values.
-            token (str, optional): The token of the user making the request.
             permission (list[GulpUserPermission], optional): The required permission to update the object. Defaults to [GulpUserPermission.EDIT].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
@@ -614,10 +623,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If the object with the specified ID is not found.
         """
         async def _update_internal(
-            id: str, d: dict, token: str, permission: list[GulpUserPermission], throw_if_not_found:bool
+            token: str, id: str, d: dict, permission: list[GulpUserPermission], throw_if_not_found:bool
         ) -> T:
             if token:
-                await self.check_object_permission(token, permission, sess=sess)
+                # chcek token permission here
+                await self.check_token_against_object(token, permission, sess=sess)
 
             # ensure d has no 'id' (cannot be updated)
             d.pop("id", None)
@@ -648,7 +658,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if not sess:
             sess = GulpCollab.get_instance().session()
         async with sess:
-            return await _update_internal(self.id, d, token, permission, throw_if_not_found)
+            return await _update_internal(token, self.id, d, permission, throw_if_not_found)
 
     @classmethod
     async def get_one_by_id(
@@ -823,7 +833,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 return None
         return c
 
-    async def check_object_permission(self,
+    async def check_token_against_object(self,
                           token: str,
                           permission: list[GulpUserPermission] = [GulpUserPermission.READ],
                           allow_owner: bool=True,
@@ -867,14 +877,15 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return False
 
     @staticmethod
-    async def check_object_permission_by_id(id: str,
+    async def check_token_against_object_by_id(id: str,
                           token: str,
                           permission: list[GulpUserPermission] = [GulpUserPermission.READ],
                           allow_owner: bool=True,
                           sess: AsyncSession=None,
                           throw_on_no_permission: bool=True) -> bool:
         """
-        Check if the object is owned by the user and the user has the required permissions.
+        check if the object identified by "id" is owned by the user represented by "token" and the user has the required permissions.
+        
         Args:
             id (str): The identifier of the object to check ownership for.
             token (str): The token representing the user's session.
@@ -887,7 +898,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             bool: True if the user is the owner of the object, or an administrator, AND have the required permissions.
         """
         obj: GulpCollabBase = await GulpCollabBase.get_one_by_id(id, sess=sess)
-        return await obj.check_object_permission(token, permission, allow_owner, sess, throw_on_no_permission)
+        return await obj.check_token_against_object(token, permission, allow_owner, sess, throw_on_no_permission)
     
 
 class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):

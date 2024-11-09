@@ -23,18 +23,17 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         img: bytes | str,
-        token: str = None,
         **kwargs,
     ) -> T:
         """
         Create a new glyph object
         Args:
-            id (str): The unique identifier of the glyph (name).
-            owner (str): The owner of the glyph.
-            img (bytes | str): The image data of the glyph as binary blob or file path.
             token (str): The token of the user creating the object, for permission check (needs EDIT permission).
+            id (str): The unique identifier of the glyph (name).
+            img (bytes | str): The image data of the glyph as binary blob or file path.
             **kwargs: Arbitrary keyword arguments.
 
         Returns:

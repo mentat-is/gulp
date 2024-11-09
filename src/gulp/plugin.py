@@ -586,15 +586,15 @@ class GulpPluginBase(ABC):
             return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
-        if fields_mapping.opt_is_timestamp_chrome:
+        if fields_mapping.is_timestamp_chrome:
             # timestamp chrome, turn to nanoseconds from epoch
             source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
 
-        if fields_mapping.opt_extra_doc_with_event_code:
+        if fields_mapping.extra_doc_with_event_code:
             # this will trigger the creation of an extra document 
             # with the given event code in _finalize_process_record()
             extra = {
-                "event.code": str(fields_mapping.opt_extra_doc_with_event_code),
+                "event.code": str(fields_mapping.extra_doc_with_event_code),
                 "@timestamp": source_value,
             }
             self._extra_docs.append(extra)
@@ -684,23 +684,23 @@ class GulpPluginBase(ABC):
 
         """
         async def _setup_mapping(plugin_params: GulpPluginGenericParameters) -> None:
-            if plugin_params.opt_mappings:
+            if plugin_params.mappings:
                 # mappings dict provided
                 mappings_dict = {
                     k: GulpMapping.model_validate(v)
-                    for k, v in plugin_params.opt_mappings.items()
+                    for k, v in plugin_params.mappings.items()
                 }
                 GulpLogger.get_instance().debug(
-                    'using plugin_params.opt_mappings="%s"' % plugin_params.opt_mappings
+                    'using plugin_params.mappings="%s"' % plugin_params.mappings
                 )
                 self._mappings = mappings_dict                
             else:
-                if plugin_params.opt_mapping_file:
+                if plugin_params.mapping_file:
                     # load from file
-                    mapping_file = plugin_params.opt_mapping_file
+                    mapping_file = plugin_params.mapping_file
                     GulpLogger.get_instance().debug(
-                        "using plugin_params.opt_mapping_file=%s"
-                        % (plugin_params.opt_mapping_file)
+                        "using plugin_params.mapping_file=%s"
+                        % (plugin_params.mapping_file)
                     )
                     mapping_file_path = gulp_utils.build_mapping_file_path(mapping_file)
                     f = await muty.file.read_file_async(mapping_file_path)
@@ -711,11 +711,11 @@ class GulpPluginBase(ABC):
                     gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
                     self._mappings = gmf.mappings
                         
-            if plugin_params.opt_mapping_id:
+            if plugin_params.mapping_id:
                 # mapping id provided
-                self._mapping_id = plugin_params.opt_mapping_id
+                self._mapping_id = plugin_params.mapping_id
                 GulpLogger.get_instance().debug(
-                    "using plugin_params.mapping_id=%s" % (plugin_params.opt_mapping_id)
+                    "using plugin_params.mapping_id=%s" % (plugin_params.mapping_id)
                 )
 
             # checks
@@ -948,7 +948,7 @@ class GulpPluginBase(ABC):
                 # copy filter to avoid changing the original, if any,
                 flt = copy(flt)
                 # ensure data on ws is filtered
-                flt.opt_storage_ignore_filter = False
+                flt.storage_ignore_filter = False
 
             ws_docs = [
                 # use only a minimal fields set to avoid sending too much data to the ws

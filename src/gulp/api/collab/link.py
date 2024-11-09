@@ -23,6 +23,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         operation: str,
         document_from: str,
@@ -31,7 +32,6 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -40,6 +40,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         Create a new link object
 
         Args:
+            token(str): the token of the user creating the object, for access check
             id(str): the id of the link
             operation(str): the operation associated with the link
             document_from(str): the source document

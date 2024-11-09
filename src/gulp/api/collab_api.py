@@ -18,6 +18,7 @@ from gulp import config
 from gulp.defs import ObjectNotFound
 from gulp.utils import GulpLogger
 
+
 class GulpCollab:
     """
     singleton class, represents the collab database connection.
@@ -29,11 +30,12 @@ class GulpCollab:
     they should be named "postgres-ca.pem", "postgres.pem", "postgres.key" for the CA, client certificate, and client key respectively.
 
     """
+
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
 
@@ -45,7 +47,7 @@ class GulpCollab:
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
             cls._instance._initialize()
-            
+
         return cls._instance
 
     def _initialize(self):
@@ -55,7 +57,9 @@ class GulpCollab:
             self._engine: AsyncEngine = None
             self._collab_sessionmaker = None
 
-    async def init(self, force_recreate: bool=False, expire_on_commit: bool = False) -> None:
+    async def init(
+        self, force_recreate: bool = False, expire_on_commit: bool = False
+    ) -> None:
         """
         initializes the collab database connection (create the engine and configure it) in the singleton instance.
 
@@ -68,10 +72,14 @@ class GulpCollab:
             await self._engine.dispose()
 
         self._engine = await self._create_engine()
-        self._collab_sessionmaker = async_sessionmaker(bind=self._engine, expire_on_commit=expire_on_commit)
+        self._collab_sessionmaker = async_sessionmaker(
+            bind=self._engine, expire_on_commit=expire_on_commit
+        )
 
         if force_recreate:
-            await self._ensure_setup(force_recreate=True, expire_on_commit=expire_on_commit)
+            await self._ensure_setup(
+                force_recreate=True, expire_on_commit=expire_on_commit
+            )
         else:
             await self._ensure_setup(expire_on_commit=expire_on_commit)
 
@@ -121,7 +129,9 @@ class GulpCollab:
                 }
             else:
                 # no client certificate
-                GulpLogger.get_instance().debug("using server CA certificate only: %s" % (ca))
+                GulpLogger.get_instance().debug(
+                    "using server CA certificate only: %s" % (ca)
+                )
                 connect_args = {"sslrootcert": ca, "sslmode": sslmode}
         else:
             # no SSL
@@ -132,7 +142,9 @@ class GulpCollab:
             url, echo=config.debug_collab(), pool_timeout=30, connect_args=connect_args
         )
 
-        GulpLogger.get_instance().info("engine %s created/initialized, url=%s ..." % (_engine, url))
+        GulpLogger.get_instance().info(
+            "engine %s created/initialized, url=%s ..." % (_engine, url)
+        )
         return _engine
 
     def session(self) -> AsyncSession:
@@ -149,13 +161,12 @@ class GulpCollab:
 
         return self._collab_sessionmaker()
 
-
     async def shutdown(self) -> None:
         """
         Shuts down the per-process collab database engine.
 
         after calling this, the engine is invalidated and all existing connections are disposed and GulpCollab().init() must be called again to reinitialize the engine in the same process.
-        
+
         Returns:
             None
         """
@@ -166,7 +177,6 @@ class GulpCollab:
         self._setup_done = False
         self._engine = None
         self._collab_sessionmaker = None
-
 
     @staticmethod
     async def exists(url: str) -> bool:
@@ -201,11 +211,17 @@ class GulpCollab:
             internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
             """
             if database_exists(url):
-                GulpLogger.get_instance().info("--> drop: dropping database %s ..." % (url))
+                GulpLogger.get_instance().info(
+                    "--> drop: dropping database %s ..." % (url)
+                )
                 drop_database(url)
-                GulpLogger.get_instance().info("--> drop: database %s dropped ..." % (url))
+                GulpLogger.get_instance().info(
+                    "--> drop: database %s dropped ..." % (url)
+                )
             else:
-                GulpLogger.get_instance().warning("--> drop: database %s does not exist!" % (url))
+                GulpLogger.get_instance().warning(
+                    "--> drop: database %s does not exist!" % (url)
+                )
                 if raise_if_not_exists:
                     raise ObjectNotFound("database %s does not exist!" % (url))
 
@@ -213,7 +229,6 @@ class GulpCollab:
             "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
         )
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
-
 
     @staticmethod
     async def create_db(url: str) -> None:
@@ -226,10 +241,11 @@ class GulpCollab:
         GulpLogger.get_instance().debug("---> create: url=%s" % (url))
         await asyncio.to_thread(create_database, url=url)
 
-
     async def _setup_collab_expirations(self) -> None:
         # TODO: check issues with pg-cron process dying
-        GulpLogger.get_instance().debug("setting up stats and tokens expiration with pg_cron ...")
+        GulpLogger.get_instance().debug(
+            "setting up stats and tokens expiration with pg_cron ..."
+        )
 
         async with self.session() as sess:
             # create pg_cron extension
@@ -276,7 +292,6 @@ class GulpCollab:
             )
             await sess.commit()
 
-
     async def _create_default_data(self) -> None:
         """
         Initializes the default data for the application.
@@ -294,7 +309,12 @@ class GulpCollab:
         Raises:
             Any exceptions that occur during the execution of the function.
         """
-        from gulp.api.collab.structs import PERMISSION_MASK_DELETE, PERMISSION_MASK_EDIT, GulpCollabBase, GulpUserPermission
+        from gulp.api.collab.structs import (
+            PERMISSION_MASK_DELETE,
+            PERMISSION_MASK_EDIT,
+            GulpCollabBase,
+            GulpUserPermission,
+        )
 
         from gulp.api.collab.user import GulpUser
         from gulp.api.collab.glyph import GulpGlyph
@@ -319,48 +339,71 @@ class GulpCollab:
 
         # create admin user, which is the root of everything else
         admin_user: GulpUser = await GulpUser.create(
-            "admin",
-            "admin",
+            token=None,
+            id="admin",
+            password="admin",
             permission=[GulpUserPermission.ADMIN],
+            init=True,
         )
 
-        # login admin user        
+        # login admin user
         admin_user, admin_session = await GulpUser.login("admin", "admin")
-        
-        # create glyphs
-        user_glyph = await GulpGlyph.create("user", user_b, token=admin_session.id)
-        
-        operation_glyph = await GulpGlyph.create("operation", operation_b, token=admin_session.id)
 
-        await admin_user.update({"glyph": user_glyph.id}, token=admin_session.id)
+        # create glyphs
+        user_glyph = await GulpGlyph.create(
+            token=admin_session.id,
+            id="user",
+            img=user_b,
+        )
+
+        operation_glyph = await GulpGlyph.create(
+            token=admin_session.id, id="operation", img=operation_b
+        )
+
+        await admin_user.update(
+            token=admin_session.id,
+            d={"glyph": user_glyph.id},
+        )
 
         # create default context
-        context = await GulpContext.create("test_context", token=admin_session.id)
+        context = await GulpContext.create(
+            token=admin_session.id,
+            id="test_context",
+        )
 
         # create default operation
         operation = await GulpOperation.create(
-            "test_operation", index="testidx", glyph=operation_glyph.id, token=admin_session.id
+            token=admin_session.id,
+            id="test_operation",
+            index="testidx",
+            glyph=operation_glyph.id,
         )
 
         # create other users
         guest_user = await GulpUser.create(
-            "guest",
-            "guest",
-            glyph=user_glyph.id, token=admin_session.id
+            token=admin_session.id,
+            id="guest",
+            password="guest",
+            glyph=user_glyph.id,
         )
         editor_user = await GulpUser.create(
-            "editor",
-            "editor",
+            token=admin_session.id,
+            id="editor",
+            password="editor",
             permission=PERMISSION_MASK_EDIT,
             glyph=user_glyph.id,
-            token=admin_session.id
         )
         power_user = await GulpUser.create(
-            "power", "power", permission=PERMISSION_MASK_DELETE, glyph=user_glyph.id, token=admin_session.id
+            token=admin_session.id,
+            id="power",
+            password="power",
+            permission=PERMISSION_MASK_DELETE,
+            glyph=user_glyph.id,
         )
 
-
-    async def _ensure_setup(self, force_recreate: bool = False, expire_on_commit: bool=False) -> None:
+    async def _ensure_setup(
+        self, force_recreate: bool = False, expire_on_commit: bool = False
+    ) -> None:
         """
         ensure the collab database is set up and ready to use.
 
@@ -382,7 +425,9 @@ class GulpCollab:
 
             # recreate tables and default data
             self._engine = await self._create_engine()
-            self._collab_sessionmaker = async_sessionmaker(bind=self._engine, expire_on_commit=expire_on_commit)
+            self._collab_sessionmaker = async_sessionmaker(
+                bind=self._engine, expire_on_commit=expire_on_commit
+            )
             self._setup_done = True
             await self._create_default_data()
 
@@ -408,10 +453,14 @@ class GulpCollab:
                     )
                     if res.scalar_one_or_none():
                         # tables ok
-                        GulpLogger.get_instance().info("collab database exists and tables are ok.")
+                        GulpLogger.get_instance().info(
+                            "collab database exists and tables are ok."
+                        )
                         self._setup_done = True
                         return
 
                 # recreate tables
-                GulpLogger.get_instance().warning("collab database exists but tables are missing.")
+                GulpLogger.get_instance().warning(
+                    "collab database exists but tables are missing."
+                )
                 await _recreate_internal(url, expire_on_commit=expire_on_commit)

@@ -21,6 +21,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         operation: str,
         time_range: tuple[int, int],
@@ -29,7 +30,6 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,        
@@ -38,15 +38,15 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         Create a new highlight object
 
         Args:
+            token: the token of the user creating the object, for access check
             id: the id of the highlight
             operation: the operation associated with the highlight
-            time_range: the time range of the highlight
+            time_range: the time range of the highlight [start, end] in nanoseconds from unix epoch
             log_file_path: the log file path associated with the highlight
             glyph: the glyph associated with the highlight
             tags: the tags associated with the highlight
             title: the title of the highlight
             private: whether the highlight is private
-            token: the token of the user creating the object, for access check
             ws_id: the websocket id
             req_id: the request id
             kwargs: additional arguments

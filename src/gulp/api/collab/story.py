@@ -21,8 +21,8 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
-        owner: str,
         operation: str,
         documents: list[GulpAssociatedDocument],
         text: str = None,
@@ -30,7 +30,6 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -39,8 +38,8 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         Create a new story object
 
         Args:
+            token(str): the token of the user creating the object, for access check
             id(str): the id of the story
-            owner(str): the owner of the story
             operation(str): the operation associated with the story
             documents(list[GulpAssociatedDocument]): the events associated with the story
             text(str): the description of the story
@@ -48,7 +47,6 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
             tags(list[str]): the tags associated with the story
             title(str): the title of the story
             private(bool): whether the story is private
-            token(str): the token of the user creating the object, for access check
             ws_id(str): the websocket id
             req_id(str): the request id
             kwargs: additional arguments
@@ -67,7 +65,6 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         }
         return await super()._create(
             id,
-            owner,
             token=token,
             ws_id=ws_id,
             req_id=req_id,

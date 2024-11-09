@@ -30,22 +30,22 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         index: str = None,
         glyph: str = None,
         description: str = None,
-        token: str = None,
         **kwargs,
     ) -> T:
         """
         Create a new operation object.
 
         Args:
+            token: The token of the user creating the object, for permission check (needs ADMIN permission).
             id: The unique identifier of the operation.
             index: The opensearch index to associate the operation with.
             glyph: The glyph associated with the operation.
             description: The description of the operation.
-            token: The token of the user creating the object, for permission check (needs ADMIN permission).
             kwargs: Arbitrary keyword arguments.
 
         Returns:

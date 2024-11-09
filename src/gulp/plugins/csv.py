@@ -30,7 +30,7 @@ class Plugin(GulpPluginBase):
 
     when used by itself, it is enough to ingest a CSV file with the default settings (no extra parameters needed).
 
-    NOTE: since each document must have a "@timestamp", a GulpMapping must be set with a "opt_timestamp_field" set in the plugin_params.
+    NOTE: since each document must have a "@timestamp", a GulpMapping must be set with a "timestamp_field" set in the plugin_params.
 
     ~~~bash
     # all CSV field will result in "gulp.unmapped.*" fields, timestamp will be set from "UpdateTimestamp" field
@@ -38,7 +38,7 @@ class Plugin(GulpPluginBase):
 
     # use a mapping file
     # a mapping file may hold more than one mapping definition with its own options (as defined in helpers.get_mapping_from_file())
-    TEST_PLUGIN_PARAMS='{"opt_mapping_file": "mftecmd_csv.json", "opt_mapping_id": "j"}' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
+    TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "j"}' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
     ~~~
 
     ### stacked mode
@@ -102,7 +102,7 @@ class Plugin(GulpPluginBase):
         timestamp = d.get('@timestamp')
         if not timestamp:
             # not mapped, last resort is to use the timestamp field, if set
-            timestamp = record.get(self.selected_mapping().opt_timestamp_field)
+            timestamp = record.get(self.selected_mapping().timestamp_field)
 
         return GulpDocument(
             self,
@@ -153,9 +153,9 @@ class Plugin(GulpPluginBase):
             
             # csv plugin needs a mapping or a timestamp field
             selected_mapping = self.selected_mapping()
-            if not selected_mapping.fields and not selected_mapping.opt_timestamp_field:
+            if not selected_mapping.fields and not selected_mapping.timestamp_field:
                     raise ValueError(
-                        "if no mapping_file or mappings specified, opt_timestamp_field must be set in GulpMapping !"
+                        "if no mapping_file or mappings specified, timestamp_field must be set in GulpMapping !"
                     )
         except Exception as ex:
             await self._source_failed(stats, ex)

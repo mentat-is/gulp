@@ -8,38 +8,27 @@ class GulpPluginGenericParameters(BaseModel):
     """
     parameters for a plugin, to be passed to ingest and query API.
 
-    this may also include GulpPluginSpecificParam.name entries specific to the plugin
+    this may also include GulpPluginAdditionalParameter.name entries specific to the plugin
     """
 
     class Config:
         # allow extra fields in the model
         extra = "allow"
 
-    opt_mapping_file: Optional[str] = Field(
+    mapping_file: Optional[str] = Field(
         None,
         description="mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
 
-    opt_mappings: Optional[dict[str, GulpMapping]] = Field(
+    mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
         description="a dictionary of one or more { mapping_id: GulpMapping } to use directly (`mapping_file` is ignored if set).",
     )
 
-    opt_mapping_id: Optional[str] = Field(
+    mapping_id: Optional[str] = Field(
         None,
         description="the GulpMapping to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate(cls, data: str | dict = None):
-        if not data:
-            return {}
-
-        if isinstance(data, dict):
-            return data
-        return json.loads(data)
-
 
 class GulpPluginAdditionalParameter(BaseModel):
     """

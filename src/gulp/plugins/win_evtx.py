@@ -180,7 +180,7 @@ class Plugin(GulpPluginBase):
         try:
             # initialize plugin
             if plugin_params is None:
-                plugin_params = GulpPluginGenericParameters(opt_mapping_file="windows.json")
+                plugin_params = GulpPluginGenericParameters(mapping_file="windows.json")
             await self._initialize(plugin_params)
 
             # init parser

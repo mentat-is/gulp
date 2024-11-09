@@ -46,14 +46,17 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         owner: str,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
         **kwargs,
     ) -> T:
+        """
+        uninmplemented, use GulpUser.login() to create a session.
+        """
         raise NotImplementedError("use GulpUser.login() to create a session.")
 
     @staticmethod

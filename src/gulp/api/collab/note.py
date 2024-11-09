@@ -31,9 +31,9 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     @classmethod
     async def update_by_id(
         cls,
+        token: str,
         id: str,
         d: dict,
-        token: str = None,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
@@ -57,8 +57,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
             # update note, websocket will also receive the old text
             obj = await note.update(
-                d,
                 token=token,
+                d=d,
                 permission=permission,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -75,6 +75,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         operation: str,
         context: str,
@@ -85,7 +86,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         tags: list[str] = None,
         title: str = None,
         private: bool = False,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -94,6 +94,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         Create a new note object
 
         Args:
+            token: the token of the user who is creating the object, for access check
             id: the id of the note
             operation: the operation associated with the note
             context: the context associated with the note
@@ -104,7 +105,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             tags: the tags associated with the note
             title: the title of the note
             private: whether the note is private
-            token: the token of the user who is creating the object, for access check
             ws_id: the websocket id
             req_id: the request id
             kwargs: additional arguments

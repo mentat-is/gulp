@@ -82,13 +82,15 @@ class GulpBaseDocumentFilter(BaseModel):
     """
     base class for Gulp filters acting on documents.
     """
-
-    time_range: Optional[tuple[int, int]] = Field(
+    class Config:
+        extra = "allow"
+    time_range: Optional[tuple[int, int, bool]] = Field(
         None,
-        description="include documents matching `@timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.",
+        description="include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.<br>"
+            "if the third element is True, matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).",
     )
 
-    opt_query_string_parameters: Optional[dict] = Field(
+    query_string_parameters: Optional[dict] = Field(
         None,
         description="additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)",
     )
@@ -128,7 +130,7 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
 
     model_config = {"json_schema_extra": EXAMPLE_INGESTION_FILTER}
 
-    opt_storage_ignore_filter: Optional[bool] = Field(
+    storage_ignore_filter: Optional[bool] = Field(
         False,
         description="on filtering during ingestion, websocket receives filtered results while OpenSearch stores all documents anyway (default=False=both OpenSearch and websocket receives the filtered results).",
     )
@@ -148,7 +150,7 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
             GulpEventFilterResult: The result of the filter check.
         """
         # GulpLogger.get_instance().error(flt)
-        if not flt or flt.opt_storage_ignore_filter:
+        if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
 
@@ -176,6 +178,8 @@ QUERY_DEFAULT_FIELDS = [
 class GulpQueryFilter(GulpBaseDocumentFilter):
     """
     a GulpQueryFilter defines a filter for the query API.
+
+    further key,value pairs are allowed and will be used as additional filters.
     """
 
     model_config = {"json_schema_extra": EXAMPLE_QUERY_FILTER}
@@ -204,18 +208,11 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         None,
         description="include documents matching the given `event.code`/s.",
     )
-    event_original: Optional[str] = Field(
-        None,
-        description="include documents matching the given `event.original`/s.",
-    )
-    extra: Optional[dict] = Field(
-        None,
-        description='include documents matching the given `extra` field/s (as OR), i.e. { "winlog.event_data.SubjectUserName": "test" }.',
-    )
-    opt_event_original_full_text_search: bool = Field(
-        False,
-        description="if True, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.<br>"
-        "default=False, uses [keyword](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
+    event_original: Optional[tuple[str,bool]] = Field(
+        (None, False),
+        description="include documents matching the given `event.original`/s.<br><br>"
+        "if the second element is True, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.<br>"
+        "if the second element is False, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
     )
 
     def _query_string_build_or_clauses(self, field: str, values: list) -> str:
@@ -259,30 +256,13 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         else:
             qs = f"NOT _exists_: {field}"
         return qs
-
-    """
-    @staticmethod
-    def gulpqueryflt_dsl_dict_empty(d: dict) -> bool:
-        # check if the filter is empty ('*' in the query_string query).
-        query = d.get("query", None)
-        if query is not None:
-            query_string = query.get("query_string", None)
-            if query_string is not None:
-                q = query_string.get("query", None)
-                if q is not None:
-                    if q in ["*", "", None]:
-                        # empty filter
-                        return True
-                    return False
-        return True
-    """
-
-    def to_opensearch_dsl(self, timestamp_field: str = "@timestamp", flt: "GulpQueryFilter"=None) -> dict:
+    
+    def to_opensearch_dsl(self, timestamp_field: str = "gulp.timestamp", flt: "GulpQueryFilter"=None) -> dict:
         """
         convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
 
         Args:
-            timestamp_field (str, optional): The timestamp field, default="@timestamp"
+            timestamp_field (str, optional): The timestamp field, default="gulp.timestamp"
             flt (GulpQueryFilter, optional): used to pre-filter the query, default=None
         Returns:
             dict: a ready to be used query object for the search API, like:
@@ -311,8 +291,11 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             if self.id:
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
-                field = "event.original.text" if self.opt_event_original_full_text_search else "event.original"
-                clauses.append(self._query_string_build_eq_clause(field, self.event_original))
+                # check for full text search or keyword search
+                event_original = self.event_original[0]
+                fts = event_original[1] or False
+                field = "event.original.text" if fts else "event.original"
+                clauses.append(self._query_string_build_eq_clause(field, event_original))
             if self.event_code:
                 clauses.append(self._query_string_build_or_clauses("event.code", self.event_code))
             if self.time_range:
@@ -320,8 +303,9 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                     clauses.append(self._query_string_build_gte_clause(timestamp_field, self.time_range[0]))
                 if self.time_range[1]:
                     clauses.append(self._query_string_build_lte_clause(timestamp_field, self.time_range[1]))
-            if self.extra:
-                for k, v in self.extra.items():
+            if self.model_extra:
+                # extra fields
+                for k, v in self.model_extra.items():
                     clauses.append(self._query_string_build_or_clauses(k, v))
             return clauses
 
@@ -341,8 +325,8 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             }
         }
 
-        if qs != "*" and self.opt_query_string_parameters:
-            query_dict["query"]["query_string"].update(self.opt_query_string_parameters)
+        if qs != "*" and self.query_string_parameters:
+            query_dict["query"]["query_string"].update(self.query_string_parameters)
 
         if flt:
             # merge with the provided filter using a bool query
@@ -365,24 +349,24 @@ class GulpQueryAdditionalOptions(BaseModel):
     """
     additional options for a query.
     """
-    opt_sort: Optional[dict[str, GulpSortOrder]] = Field(
+    sort: Optional[dict[str, GulpSortOrder]] = Field(
         default={"@timestamp": "asc", "_id": "asc", "event.sequence": "asc"},
         max_length=1,
         description="how to sort results, default=sort by ascending `@timestamp`.",
     )
-    opt_fields: Optional[list[str]] = Field(
+    fields: Optional[list[str]] = Field(
         default=QUERY_DEFAULT_FIELDS,
         description="the set of fields to include in the returned documents.<br>"
         "default=`%s` (which are forcefully included anyway), use `None` to return all fields."
         % (QUERY_DEFAULT_FIELDS),
     )
-    opt_limit: Optional[int] = Field(
+    limit: Optional[int] = Field(
         1000,
         gt=1,
         le=10000,
         description="for pagination: the maximum number of documents to return in a chunk, default=1000 (None=return up to 10000 documents).",
     )
-    opt_search_after: Optional[list[Union[str, int]]] = Field(
+    search_after: Optional[list[Union[str, int]]] = Field(
         None,
         description="for pagination: this is the last value returned as \"search_after\" from the previous query, to be used as start offset.",
     )
@@ -398,32 +382,32 @@ class GulpQueryAdditionalOptions(BaseModel):
         
         # sorting
         n["sort"] = []
-        for k, v in self.opt_sort.items():
+        for k, v in self.sort.items():
             n["sort"].append({k: {"order": v}})
             # NOTE: this was "event.hash" before: i removed it since its values is the same as _id now, so put _id here.
             # if problems (i.e. issues with sorting on _id), we can add it back just by duplicating _id 
-            if "_id" not in self.opt_sort:
+            if "_id" not in self.sort:
                 n["sort"].append({"_id": {"order": v}})
-            if "event.sequence" not in self.opt_sort:
+            if "event.sequence" not in self.sort:
                 n["sort"].append({"event.sequence": {"order": v}})
 
         # fields to be returned
-        if self.opt_fields:
+        if self.fields:
             # only return these fields (must always include the defaults)
             for f in QUERY_DEFAULT_FIELDS:
-                if f not in self.opt_fields:
-                    self.opt_fields.append(f)
-            n["_source"] = self.opt_fields
+                if f not in self.fields:
+                    self.fields.append(f)
+            n["_source"] = self.fields
 
         # pagination: doc limit
-        if self.opt_limit is not None:
+        if self.limit is not None:
             # use provided
-            n["size"] = self.opt_limit
+            n["size"] = self.limit
 
         # pagination: start from
-        if self.opt_search_after:
+        if self.search_after:
             # next chunk from this point
-            n["search_after"] = self.opt_search_after
+            n["search_after"] = self.search_after
         else:
             n["search_after"] = None
 
@@ -438,10 +422,15 @@ class GulpAssociatedDocument(BaseModel):
     id: Optional[str] = Field(
         None, description='"_id": the unique identifier of the document.', alias="_id"
     )
-    timestamp: Optional[int] = Field(
+    timestamp: Optional[str] = Field(
         None,
-        description='"@timestamp": document original timestamp in nanoseconds from unix epoch',
+        description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
+    )
+    gulp_timestamp: Optional[int] = Field(
+        None,
+        description='"@timestamp": document timestamp in nanoseconds from unix epoch',
+        alias="gulp.timestamp",
     )
 
 
@@ -588,17 +577,17 @@ class GulpDocument(BaseModel):
         
         self.operation = operation
         self.context = context
-        if mapping and mapping.opt_agent_type:
+        if mapping and mapping.agent_type:
             # force agent type from mapping
-            self.agent_type = mapping.opt_agent_type
+            self.agent_type = mapping.agent_type
         else:
             # default to plugin name
             self.agent_type = plugin_instance.bare_filename
         self.event_original = event_original
         self.event_sequence = event_sequence
-        if mapping and mapping.opt_event_code:
+        if mapping and mapping.event_code:
             # force event code from mapping
-            self.event_code = mapping.opt_event_code
+            self.event_code = mapping.event_code
         else:
             self.event_code = event_code
         self.event_duration = event_duration
@@ -619,7 +608,7 @@ class GulpDocument(BaseModel):
 
         # finally check if it's valid
         self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
-            dayfirst=mapping.opt_timestamp_dayfirst, yearfirst=mapping.opt_timestamp_yearfirst, fuzzy=mapping.opt_timestamp_fuzzy)
+            dayfirst=mapping.timestamp_dayfirst, yearfirst=mapping.timestamp_yearfirst, fuzzy=mapping.timestamp_fuzzy)
         if invalid:
             # invalid timestamp
             self.invalid_timestamp=True

@@ -33,24 +33,24 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     @classmethod
     async def create(
         cls,
+        token: str,
         id: str,
         dsl: dict,
         sigma: bool = False,
         text: str = None,
         description: str = None,        
-        token: str = None,
         **kwargs,
     ) -> T:
         """
         Create a new stored query object
 
         Args:
+            token(str): the token of the user creating the object, for access check (needs EDIT permission)
             id(str): the id of the stored query
             dsl(dict): the query in OpenSearch DSL format
             sigma(bool, optional): whether the query is a sigma query. Defaults to False.
             text(str, optional): the text of the query in the original format. Defaults to None.
             description(str, optional): query description. Defaults to None.
-            token(str, optional): the token of the user creating the object, for access check (needs EDIT permission)
             kwargs: additional arguments
 
         Returns:

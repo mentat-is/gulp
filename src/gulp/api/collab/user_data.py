@@ -33,10 +33,9 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
     @classmethod    
     async def create(
         cls,
+        token: str,
         id: str,
-        owner: str,
         data: dict,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -44,10 +43,9 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
         """
         Asynchronously creates a new user data entry.
         Args:
+            token (str): The authentication token, for permission check.
             id (str): The unique identifier for the user data entry.
-            owner (str): The owner of the user data entry.
             data (dict): The data to be stored in the user data entry.
-            token (str, optional): The authentication token, for permission check. Defaults to None.
             ws_id (str, optional): The websocket ID. Defaults to None.
             req_id (str, optional): The request ID. Defaults to None.
             **kwargs: Additional keyword arguments.
@@ -59,7 +57,6 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
         }
         return await super()._create(
             id,
-            owner,
             token=token,
             ws_id=ws_id,
             req_id=req_id,

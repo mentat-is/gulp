@@ -54,6 +54,7 @@ class GulpQuery:
     """
     @staticmethod
     async def gulp_query(flt: GulpQueryFilter) -> GulpDocumentsChunk:
+        
         pass
 
     @staticmethod
@@ -61,18 +62,18 @@ class GulpQuery:
         pass
     
     @staticmethod
+    async def sigma_query(sigma: str, plugin: str=None, referenced_sigma: list[str]=None, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
+        pass
+    
+    @staticmethod
+    async def sigma_query_build(sigma: str, plugin: str=None, referenced_sigma: list[str]=None, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
+        pass
+
+    @staticmethod
     async def external_query(query: GulpExternalQuery, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
         pass
-    
+        
     @staticmethod
-    async def sigma_query(sigma: str, plugin: str=None, referenced_sigmas: list[str]=None, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
-        pass
-    
-    @staticmethod
-    async def external_sigma_query_build(sigma: str, plugin: str=None, referenced_sigmas: list[str]=None, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
-        pass
-    
-    @staticmethod
-    async def stored_query(query_id: int, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
+    async def stored_query(id: str, flt: GulpQueryFilter=None) -> GulpDocumentsChunk:
         pass
     

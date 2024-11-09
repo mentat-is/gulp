@@ -36,29 +36,29 @@
           "ecs": ["@timestamp"]
         },
         "Created0x30": {
-          "opt_extra_doc_with_event_code": "record_created_0x30"
+          "extra_doc_with_event_code": "record_created_0x30"
         },
         "LastModified0x10": {
-          "opt_extra_doc_with_event_code": "record_modified_0x10"
+          "extra_doc_with_event_code": "record_modified_0x10"
         },
         "LastModified0x30": {
-          "opt_extra_doc_with_event_code": "record_modified_0x30"
+          "extra_doc_with_event_code": "record_modified_0x30"
         },
         "LastRecordChange0x10": {
-          "opt_extra_doc_with_event_code": "record_changed_0x10"
+          "extra_doc_with_event_code": "record_changed_0x10"
         },
         "LastRecordChange0x30": {
-          "opt_extra_doc_with_event_code": "record_changed_0x30"
+          "extra_doc_with_event_code": "record_changed_0x30"
         },
         "LastAccess0x10": {
-          "opt_extra_doc_with_event_code": "record_access_0x10"
+          "extra_doc_with_event_code": "record_access_0x10"
         },
         "LastAccess0x30": {
-          "opt_extra_doc_with_event_code": "record_access_0x30"
+          "extra_doc_with_event_code": "record_access_0x30"
         }
       },
-      "opt_agent_type": "mftecmd",
-      "opt_event_code": "record_created_0x10"
+      "agent_type": "mftecmd",
+      "event_code": "record_created_0x10"
     },
     "boot": {
       "fields": {
@@ -68,8 +68,8 @@
           ]
         }
       },
-      "opt_agent_type": "mftecmd",
-      "opt_event_code": "boot"
+      "agent_type": "mftecmd",
+      "event_code": "boot"
     },
     "j": {
       "fields": {
@@ -104,8 +104,8 @@
           ]
         }
       },
-      "opt_agent_type": "mftecmd",
-      "opt_event_code": "j"
+      "agent_type": "mftecmd",
+      "event_code": "j"
     },
     "sds": {
       "fields": {
@@ -130,8 +130,8 @@
           ]
         }
       },
-      "opt_agent_type": "mftecmd",
-      "opt_event_code": "sds"
+      "agent_type": "mftecmd",
+      "event_code": "sds"
     }
   }
 }

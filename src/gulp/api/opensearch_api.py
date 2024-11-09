@@ -792,8 +792,8 @@ class GulpOpenSearch():
                         'type1': {
                             'doc_count': 123,
                             'max_event.code': 123,
-                            'min_@timestamp': 123,
-                            'max_@timestamp': 123,
+                            'min_gulp.timestamp': 123,
+                            'max_gulp.timestamp': 123,
                             'min_event.code': 123
                         }
                     },

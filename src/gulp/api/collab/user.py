@@ -53,12 +53,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     @classmethod
     async def create(
         cls,        
+        token: str,
         id: str,
         password: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         email: str = None,
         glyph: str = None,
-        token: str = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -67,15 +67,15 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Create a new user object.
 
         Args:
-            id: The unique identifier of the user.
+            token: The token of the user creating the object, for permission check (needs ADMIN permission).
+            id: The unique identifier of the user(=username).
             password: The password of the user.
             permission: The permission of the user.
             email: The email of the user.
             glyph: The glyph associated with the user.
-            token: The token of the user creating the object, for permission check (needs ADMIN permission).
             ws_id: The websocket id.
-            req_id: The request id.
-            kwargs: Additional keyword arguments.
+            req_id: The request id.            
+            kwargs: Additional keyword arguments: "init" is used to create the default admin user and skip token check.
 
         Returns:
             The created user object.
@@ -89,7 +89,15 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "permission": permission,
             "email": email,
             "glyph": glyph,
+            
+            # force owner to the user itself
+            "owner_id": id,
         }
+
+        if "init" in kwargs:
+            # "init" internal flag is used to create the default admin user and skip token check
+            token=None
+            kwargs.pop("init")
 
         return await super()._create(
             id,
@@ -97,7 +105,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             required_permission=[GulpUserPermission.ADMIN],
             ws_id=ws_id,
             req_id=req_id,
-            ensure_eager_load=True,
+            ensure_eager_load=True,            
             **args,
         )
 
@@ -105,9 +113,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     @classmethod
     async def update_by_id(
         cls,
+        token: str,
         id: str,
         d: dict,
-        token: str=None,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         ws_id: str = None,
         req_id: str = None,
@@ -118,7 +126,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         check_permission_args={}
         if 'permission' in d:
             # changing permission, only admin can do it, standard users cannot change their own permission too
+            # so we set allow_owner to False explicitly here, so only admin can pass check_token_against_object_by_id
             if GulpUserPermission.READ not in d["permission"]:
+                # ensure read permission is always present
                 d["permission"].append(GulpUserPermission.READ)
             check_permission_args['allow_owner'] = False
         
@@ -126,8 +136,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             # only admin can change password to other users
             check_permission_args['permission'] = [GulpUserPermission.ADMIN]
 
-        # check token
-        GulpCollabBase.check_object_permission_by_id(id, token, **check_permission_args)
+        # check token and permission
+        GulpCollabBase.check_token_against_object_by_id(id, token, **check_permission_args)
 
         # if d is a dict and have "password", hash it (password update)
         pwd_changed = False
@@ -140,8 +150,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         sess = GulpCollab.get_instance().session()
         async with sess:
             user: GulpUser = await super().update_by_id(
-                id,
-                d,
+                token=token,
+                id=id,
+                d=d,
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,
@@ -165,8 +176,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     @classmethod
     async def delete_by_id(
         cls,
+        token: str,
         id: str,
-        token: str = None,
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
         ws_id: str = None,
         req_id: str = None,
@@ -175,7 +186,15 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     ) -> None:
         if id == "admin":
             raise ValueError("cannot delete the default admin user")
-        await super().delete_by_id(id, token, permission, ws_id, req_id, sess, throw_if_not_found)
+        await super().delete_by_id(
+            token=token,
+            id=id,
+            permission=permission,
+            ws_id=ws_id,
+            req_id=req_id,
+            sess=sess,
+            throw_if_not_found=throw_if_not_found)
+            
 
     def is_admin(self) -> bool:
         """
@@ -269,7 +288,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         GulpLogger.get_instance().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
 
-        await GulpUserSession.delete_by_id(token, ws_id=ws_id, req_id=req_id)
+        await GulpUserSession.delete_by_id(token=token, id=token, ws_id=ws_id, req_id=req_id)
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """
