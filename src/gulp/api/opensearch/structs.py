@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from gulp.api.mapping.models import GulpMapping
 from gulp.defs import GulpSortOrder
+from gulp.utils import GulpLogger
 
 EXAMPLE_QUERY_OPTIONS = {
     "example": {
@@ -458,12 +459,12 @@ class GulpDocument(BaseModel):
     )
     timestamp: str = Field(
         None,
-        description='"@timestamp": document timestamp, in iso8601 format.',
+        description='"@timestamp": document timestamp, in iso8601 format. This field allow queries as described [here](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).',
         alias="@timestamp",
     )
     gulp_timestamp: int = Field(
         0,
-        description='"gulp.timestamp": document timestamp in nanoseconds from unix epoch.',
+        description='"gulp.timestamp": document timestamp in nanoseconds from unix epoch. This field allow queries using long numbers.',
         alias="gulp.timestamp"
     )
     invalid_timestamp: bool = Field(
@@ -472,12 +473,12 @@ class GulpDocument(BaseModel):
         alias='gulp.invalid.timestamp',
     )
     operation: str = Field(
-        ...,
+        None,
         description='"gulp.operation": the operation ID the document is associated with.',
         alias="gulp.operation",
     )
     context: str = Field(
-        ...,
+        None,
         description='"gulp.context": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context",
     )
@@ -487,12 +488,12 @@ class GulpDocument(BaseModel):
         alias="agent.type",
     )
     event_original: str = Field(
-        ...,
+        None,
         description='"event.original": the original event as text.',
         alias="event.original",
     )
     event_sequence: int = Field(
-        ...,
+        0,
         description='"event.sequence": the sequence number of the document in the source.',
         alias="event.sequence",
     )
@@ -534,7 +535,7 @@ class GulpDocument(BaseModel):
             return epoch_start, 0, True
         
         try:            
-            ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy), False
+            ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
                 ns = muty.time.number_to_nanos(timestamp)
@@ -543,6 +544,7 @@ class GulpDocument(BaseModel):
             return ts, ns, False
         except Exception as e:
             # invalid timestamp
+            #GulpLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
     
     @override
@@ -578,8 +580,10 @@ class GulpDocument(BaseModel):
             None
         """
         
-        #GulpLogger.get_instance().debug('--> GulpDocument.__init__: timestamp=%d, operation=%s, context=%s, event_original=%s, event_sequence=%s, event_code=%s, event_duration=%s, source=%s, kwargs=%s' % ( timestamp, operation, context, muty.string.make_shorter(event_original), event_sequence, event_code, event_duration, source, kwargs, ))
-        super().__init__(timestamp=str(timestamp), operation=operation, context=context, event_original=event_original, event_sequence=event_sequence, event_code=event_code, event_duration=event_duration, log_file_path=log_file_path, **kwargs)
+        super().__init__()
+ 
+        # replace alias keys in kwargs with their corresponding field names
+        kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
         mapping: GulpMapping = plugin_instance.selected_mapping()        
         
         self.operation = operation
@@ -610,12 +614,15 @@ class GulpDocument(BaseModel):
             setattr(self, k, v)
 
         if not self.timestamp:
-            # it was not in the kwargs, check if it's being passed in the arguments, either flag it as invalid
-            self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
-                dayfirst=mapping.opt_timestamp_dayfirst, yearfirst=mapping.opt_timestamp_yearfirst, fuzzy=mapping.opt_timestamp_fuzzy)
-            if invalid:
-                # invalid timestamp
-                self.invalid_timestamp=True
+            # use argument, timestamp has been directly passed by the plugin
+            self.timestamp = timestamp
+
+        # finally check if it's valid
+        self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
+            dayfirst=mapping.opt_timestamp_dayfirst, yearfirst=mapping.opt_timestamp_yearfirst, fuzzy=mapping.opt_timestamp_fuzzy)
+        if invalid:
+            # invalid timestamp
+            self.invalid_timestamp=True
         
         # id is a hash of the document
         self.id = muty.crypto.hash_blake2b(
@@ -625,8 +632,8 @@ class GulpDocument(BaseModel):
         GulpDocument.model_validate(self)
         #GulpLogger.get_instance().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
-    def __repr__(self) -> str:
-        return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
+    #def __repr__(self) -> str:
+    #    return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
     
     @override
     def model_dump(self, lite: bool=False, exclude_none: bool=True, exclude_unset: bool=True, **kwargs) -> dict:
@@ -648,6 +655,27 @@ class GulpDocument(BaseModel):
                     d.pop(k,None)
         return d
 
+class GulpDocumentFieldAliasHelper():
+    """
+    internal helper class to fix alias keys in kwargs with their corresponding field names.
+    """
+    _alias_to_field_cache: dict[str, str] = {}
+
+    @staticmethod
+    def set_kwargs_and_fix_aliases(kwargs: dict) -> dict:
+        """
+        Replace alias keys in kwargs with their corresponding field names.
+
+        Args:
+            kwargs (dict): The keyword arguments to fix.
+        Returns:
+            dict: The fixed keyword arguments.
+        """
+        if not GulpDocumentFieldAliasHelper._alias_to_field_cache:
+            # initialize
+            GulpDocumentFieldAliasHelper._alias_to_field_cache = {field.alias: name for name, field in GulpDocument.model_fields.items() if field.alias}
+        return {GulpDocumentFieldAliasHelper._alias_to_field_cache.get(k, k): v for k, v in kwargs.items()}
+    
 class GulpQueryType(IntEnum):
     """Gulp rule types"""
 

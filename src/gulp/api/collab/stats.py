@@ -3,6 +3,7 @@ import muty.log
 import muty.time
 from sqlalchemy import BIGINT, ForeignKey, Index, Integer, String, ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 from gulp import config
@@ -173,7 +174,8 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
     """
 
     errors: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String), default_factory=lambda:[] , doc="The errors that occurred during processing."
+        MutableList.as_mutable(ARRAY(String)),
+        default_factory=list, doc="The errors that occurred during processing."
     )    
     
     source_processed: Mapped[Optional[int]] = mapped_column(
@@ -328,19 +330,23 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             self.records_skipped += records_skipped
             self.records_processed += records_processed
             self.records_ingested += records_ingested
-            if error:
+            if error:                
                 if isinstance(error, Exception):
+                    #GulpLogger.get_instance().error(f"PRE-COMMIT: ex error={error}")
                     error = str(error)
                     if error not in self.errors:
                         self.errors.append(error)
                 elif isinstance(error, str):
+                    #GulpLogger.get_instance().error(f"PRE-COMMIT: str error={error}")
                     if error not in self.errors:
                         self.errors.append(error)
                 elif isinstance(error, list[str]):
+                    #GulpLogger.get_instance().error(f"PRE-COMMIT: list error={error}")
                     for e in error:
                         if e not in self.errors:
                             self.errors.append(e)
 
+            #GulpLogger.get_instance().debug(f"PRE-COMMIT: source_processed={self.source_processed}, source_failed={self.source_failed}, records_failed={self.records_failed}, records_skipped={self.records_skipped}, records_processed={self.records_processed}, records_ingested={self.records_ingested}, errors={self.errors}")
             if status:
                 self.status = status
 

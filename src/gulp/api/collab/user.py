@@ -6,6 +6,7 @@ import muty.string
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, String, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import (
     GulpCollabBase,
@@ -24,7 +25,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     pwd_hash: Mapped[str] = mapped_column(String)
     permission: Mapped[Optional[list[GulpUserPermission]]] = mapped_column(
-        ARRAY(SQLEnum(GulpUserPermission)), default_factory=lambda: [GulpUserPermission.READ]
+         MutableList.as_mutable(ARRAY(SQLEnum(GulpUserPermission))), 
+         default_factory=lambda: [GulpUserPermission.READ]
     )
     glyph: Mapped[Optional[str]] = mapped_column(
         ForeignKey("glyph.id", ondelete="SET NULL"), default=None

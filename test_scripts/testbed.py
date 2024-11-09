@@ -179,6 +179,7 @@ async def test_ingest_windows():
     plugin = await GulpPluginBase.load("win_evtx")
     
     # create stats upfront
+    # 62031 ingested, 62031 processed, 0 failed
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
         _test_req_id, operation=_operation, context=_context, source_total=1)
     
@@ -198,7 +199,8 @@ async def test_ingest_csv():
     plugin = await GulpPluginBase.load("csv")
     
     # create stats upfront
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    # 75 ingested, 75 processed, 0 failed
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
     
     generic_mapping = GulpMapping(opt_timestamp_field="UpdateTimestamp")
     params: GulpPluginGenericParameters = GulpPluginGenericParameters(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
@@ -214,12 +216,12 @@ async def test_ingest_csv_with_mappings():
     
     # load plugin
     start_time = timeit.default_timer()
-    #file = "/home/valerino/Downloads/kape/mftecmd/record.csv"
-    file = "/home/valerino/Downloads/kape/mftecmd/record_small.csv"
+    file = os.path.join(_opt_samples_dir,'mftecmd/sample_record.csv')
     plugin = await GulpPluginBase.load("csv")
     
     # create stats upfront
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    # 10 processed, 44 ingested, 0 failed
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
 
     params: GulpPluginGenericParameters = GulpPluginGenericParameters(opt_mapping_file="mftecmd_csv.json", opt_mapping_id="record")
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
@@ -238,7 +240,8 @@ async def test_ingest_csv_stacked():
     plugin = await GulpPluginBase.load("stacked_example")
     
     # create stats upfront
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, _guest_user, operation=_operation, context=_context, source_total=1)
+    # 75 ingested, 75 processed, 0 failed, every document duration set to 9999
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
 
     generic_mapping = GulpMapping(opt_timestamp_field="UpdateTimestamp", opt_agent_type="mftecmd", opt_event_code="j")
     params: GulpPluginGenericParameters = GulpPluginGenericParameters(opt_mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
@@ -256,8 +259,9 @@ async def main():
 
         await test_ingest_windows()
         #await test_ingest_csv()
-        #await test_ingest_csv_stacked()
         #await test_ingest_csv_with_mappings()
+        #await test_ingest_csv_stacked()
+        
     finally:
         await GulpOpenSearch.get_instance().shutdown()
 

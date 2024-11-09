@@ -16,6 +16,7 @@ from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_params import GulpPluginGenericParameters
+from gulp.utils import GulpLogger
 
 
 class Plugin(GulpPluginBase):
@@ -136,7 +137,7 @@ class Plugin(GulpPluginBase):
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-
+        #GulpLogger.get_instance().debug("timestampmapped=%s" % d)
         return GulpDocument(
             self,
             timestamp=timestamp,
