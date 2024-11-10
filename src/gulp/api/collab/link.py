@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
-from gulp.api.opensearch.structs import GulpAssociatedDocument, GulpDocument
+from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
 from gulp.utils import GulpLogger
 
 
@@ -16,7 +16,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
     # the source event
     document_from: Mapped[str] = mapped_column(String, doc="The source document.")
     # target events
-    documents: Mapped[list[GulpAssociatedDocument]] = mapped_column(
+    documents: Mapped[list[GulpBasicDocument]] = mapped_column(
         JSONB, doc="One or more target documents."
     )
 
@@ -31,7 +31,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         token: str,
         operation: str,
         document_from: str,
-        documents: list[GulpAssociatedDocument],
+        documents: list[GulpBasicDocument],
         glyph: str = None,
         color: str = None,
         tags: list[str] = None,
@@ -49,7 +49,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             token(str): the token of the user creating the object, for access check
             operation(str): the id of the operation associated with the link
             document_from(str): the source document
-            documents(list[GulpAssociatedDocument]): the target documents
+            documents(list[GulpBasicDocument]): the target documents
             glyph(str, optional): the id of the glyph associated with the link
             color(str, optional): the color associated with the link (default: red)
             tags(list[str], optional): the tags associated with the link
@@ -74,7 +74,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             "private": private,
             **kwargs,
         }
-        # autogenerate id here
+        # id is automatically generated
         return await super()._create(
             token=token,
             ws_id=ws_id,

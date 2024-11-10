@@ -3,7 +3,7 @@ from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabType, GulpCollabObject, T
-from gulp.api.opensearch.structs import GulpAssociatedDocument
+from gulp.api.opensearch.structs import GulpBasicDocument
 
 
 class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
@@ -11,7 +11,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
     a story in the gulp collaboration system
     """
 
-    documents: Mapped[list[GulpAssociatedDocument]] = mapped_column(
+    documents: Mapped[list[GulpBasicDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
     )
     @override
@@ -25,7 +25,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         token: str,
         operation: str,
         title: str,
-        documents: list[GulpAssociatedDocument],
+        documents: list[GulpBasicDocument],
         color: str = None,
         description: str = None,
         glyph: str = None,
@@ -42,7 +42,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
             token(str): the token of the user creating the object, for access check
             operation(str): the id of the operation associated with the story
             title(str): the title of the story
-            documents(list[GulpAssociatedDocument]): the documents associated with the story
+            documents(list[GulpBasicDocument]): the documents associated with the story
             color(str, Optional): the color associated with the story (default: blue)
             description(str, Optional): the description of the story
             glyph(str, Optional): the id of the glyph associated with the story
@@ -64,7 +64,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
             "description": description,
             "private": private,
         }
-        # auto-generate id
+        # id is automatically generated
         return await super()._create(
             token=token,
             ws_id=ws_id,

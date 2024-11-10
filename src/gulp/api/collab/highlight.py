@@ -73,7 +73,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             "private": private,
             **kwargs,
         }
-        # autogenerate id here
+        # id is automatically generated
         return await super()._create(
             token=token,            
             ws_id=ws_id,

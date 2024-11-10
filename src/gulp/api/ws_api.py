@@ -17,7 +17,11 @@ class WsQueueDataType(StrEnum):
     """
 
     STATS_UPDATE = "stats_update"
-    COLLAB_UPDATE = "collab_update" # an array of GulpCollabObject (note, story, highlight, link)
+    # an array with one or more GulpCollabObject (note, story, highlight, link) created or updated    COLLAB_DELETE = "collab_delete" # an array of GulpCollabObject (note, story, highlight, link)
+    # created objects have "created" set
+    COLLAB_UPDATE = "collab_update"
+    # an array with one or more GulpCollabObject (note, story, highlight, link) deleted objects
+    COLLAB_DELETE = "collab_delete"
     QUERY_DONE = "query_done"
     REBASE_DONE = "rebase_done"
     DOCS_CHUNK = "docs_chunk"  # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation

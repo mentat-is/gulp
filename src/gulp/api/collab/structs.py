@@ -31,7 +31,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins.serialize import SerializeMixin
-from gulp.api.opensearch.structs import GulpAssociatedDocument
+from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.defs import ObjectNotFound
 from gulp.utils import GulpLogger
@@ -132,9 +132,9 @@ class GulpCollabFilter(BaseModel):
     text: Optional[list[str]] = Field(
         None, description="filter by the given object text."
     )
-    documents: Optional[list[GulpAssociatedDocument]] = Field(
+    documents: Optional[list[GulpBasicDocument]] = Field(
         None,
-        description="filter by the given event ID/s in a CollabObj.documents list of GulpAssociatedDocument.",
+        description="filter by the given event ID/s in a CollabObj.documents list of GulpBasicDocument.",
     )
     time_range: Optional[tuple[int, int]] = Field(
         None,
@@ -445,6 +445,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if ws_id and isinstance(instance, GulpCollabObject):
                 # notify the websocket of the collab object creation
                 data = instance.to_dict(exclude_none=True)
+                data['created'] = True
                 await GulpSharedWsQueue.get_instance().put(
                     WsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
@@ -452,7 +453,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     operation=data.get("operation", None),
                     req_id=req_id,
                     private=data.get("private", False),
-                    data=[instance.to_dict(exclude_none=True)],
+                    data=[data],
                 )
 
             return instance
@@ -612,12 +613,25 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             token: str, permission: list[GulpUserPermission], sess: AsyncSession
         ) -> None:
             if token:
-                await self.check_token_against_object(token, permission, sess=sess)
+                user_id = await self.check_token_against_object(token, permission, sess=sess)
             sess.delete(self)
             await sess.commit()
 
-            # TODO: notify websocket
+            if ws_id and isinstance(self, GulpCollabObject):
+                # notify the websocket of the collab object creation
+                data = self.to_dict(exclude_none=True)
+                await GulpSharedWsQueue.get_instance().put(
+                    WsQueueDataType.COLLAB_DELETE,
+                    ws_id=ws_id,
+                    # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
+                    user_id=user_id or self.owner,
+                    operation=data.get("operation", None),
+                    req_id=req_id,
+                    private=data.get("private", False),
+                    data=[data],
+                )
 
+            
         GulpLogger.get_instance().debug(
             "---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess)
         )
@@ -661,7 +675,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             % (id, cls.__gulp_collab_type__, sess)
         )
         obj: GulpCollabBase = await cls.get_one_by_id(
-            id, ws_id, req_id, sess=sess, throw_if_not_found=throw_if_not_found
+            id=id, 
+            ws_id=ws_id, 
+            req_id=req_id, 
+            sess=sess, 
+            throw_if_not_found=throw_if_not_found
         )
         if obj:
             await obj.delete(
@@ -709,8 +727,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             f"---> update_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, d={d}"
         )
         obj: GulpCollabBase = await cls.get_one_by_id(
-            id, ws_id, req_id, sess, throw_if_not_found
-        )
+            id=id,
+            ws_id=ws_id,
+            req_id=req_id,
+            sess=sess,
+            throw_if_not_found=throw_if_not_found,
+        )            
         if obj:
             return await obj.update(
                 token=token,
@@ -762,12 +784,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ) -> T:
             if token:
                 # chcek token permission here
-                await self.check_token_against_object(token, permission, sess=sess)
+                user_id = await self.check_token_against_object(token, permission, sess=sess)
 
             # ensure d has no 'id' (cannot be updated)
             d.pop("id", None)
 
-            # Load the instance from the session
+            # load the instance from the session
             self_in_session = await sess.get(self.__class__, self.id)
             if not self_in_session:
                 raise ObjectNotFound(
@@ -788,7 +810,20 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             obj = await self_in_session.eager_load(sess)
             GulpLogger.get_instance().debug("---> updated: %s" % (obj))
 
-            # TODO: handle websocket, add each **kwargs too
+            if ws_id and isinstance(obj, GulpCollabObject):
+                # notify the websocket of the collab object update
+                data = obj.to_dict(exclude_none=True)
+                await GulpSharedWsQueue.get_instance().put(
+                    WsQueueDataType.COLLAB_UPDATE,
+                    ws_id=ws_id,
+                    # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
+                    user_id=user_id or self_in_session.owner,
+                    operation=data.get("operation", None),
+                    req_id=req_id,
+                    private=data.get("private", False),
+                    data=[data],
+                )
+
             return obj
 
         GulpLogger.get_instance().debug(
@@ -827,7 +862,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         GulpLogger.get_instance().debug(
             f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}"
-        )
+        )        
         o = await cls.get_one(
             GulpCollabFilter(id=[id], type=[cls.__gulp_collab_type__]),
             ws_id,
@@ -912,10 +947,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 res, throw_if_not_found=throw_if_not_found, detail=flt
             )
             if not c:
-                # TODO: return empty on websocket
                 return []
 
-            # TODO: handle websocket
             if ensure_eager_load:
                 # eagerly load all related attributes
                 for i, cc in enumerate(c):
@@ -923,6 +956,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     c[i] = await ccb.eager_load(sess=sess)
 
             GulpLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
+
+            # TODO: handle websocket ?
             return c
 
         GulpLogger.get_instance().debug(
@@ -1009,8 +1044,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess (AsyncSession, optional): The database session to use. Defaults to None.
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
 
+        Raises:
+            MissingPermission: If the user does not have the required permissions and throw_on_no_permission is True.
         Returns:
-            bool: True if the user is the owner of the object, or an administrator, AND have the required permissions.
+            user_id (str): The user ID of the user that has the required permissions, or None if the user does not have the required permissions.
         """
 
         # get the user session from the token
@@ -1021,21 +1058,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         )
         if user_session.user.is_admin():
             # admin is always granted
-            return True
+            return user_session.user_id
 
         # check if the user is the owner of the object
         if self.owner == user_session.user_id and allow_owner:
-            return True
+            return user_session.user_id
 
         # user do not own the object, check permissions
         if user_session.user.has_permission(permission):
-            return True
+            return user_session.user_id
 
         if throw_on_no_permission:
             raise MissingPermission(
                 f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
             )
-        return False
+        return None
 
     @staticmethod
     async def check_token_against_object_by_id(
@@ -1045,7 +1082,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         allow_owner: bool = True,
         sess: AsyncSession = None,
         throw_on_no_permission: bool = True,
-    ) -> bool:
+    ) -> str:
         """
         check if the object identified by "id" is owned by the user represented by "token" and the user has the required permissions.
 
@@ -1058,7 +1095,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
 
         Returns:
-            bool: True if the user is the owner of the object, or an administrator, AND have the required permissions.
+            bool: the user_id of the user that has the required permissions, or None if the user does not have the required permissions.
         """
         obj: GulpCollabBase = await GulpCollabBase.get_one_by_id(id, sess=sess)
         return await obj.check_token_against_object(

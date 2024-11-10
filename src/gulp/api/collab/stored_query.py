@@ -1,10 +1,7 @@
-from typing import Optional, Union, override
-from sqlalchemy import BIGINT, Boolean, ForeignKey, String
-from sqlalchemy.dialects.postgresql import JSONB
+from typing import Optional, override
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabObject, GulpCollabType, T, GulpUserPermission
-from gulp.utils import GulpLogger
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
 from sigma.rule import SigmaRule
 
 class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):

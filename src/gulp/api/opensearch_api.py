@@ -8,6 +8,7 @@ import muty.file
 import muty.string
 import muty.time
 
+from gulp.api.collab.note import GulpNote
 from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
 import gulp.config as config
 from gulp.api.opensearch.structs import (
@@ -1017,7 +1018,6 @@ class GulpOpenSearch:
             raise ValueError("note_title is required for a sigma query")
         
         parsed_options = options.parse()
-
         processed: int = 0
         chunk_num: int = 0
         while True:
@@ -1096,5 +1096,25 @@ class GulpOpenSearch:
             )
 
             if options.sigma_create_note:
+                default_tags = ["auto", "sigma"]
+                if note_tags:
+                    # add the default tags if not already present
+                    tags = list(default_tags.union(tag.lower() for tag in note_tags))
+                else:
+                    tags = list(default_tags)
+
                 # create a note for each of the documents on collab db
-                pass
+                GulpNote.create_from_documents(
+                    docs=docs,
+                    title=note_title,
+                    tags=tags,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                )
+            if last:
+                break
+        
+        GulpLogger.get_instance().info(
+            "search_dsl: processed %d documents in total" % (processed)
+        )

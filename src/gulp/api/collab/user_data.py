@@ -59,7 +59,7 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
             "data": data,
         }
         return await super()._create(
-            # auto-generate id
+            # id is automatically generated
             token=token,
             ws_id=ws_id,
             req_id=req_id,

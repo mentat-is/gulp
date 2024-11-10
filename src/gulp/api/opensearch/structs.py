@@ -465,9 +465,14 @@ class GulpQueryAdditionalOptions(BaseModel):
         # GulpLogger.get_instance().debug("query options: %s" % (json.dumps(n, indent=2)))
         return n  
       
-class GulpAssociatedDocument(BaseModel):
+class GulpBasicDocument(BaseModel):
+    class Config:
+        extra = "allow"
+        # solves the issue of not being able to populate fields with the same name as the model fields (aliasing)
+        populate_by_name = True 
+
     """
-    a stripped down version of a Gulp document, used to associate documents with a note/link
+    a stripped down basic version of a Gulp document, used to associate documents with a note/link
     """
 
     id: Optional[str] = Field(
@@ -482,6 +487,11 @@ class GulpAssociatedDocument(BaseModel):
         None,
         description='"@timestamp": document timestamp in nanoseconds from unix epoch',
         alias="gulp.timestamp",
+    )
+    invalid_timestamp: bool = Field(
+        False,
+        description="True if \"@timestamp\" is invalid and set to 1/1/1970 (the document should be checked, probably ...).",
+        alias='gulp.invalid.timestamp',
     )
     operation: Optional[str] = Field(
         None,
@@ -500,15 +510,10 @@ class GulpAssociatedDocument(BaseModel):
     )
 
 
-class GulpDocument(BaseModel):
+class GulpDocument(GulpBasicDocument):
     """
     represents a Gulp document.
     """
-    class Config:
-        extra = "allow"
-        # solves the issue of not being able to populate fields with the same name as the model fields (aliasing)
-        populate_by_name = True 
-
     id: str = Field(
         None, description='"_id": the unique identifier of the document.', alias="_id"
     )
@@ -536,6 +541,11 @@ class GulpDocument(BaseModel):
         None,
         description='"gulp.context": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context",
+    )
+    log_file_path: Optional[str] = Field(
+        None,
+        description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").',
+        alias="log.file.path",
     )
     agent_type: str = Field(
         None,
@@ -565,11 +575,6 @@ class GulpDocument(BaseModel):
         1,
         description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
         alias="event.duration",
-    )
-    log_file_path: Optional[str] = Field(
-        None,
-        description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").',
-        alias="log.file.path",
     )
 
     @staticmethod

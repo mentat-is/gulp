@@ -298,7 +298,8 @@ async def test_bulk_insert():
             "file.size": 683933696,
         }
     ]
-    await GulpNote.bulk_create_from_documents(docs, ws_id=None,req_id='123', user_id='admin', title="test match", tags=['auto'])
+    await GulpNote.bulk_create_from_documents(docs, 
+                                              ws_id=None,req_id='123', user_id='admin', title="test match", tags=['tag1','tag2'])
 
 async def main():
     try:       
@@ -309,7 +310,7 @@ async def main():
         await test_ingest_csv_with_mappings()
         #await test_ingest_csv_stacked()
         #await test_bulk_insert()
-        await GulpOperation.add_context(_operation, _context)
+        #await GulpOperation.add_context(_operation, _context)
     finally:
         await GulpOpenSearch.get_instance().shutdown()
 

@@ -141,9 +141,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             # only admin can change password to other users
             check_permission_args['permission'] = [GulpUserPermission.ADMIN]
 
-        # check token and permission
-        GulpCollabBase.check_token_against_object_by_id(id, token, **check_permission_args)
-
         # if d is a dict and have "password", hash it (password update)
         pwd_changed = False
         if "password" in d:
@@ -151,7 +148,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             del d["password"]
             pwd_changed = True
 
-        # already checked token above, we can skip check here
         sess = GulpCollab.get_instance().session()
         async with sess:
             user: GulpUser = await super().update_by_id(

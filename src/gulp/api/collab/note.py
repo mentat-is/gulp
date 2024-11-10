@@ -10,7 +10,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.opensearch.structs import GulpAssociatedDocument, GulpDocument
+from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.utils import GulpLogger
 from gulp.api.collab_api import GulpCollab
@@ -28,8 +28,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     log_file_path: Mapped[Optional[str]] = mapped_column(
         String, doc="The log file path associated with the note."
     )
-    documents: Mapped[Optional[list[GulpAssociatedDocument]]] = mapped_column(
-        JSONB, doc="One or more GulpAssociatedDocument associated with the note."
+    documents: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
+        JSONB, doc="One or more GulpBasicDocument associated with the note."
     )
     text: Mapped[Optional[str]] = mapped_column(String, doc="The text of the note.")
 
@@ -100,14 +100,14 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         create a note for each document in the list, using bulk insert
 
         Args:
-            docs: the list of documents
-            ws_id: the websocket id
-            req_id: the request id
-            user_id: the user id
-            title: the title of the note
-            tags: the tags of the note
-            color: the color of the note
-            glyph: the glyph of the note
+            docs(list[dict]): the list of GulpDocument dictionaries to be added to the note
+            ws_id(str): the websocket id
+            req_id(str): the request id
+            user_id(str): the requestor user id
+            title(str): the title of the note
+            tags(list[str], optional): the tags of the note
+            color(str, optional): the color of the note
+            glyph(str, optional): the id of the glyph of the note
 
         Returns:
             the number of notes created
@@ -119,21 +119,26 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             # create a note for each document
             notes = []
             for doc in docs:
-                associated_doc = GulpAssociatedDocument(
+                associated_doc = GulpBasicDocument(
                     id=doc.get('_id'),
                     timestamp=doc.get('@timestamp'),
                     gulp_timestamp=doc.get('gulp.timestamp'),
+                    invalid_timestamp=doc.get('gulp.invalid.timestamp', False),
+                    operation=doc.get('gulp.operation'),
+                    context=doc.get('gulp.context'),
+                    log_file_path=doc.get('log.file.path'),
                 )
                 args = {
-                    "operation": doc.get('gulp.operation'),
-                    "context": doc.get('gulp.context'),
-                    "log_file_path": doc.get('log.file.path'),
-                    "documents": [associated_doc.model_dump()],
+                    "operation": associated_doc.operation,
+                    "context": associated_doc.context,
+                    "log_file_path": associated_doc.log_file_path,
+                    "documents": [associated_doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)],
                     "glyph": glyph,
                     "color": color,
+                    "title": title,
                     "tags": tags,
                 }                
-                note = GulpNote(id=title, owner=user_id, **args)
+                note = GulpNote(id=None, owner=user_id, **args)
                 notes.append(note.to_dict(exclude_none=True))
 
             # bulk insert
@@ -145,19 +150,22 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 "created %d notes" % len(notes)
             )
 
-            # send over the websocket
             if ws_id:
+                # send over the websocket
                 GulpLogger.get_instance().debug("sending %d notes on the websocket %s " % (len(notes), ws_id))
-                # notify the websocket of the collab object creation                
+                
+                # operation is always the same
+                operation = notes[0].get('operation')
                 await GulpSharedWsQueue.get_instance().put(
                     WsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
                     user_id=user_id,
-                    operation = notes[0].get('operation',None),
+                    operation = operation,
                     req_id=req_id,
                     data=notes,
                 )
                 GulpLogger.get_instance().debug("sent %d notes on the websocket %s " % (len(notes), ws_id)) 
+
             return len(notes)
 
     @classmethod
@@ -168,7 +176,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         operation: str,
         context: str,
         log_file_path: str,
-        documents: list[GulpAssociatedDocument],
+        documents: list[GulpBasicDocument],
         text: str,
         description: str = None,
         glyph: str = None,
@@ -188,7 +196,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             operation(str): the id of the operation associated with the note
             context(str): the id of the context associated with the note
             log_file_path(str): the log file path (or source) associated with the note
-            documents(list[GulpAssociatedDocument]): the list of documents associated with the note
+            documents(list[GulpBasicDocument]): the list of documents associated with the note
             text(str): the text of the note
             description(str, optional): the description of the note
             glyph(str, optional): id of the glyph associated with the note
@@ -214,7 +222,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             "private": private,
             **kwargs,
         }
-        # autogenerate id here
+        # id is automatically generated
         return await super()._create(
             token=token,
             ws_id=ws_id,
