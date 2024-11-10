@@ -12,6 +12,7 @@ from fastapi import Header, Query
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
+import gulp.api.ws_api
 import gulp.api.rest_api as rest_api
 import gulp.defs
 import gulp.utils
@@ -77,7 +78,7 @@ class Plugin(GulpPluginBase):
             % (user_id, operation_id, client_id, ws_id, req_id)
         )
         ws_api.shared_queue_add_data(
-            ws_api.WsQueueDataType.QUERY_RESULT,
+            gulp.api.ws_api.WsQueueDataType.QUERY_RESULT,
             req_id,
             {"hellooooooooooooo": "wooooooooorld"},
             ws_id=ws_id,

@@ -52,7 +52,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     )
 
     def __init__(self, *args, **kwargs):
-        GulpLogger.get_instance().debug(f"---> GulpStatsBase: args={args}, kwargs={kwargs}")
+        # initializes the base class
         if type(self) is GulpStatsBase:
             raise TypeError("GulpStatsBase cannot be instantiated directly")
         super().__init__(*args, **kwargs)
@@ -81,14 +81,14 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             )        
         
         return await super().update_by_id(
-            token,
-            id,
-            d,
-            permission,
-            ws_id,
-            req_id,
-            sess,
-            throw_if_not_found,
+            token=token,
+            id=id,
+            d=d,
+            permission=permission,
+            ws_id=ws_id,
+            req_id=req_id,
+            sess=sess,
+            throw_if_not_found=throw_if_not_found,
             **kwargs,
         )
 
@@ -110,17 +110,23 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     @classmethod
     async def _create(
         cls,
-        id: str,
+        token: str=None,
+        id: str = None,
+        required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         ws_id: str = None,
+        req_id: str = None,
         sess: AsyncSession = None,
-        ensure_eager_load: bool=True,
+        ensure_eager_load: bool=False,
         **kwargs,
     ) -> T:
         """
         Asynchronously creates a new GulpStats subclass instance
         Args:
-            id (str): The unique identifier for the instance.
+            token (str, optional): The authentication token. Defaults to None (unused)
+            id (str): The unique identifier for the stats (req_id).
+            required_permission (list[GulpUserPermission], optional): The required permission. Defaults to [GulpUserPermission.READ] (unused)
             ws_id (str, optional): The websocket ID. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None (unused)
             sess (AsyncSession, optional): The asynchronous session. Defaults to None.
             ensure_eager_load (bool, optional): Whether to ensure eager loading of the instance. Defaults to True.
             **kwargs: Additional keyword arguments.
@@ -150,7 +156,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             **kwargs,
         }
         return await super()._create(
-            id,
+            id=id,
             ws_id=ws_id,
             req_id=id,
             sess=sess,
@@ -186,7 +192,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         return stats
 
 
-class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.value):
+class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
     """
     Represents the statistics for an ingestion operation.
     """
@@ -221,10 +227,15 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
     )
     __table_args__ = (Index("idx_stats_operation", "operation"),)
 
+    @override
+    def __init__(self, *args, **kwargs):
+        # initializes the base class
+        super().__init__(*args, type=GulpCollabType.INGESTION_STATS, **kwargs)
+
     @classmethod
     async def create_or_get(
         cls,
-        id: str,
+        req_id: str,
         operation: str = None,
         context: str = None,
         source_total: int = 1,
@@ -232,7 +243,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
         **kwargs,
     ) -> T:
         """
-        Create new or get an existing GulpIngestionStats record.
+        Create new or get an existing GulpIngestionStats object on the collab database.
 
         Args:
             id (str): The unique identifier of the stats (= "req_id" of the request)
@@ -247,36 +258,36 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             GulpIngestionStats: The created CollabStats object.
         """
         GulpLogger.get_instance().debug(
-            f"---> create_or_get: id={id}, operation={operation}, context={context}, source_total={source_total}, kwargs={kwargs}"
+            f"---> create_or_get: id={req_id}, operation={operation}, context={context}, source_total={source_total}, kwargs={kwargs}"
         )
         return await cls._create_or_get(
-            id,
-            operation,
-            context,
-            sess,
+            id=req_id,
+            operation=operation,
+            context=context,
+            sess=sess,
             source_total=source_total,
             **kwargs,
         )
 
 
     @classmethod
-    async def cancel_by_id(cls, token: str, id: str, ws_id: str = None) -> None:
+    async def cancel_by_id(cls, token: str, req_id: str, ws_id: str = None) -> None:
         """
         Cancels a running request.
 
         Args:
             token(str): The authentication token.
-            id (str): The request ID.
+            req_id (str): The request ID.
             ws_id (str, optional): The websocket ID. Defaults to None.
         """
-        GulpLogger.get_instance().debug(f"---> cancel_by_id: id={id}, ws_id={ws_id}")
+        GulpLogger.get_instance().debug(f"---> cancel_by_id: id={req_id}, ws_id={ws_id}")
         await cls.update_by_id(
             token=token,
-            id=id,
+            id=req_id,
             d={"status": GulpRequestStatus.CANCELED},
             permission=[GulpUserPermission.READ],
             ws_id=ws_id,
-            req_id=id,
+            req_id=req_id,
             throw_if_not_found=False,
         )
 
@@ -371,7 +382,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.STATS_INGESTION.valu
             failure_threshold = config.ingestion_evt_failure_threshold()
             if (
                 failure_threshold > 0
-                and self.type == GulpCollabType.STATS_INGESTION
+                and self.type == GulpCollabType.INGESTION_STATS
                 and self.source_failed >= failure_threshold
             ):
                 # too many failures, abort

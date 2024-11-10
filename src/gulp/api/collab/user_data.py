@@ -30,11 +30,15 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
         JSONB, doc="The data to be associated with user."
     )
 
+    @override
+    def __init__(self, *args, **kwargs):
+        # initializes the base class
+        super().__init__(*args,  type=GulpCollabType.USER_DATA, **kwargs)
+
     @classmethod    
     async def create(
         cls,
         token: str,
-        id: str,
         data: dict,
         ws_id: str = None,
         req_id: str = None,
@@ -44,7 +48,6 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
         Asynchronously creates a new user data entry.
         Args:
             token (str): The authentication token, for permission check.
-            id (str): The unique identifier for the user data entry.
             data (dict): The data to be stored in the user data entry.
             ws_id (str, optional): The websocket ID. Defaults to None.
             req_id (str, optional): The request ID. Defaults to None.
@@ -56,7 +59,7 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
             "data": data,
         }
         return await super()._create(
-            id,
+            # auto-generate id
             token=token,
             ws_id=ws_id,
             req_id=req_id,

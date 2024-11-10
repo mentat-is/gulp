@@ -96,24 +96,9 @@ class GulpBaseDocumentFilter(BaseModel):
         description="additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)",
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate(cls, data: str | dict = None) -> dict:
-        if not data:
-            return {}
-
-        if isinstance(data, dict):
-            return data
-
-        return json.loads(data)
-
-    def to_dict(self) -> dict:
-        return self.model_dump()
-
-    @staticmethod
-    def from_dict(type: T, d: dict) -> T:
-        return type(**d)
-
+    @override
+    def __str__(self) -> str:
+        return self.model_dump_json(exclude_none=True)
 
 class GulpDocumentFilterResult(IntEnum):
     """wether if the event should be accepted or skipped during ingestion."""
@@ -135,6 +120,10 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         False,
         description="on filtering during ingestion, websocket receives filtered results while OpenSearch stores all documents anyway (default=False=both OpenSearch and websocket receives the filtered results).",
     )
+
+    @override
+    def __str__(self) -> str:
+        return super().__str__()
 
     @staticmethod
     def filter_doc_for_ingestion(
@@ -215,6 +204,10 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         "if the second element is True, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.<br>"
         "if the second element is False, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
     )
+
+    @override
+    def __str__(self) -> str:
+        return super().__str__()
 
     def _query_string_build_or_clauses(self, field: str, values: list) -> str:
         qs = "("
@@ -413,13 +406,25 @@ class GulpQueryAdditionalOptions(BaseModel):
         False,
         description="if set, keep querying until all documents are returned (default=False).",
     )
-    skip_annotation_for_sigma_query: Optional[bool] = Field(
+    sigma_create_note: Optional[bool] = Field(
         False,
-        description="if set, skip annotation for sigma queries (default=False).",
+        description="if set in a sigma query, annotate each document returned on the collab database (default=False).",
+    )
+    sigma_note_color: Optional[str] = Field(
+        None,
+        description="the color of the note created for each document returned by a sigma query (default=use default for notes).",
+    )
+    sigma_note_glyph: Optional[str] = Field(
+        None,
+        description="the glyph of the note created for each document returned by a sigma query (default=use default for notes).",
+    )
+    use_elasticsearch_api: Optional[bool] = Field(
+        False,
+        description="if set, use the ElasticSearch API instead of OpenSearch (default=False).",
     )
     def parse(self) -> dict:
         """
-        Parse the additional options to a dictionary for the OpenSearch query api.
+        Parse the additional options to a dictionary for the OpenSearch/Elasticsearch search api.
 
         Returns:
             dict: The parsed dictionary.
@@ -477,6 +482,21 @@ class GulpAssociatedDocument(BaseModel):
         None,
         description='"@timestamp": document timestamp in nanoseconds from unix epoch',
         alias="gulp.timestamp",
+    )
+    operation: Optional[str] = Field(
+        None,
+        description='"gulp.operation": the operation ID the document is associated with.',
+        alias="gulp.operation",
+    )
+    context: Optional[str] = Field(
+        None,
+        description='"gulp.context": the context (i.e. an host name) the document is associated with.',
+        alias="gulp.context",
+    )
+    log_file_path: Optional[str] = Field(
+        None,
+        description='"log.file.path": identifies the source of the document (i.e. the log file name or path). May be None for events ingested using the "raw" plugin, or generally for everything lacking a "file" (in this case, the source may be identified with "context").',
+        alias="log.file.path",
     )
 
 
@@ -719,3 +739,5 @@ class GulpQueryType(IntEnum):
     RAW = 2
     GULP_FILTER = 3  # GULP filter
     INDEX = 4  # an index of a stored query
+
+

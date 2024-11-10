@@ -20,6 +20,7 @@ from gulp.api.opensearch.structs import (
     GulpQueryOptions,
     gulpqueryflt_to_elastic_dsl,
 )
+import gulp.api.ws_api
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
@@ -471,7 +472,7 @@ class Plugin(GulpPluginBase):
 
                 # send QueryResult over websocket
                 ws_api.shared_queue_add_data(
-                    ws_api.WsQueueDataType.QUERY_RESULT,
+                    gulp.api.ws_api.WsQueueDataType.QUERY_RESULT,
                     req_id,
                     query_res.to_dict(),
                     client_id=client_id,

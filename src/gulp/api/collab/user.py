@@ -49,6 +49,11 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         default=None,
         foreign_keys="[GulpUserData.user_id]",
     )   
+    
+    @override
+    def __init__(self, *args, **kwargs):
+        # initializes the base class
+        super().__init__(*args, type=GulpCollabType.USER, **kwargs)
 
     @classmethod
     async def create(
@@ -64,7 +69,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         **kwargs,
     ) -> T:  
         """
-        Create a new user object.
+        Create a new user object on the collab database.
 
         Args:
             token: The token of the user creating the object, for permission check (needs ADMIN permission).
@@ -89,7 +94,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "permission": permission,
             "email": email,
             "glyph": glyph,
-            
+
             # force owner to the user itself
             "owner_id": id,
         }
@@ -100,8 +105,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             kwargs.pop("init")
 
         return await super()._create(
-            id,
             token=token,
+            id=id,
             required_permission=[GulpUserPermission.ADMIN],
             ws_id=ws_id,
             req_id=req_id,
@@ -243,10 +248,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             if u.pwd_hash != muty.crypto.hash_sha256(password):
                 raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
 
-            # create new session, token is the session id
-            token = muty.string.generate_unique()
+            # create new session (will auto-generate a token)
             new_session: GulpUserSession = await GulpUserSession._create(
-                token,
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,

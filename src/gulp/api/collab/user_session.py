@@ -43,44 +43,21 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         doc="The time when the session expires, in milliseconds from unix epoch.",
     )
 
+    @override
+    def __init__(self, *args, **kwargs):
+        # initializes the base class
+        GulpLogger.get_instance().debug("---> GulpUserSession.__init__: args=%s, kwargs=%s ..." % (args, kwargs))
+        super().__init__(*args,  type=GulpCollabType.USER_SESSION, **kwargs)
+
     @classmethod
     async def create(
         cls,
-        token: str,
-        id: str,
-        owner: str,
-        ws_id: str = None,
-        req_id: str = None,
-        sess: AsyncSession = None,
-        **kwargs,
+        *args, **kwargs,
     ) -> T:
         """
         uninmplemented, use GulpUser.login() to create a session.
         """
         raise NotImplementedError("use GulpUser.login() to create a session.")
-
-    @staticmethod
-    async def get_by_user(
-        user: Union[str, "GulpUser"],
-        sess: AsyncSession = None,
-        throw_if_not_found: bool = True,
-    ) -> "GulpUserSession":
-        """
-        Asynchronously retrieves a logged user session by user.
-        Args:
-            user (str | GulpUser): The user object or username of the user session to retrieve.
-            sess (AsyncSession, optional): An optional asynchronous session object. Defaults to None.
-            throw_if_not_found (bool, optional): Whether to raise an exception if the user session is not found. Defaults to True.
-        Returns:
-            T: the user session object.
-        Raises:
-            ObjectNotFound: if the user session is not found.
-        """
-        if isinstance(user, str):
-            from gulp.api.collab.user import GulpUser
-
-            return await GulpUser.get_one_by_id(user, sess, throw_if_not_found)
-        return user.session
 
     @staticmethod
     async def get_by_token(token: str, sess: AsyncSession = None) -> "GulpUserSession":
@@ -110,9 +87,8 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
                 return admin_user.session
             else:
                 # create a new admin session
-                token = muty.string.generate_unique()
                 admin_session: GulpUserSession = await GulpUserSession._create(
-                    token, admin_user.id, user_id=admin_user.id, user=admin_user, ensure_eager_load=True
+                    id=admin_user.id, user_id=admin_user.id, user=admin_user, ensure_eager_load=True
                 )
                 admin_user.session = admin_session
                 GulpLogger.get_instance().debug(

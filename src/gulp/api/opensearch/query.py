@@ -10,20 +10,8 @@ from gulp.api.opensearch.structs import (
     GulpQueryFilter,
 )
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.ws_api import GulpDocumentsChunk
 
-class GulpDocumentsChunk(BaseModel):
-    """
-    Represents a chunk of GulpDocument dictionaries returned by a query or sent during ingestion.
-    """
-    docs: list[dict] = Field(
-        None,
-        description="the documents returned by the query.",
-    )
-    total_hits: Optional[int] = Field(
-        0,
-        description="the total number of hits.",
-    )
-    
 class GulpExternalQueryParameters(BaseModel):
     """
     Parameters to query an external system.
@@ -74,7 +62,7 @@ class GulpQuery:
         return sess.user_id
     
     @staticmethod
-    async def gulp_query(token: str, ws_id: str, req_id: str, flt: GulpQueryFilter, options: GulpQueryAdditionalOptions=None) -> None:
+    async def gulp_query(token: str, ws_id: str, req_id: str, index: str, flt: GulpQueryFilter, options: GulpQueryAdditionalOptions=None) -> None:
         """
         Perform a query using the given filter and options.
 
@@ -82,6 +70,7 @@ class GulpQuery:
             token(str): the authentication token
             ws_id(str): the websocket id
             req_id(str): the request id
+            index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter): the filter to use
             options(GulpQueryAdditionalOptions, optional): additional options to use
 
@@ -91,17 +80,19 @@ class GulpQuery:
             options = GulpQueryAdditionalOptions()
 
         dsl = flt.to_opensearch_dsl()
-        return await GulpOpenSearch.get_instance().query_raw(dsl['query'], flt, options)
+        return await GulpOpenSearch.get_instance().search_dsl(dsl['query'], flt, options)
 
 
     @staticmethod
-    async def raw_query(dsl: dict, flt: GulpQueryFilter=None, options: GulpQueryAdditionalOptions=None) -> GulpDocumentsChunk:
+    async def raw_query(token: str, ws_dsl: dict, req_id: str, index: str, user_id: str=None, flt: GulpQueryFilter=None, options: GulpQueryAdditionalOptions=None) -> None:
+        if not user_id:
+            # check token
+            user_id = await GulpQuery._get_requestor_user_id(token)
+
         if flt:
             # merge with filter
             dsl = flt.merge_to_opensearch_dsl(dsl)
 
-        
-    
     @staticmethod
     async def sigma_query(sigma: str, plugin: str, referenced_sigma: list[str]=None, flt: GulpQueryFilter=None, options: GulpQueryAdditionalOptions=None) -> GulpDocumentsChunk:
         pass

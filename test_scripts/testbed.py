@@ -10,6 +10,7 @@ from sqlalchemy.sql.base import _NoArg
 import muty.json
 from gulp import config
 from typing import Optional, Type, TypeVar
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpCollabType
 from gulp.api.opensearch.structs import GulpIngestionFilter
@@ -252,6 +253,52 @@ async def test_ingest_csv_stacked():
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
+async def test_bulk_insert():
+    docs=[
+        {
+            "_id": "1",
+            "@timestamp": "2016-11-17T16:54:58.794249+00:00",
+            "gulp.timestamp": 1479401698794248960,
+            "gulp.operation": "test_operation",
+            "gulp.context": "test_context",
+            "agent.type": "mftecmd",
+            "event.original": "...",
+            "event.sequence": 0,
+            "event.code": "record_modified_0x10",
+            "gulp.event.code": 14872615,
+            "event.duration": 1,
+            "log.file.path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
+            "gulp.unmapped.SequenceNumber": "1",
+            "gulp.unmapped.InUse": "True",
+            "gulp.unmapped.ParentEntryNumber": "5",
+            "gulp.unmapped.ParentSequenceNumber": "5",
+            "file.directory": ".",
+            "file.name": "$MFT",
+            "file.size": 683933696,
+        },
+        {
+            "_id": "2",
+            "@timestamp": "2016-11-17T17:54:58.794249+00:00",
+            "gulp.timestamp": 1479401798794248960,
+            "gulp.operation": "test_operation",
+            "gulp.context": "test_context",
+            "agent.type": "mftecmd",
+            "event.original": "...",
+            "event.sequence": 0,
+            "event.code": "record_modified_0x10",
+            "gulp.event.code": 14872615,
+            "event.duration": 1,
+            "log.file.path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
+            "gulp.unmapped.SequenceNumber": "1",
+            "gulp.unmapped.InUse": "True",
+            "gulp.unmapped.ParentEntryNumber": "5",
+            "gulp.unmapped.ParentSequenceNumber": "5",
+            "file.directory": ".",
+            "file.name": "$MFT",
+            "file.size": 683933696,
+        }
+    ]
+    await GulpNote.bulk_create_from_documents(docs, ws_id=None,req_id='123', user_id='admin', title="test match", tags=['auto'])
 
 async def main():
     try:       
@@ -261,7 +308,8 @@ async def main():
         #await test_ingest_csv()
         await test_ingest_csv_with_mappings()
         #await test_ingest_csv_stacked()
-        
+        #await test_bulk_insert()
+        await GulpOperation.add_context(_operation, _context)
     finally:
         await GulpOpenSearch.get_instance().shutdown()
 

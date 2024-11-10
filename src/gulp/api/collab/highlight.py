@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, override
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,37 +18,44 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         String, default=None, doc="The associated log file path or name."
     )
 
+    @override
+    def __init__(self, *args, **kwargs):
+        # initializes the base class
+        super().__init__(*args, type=GulpCollabType.HIGHLIGHT, **kwargs)
+
     @classmethod
     async def create(
         cls,
         token: str,
-        id: str,
         operation: str,
         time_range: tuple[int, int],
         log_file_path: str,
         glyph: str = None,
+        color: str = None,
         tags: list[str] = None,
         title: str = None,
+        description: str = None,
         private: bool = False,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,        
     ) -> T:
         """
-        Create a new highlight object
+        Create a new highlight object on the collab database.
 
         Args:
-            token: the token of the user creating the object, for access check
-            id: the id of the highlight
-            operation: the operation associated with the highlight
-            time_range: the time range of the highlight [start, end] in nanoseconds from unix epoch
-            log_file_path: the log file path associated with the highlight
-            glyph: the glyph associated with the highlight
-            tags: the tags associated with the highlight
-            title: the title of the highlight
-            private: whether the highlight is private
-            ws_id: the websocket id
-            req_id: the request id
+            token(str): the token of the user creating the object, for access check
+            operation(str): the id of the operation associated with the highlight
+            time_range(tuple[int, int]): the time range of the highlight (start, end, in nanoseconds from unix epoch)
+            log_file_path(str): the associated log file path or source name
+            glyph(str, optional): the id of the glyph associated with the highlight
+            color(str, optional): the color associated with the highlight (default: green)
+            tags(list[str], optional): the tags associated with the highlight
+            title(str, optional): the title of the highlight
+            description(str, optional): the description of the highlight
+            private(bool, optional): whether the highlight is private
+            ws_id(str, optional): the websocket id
+            req_id(str, optional): the request id
             kwargs: additional arguments
 
         Returns:
@@ -59,13 +66,15 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             "time_range": time_range,
             "log_file_path": log_file_path,
             "glyph": glyph,
+            "color": color or "green",
             "tags": tags,
             "title": title,
+            "description": description,
             "private": private,
             **kwargs,
         }
+        # autogenerate id here
         return await super()._create(
-            id,
             token=token,            
             ws_id=ws_id,
             req_id=req_id,

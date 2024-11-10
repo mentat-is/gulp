@@ -926,7 +926,7 @@ class GulpPluginBase(ABC):
         el = GulpOpenSearch.get_instance()
         if self._docs_buffer:
             # GulpLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-            skipped, ingestion_errors, ingested_docs = await el.ingest_bulk(
+            skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
                 self._index,
                 self._docs_buffer,
                 flt=flt,

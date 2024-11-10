@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.elastic.query_utils as query_utils
 import gulp.api.opensearch_api as opensearch_api
+import gulp.api.ws_api
 import gulp.api.rest.ws as ws_api
 import gulp.config as config
 import gulp.plugin
@@ -644,7 +645,7 @@ async def _rebase_internal(
         # can't rebase, delete the datastream
         GulpLogger.get_instance().exception(ex)
         ws_api.shared_queue_add_data(
-            ws_api.WsQueueDataType.REBASE_DONE,
+            gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
             req_id,
             data={
                 "status": GulpRequestStatus.FAILED,
@@ -664,7 +665,7 @@ async def _rebase_internal(
     # done
     GulpLogger.get_instance().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
     ws_api.shared_queue_add_data(
-        ws_api.WsQueueDataType.REBASE_DONE,
+        gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
         req_id,
         data={
             "status": GulpRequestStatus.DONE,
@@ -880,7 +881,7 @@ async def query_external_task(**kwargs):
         new_status=status,
     )
     ws_api.shared_queue_add_data(
-        ws_api.WsQueueDataType.QUERY_DONE,
+        gulp.api.ws_api.WsQueueDataType.QUERY_DONE,
         req_id,
         {
             "status": status,
@@ -925,7 +926,7 @@ async def query_multi_task(**kwargs):
     if flt is None:
         flt = GulpQueryFilter()
 
-    from gulp.api.rest.ws import WsQueueDataType
+    from gulp.api.ws_api import WsQueueDataType
 
     collab = await collab_api.session()
     executor = rest_api.process_executor()

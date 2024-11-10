@@ -20,39 +20,44 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         JSONB, doc="One or more target documents."
     )
 
+    @override
+    def __init__(self, *args, **kwargs):
+        # initializes the base class
+        super().__init__(*args, type=GulpCollabType.LINK, **kwargs)
+
     @classmethod
     async def create(
         cls,
         token: str,
-        id: str,
         operation: str,
         document_from: str,
         documents: list[GulpAssociatedDocument],
         glyph: str = None,
+        color: str = None,
         tags: list[str] = None,
         title: str = None,
+        description: str = None,
         private: bool = False,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
     ) -> T:
         """
-        Create a new link object
+        Create a new link object on the collab database.
 
         Args:
             token(str): the token of the user creating the object, for access check
-            id(str): the id of the link
-            operation(str): the operation associated with the link
+            operation(str): the id of the operation associated with the link
             document_from(str): the source document
             documents(list[GulpAssociatedDocument]): the target documents
-            glyph(str): the glyph associated with the link
-            tags(list[str]): the tags associated with the link
-            title(str): the title of the link
-            private(bool): whether the link is private
-            token(str): the token of the user creating the object, for access check
-            ws_id(str): the websocket id
-            req_id(str): the request id
-            kwargs: additional arguments
+            glyph(str, optional): the id of the glyph associated with the link
+            color(str, optional): the color associated with the link (default: red)
+            tags(list[str], optional): the tags associated with the link
+            title(str, optional): the title of the link
+            description(str, optional): the description of the link
+            private(bool, optional): whether the link is private
+            ws_id(str, optional): the websocket id
+            req_id(str, optional): the request id
 
         Returns:
             the created link object
@@ -62,13 +67,15 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             "document_from": document_from,
             "documents": documents,
             "glyph": glyph,
+            "color": color or "red",
             "tags": tags,
             "title": title,
+            "description": description,
             "private": private,
             **kwargs,
         }
+        # autogenerate id here
         return await super()._create(
-            id,
             token=token,
             ws_id=ws_id,
             req_id=req_id,

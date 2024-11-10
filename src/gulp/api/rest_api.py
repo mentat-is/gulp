@@ -29,7 +29,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from muty.jsend import JSendException, JSendResponse
 from opensearchpy import RequestError
 from gulp.utils import GulpLogger
-import gulp.api.collab.db as collab_db
 import gulp.api.collab_api as collab_api
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest.ws as gulp_ws

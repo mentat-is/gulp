@@ -279,7 +279,7 @@ async def _create_notes_on_match(
         int: -1 if the request has been interrupted
     """
     import gulp.api.rest.ws as ws_api
-    from gulp.api.rest.ws import WsQueueDataType
+    from gulp.api.ws_api import WsQueueDataType
 
     # get glyph_id
     glyph_id = gulp_query.glyph_id
@@ -415,7 +415,7 @@ async def query_by_gulpconvertedquery(
         QueryResult: The result of the query execution.
     """
     import gulp.api.rest.ws as ws_api
-    from gulp.api.rest.ws import WsQueueDataType
+    from gulp.api.ws_api import WsQueueDataType
 
     if options is None:
         options = GulpQueryOptions()

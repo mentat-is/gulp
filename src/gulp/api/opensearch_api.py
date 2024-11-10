@@ -8,6 +8,7 @@ import muty.file
 import muty.string
 import muty.time
 
+from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
 import gulp.config as config
 from gulp.api.opensearch.structs import (
     GulpDocumentFilterResult,
@@ -21,12 +22,13 @@ from gulp.utils import GulpLogger
 from elasticsearch import AsyncElasticsearch
 from opensearchpy import AsyncOpenSearch
 
-class GulpOpenSearch():
+
+class GulpOpenSearch:
     """
     singleton class to handle OpenSearch client connection.
 
     for ssl, it will use the CA certificate and client certificate/key if they exist in the certs directory (see config.path_certs()).
-    
+
     they should be named os-ca.pem, os.pem, os.key.
     """
 
@@ -37,7 +39,7 @@ class GulpOpenSearch():
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
 
@@ -54,17 +56,17 @@ class GulpOpenSearch():
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
             cls._instance._initialize()
-        return cls._instance        
-    
+        return cls._instance
+
     async def reinit(self):
         """
         reinitializes the OpenSearch client in the singleton instance.
         """
         if self._opensearch is not None:
-             await self._opensearch.close()
-        
+            await self._opensearch.close()
+
         self._opensearch = self._get_client()
-        
+
     def _get_client(self) -> AsyncOpenSearch:
         """
         creates an OpenSearch client instance.
@@ -133,9 +135,10 @@ class GulpOpenSearch():
             None
         """
         await self._opensearch.close()
-        GulpLogger.get_instance().debug("opensearch client shutdown: %s" % (self._opensearch))
+        GulpLogger.get_instance().debug(
+            "opensearch client shutdown: %s" % (self._opensearch)
+        )
         self._opensearch = None
-
 
     async def check_alive(self) -> None:
         """
@@ -148,7 +151,8 @@ class GulpOpenSearch():
         res = await self._opensearch.info()
         GulpLogger.get_instance().debug("opensearch info: %s" % (res))
 
-    async def datastream_get_key_value_mapping(self, name: str, return_raw_result: bool = False
+    async def datastream_get_key_value_mapping(
+        self, name: str, return_raw_result: bool = False
     ) -> dict:
         """
         Get and parse mappings for the given datastream or index: it will result in a dict (if return_raw_result is not set) like:
@@ -164,6 +168,7 @@ class GulpOpenSearch():
         Returns:
             dict: The mapping dict.
         """
+
         def _parse_mappings_internal(d: dict, parent_key="", result=None) -> dict:
             if result is None:
                 result = {}
@@ -181,7 +186,9 @@ class GulpOpenSearch():
         try:
             res = await self._opensearch.indices.get_mapping(index=name)
         except Exception as e:
-            GulpLogger.get_instance().warning('no mapping for index "%s" found: %s' % (name, e))
+            GulpLogger.get_instance().warning(
+                'no mapping for index "%s" found: %s' % (name, e)
+            )
             return {}
 
         # GulpLogger.get_instance().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
@@ -192,8 +199,9 @@ class GulpOpenSearch():
         properties = res[idx]["mappings"]["properties"]
         return _parse_mappings_internal(properties)
 
-
-    async def datastream_get_mapping_by_src(self, name: str, context: str, src_file: str) -> dict:
+    async def datastream_get_mapping_by_src(
+        self, name: str, context: str, src_file: str
+    ) -> dict:
         """
         Get and parse mappings for the given index/datastream, considering only "gulp.context"=context and "log.file.path"=src_file.
 
@@ -224,7 +232,7 @@ class GulpOpenSearch():
         # loop with query_raw until there's data and update filtered_mapping
         while True:
             try:
-                docs = await self.query_raw(name, q, options)
+                docs = await self.search_dsl(name, q, options)
                 # GulpLogger.get_instance().debug("docs: %s" % (json.dumps(docs, indent=2)))
             except ObjectNotFound:
                 break
@@ -251,7 +259,6 @@ class GulpOpenSearch():
         filtered_mapping = dict(sorted(filtered_mapping.items()))
         return filtered_mapping
 
-
     async def index_template_delete(self, name: str) -> None:
         """
         Delete the index template for the given index/datastream.
@@ -261,7 +268,9 @@ class GulpOpenSearch():
         """
         try:
             template_name = "%s-template" % (name)
-            GulpLogger.get_instance().debug("deleting index template: %s ..." % (template_name))
+            GulpLogger.get_instance().debug(
+                "deleting index template: %s ..." % (template_name)
+            )
             await self._opensearch.indices.delete_index_template(name=template_name)
         except Exception as e:
             GulpLogger.get_instance().error("error deleting index template: %s" % (e))
@@ -277,7 +286,9 @@ class GulpOpenSearch():
             dict: The index template.
         """
         template_name = "%s-template" % (name)
-        GulpLogger.get_instance().debug("getting index template: %s ..." % (template_name))
+        GulpLogger.get_instance().debug(
+            "getting index template: %s ..." % (template_name)
+        )
 
         try:
             res = await self._opensearch.indices.get_index_template(name=template_name)
@@ -285,7 +296,6 @@ class GulpOpenSearch():
             raise ObjectNotFound("no template found for datastream/index %s" % (name))
 
         return res["index_templates"][0]["index_template"]
-
 
     async def index_template_put(self, name: str, d: dict) -> dict:
         """
@@ -299,14 +309,16 @@ class GulpOpenSearch():
             dict: The response from the OpenSearch client.
         """
         template_name = "%s-template" % (name)
-        GulpLogger.get_instance().debug("putting index template: %s ..." % (template_name))
+        GulpLogger.get_instance().debug(
+            "putting index template: %s ..." % (template_name)
+        )
         headers = {"accept": "application/json", "content-type": "application/json"}
         return await self._opensearch.indices.put_index_template(
             name=template_name, body=d, headers=headers
         )
 
-
-    async def index_template_set_from_file(self, name: str, path: str, apply_patches: bool = True
+    async def index_template_set_from_file(
+        self, name: str, path: str, apply_patches: bool = True
     ) -> dict:
         """
         Asynchronously sets an index template in OpenSearch from a JSON file.
@@ -319,10 +331,11 @@ class GulpOpenSearch():
             dict: The response from OpenSearch after setting the index template.
         """
 
-        GulpLogger.get_instance().debug('loading index template from file "%s" ...' % (path))
+        GulpLogger.get_instance().debug(
+            'loading index template from file "%s" ...' % (path)
+        )
         d = muty.dict.from_json_file(path)
         return await self.build_and_set_index_template(name, d, apply_patches)
-
 
     async def build_and_set_index_template(
         self, index_name: str, d: dict, apply_patches: bool = True
@@ -342,7 +355,9 @@ class GulpOpenSearch():
             - It applies specific patches to the mappings and settings before setting the index template.
             - If the OpenSearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
         """
-        GulpLogger.get_instance().debug('setting index template for "%s" ...' % (index_name))
+        GulpLogger.get_instance().debug(
+            'setting index template for "%s" ...' % (index_name)
+        )
         template = d.get("template", None)
         if template is None:
             raise ValueError('no "template" key found in the index template')
@@ -373,7 +388,7 @@ class GulpOpenSearch():
                 "event": {"properties": {"code": {"type": "long"}}},
                 "invalid": {"properties": {"timestamp": {"type": "boolean"}}},
                 "context": {"type": "keyword"},
-                "timestamp": {"type": "long"},    
+                "timestamp": {"type": "long"},
                 "operation": {"type": "keyword"},
             }
         }
@@ -426,7 +441,6 @@ class GulpOpenSearch():
         await self.index_template_put(index_name, d)
         return d
 
-
     async def datastream_list(self) -> list[str]:
         """
         Retrieves a list of datastream names (with associated indices) from OpenSearch.
@@ -477,9 +491,7 @@ class GulpOpenSearch():
         except Exception as e:
             GulpLogger.get_instance().error("error deleting index template: %s" % (e))
 
-
-    async def datastream_create(self, name: str, index_template: str = None
-    ) -> None:
+    async def datastream_create(self, name: str, index_template: str = None) -> None:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
@@ -502,9 +514,13 @@ class GulpOpenSearch():
             template_path = config.path_index_template()
         else:
             template_path = index_template
-            GulpLogger.get_instance().debug('using custom index template "%s" ...' % (template_path))
+            GulpLogger.get_instance().debug(
+                'using custom index template "%s" ...' % (template_path)
+            )
             apply_patches = False
-        await self.index_template_set_from_file(name, template_path, apply_patches=apply_patches)
+        await self.index_template_set_from_file(
+            name, template_path, apply_patches=apply_patches
+        )
 
         try:
             # create datastream
@@ -517,8 +533,8 @@ class GulpOpenSearch():
             await self.index_template_delete(name)
             raise e
 
-    def _bulk_docs_result_to_ingest_chunk(self,
-        bulk_docs: list[tuple[dict, dict]], errors: list[dict] = None
+    def _bulk_docs_result_to_ingest_chunk(
+        self, bulk_docs: list[tuple[dict, dict]], errors: list[dict] = None
     ) -> list[dict]:
         """
         Extracts the ingested documents from a bulk ingestion result, excluding the ones that failed.
@@ -534,8 +550,8 @@ class GulpOpenSearch():
             return [
                 {**doc, "_id": create_doc["create"]["_id"]}
                 for create_doc, doc in zip(bulk_docs[::2], bulk_docs[1::2])
-            ]        
-            
+            ]
+
         error_ids = {error["create"]["_id"] for error in errors}
         result = [
             {**doc, "_id": create_doc["create"]["_id"]}
@@ -545,8 +561,7 @@ class GulpOpenSearch():
 
         return result
 
-
-    async def ingest_bulk(
+    async def bulk_ingest(
         self,
         index: str,
         docs: list[dict],
@@ -574,8 +589,9 @@ class GulpOpenSearch():
         bulk_docs = [
             doc
             for item in docs
-            if not flt or GulpIngestionFilter.filter_doc_for_ingestion(item, flt) != GulpDocumentFilterResult.SKIP
-
+            if not flt
+            or GulpIngestionFilter.filter_doc_for_ingestion(item, flt)
+            != GulpDocumentFilterResult.SKIP
             # create a tuple with the create action and the document
             for doc in (
                 {"create": {"_id": item["_id"]}},
@@ -602,7 +618,9 @@ class GulpOpenSearch():
             "content-type": "application/x-ndjson",
         }
 
-        res = await self._opensearch.bulk(body=bulk_docs, index=index, params=params, headers=headers)
+        res = await self._opensearch.bulk(
+            body=bulk_docs, index=index, params=params, headers=headers
+        )
         skipped = 0
         failed = 0
         ingested: list[dict] = []
@@ -638,9 +656,10 @@ class GulpOpenSearch():
                 % (skipped, failed, len(bulk_docs) / 2)
             )
         if failed > 0:
-            GulpLogger.get_instance().critical("failed is set, ingestion format needs to be fixed!")
+            GulpLogger.get_instance().critical(
+                "failed is set, ingestion format needs to be fixed!"
+            )
         return skipped, failed, ingested
-
 
     async def rebase(
         self,
@@ -666,9 +685,9 @@ class GulpOpenSearch():
         )
         if not flt:
             flt = GulpQueryFilter()
-        
+
         q = flt.to_opensearch_dsl()
-        
+
         convert_script = """
             if (ctx._source['@timestamp'] != 0) {
                 ctx._source['@timestamp'] += params.nsec_offset;
@@ -735,7 +754,9 @@ class GulpOpenSearch():
             "content-type": "application/x-ndjson",
         }
 
-        await self._opensearch.delete_by_query(index=index, body=q, params=params, headers=headers)
+        await self._opensearch.delete_by_query(
+            index=index, body=q, params=params, headers=headers
+        )
 
     def _parse_query_max_min(self, d: dict) -> dict:
         """
@@ -743,7 +764,7 @@ class GulpOpenSearch():
 
         Args:
             d (dict): The query result.
-        
+
         Returns:
             dict: The parsed result as
             {
@@ -765,10 +786,9 @@ class GulpOpenSearch():
                 }
                 for bucket in buckets
             ],
-            "total": sum(bucket["doc_count"] for bucket in buckets)
+            "total": sum(bucket["doc_count"] for bucket in buckets),
         }
         return dd
-        
 
     async def query_max_min_per_field(
         self,
@@ -823,8 +843,14 @@ class GulpOpenSearch():
             )
 
         q = flt.to_opensearch_dsl()
-        GulpLogger.get_instance().debug(f"query_max_min_per_field: q={json.dumps(q, indent=2)}")
-        body = {"track_total_hits": True, "query": q["query"], "aggregations": aggregations}
+        GulpLogger.get_instance().debug(
+            f"query_max_min_per_field: q={json.dumps(q, indent=2)}"
+        )
+        body = {
+            "track_total_hits": True,
+            "query": q["query"],
+            "aggregations": aggregations,
+        }
         headers = {
             "content-type": "application/json",
         }
@@ -856,55 +882,6 @@ class GulpOpenSearch():
             }
         }
         return self._parse_query_max_min(d)
-
-    @staticmethod
-    def _parse_query_raw_result(
-        results: dict,
-        include_hits: bool = True,
-        include_aggregations: bool = True,
-    ) -> list:
-        """
-        Parse an OpenSearch query result to a more meaningful format.
-
-        Args:
-            results (dict): The OpenSearch query result.
-            include_hits (bool, optional): Whether to include the hits in the result. Defaults to True.
-            include_aggregations (bool, optional): Whether to include the aggregations in the result. Defaults to True.
-        Returns:
-            list: The parsed result as
-            {
-                'results': list[dict], # the matched events
-                'aggregations': dict,
-                'total': int, # total matches
-                'search_after': list # search_after for pagination (if limit was set in the query)
-            }
-
-        Raises:
-            ObjectNotFound: If no results are found.
-        """
-        # GulpLogger.get_instance().debug(json.dumps(results, indent=2))
-        hits = results["hits"]["hits"]
-        # GulpLogger.get_instance().debug('hits #=%d, hits node=%s' % (len(hits), hits))
-        if not hits:
-            raise ObjectNotFound("no results found!")
-
-        parsed_result = {}
-
-        if include_hits:
-            parsed_result["results"] = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
-
-        if include_aggregations and "aggregations" in results:
-            parsed_result["aggregations"] = results["aggregations"]
-
-        total_hits = results["hits"]["total"]["value"]
-        # GulpLogger.get_instance().debug("hits.total.value: %d ..." % (n["total"]))
-        parsed_result["total"] = total_hits
-
-        if hits[-1]["sort"]:
-            parsed_result["search_after"] = hits[-1]["sort"]
-
-        # GulpLogger.get_instance().debug(json.dumps(n, indent=2))
-        return parsed_result
 
     async def query_operations(self, index: str):
         """
@@ -966,14 +943,16 @@ class GulpOpenSearch():
                 },
             }
 
-        return {"total": hits, "aggregations": res["aggregations"]}        
+        return {"total": hits, "aggregations": res["aggregations"]}
 
-    async def query_single_document(self, datastream: str, id: str, is_index: bool=False) -> dict:
+    async def query_single_document(
+        self, datastream: str, id: str, is_index: bool = False
+    ) -> dict:
         """
         Get a single event from OpenSearch.
 
         Args:
-            index (str): Name of the index (or datastream) to query            
+            index (str): Name of the index (or datastream) to query
             id (str): The ID of the document to retrieve
             is_index (bool, optional): Whether the datastream is an index or a datastream. Defaults to False (is a datastream).
 
@@ -998,80 +977,124 @@ class GulpOpenSearch():
             js["_id"] = res["_id"]
             return js
         except KeyError:
-            raise ObjectNotFound(f"document with ID {id} not found in datastream={datastream} index {index_name}")
+            raise ObjectNotFound(
+                f"document with ID {id} not found in datastream={datastream} index {index_name}"
+            )
 
-    async def query_raw(self, index: str, q: dict, options: GulpQueryAdditionalOptions=None) -> dict:
+    async def search_dsl(
+        self,
+        index: str,
+        q: dict,
+        ws_id: str,
+        user_id: str,
+        req_id: str,
+        options: GulpQueryAdditionalOptions = None,
+        el: AsyncElasticsearch = None,
+        note_title = None,
+        note_tags = None,
+    ) -> None:
         """
-        Executes a raw DSL query on OpenSearch
+        Executes a raw DSL query on OpenSearch and stream results on the websocket
 
         Args:
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
-            q (dict): The DSL query to execute (will be run as "query": q }
-            options (GulpQueryOptions, optional): Additional query options. Defaults to None.   
-
-        Returns:
-            dict: The query result.
-        Raises:
-            ObjectNotFound: If no results are found.
-        """
-        if not options:
-            options = GulpQueryAdditionalOptions()
-        parsed_options = options.parse()
-
-        body = {"track_total_hits": True, "query": q}
-        body.update(parsed_options)
-        GulpLogger.get_instance().debug(
-            "query_raw body=%s" % (json.dumps(body, indent=2))
-        )
-
-        headers = {
-            "content-type": "application/json",
-        }
-        res = await self._opensearch.search(body=body, index=index, headers=headers)
-
-        # GulpLogger.get_instance().debug("query_raw: res=%s" % (json.dumps(res, indent=2)))
-        js = GulpOpenSearch._parse_query_raw_result(res)
-        return js
-
-
-    @staticmethod
-    async def query_raw_elastic(
-        el: AsyncElasticsearch, index: str, q: dict, options: GulpQueryAdditionalOptions = None
-    ) -> dict:
-        """
-        Executes a raw DSL query on OpenSearch.
-
-        NOTE: we added this static method for commodity, but it may be removed later ....
-
-        Args:
-            el(AsyncElasticSearch): the ElasticSearch client to use
-            index (str): Name of the index (or datastream) to query
-            q (dict): The DSL query to execute (will be run as "query": q }
+            q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
+            ws_id (str): The websocket ID to send the results to
+            user_id (str): The user ID performing the query
+            req_id (str): The request ID for the query
             options (GulpQueryOptions, optional): Additional query options. Defaults to None.
-
-        Returns:
-            dict: The query result.
+            el (AsyncElasticSearch, optional): the ElasticSearch client to use if options.use_elasticsearch_api is set, ignored either. Defaults to None.
+            note_title (str, optional): mandatory for a sigma query if options.sigma_create_note is set, the title of the note to be created. Defaults to None.
+            note_tags (list[str], optional): optional for a sigma query, the tags of the note to be created. Defaults to None.
         Raises:
             ObjectNotFound: If no results are found.
+            Exception: If an error occurs during the query.
         """
         if not options:
             options = GulpQueryAdditionalOptions()
+        
+        if options.sigma_create_note and not note_title:
+            raise ValueError("note_title is required for a sigma query")
+        
         parsed_options = options.parse()
 
-        GulpLogger.get_instance().debug(
-            "query_raw_elastic: %s, options=%s"
-            % (json.dumps(q, indent=2), json.dumps(parsed_options, indent=2))
-        )
+        processed: int = 0
+        chunk_num: int = 0
+        while True:
+            last: bool = False
+            body = {"track_total_hits": True, "query": q}
+            body.update(parsed_options)
+            GulpLogger.get_instance().debug(
+                "query_raw body=%s" % (json.dumps(body, indent=2))
+            )
 
-        res = await el.search(
-            index=index,
-            track_total_hits=True,
-            query=q,
-            sort=parsed_options["_sort"],
-            size=parsed_options["_size"],
-            search_after=parsed_options["search_after"],
-            source=parsed_options["source"],
-        )
-        return GulpOpenSearch()._parse_query_raw_result(res)
+            headers = {
+                "content-type": "application/json",
+            }
+            try:
+                if options.use_elasticsearch_api:
+                    # use the ElasticSearch client provided
+                    if el is None:
+                        # missing elasticsearch client
+                        raise ValueError("el is None, but use_elasticsearch_api is set")
+                    res = await el.search(
+                        index=index,
+                        track_total_hits=True,
+                        query=q,
+                        sort=parsed_options["_sort"],
+                        size=parsed_options["_size"],
+                        search_after=parsed_options["search_after"],
+                        source=parsed_options["source"],
+                    )
+                else:
+                    # use the OpenSearch client
+                    res = await self._opensearch.search(
+                        body=body, index=index, headers=headers
+                    )
 
+                # GulpLogger.get_instance().debug("search_dsl: res=%s" % (json.dumps(res, indent=2)))
+                hits = res["hits"]["hits"]
+                if not hits:
+                    raise ObjectNotFound("no more results found!")
 
+                # get data
+                chunk_num += 1
+                total_hits = res["hits"]["total"]["value"]
+                docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
+                search_after = hits[-1]["sort"]
+                processed += len(docs)
+                if processed >= total_hits:
+                    # this is the last chunk
+                    last = True
+
+            except ObjectNotFound as ex:
+                if processed == 0:
+                    # no results at all
+                    raise ex
+                else:
+                    # indicates the last result
+                    last = True
+            except Exception as ex:
+                # something went wrong
+                GulpLogger.get_instance().error("search_dsl: error=%s" % (ex))
+                raise ex
+
+            # build a GulpDocumentsChunk and send to websocket
+            chunk = GulpDocumentsChunk(
+                docs=docs,
+                chunk_number=chunk_num,
+                total_hits=total_hits,
+                last=last,
+                search_after=search_after,
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=WsQueueDataType.DOCS_CHUNK,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=chunk.model_dump(exclude_none=True)
+            )
+
+            if options.sigma_create_note:
+                # create a note for each of the documents on collab db
+                pass
