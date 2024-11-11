@@ -1004,9 +1004,9 @@ class GulpOpenSearch:
             user_id (str): The user ID performing the query
             req_id (str): The request ID for the query
             options (GulpQueryOptions, optional): Additional query options. Defaults to None.
-            el (AsyncElasticSearch, optional): the ElasticSearch client to use if options.use_elasticsearch_api is set, ignored either. Defaults to None.
+            el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
             note_title (str, optional): mandatory for a sigma query if options.sigma_create_note is set, the title of the note to be created. Defaults to None.
-            note_tags (list[str], optional): optional for a sigma query, the tags of the note to be created. Defaults to None.
+            note_tags (list[str], optional): optional for a sigma query, the tags of the note to be created. Defaults to ["auto", "sigma"] (always added).
         Raises:
             ObjectNotFound: If no results are found.
             Exception: If an error occurs during the query.
@@ -1017,22 +1017,19 @@ class GulpOpenSearch:
         if options.sigma_create_note and not note_title:
             raise ValueError("note_title is required for a sigma query")
         
+        use_elasticsearch_api = False
+        if el:
+            # force use_elasticsearch_api if el is provided
+            use_elasticsearch_api = True
+            GulpLogger.get_instance().debug("search_dsl: using provided ElasticSearch client %s" % (el))
+
         parsed_options = options.parse()
         processed: int = 0
         chunk_num: int = 0
         while True:
             last: bool = False
-            body = {"track_total_hits": True, "query": q}
-            body.update(parsed_options)
-            GulpLogger.get_instance().debug(
-                "query_raw body=%s" % (json.dumps(body, indent=2))
-            )
-
-            headers = {
-                "content-type": "application/json",
-            }
             try:
-                if options.use_elasticsearch_api:
+                if use_elasticsearch_api:
                     # use the ElasticSearch client provided
                     if el is None:
                         # missing elasticsearch client
@@ -1047,7 +1044,16 @@ class GulpOpenSearch:
                         source=parsed_options["source"],
                     )
                 else:
-                    # use the OpenSearch client
+                    # use the OpenSearch client (default)
+                    body = {"track_total_hits": True, "query": q}
+                    body.update(parsed_options)
+                    GulpLogger.get_instance().debug(
+                        "query_raw body=%s" % (json.dumps(body, indent=2))
+                    )
+
+                    headers = {
+                        "content-type": "application/json",
+                    }
                     res = await self._opensearch.search(
                         body=body, index=index, headers=headers
                     )
@@ -1062,6 +1068,10 @@ class GulpOpenSearch:
                 total_hits = res["hits"]["total"]["value"]
                 docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
                 search_after = hits[-1]["sort"]
+                if options.loop:
+                    # auto setup for next iteration
+                    options.search_after = search_after
+
                 processed += len(docs)
                 if processed >= total_hits:
                     # this is the last chunk
@@ -1112,9 +1122,9 @@ class GulpOpenSearch:
                     ws_id=ws_id,
                     req_id=req_id,
                 )
-            if last:
+            if last or not options.loop:
                 break
         
         GulpLogger.get_instance().info(
-            "search_dsl: processed %d documents in total" % (processed)
+            "search_dsl: processed %d documents, total=%d" % (processed, total_hits)
         )

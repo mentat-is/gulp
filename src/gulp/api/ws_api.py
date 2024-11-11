@@ -49,6 +49,7 @@ class GulpDocumentsChunk(BaseModel):
     Represents a chunk of GulpDocument dictionaries returned by a query or sent during ingestion.
 
     may include extra fields depending on the source.
+    
     """
 
     class Config:
@@ -69,6 +70,10 @@ class GulpDocumentsChunk(BaseModel):
     last: Optional[bool] = Field(
         False,
         description="is this the last chunk of a query response ? (may not be available).",
+    )
+    search_after: Optional[dict] = Field(
+        None,
+        description="to use in `QueryAdditionalOptions.search_after` to request the next chunk in a paged query.",
     )
 
 

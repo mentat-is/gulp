@@ -12,7 +12,7 @@ from lxml import etree
 
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter, GulpQueryFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_params import GulpPluginGenericParameters
@@ -204,3 +204,11 @@ class Plugin(GulpPluginBase):
             await self._source_done(stats, flt)
 
         return stats.status
+
+    async def sigma_convert(
+        self,
+        sigma: str,
+        referenced_sigmas: list[str] = None,
+        flt: GulpQueryFilter = None,
+    ) -> dict:
+        

@@ -396,15 +396,15 @@ class GulpQueryAdditionalOptions(BaseModel):
         1000,
         gt=1,
         le=10000,
-        description="for pagination: the maximum number of documents to return in a chunk, default=1000 (None=return up to 10000 documents).",
+        description="for pagination, the maximum number of documents to return in a chunk, default=1000 (None=return up to 10000 documents).",
     )
     search_after: Optional[list[Union[str, int]]] = Field(
         None,
-        description="for pagination: this is the last value returned as \"search_after\" from the previous query, to be used as start offset.",
+        description="to use pagination driven by the client: this is the last value returned as `search_after` from the previous query, to be used as start offset. Ignored if `loop` is set.",
     )
     loop: Optional[bool] = Field(
-        False,
-        description="if set, keep querying until all documents are returned (default=False).",
+        True,
+        description="if set, keep querying until all documents are returned (default=True, ignores `search_after`).",
     )
     sigma_create_note: Optional[bool] = Field(
         False,
@@ -417,10 +417,6 @@ class GulpQueryAdditionalOptions(BaseModel):
     sigma_note_glyph: Optional[str] = Field(
         None,
         description="the glyph of the note created for each document returned by a sigma query (default=use default for notes).",
-    )
-    use_elasticsearch_api: Optional[bool] = Field(
-        False,
-        description="if set, use the ElasticSearch API instead of OpenSearch (default=False).",
     )
     def parse(self) -> dict:
         """
