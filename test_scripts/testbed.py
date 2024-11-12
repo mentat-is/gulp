@@ -16,7 +16,7 @@ from gulp.api.collab.structs import GulpCollabType
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api import opensearch_api
 from gulp.api.mapping.models import GulpMapping
-from gulp.plugin_params import GulpPluginGenericParameters
+from gulp.plugin_params import GulpPluginParameters
 from gulp.utils import GulpLogger
 from pydantic import BaseModel, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
@@ -293,7 +293,7 @@ async def test_ingest_csv():
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
     
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp")
-    params: GulpPluginGenericParameters = GulpPluginGenericParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
+    params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
@@ -313,7 +313,7 @@ async def test_ingest_csv_with_mappings():
     # 10 processed, 44 ingested, 0 failed
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
 
-    params: GulpPluginGenericParameters = GulpPluginGenericParameters(mapping_file="mftecmd_csv.json", mapping_id="record")
+    params: GulpPluginParameters = GulpPluginParameters(mapping_file="mftecmd_csv.json", mapping_id="record")
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
@@ -334,7 +334,7 @@ async def test_ingest_csv_stacked():
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
 
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp", agent_type="mftecmd", event_code="j")
-    params: GulpPluginGenericParameters = GulpPluginGenericParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
+    params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
     await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time

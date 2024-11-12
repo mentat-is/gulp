@@ -4,9 +4,9 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, SkipValidation, model_validator
 from gulp.api.mapping.models import GulpMapping
 
-class GulpPluginGenericParameters(BaseModel):
+class GulpPluginParameters(BaseModel):
     """
-    parameters for a plugin, to be passed to ingest and query API.
+    common parameters for a plugin, to be passed to ingest and query API.
 
     this may also include GulpPluginAdditionalParameter.name entries specific to the plugin
     """
@@ -17,24 +17,24 @@ class GulpPluginGenericParameters(BaseModel):
 
     mapping_file: Optional[str] = Field(
         None,
-        description="mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
+        description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
 
     mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
-        description="a dictionary of one or more { mapping_id: GulpMapping } to use directly (`mapping_file` is ignored if set).",
+        description="used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly (`mapping_file` is ignored if set).",
     )
 
     mapping_id: Optional[str] = Field(
         None,
-        description="the GulpMapping to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
+        description="used for ingestion only: the GulpMapping to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
     )
 
 class GulpPluginAdditionalParameter(BaseModel):
     """
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
 
-    name is used as the key in the `GulpPluginGenericParams` object, to list additional parameters specific for the plugin.
+    `name` may also be a key in the `GulpPluginParameters` object, to list additional parameters specific for the plugin.
     """
     name: str = Field(..., description="option name.")
     type: Literal['bool', 'str', 'int', 'float', 'dict', 'list'] = Field(..., description="option type.")

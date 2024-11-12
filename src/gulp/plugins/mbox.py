@@ -6,7 +6,7 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 from gulp.utils import GulpLogger
 
 
@@ -47,7 +47,7 @@ class Plugin(GulpPluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:

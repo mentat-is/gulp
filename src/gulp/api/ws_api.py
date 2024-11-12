@@ -24,7 +24,7 @@ class WsQueueDataType(StrEnum):
     COLLAB_DELETE = "collab_delete"
     QUERY_DONE = "query_done"
     REBASE_DONE = "rebase_done"
-    DOCS_CHUNK = "docs_chunk"  # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
+    DOCUMENTS_CHUNK = "docs_chunk"  # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
 
 
 class WsParameters(BaseModel):
@@ -59,9 +59,9 @@ class GulpDocumentsChunk(BaseModel):
         ...,
         description="the documents in a query or ingestion chunk.",
     )
-    chunk_number: int = Field(
-        ...,
-        description="the chunk number.",
+    chunk_number: Optional[int] = Field(
+        0,
+        description="the chunk number (may not be available)",
     )
     total_hits: Optional[int] = Field(
         0,

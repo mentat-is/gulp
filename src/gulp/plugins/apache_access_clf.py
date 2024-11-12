@@ -18,7 +18,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 
 # TODO support gzipped logs from rotated configurations, same for error logs
 
@@ -99,7 +99,7 @@ class Plugin(GulpPluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> list[GulpDocument]:
 
@@ -197,7 +197,7 @@ class Plugin(GulpPluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:

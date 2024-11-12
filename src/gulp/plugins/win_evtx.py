@@ -17,7 +17,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginGenericParameters, GulpPluginSigmaSupport
+from gulp.plugin_params import GulpPluginParameters, GulpPluginSigmaSupport
 from gulp.utils import GulpLogger
 
 # needs the following backends for sigma support (add others if needed)
@@ -167,7 +167,7 @@ class Plugin(GulpPluginBase):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginGenericParameters = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
@@ -189,7 +189,7 @@ class Plugin(GulpPluginBase):
         try:
             # initialize plugin
             if plugin_params is None:
-                plugin_params = GulpPluginGenericParameters(mapping_file="windows.json")
+                plugin_params = GulpPluginParameters(mapping_file="windows.json")
             await self._initialize(plugin_params)
 
             # init parser

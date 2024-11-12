@@ -8,7 +8,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -61,7 +61,7 @@ class Plugin(GulpPluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> list[GulpDocument]:
 
@@ -86,7 +86,7 @@ class Plugin(GulpPluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:
@@ -104,7 +104,7 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
         if plugin_params is None:
-            plugin_params = GulpPluginGenericParams()
+            plugin_params = GulpPluginParameters()
         fs = TmpIngestStats(source)
 
         # initialize mapping

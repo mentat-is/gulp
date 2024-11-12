@@ -12,7 +12,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters
+from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginParameters
 
 try:
     from aiocsv import AsyncDictReader
@@ -125,7 +125,7 @@ class Plugin(GulpPluginBase):
         operation: str,
         context: str,
         log_file_path: str,
-        plugin_params: GulpPluginGenericParameters = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
@@ -147,7 +147,7 @@ class Plugin(GulpPluginBase):
         try:
             # initialize plugin
             if plugin_params is None:
-                plugin_params = GulpPluginGenericParameters()
+                plugin_params = GulpPluginParameters()
 
             # initialize plugin
             await self._initialize(plugin_params)

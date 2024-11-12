@@ -232,7 +232,7 @@ class GulpOpenSearch:
         # loop with query_raw until there's data and update filtered_mapping
         while True:
             try:
-                docs = await self.search_dsl(name, q, options)
+                docs = await self.search_dsl(index=name, q=q, options=options)
                 # GulpLogger.get_instance().debug("docs: %s" % (json.dumps(docs, indent=2)))
             except ObjectNotFound:
                 break
@@ -985,13 +985,13 @@ class GulpOpenSearch:
         self,
         index: str,
         q: dict,
-        ws_id: str,
-        user_id: str,
-        req_id: str,
+        req_id: str=None,
+        ws_id: str=None,
+        user_id: str=None,
         options: GulpQueryAdditionalOptions = None,
         el: AsyncElasticsearch = None,
-        note_title = None,
-        note_tags = None,
+        note_title=None,
+        note_tags=None,
     ) -> None:
         """
         Executes a raw DSL query on OpenSearch and stream results on the websocket
@@ -999,9 +999,9 @@ class GulpOpenSearch:
         Args:
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
-            ws_id (str): The websocket ID to send the results to
-            user_id (str): The user ID performing the query
-            req_id (str): The request ID for the query
+            req_id (str), optional: The request ID for the query
+            ws_id (str, optional): The websocket ID to send the results to
+            user_id (str, optional): The user ID performing the query
             options (GulpQueryOptions, optional): Additional query options. Defaults to None.
             el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
             note_title (str, optional): mandatory for a sigma query if options.sigma_create_note is set, the title of the note to be created. Defaults to None.
@@ -1012,15 +1012,17 @@ class GulpOpenSearch:
         """
         if not options:
             options = GulpQueryAdditionalOptions()
-        
+
         if options.sigma_create_note and not note_title:
             raise ValueError("note_title is required for a sigma query")
-        
+
         use_elasticsearch_api = False
         if el:
             # force use_elasticsearch_api if el is provided
             use_elasticsearch_api = True
-            GulpLogger.get_instance().debug("search_dsl: using provided ElasticSearch client %s" % (el))
+            GulpLogger.get_instance().debug(
+                "search_dsl: using provided ElasticSearch client %s" % (el)
+            )
 
         parsed_options = options.parse()
         processed: int = 0
@@ -1097,11 +1099,11 @@ class GulpOpenSearch:
                 search_after=search_after,
             )
             GulpSharedWsQueue.get_instance().put(
-                type=WsQueueDataType.DOCS_CHUNK,
+                type=WsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=ws_id,
                 user_id=user_id,
                 req_id=req_id,
-                data=chunk.model_dump(exclude_none=True)
+                data=chunk.model_dump(exclude_none=True),
             )
 
             if options.sigma_create_note:
@@ -1123,7 +1125,7 @@ class GulpOpenSearch:
                 )
             if last or not options.loop:
                 break
-        
+
         GulpLogger.get_instance().info(
             "search_dsl: processed %d documents, total=%d" % (processed, total_hits)
         )

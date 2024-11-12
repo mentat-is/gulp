@@ -16,7 +16,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginParameters
 
 # not available on macos, will throw exception
 muty.os.check_os(exclude=["windows", "darwin"])
@@ -93,7 +93,7 @@ class Plugin(GulpPluginBase):
         custom_mapping: GulpMapping = None,
         index_type_mapping: dict = None,
         plugin: str = None,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         extra: dict = None,
         **kwargs,
     ) -> GulpDocument:
@@ -147,7 +147,7 @@ class Plugin(GulpPluginBase):
         context: str,
         source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginGenericParams = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
         **kwargs,
     ) -> GulpRequestStatus:

@@ -22,7 +22,7 @@ from gulp.api.opensearch.structs import (
 import gulp.api.ws_api
 from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 from gulp.utils import GulpLogger
 from gulp.api.rest import ws as ws_api
 from elasticsearch import AsyncElasticsearch
@@ -38,8 +38,8 @@ The plugin must implement the following methods:
 - desc() -> str: return a description of the plugin.
 - name() -> str: return the plugin name.
 - version() -> str: return the plugin version.
-- options() -> list[GulpPluginOption]: for the UI, this is usually the options to be put into GulpPluginParams.extra when calling query().
-- query(client_id: int, ws_id: str, flt: GulpQueryFilter, params: GulpPluginParams) -> int: query data from the external source.
+- options() -> list[GulpPluginOption]: for the UI, this is usually the options to be put into GulpPluginParameters.extra when calling query().
+- query(client_id: int, ws_id: str, flt: GulpQueryFilter, params: GulpPluginParameters) -> int: query data from the external source.
 
 """
 
@@ -157,7 +157,7 @@ class Plugin(GulpPluginBase):
         ]
 
     def _get_parameters(
-        self, plugin_params: GulpPluginGenericParams
+        self, plugin_params: GulpPluginParameters
     ) -> tuple[
         str, bool, str, str, str, bool, str, bool, str, str, str, str, int, dict
     ]:
@@ -165,7 +165,7 @@ class Plugin(GulpPluginBase):
         get elasticsearch parameters from plugin_params
 
         Args:
-        plugin_params (GulpPluginParams): plugin parameters
+        plugin_params (GulpPluginParameters): plugin parameters
 
         Returns:
         tuple: url, is_elasticsearch, elastic_user, password, index, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, timestamp_offset_msec, mapping
@@ -310,7 +310,7 @@ class Plugin(GulpPluginBase):
 
     async def query_single(
         self,
-        plugin_params: GulpPluginGenericParams,
+        plugin_params: GulpPluginParameters,
         event: dict,
     ) -> dict:
         # get parameters
@@ -369,7 +369,7 @@ class Plugin(GulpPluginBase):
         username: str,
         ws_id: str,
         req_id: str,
-        plugin_params: GulpPluginGenericParams,
+        plugin_params: GulpPluginParameters,
         flt: GulpQueryFilter,
         options: GulpQueryOptions = None,
     ) -> tuple[int, GulpRequestStatus]:

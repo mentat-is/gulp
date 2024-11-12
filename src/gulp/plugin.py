@@ -31,10 +31,11 @@ from gulp.api.mapping.models import (
     GulpMapping,
     GulpMappingFile,
 )
+from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
 from gulp.defs import (
     GulpPluginType,
 )
-from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters, GulpPluginSigmaSupport
+from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginParameters, GulpPluginSigmaSupport
 from gulp.utils import GulpLogger
 from sigma.conversion.base import Backend, ProcessingPipeline
 
@@ -198,6 +199,14 @@ class GulpPluginBase(ABC):
         self._records_processed = 0
         self._records_failed = 0
 
+        # to keep track of ingested chunks
+        self._chunks_ingested = 0
+
+        # for external query plugins, these are set to false
+        self._ingestion_enabled = True
+        self._stats_enabled = True
+
+
     @abstractmethod
     def display_name(self) -> str:
         """
@@ -289,7 +298,17 @@ class GulpPluginBase(ABC):
     
     def _sigma_convert_internal(self, sigma: str, 
         backend: Backend, referenced_sigmas: list[str] = None, output_format: str = None) -> any:
+        """
+        perform the sigma conversion, taking into account the referenced sigmas.
 
+        Args:
+            sigma (str): the main sigma rule YAML
+            backend (Backend): the backend to use
+            referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
+            output_format (str): the output format to use
+        Returns:
+            any: the query in the format specified by backend/output_format.
+        """
         # build sigma including references
         if referenced_sigmas:
             for r in referenced_sigmas:
@@ -317,9 +336,9 @@ class GulpPluginBase(ABC):
             referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
                 NOTE: if set, their `name` must be referenced in the main `sigma` rule in the `filter` section as explained in [sigma filter](https://sigmahq.io/docs/meta/filters.html) documentation.
             flt (GulpQueryFilter, optional): an optional filter to restrict the sigma query. Defaults to None.
-            backend (str, optional): the backend to use, must be among the ones reported in `sigma_support`. Defaults to None (use first supported).
-            pipeline (str, optional): the pipeline to use, must be among the ones reported in `sigma_support`. Defaults to None (use first supported).
-            output_format (str, optional): the output format to use, must be among the ones reported in `sigma_support`. Defaults to None (use first supported).
+            backend (str, optional): the backend to use, must be listed in `sigma_support`. Defaults to None (use first supported).
+            pipeline (str, optional): the pipeline to use, must be listed in `sigma_support`. Defaults to None (use first supported).
+            output_format (str, optional): the output format to use, must be listed in `sigma_support`. Defaults to None (use first supported).
         Returns:
             any: the query in the format specified by backend/pipeline/output_format.
         """
@@ -331,64 +350,86 @@ class GulpPluginBase(ABC):
         ws_id: str,
         user: str,
         query: GulpExternalQueryParameters,
-        operation: str=None,
-        ingest_to_index: str=None,
-        flt: GulpIngestionFilter = None,
-        plugin_params: GulpPluginGenericParameters = None,
-    ) -> GulpRequestStatus:
+        operation: str = None,
+        context: str = None,
+        source: str = None,
+        ingest_index: str = None,
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> None:
         """
-        query an external source for a set of documents, using the external source query language.
+        query an external source and stream results, converted to gulpdocuments, to the websocket.
+        
+        optionally ingest them.
 
         Args:
             req_id (str): the request id
             ws_id (str): the websocket id
             user (str): the user performing the query
-            query (GulpExternalQuery): the query to perform, including any necessary parameters to connect to the external source.
-            operation (str, optional): the operation to associate with. Defaults to None.
-            ingest_to_index (str, optional): the index to ingest the results to (to perform direct ingestion into gulp during query). Defaults to None.
-            flt (GulpIngestionFilter, optional): an optional filter to restrict the documents to be ingested, if ingest_to_index is set. Defaults to None.
-            plugin_params (GulpPluginGenericParams, optional): plugin parameters, including i.e. in GulpPluginParams.extra the login/pwd/token to connect to the external source, plugin dependent. Defaults to None.
-        
-        Returns:
-            GulpRequestStatus: the status of the query  
+            query (GulpExternalQuery): the query itself and any other parameter needed to perform the query on the external source.
+            operation (str, optional): the operation to set on the documents. Defaults to None.
+            context (str, optional): the context to set on the documents. Defaults to None.
+            source (str, optional): the source to set on the documents. Defaults to None.
+            ingest_index (str, optional): the index to ingest the results. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): any plugin specific parameters. Defaults to None.
 
         Notes:
-            - implementers must call super().query_external first then _initialize().<br>
+            - implementers must call super().ingest_file first, then _initialize().<br>
+            - this function *MUST NOT* raise exceptions.
+
+        Raises:
+            ObjectNotFound: if no document is found.
         """
+
+        # TODO in plugins:
+        # 1. query the external source in chunk of 1000 documents, with loop set
+        # 2. run the same process_record loop as in ingest_file then
+        # 3. consider to implement ingest_raw to ingest the results
+
         self._ws_id = ws_id
         self._req_id = req_id
         self._user = user
         self._operation = operation
+        if ingest_index:
+            # ingest during query, but external query do not have stats
+            self._index = ingest_index
+            self._ingestion_enabled = True
+            self._stats_enabled = False
+        else:
+            # just query, no ingestion and no stats
+            self._ingestion_enabled = False
+            self._stats_enabled = False
+        self._log_file_path = source
+
         GulpLogger.get_instance().debug(
             f"querying external source with plugin {self.name}, user={user}, operation={operation}, ws_id={ws_id}, req_id={req_id}"
         )
-        return GulpRequestStatus.ONGOING
 
     async def query_external_single(
         self,
         req_id: str,
-        id: GulpExternalQueryParameters,
-        plugin_params: GulpPluginGenericParameters = None,
+        id_and_params: GulpExternalQueryParameters,
+        plugin_params: GulpPluginParameters = None,
     ) -> dict:
         """
-        query a single document on an external source.
+        query a single document, converted to gulpdocument, on an external source.
 
         Args:
             req_id (str): the request id
-            id (GulpExternalQuery): set query to the id of the single document to query here.
-            plugin_params (GulpPluginGenericParams, optional): The plugin parameters. Defaults to None.
+            id (GulpExternalQuery): set `query` to the id of the single document to query here.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
             dict: the document as a GulpDocument dictionary
 
         Raises:
-            ObjectNotFoundError: if the event is not found
+            ObjectNotFound: if the document is not found.
 
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
         GulpLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, req_id={req_id}, id={id}"
+            f"querying external source with plugin {self.name}, req_id={req_id}, id_and_params={id_and_params}"
         )
         return {}
 
@@ -404,7 +445,7 @@ class GulpPluginBase(ABC):
         raw: bool = False,
         log_file_path: str = None,
         flt: GulpIngestionFilter = None,
-        plugin_params: GulpPluginGenericParameters = None,
+        plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
         """
         ingests a chunk of records in raw or GulpDocument dictionary format.
@@ -418,7 +459,7 @@ class GulpPluginBase(ABC):
             context (str): The context.
             data (list[dict]|bytes): this may be an array of already processed GulpDocument dictionaries, or a raw buffer.
             raw (bool, optional): if True, data is a raw buffer. Defaults to False (data is a list of GulpDocument dictionaries).
-            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
 
         Returns:
@@ -447,7 +488,7 @@ class GulpPluginBase(ABC):
         context: str,
         log_file_path: str,
         flt: GulpIngestionFilter = None,
-        plugin_params: GulpPluginGenericParameters = None,
+        plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
         """
         ingests a file containing records in the plugin specific format.
@@ -460,7 +501,7 @@ class GulpPluginBase(ABC):
             operation (str): The operation.
             context (str): The context.
             log_file_path (str): The path to the log file.
-            plugin_params (GulpPluginParams, optional): The plugin parameters. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
 
         Returns:
@@ -528,32 +569,6 @@ class GulpPluginBase(ABC):
             new_doc = GulpDocument(self, **new_doc_data)
             extra_docs.append(new_doc.model_dump(by_alias=True))
         return [doc.model_dump(by_alias=True)] + extra_docs
-
-    def _finalize_process_recorfd(self, doc: GulpDocument) -> list[dict]:
-        """
-        finalize processing a record, generating extra documents if needed.
-
-        Args:
-            doc (GulpDocument): the gulp document to be used as base for extra documents.
-
-        Returns:
-            list[dict]: the final list of documents to be ingested (doc is always the first one).
-
-        NOTE: called by the engine, do not call this function directly.
-        """
-        def _update_document_internal(base_doc: GulpDocument, extra_fields: dict) -> dict:
-            new_doc = copy(base_doc)
-            new_doc.model_extra.update(extra_fields)
-            new_doc = new_doc.model_dump()
-            new_doc = GulpDocument(self, **new_doc)
-            return new_doc.model_dump(by_alias=True)
-
-        if not self._extra_docs:
-            # GulpLogger.get_instance().debug("no extra documents to generate")
-            return [doc.model_dump(by_alias=True)]
-
-        # GulpLogger.get_instance().debug(f"generating {len(self._extra_docs)} extra documents...")
-        return [doc.model_dump(by_alias=True)] + [_update_document_internal(doc, e) for e in self._extra_docs]
 
     async def _record_to_gulp_document(
         self, record: any, record_idx: int
@@ -705,20 +720,22 @@ class GulpPluginBase(ABC):
             if len(self._docs_buffer) >= ingestion_buffer_size:
                 # flush to opensearch and update stats
                 ingested, skipped = await self._flush_buffer(
-                    stats, flt, wait_for_refresh
+                    flt, wait_for_refresh
                 )
                 # update stats
                 GulpLogger.get_instance().debug(
                     "updating stats, processed=%d, ingested=%d, skipped=%d"
                     % (self._records_processed, ingested, skipped)
                 )
-                await stats.update(
-                    ws_id=self._ws_id,
-                    records_skipped=skipped,
-                    records_ingested=ingested,
-                    records_processed=self._records_processed,
-                    records_failed=self._records_failed,
-                )
+                if self._ingestion_enabled and self._stats_enabled:
+                    # update stats
+                    await stats.update(
+                        ws_id=self._ws_id,
+                        records_skipped=skipped,
+                        records_ingested=ingested,
+                        records_processed=self._records_processed,
+                        records_failed=self._records_failed,
+                    )
 
                 # reset buffer
                 self._docs_buffer = []
@@ -726,20 +743,20 @@ class GulpPluginBase(ABC):
 
     
     async def _initialize(
-        self, plugin_params: GulpPluginGenericParameters = None,
+        self, plugin_params: GulpPluginParameters = None,
     ) -> None:
         """
         initialize mapping and plugin specific parameters
 
         Args:
-            plugin_params (GulpPluginParams, optional): plugin parameters. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): plugin parameters. Defaults to None.
 
         Raises:
             ValueError: if mapping_id is set but mappings/mapping_file is not.
             ValueError: if a specific parameter is required but not found in plugin_params.
 
         """
-        async def _setup_mapping(plugin_params: GulpPluginGenericParameters) -> None:
+        async def _setup_mapping(plugin_params: GulpPluginParameters) -> None:
             if plugin_params.mappings:
                 # mappings dict provided
                 mappings_dict = {
@@ -788,7 +805,7 @@ class GulpPluginBase(ABC):
 
         # ensure we have a plugin_params object
         if not plugin_params:
-            plugin_params = GulpPluginGenericParameters()        
+            plugin_params = GulpPluginParameters()        
         GulpLogger.get_instance().debug(
             "---> _initialize: plugin=%s, plugin_params=%s"
             % (
@@ -903,13 +920,13 @@ class GulpPluginBase(ABC):
         return k, v
 
     async def _check_raw_ingestion_enabled(
-        self, plugin_params: GulpPluginGenericParameters
+        self, plugin_params: GulpPluginParameters
     ) -> tuple[str, dict]:
         """
         check if we need to ingest the events using the raw ingestion plugin (from the query plugin)
 
         Args:
-            plugin_params (GulpPluginParams): The plugin parameters.
+            plugin_params (GulpPluginParameters): The plugin parameters.
 
         Returns:
             tuple[str, dict]: The ingest index and the index type mapping.
@@ -930,7 +947,7 @@ class GulpPluginBase(ABC):
 
     async def _perform_raw_ingest_from_query_plugin(
         self,
-        plugin_params: GulpPluginGenericParameters,
+        plugin_params: GulpPluginParameters,
         events: list[dict],
         operation_id: int,
         client_id: int,
@@ -941,7 +958,7 @@ class GulpPluginBase(ABC):
         ingest events using the raw ingestion plugin (from the query plugin)
 
         Args:
-            plugin_params (GulpPluginParams): The plugin parameters.
+            plugin_params (GulpPluginParameters): The plugin parameters.
             events (list[dict]): The events to ingest.
             operation_id (int): The operation id.
             client_id (int): The client id.
@@ -962,7 +979,6 @@ class GulpPluginBase(ABC):
 
     async def _flush_buffer(
         self,
-        stats: GulpIngestionStats,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
     ) -> tuple[int, int]:
@@ -982,22 +998,27 @@ class GulpPluginBase(ABC):
         el = GulpOpenSearch.get_instance()
         if self._docs_buffer:
             # GulpLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-            skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
-                self._index,
-                self._docs_buffer,
-                flt=flt,
-                wait_for_refresh=wait_for_refresh,
-            )
-            # print(json.dumps(ingested_docs, indent=2))
-            if ingestion_errors > 0:
-                """
-                NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
-                ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
-                """
-                if config.debug_abort_on_opensearch_ingestion_error():
-                    raise Exception(
-                        "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
-                    )
+            if self._ingestion_enabled:
+                # perform ingestion
+                skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
+                    self._index,
+                    self._docs_buffer,
+                    flt=flt,
+                    wait_for_refresh=wait_for_refresh,
+                )
+                # print(json.dumps(ingested_docs, indent=2))
+                if ingestion_errors > 0:
+                    """
+                    NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
+                    ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
+                    """
+                    if config.debug_abort_on_opensearch_ingestion_error():
+                        raise Exception(
+                            "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
+                        )
+            else:
+                # just count the docs
+                ingested_docs = self._docs_buffer
 
             # send ingested docs to websocket
             if flt:
@@ -1014,13 +1035,22 @@ class GulpPluginBase(ABC):
                 == GulpDocumentFilterResult.ACCEPT
             ]
             if ws_docs:
-                # TODO: send to ws
-                """ws_api.shared_queue_add_data(
-                    WsQueueDataType.INGESTION_CHUNK,
-                    req_id,
-                    {"plugin": self.display_name(), "events": ws_docs},
-                    ws_id=ws_id,
-                )"""
+                # send documents to the websocket
+                chunk = GulpDocumentsChunk(
+                    docs=ws_docs,
+                    # wait for refresh is set only on the last chunk
+                    last=wait_for_refresh,
+                    chunk_number=self._chunks_ingested,
+                )
+                GulpSharedWsQueue.get_instance().put(
+                    type=WsQueueDataType.DOCUMENTS_CHUNK,
+                    ws_id=self._ws_id,
+                    user_id=self._user,
+                    req_id=self._ws_id,
+                    data=chunk.model_dump(exclude_none=True),
+                )
+                self._chunks_ingested += 1
+                
 
             # update index type mapping too
             self._index_type_mapping = (
@@ -1045,16 +1075,17 @@ class GulpPluginBase(ABC):
             GulpIngestionStats: The updated ingestion statistics.
         """
         GulpLogger.get_instance().debug("INGESTION SOURCE DONE: %s" % (self._log_file_path))
-        ingested, skipped = await self._flush_buffer(stats, flt, wait_for_refresh=True)
-
-        return await stats.update(
-            ws_id=self._ws_id,
-            source_processed=1,
-            records_ingested=ingested,
-            records_skipped=skipped,
-            records_processed=self._records_processed,
-            records_failed=self._records_failed,
-        )
+        ingested, skipped = await self._flush_buffer(flt, wait_for_refresh=True)
+        if self._ingestion_enabled and self._stats_enabled:
+            return await stats.update(
+                ws_id=self._ws_id,
+                source_processed=1,
+                records_ingested=ingested,
+                records_skipped=skipped,
+                records_processed=self._records_processed,
+                records_failed=self._records_failed,
+            )
+        return GulpIngestionStats()
 
     async def _source_failed(
         self,
@@ -1076,11 +1107,14 @@ class GulpPluginBase(ABC):
         GulpLogger.get_instance().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._log_file_path, err)
         )
-        # update and force-flush stats
-        err = "source=%s, %s" % (self._log_file_path or "-", err)
-        return await stats.update(
-            ws_id=self._ws_id, source_failed=1, error=err
-        )
+
+        if self._ingestion_enabled and _stats_enabled:
+            # update and force-flush stats
+            err = "source=%s, %s" % (self._log_file_path or "-", err)
+            return await stats.update(
+                ws_id=self._ws_id, source_failed=1, error=err
+            )
+        return GulpIngestionStats()
 
     @staticmethod
     async def path_by_name(name: str, extension: bool = False) -> str:
@@ -1219,7 +1253,8 @@ class GulpPluginBase(ABC):
                 "type": p.type(),
                 "desc": p.desc(),
                 "filename": p.bare_filename,
-                "options": [o.model_dump() for o in p.additional_parameters()],
+                "sigma_support": [o.model_dump() for o in p.sigma_support()],
+                "additional_parameters": [o.model_dump() for o in p.additional_parameters()],
                 "depends_on": p.depends_on(),
                 "tags": p.tags(),
                 "version": p.version(),

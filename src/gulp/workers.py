@@ -34,7 +34,7 @@ from gulp.api.opensearch.structs import (
 )
 from gulp.defs import GulpPluginType, ObjectNotFound
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginParameters
 from gulp.utils import _logger, configure_logger, logger
 import logging
 
@@ -180,7 +180,7 @@ async def _ingest_file_task_internal(
     plugin: str,
     src_file: str | list[dict],
     ws_id: str,
-    plugin_params: GulpPluginGenericParams = None,
+    plugin_params: GulpPluginParameters = None,
     flt: GulpIngestionFilter = None,
     user_id: int = None,
     **kwargs,
@@ -199,7 +199,7 @@ async def _ingest_file_task_internal(
         plugin (str): The plugin name.
         src_file (str): The source file path or a list of events (for the "raw" plugin).
         ws_id (str): The websocket id
-        plugin_params (GulpPluginParams, optional): The ingestion plugin parameters. Defaults to None.
+        plugin_params (GulpPluginParameters, optional): The ingestion plugin parameters. Defaults to None.
         flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
         user_id (int, optional): The user id. Defaults to None.
         kwargs: Additional keyword arguments.
@@ -290,7 +290,7 @@ async def ingest_directory_task(
         operation_id (int): The operation id.
         context (str): The context.
         ws_id (str): The websocket id.
-        plugin_params (GulpPluginParams, optional): The plugin parameters.
+        plugin_params (GulpPluginParameters, optional): The plugin parameters.
         flt (GulpIngestionFilter, optional): The filter.
         q (list[GulpQueryParameter], optional): The list of GulpQueryParameter objects. Defaults to None.
         q_options (GulpQueryOptions, optional): The query options. Defaults to None.
@@ -401,7 +401,7 @@ async def ingest_single_file_or_events_task(
         client_id (int): The client.
         operation_id (int): The operation.
         context (str): The context.
-        plugin_params (GulpPluginParams): The plugin parameters.
+        plugin_params (GulpPluginParameters): The plugin parameters.
         flt (GulpIngestionFilter, optional): The filter.
         user_id: (int): The user id, optional.
         ws_id (str): The websocket id
@@ -734,7 +734,7 @@ async def _query_external_internal(
     user_id: int,
     username: str,
     plugin: str,
-    plugin_params: GulpPluginGenericParams,
+    plugin_params: GulpPluginParameters,
     ws_id: str,
     req_id: str,
     flt: GulpQueryFilter,
@@ -827,7 +827,7 @@ async def query_external_task(**kwargs):
     plugin (str): The plugin to be queried.
     user_id (str): The user ID.
     username (str): The username of the user.
-    plugin_params (GulpPluginParams): Parameters for the plugin (external source parameters in "extra" dict).
+    plugin_params (GulpPluginParameters): Parameters for the plugin (external source parameters in "extra" dict).
     operation_id (str): The operation ID.
     client_id (str): The client ID.
     flt (str): Filter criteria.

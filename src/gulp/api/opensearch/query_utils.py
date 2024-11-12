@@ -43,7 +43,7 @@ from gulp.defs import (
     ObjectAlreadyExists,
     ObjectNotFound,
 )
-from gulp.plugin_internal import GulpPluginGenericParams
+from gulp.plugin_internal import GulpPluginParameters
 from gulp.utils import GulpLogger
 
 
@@ -666,7 +666,7 @@ async def query_by_gulpqueryparam(
 async def sigma_to_raw(
     rule: str | SigmaRule,
     pysigma_plugin: str = None,
-    plugin_params: GulpPluginGenericParams = None,
+    plugin_params: GulpPluginParameters = None,
 ) -> tuple[SigmaRule, dict]:
     """
     Converts a Sigma rule to raw (Lucene) query for elasticsearch.
@@ -675,7 +675,7 @@ async def sigma_to_raw(
         rule (str|SigmaRule): The Sigma rule, may be in YAML format to be converted using SigmaRule.from_yaml().
         pysigma_plugin (str, optional): optional sigma plugin name. if None, sigma rule logsource.product is used, and a plugin file named 'name' must be available.
             if pysigma_plugin loading fails, an empty pipeline is used.
-        plugin_params (GulpPluginParams, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
+        plugin_params (GulpPluginParameters, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
 
     Returns:
         tuple[SigmaRule, dict]: A tuple containing the SigmaRule object and the Lucene DSL query.
@@ -993,7 +993,7 @@ async def sigma_directory_to_gulpqueryparams(
     directory: str,
     pysigma_plugin: str = None,
     tags_from_directories: bool = True,
-    plugin_params: GulpPluginGenericParams = None,
+    plugin_params: GulpPluginParameters = None,
     tags_filter: list[str] = None,
     options: GulpQueryOptions = None,
 ) -> list[GulpQueryParameter]:
@@ -1004,7 +1004,7 @@ async def sigma_directory_to_gulpqueryparams(
         directory (str): The directory path containing the Sigma YAML files.
         pysigma_plugin (str, optional): fallback pysigma plugin `filename with or without .py/.pyc`. Defaults to None (use "logsource.product" from each sigma rule, if present).
         tags_from_directories (bool, optional): Whether to add (each sub)directory name as tags (plus the ones found in the sigma rule itself) in the resulting query. Defaults to True.
-        plugin_params (GulpPluginParams, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
+        plugin_params (GulpPluginParameters, optional): Additional parameters to pass to the plugin pipeline() function. Defaults to None.
         tags_filter (list[str], optional): Only use sigma rules with these tags. Defaults to None (use all sigma rules).
     Returns:
         list[GulpQueryParameter]: A list of GulpQueryParameter objects.
