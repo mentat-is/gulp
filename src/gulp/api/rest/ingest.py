@@ -32,7 +32,7 @@ from gulp.api.collab.client import Client
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import GulpUser
-from gulp.api.opensearch.structs import GulpIngestionFilter
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.plugin_internal import GulpPluginGenericParams
 from gulp.utils import GulpLogger
 

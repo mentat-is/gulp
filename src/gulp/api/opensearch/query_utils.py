@@ -14,6 +14,7 @@ from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.collab_api as collab_api
+from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
 import gulp.api.opensearch_api as opensearch_api
 import gulp.config as config
 import gulp.plugin as pluginbase
@@ -32,8 +33,6 @@ from gulp.api.elastic.query import (
     gulpqueryflt_to_elastic_dsl,
 )
 from gulp.api.opensearch.structs import (
-    QUERY_DEFAULT_FIELDS,
-    GulpQueryFilter,
     GulpQueryOptions,
     GulpQueryParameter,
     GulpQueryType,

@@ -9,13 +9,12 @@ import muty.string
 import muty.time
 
 from gulp.api.collab.note import GulpNote
+from gulp.api.opensearch.filters import GulpDocumentFilterResult, GulpQueryFilter
+from gulp.api.opensearch.filters import GulpQueryAdditionalOptions
 from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
 import gulp.config as config
-from gulp.api.opensearch.structs import (
-    GulpDocumentFilterResult,
+from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
-    GulpQueryAdditionalOptions,
-    GulpQueryFilter,
 )
 from gulp.defs import ObjectNotFound
 from gulp.utils import GulpLogger

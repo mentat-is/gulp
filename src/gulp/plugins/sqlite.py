@@ -6,12 +6,13 @@ import muty.dict
 import muty.os
 import muty.string
 import muty.xml
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.utils import GulpLogger
 import gulp.api.mapping.helpers as mappings_helper
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
 from gulp.defs import GulpPluginType, InvalidArgument
 from gulp.plugin import GulpPluginBase

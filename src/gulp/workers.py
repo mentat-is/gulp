@@ -16,6 +16,8 @@ import muty.uploadfile
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import gulp.api.elastic.query_utils as query_utils
+from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch.filters import GulpQueryFilter
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.ws_api
 import gulp.api.rest.ws as ws_api
@@ -27,8 +29,6 @@ from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpRequestSt
 from gulp.api.collab.stats import GulpStats, TmpIngestStats, TmpQueryStats
 from gulp.api.elastic.query import QueryResult, SigmaGroupFilter
 from gulp.api.opensearch.structs import (
-    GulpIngestionFilter,
-    GulpQueryFilter,
     GulpQueryOptions,
     GulpQueryParameter,
 )

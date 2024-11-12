@@ -1,5 +1,6 @@
 from typing import Optional, override
-from sqlalchemy import Boolean, String
+from sqlalchemy import ARRAY, Boolean, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
 from sigma.rule import SigmaRule
@@ -11,12 +12,16 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     title: Mapped[str] = mapped_column(
         String, doc="The query display name.",
     )
-    sigma: Mapped[Optional[bool]] = mapped_column(
-        Boolean,
-        doc="Whether the query is a sigma query.",
+    text: Mapped[str] = mapped_column(
+        String, doc="The query in its original format, as string.",
     )
-    text: Mapped[Optional[str]] = mapped_column(
-        String, doc="The text of the query in the original format, stringified.",
+    converted: Mapped[Optional[str]] = mapped_column(
+        String, doc="If present, the query converted in the native format, as string.",
+        default=None,
+    )
+    tags: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String),
+        doc="The tags associated with the query.",
     )
     description: Mapped[Optional[str]] = mapped_column(
         String, doc="The description of the query.",
@@ -34,9 +39,10 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     async def create(
         cls,
         token: str,
+        title: str,
         text: str,
-        sigma: bool = False,
-        title: str = None,
+        converted: any = None,
+        tags: list[str] = None,
         description: str = None,
         glyph: str = None,
         **kwargs,
@@ -46,10 +52,11 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
 
         Args:
             token(str): the token of the user creating the object, for access check (needs EDIT permission)
-            id(str): the id of the stored query
-            text(str): the text of the query in the original format, stringified. Defaults to None.
-            sigma(bool, optional): whether the query is a sigma query. Defaults to False.
             title(str, optional): the title of the query. Defaults to None.
+            text(str): the text of the query in the original format, stringified. Defaults to None.
+            converted(any, optional): the converted query, if any. Defaults to None.
+            tags(list[str], optional): the tags associated with the query. Defaults to None.
+                for sigma rules, use "sigma" tag to store the query with id = rule.id
             description(str, optional): the description of the query. Defaults to None.
             glyph(str, optional): the ID of a glyph to associate with the query. Defaults to None.
             kwargs: additional arguments
@@ -58,14 +65,15 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
             the created stored query object
         """
         args = {
-            "sigma": sigma,
-            "text": text,
             "title": title,
+            "text": text,
+            "converted": converted,
+            "tags": tags,
             "description": description,
             "glyph": glyph,
             **kwargs,
         }
-        if sigma:
+        if "sigma" in tags:
             # take from sigma rule
             r = SigmaRule.from_yaml(text)
             id = r.id

@@ -10,7 +10,7 @@ import muty.xml
 from gulp.utils import GulpLogger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.opensearch.structs import GulpIngestionFilter
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginGenericParams

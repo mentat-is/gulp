@@ -9,15 +9,23 @@ import muty.time
 import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
-
+import muty.os
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter, GulpQueryFilter
+from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginGenericParameters
+from gulp.plugin_params import GulpPluginGenericParameters, GulpPluginSigmaSupport
 from gulp.utils import GulpLogger
 
+# needs the following backends for sigma support (add others if needed)
+muty.os.check_and_install_package("pysigma-backend-elasticsearch", "1.1.3")
+muty.os.check_and_install_package("pysigma-backend-opensearch", "1.0.3")
+
+from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
+from sigma.backends.opensearch import OpensearchLuceneBackend
 
 class Plugin(GulpPluginBase):
     """
@@ -149,6 +157,7 @@ class Plugin(GulpPluginBase):
             **d,
         )
 
+    @override
     async def ingest_file(
         self,
         req_id: str,
@@ -205,10 +214,35 @@ class Plugin(GulpPluginBase):
 
         return stats.status
 
-    async def sigma_convert(
+    @override
+    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
+        return [
+            GulpPluginSigmaSupport(
+                backend=["opensearch"],
+                pipelines=["ecs_windows", "ecs_windows_old"],
+                output=["dsl_lucene"]),
+        ]
+    @override
+    def sigma_convert(
         self,
         sigma: str,
         referenced_sigmas: list[str] = None,
-        flt: GulpQueryFilter = None,
-    ) -> dict:
+        backend: str = None,
+        pipeline: str = None,
+        output_format: str = None  
+    ) -> list[any]:
         
+        # select pipeline, backend and output format to use        
+        backend, pipeline, output_format = self._check_sigma_support(backend, pipeline, output_format)
+        if pipeline == 'ecs_windows':
+            pipeline = ecs_windows()
+        else:
+            pipeline = ecs_windows_old()
+        if backend == "opensearch":
+            backend = OpensearchLuceneBackend(processing_pipeline=pipeline)
+        else:
+            raise ValueError("unsupported backend: %s" % backend)
+
+        # convert        
+        return self._sigma_convert_internal(
+            sigma, backend, referenced_sigmas=referenced_sigmas, output_format=output_format)

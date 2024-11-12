@@ -15,6 +15,9 @@ import muty.jsend
 import muty.log
 import muty.string
 import muty.time
+from sigma.collection import SigmaCollection
+from sigma.backends.opensearch import OpensearchLuceneBackend
+from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpDocumentFilterResult, GulpIngestionFilter, GulpQueryFilter
 from gulp.api.opensearch.query import GulpExternalQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp import config
@@ -23,10 +26,6 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.opensearch.structs import (
     GulpDocument,
-    GulpDocumentFilterResult,
-    GulpIngestionFilter,
-    GulpQueryFilter,
-    QUERY_DEFAULT_FIELDS,
 )
 from gulp.api.mapping.models import (
     GulpMapping,
@@ -35,9 +34,9 @@ from gulp.api.mapping.models import (
 from gulp.defs import (
     GulpPluginType,
 )
-from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters
+from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters, GulpPluginSigmaSupport
 from gulp.utils import GulpLogger
-
+from sigma.conversion.base import Backend, ProcessingPipeline
 
 class GulpPluginCache:
     """
@@ -250,25 +249,82 @@ class GulpPluginBase(ABC):
         - ...
         """
         return []
+    
+    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
+        """
+        return backends/pipelines supported by the plugin (check pysigma on github for details)
+        """
+        return []
+    
+    def _check_sigma_support(self, backend: str, pipeline: str, output_format: str) -> tuple[str,str,str]:
+        """
+        check if the plugin supports the given sigma backend/pipeline/output_format
 
-    async def sigma_convert(
+        Args:
+            backend (str): the backend to use.
+            pipeline (str): the pipeline to use.
+            output_format (str): the output format to use.
+
+        Returns:
+            tuple[str,str,str]: the selected backend, pipeline, output_format
+        """
+        if not self.sigma_support():
+            raise ValueError(f"plugin {self.name} does not support any sigma backends/pipelines/output_formats")
+
+        if not backend:
+            backend = self.sigma_support()[0].backend[0]
+            GulpLogger.get_instance().debug(f"no backend specified, using first supported: {backend}")
+        if not pipeline:
+            pipeline = self.sigma_support()[0].pipelines[0]
+            GulpLogger.get_instance().debug(f"no pipeline specified, using first supported: {pipeline}")
+        if not output_format:
+            output_format = self.sigma_support()[0].output[0]
+            GulpLogger.get_instance().debug(f"no output_format specified, using first supported: {output_format}")
+
+        for s in self.sigma_support():
+            if backend in s.backend and pipeline in s.pipelines and output_format in s.output:
+                return (backend, pipeline, output_format)
+        
+        raise ValueError(f"plugin {self.name} does not support backend={backend}, pipeline={pipeline}, output_format={output_format}")
+    
+    def _sigma_convert_internal(self, sigma: str, 
+        backend: Backend, referenced_sigmas: list[str] = None, output_format: str = None) -> any:
+
+        # build sigma including references
+        if referenced_sigmas:
+            for r in referenced_sigmas:
+                sigma+=f"\n---\n{r}"
+
+        # convert sigma, taking into account the referenced sigmas
+        sc = SigmaCollection.from_yaml(sigma)
+        sc.resolve_rule_references()                
+        q = backend.convert_rule(sc[0], output_format=output_format)[0]
+        return q[0]
+    
+    def sigma_convert(
         self,
         sigma: str,
         referenced_sigmas: list[str] = None,
-        flt: GulpQueryFilter = None,
-    ) -> dict:
+        backend: str = None,
+        pipeline: str = None,
+        output_format: str = None,
+    ) -> any:
         """
-        convert a sigma rule specifically targeted to this plugin to an opensearch dsl query.
+        convert a sigma rule specifically targeted to this plugin to a query in the format specified by backend/pipeline/output_format.
 
         Args:
-            sigma (str): the sigma rule
-            referenced_sigmas (list[str], optional): a list of referenced sigma rules (whole yamls). Defaults to None.
-            flt (GulpQueryFilter, optional): an optional filter to restrict the sigma query target.
+            sigma (str): the main sigma rule YAML
+            referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
+                NOTE: if set, their `name` must be referenced in the main `sigma` rule in the `filter` section as explained in [sigma filter](https://sigmahq.io/docs/meta/filters.html) documentation.
+            flt (GulpQueryFilter, optional): an optional filter to restrict the sigma query. Defaults to None.
+            backend (str, optional): the backend to use, must be among the ones reported in `sigma_support`. Defaults to None (use first supported).
+            pipeline (str, optional): the pipeline to use, must be among the ones reported in `sigma_support`. Defaults to None (use first supported).
+            output_format (str, optional): the output format to use, must be among the ones reported in `sigma_support`. Defaults to None (use first supported).
         Returns:
-            dict: the opensearch dsl query
+            any: the query in the format specified by backend/pipeline/output_format.
         """
         raise NotImplementedError("not implemented!")
-
+    
     async def query_external(
         self,
         req_id: str,

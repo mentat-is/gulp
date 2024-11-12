@@ -128,12 +128,5 @@ class GulpLogLevel(IntEnum):
     INFO = 0
 
 
-class GulpSortOrder(StrEnum):
-    """
-    specifies the sort types for API accepting the "sort" parameter
-    """
-
-    ASC = "asc"
-    DESC = "desc"
 
 

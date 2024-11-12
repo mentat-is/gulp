@@ -14,9 +14,8 @@ from gulp.api.elastic.query_utils import (
     check_canceled_or_failed,
     process_event_timestamp,
 )
+from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
 from gulp.api.opensearch.structs import (
-    QUERY_DEFAULT_FIELDS,
-    GulpQueryFilter,
     GulpQueryOptions,
     gulpqueryflt_to_elastic_dsl,
 )

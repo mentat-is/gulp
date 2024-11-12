@@ -8,7 +8,8 @@ import muty.xml
 
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
-from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_params import GulpPluginAdditionalParameter, GulpPluginGenericParameters

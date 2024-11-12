@@ -13,6 +13,7 @@ import muty.string
 import muty.time
 import muty.xml
 
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.utils import GulpLogger
 
 try:
@@ -25,7 +26,7 @@ except Exception:
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpLogLevel, GulpPluginType
 from gulp.plugin import GulpPluginBase

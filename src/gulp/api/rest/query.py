@@ -27,6 +27,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
+from gulp.api.opensearch.filters import GulpQueryFilter
 import gulp.defs
 import gulp.plugin
 import gulp.utils
@@ -39,7 +40,6 @@ from gulp.api.collab.stats import GulpStats
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.query import SigmaGroupFilter, SigmaGroupFiltersParam
 from gulp.api.opensearch.structs import (
-    GulpQueryFilter,
     GulpQueryOptions,
     GulpQueryParameter,
     GulpQueryType,

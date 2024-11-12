@@ -13,7 +13,7 @@ from typing import Optional, Type, TypeVar
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpCollabType
-from gulp.api.opensearch.structs import GulpIngestionFilter
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api import opensearch_api
 from gulp.api.mapping.models import GulpMapping
 from gulp.plugin_params import GulpPluginGenericParameters
@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from gulp.plugin import GulpPluginBase
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
+import yaml
 
 _opt_samples_dir= os.environ.get('GULP_SAMPLES_DIR', '~/repos/gulp/samples')
 _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
@@ -54,6 +55,94 @@ print('opt_samples_dir:', _opt_samples_dir)
 print('opt_reset:', _opt_reset)
 print('opt_index:', _opt_index)
 print('opt_gulp_integration_test:', _opt_gulp_integration_test)
+
+sigma_main_yaml = """
+title: Filter Out Administrator accounts
+description: Filters out administrator accounts that start with adm_
+logsource:
+  category: process_creation
+  product: windows
+filter:
+  rules:
+    - proc_creation_win_sc_create_service
+    - proc_creation_win_custom
+  selection:
+    User|contains: "adm_"
+  condition: not selection
+"""
+#sigma_main_yaml = yaml.dump(yaml.safe_load(sigma_main_yaml))
+sigma_filter_1 = """ 
+title: New Service Creation Using Sc.EXE
+name: proc_creation_win_sc_create_service
+id: 85ff530b-261d-48c6-a441-facaa2e81e48
+related:
+    - id: c02e96b7-c63a-4c47-bd83-4a9f74afcfb2 # Using PowerShell
+      type: similar
+status: test
+description: Detects the creation of a new service using the "sc.exe" utility.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1543.003/T1543.003.md
+author: Timur Zinniatullin, Daniil Yugoslavskiy, oscd.community
+date: 2023-02-20
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\\sc.exe'
+        CommandLine|contains|all:
+            - 'create'
+            - 'binPath'
+    condition: selection
+falsepositives:
+    - Legitimate administrator or user creates a service for legitimate reasons.
+    - Software installation
+level: low
+filter:
+  rules:
+    - proc_creation_win_custom
+  selection:
+    User|startswith: "aaavalerino_"
+  condition: not selection
+"""
+#sigma_filter_1 = yaml.dump(yaml.safe_load(sigma_filter_1))
+sigma_filter_2 = """
+title: New Service Creation Using Sc.EXE
+name: proc_creation_win_custom
+id: 85ff530b-261d-48c6-a441-facaa2e81e48
+related:
+    - id: c02e96b7-c63a-4c47-bd83-4a9f74afcfb2 # Using PowerShell
+      type: similar
+status: test
+description: Detects the creation of a new service using the "sc.exe" utility.
+references:
+    - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1543.003/T1543.003.md
+author: Timur Zinniatullin, Daniil Yugoslavskiy, oscd.community
+date: 2023-02-20
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\\bbbbvalerino.exe'
+        CommandLine|contains|all:
+            - 'create'
+            - 'binPath'
+    condition: selection
+falsepositives:
+    - Legitimate administrator or user creates a service for legitimate reasons.
+    - Software installation
+level: low
+"""
+#sigma_filter_2 = yaml.dump(yaml.safe_load(sigma_filter_2))
 
 async def testbed():
     class TestPydanticClass(BaseModel):
@@ -301,16 +390,27 @@ async def test_bulk_insert():
     await GulpNote.bulk_create_from_documents(docs, 
                                               ws_id=None,req_id='123', user_id='admin', title="test match", tags=['tag1','tag2'])
 
+async def test_sigma_convert():
+    GulpLogger.get_instance().debug("---> test_sigma_convert")
+    
+    # load plugin
+    plugin = await GulpPluginBase.load("win_evtx")
+    
+    rules = plugin.sigma_convert(sigma_main_yaml, referenced_sigmas=[sigma_filter_1, sigma_filter_2])
+    print(rules)
+
 async def main():
     try:       
-        await test_init()
+        #await test_init()
 
         #await test_ingest_windows()
         #await test_ingest_csv()
-        await test_ingest_csv_with_mappings()
+        #await test_ingest_csv_with_mappings()
         #await test_ingest_csv_stacked()
         #await test_bulk_insert()
         #await GulpOperation.add_context(_operation, _context)
+        await test_sigma_convert()
+
     finally:
         await GulpOpenSearch.get_instance().shutdown()
 

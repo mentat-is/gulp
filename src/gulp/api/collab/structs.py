@@ -109,8 +109,12 @@ T = TypeVar("T", bound="GulpCollabBase")
 class GulpCollabFilter(BaseModel):
     """
     defines filter to be applied to all objects in the collaboration system
-    """
 
+    allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
+    """
+    class Config:
+        extra = "allow"
+        
     id: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     type: Optional[list[GulpCollabType]] = Field(
         None, description="filter by the given type/s."
@@ -160,16 +164,6 @@ class GulpCollabFilter(BaseModel):
     @override
     def __str__(self) -> str:
         return self.model_dump_json(exclude_none=True)
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate(cls, data: str | dict = None):
-        if not data:
-            return {}
-
-        if isinstance(data, dict):
-            return data
-        return json.loads(data)
 
     def _case_insensitive_or_ilike(self, column, values: list) -> ColumnElement[bool]:
         """
@@ -225,6 +219,12 @@ class GulpCollabFilter(BaseModel):
             q = q.filter(self._case_insensitive_or_ilike(type.title, self.title))
         if self.text and "text" in type.columns:
             q = q.filter(self._case_insensitive_or_ilike(type.text, self.text))
+        
+        if self.model_extra:
+            # any extra k,v to filter on
+            for k, v in self.model_extra.items():
+                if k in type.columns:
+                    q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
 
         if self.documents and "documents" in type.columns:
             if not self.time_range:

@@ -42,3 +42,12 @@ class GulpPluginAdditionalParameter(BaseModel):
     desc: Optional[str] = Field(None, description="option description.")
     required: Optional[bool] = Field(False, description="is the option required ?")
 
+class GulpPluginSigmaSupport(BaseModel):
+    """
+    sigma support for a plugin.
+
+    refer to [sigma-cli](https://github.com/SigmaHQ/sigma-cli) for parameters (backend=-t, pipeline=-p, output=-f).
+    """    
+    backend: list[str] = Field(..., description="one or more pysigma backend supported by the plugin.")
+    pipelines: list[str] = Field(..., description="one or more pysigma pipelines supported by the plugin.")
+    output: list[str] = Field(..., description="one or more output formats supported by the plugin. ")

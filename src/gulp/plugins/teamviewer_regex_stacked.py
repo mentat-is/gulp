@@ -4,10 +4,11 @@ import muty.xml
 import muty.time
 
 
+from gulp.api.opensearch.filters import GulpIngestionFilter
 import gulp.plugin as gulp_plugin
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.opensearch.structs import GulpDocument, GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.defs import GulpPluginType
 from gulp.plugin import GulpPluginBase

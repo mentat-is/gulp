@@ -27,7 +27,7 @@ import gulp.utils
 import gulp.workers as workers
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
-from gulp.api.opensearch.structs import GulpQueryFilter
+from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
