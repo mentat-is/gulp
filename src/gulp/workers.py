@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from queue import Queue
@@ -27,44 +28,41 @@ import gulp.utils
 from gulp.api import collab_api, opensearch_api, rest_api
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType, GulpRequestStatus
 from gulp.api.collab.stats import GulpStats, TmpIngestStats, TmpQueryStats
-from gulp.api.elastic.query import QueryResult, SigmaGroupFilter
+from gulp.api.elastic.query import QueryResult
 from gulp.api.opensearch.structs import (
     GulpQueryOptions,
-    GulpQueryParameter,
 )
 from gulp.defs import GulpPluginType, ObjectNotFound
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginParameters
-from gulp.utils import _logger, configure_logger, logger
-import logging
+from gulp.utils import GulpLogger
 from gulp.config import GulpConfig
+from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.ws_api import GulpSharedWsQueue
 
 class GulpWorker:
-    
+    """
+    a worker process, mostly used for parallel querying/ingestion
+    """
+
+    # thread pool executor for this worker process, if needed
+    thread_pool_executor: ThreadPoolExecutor = None
+
     @staticmethod
     def process_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
         """
-        Initializes the worker process.
+        initializes a worker process
 
         Args:
-            spawned_processes (Value): A shared value representing the number of spawned processes.
-            lock (Lock): to synchronize startup of worker processes ()
-            ws_queue (Queue): The queue (proxy for multiprocessing) for websocket messages.
-            config_path (str, optional): The path to the configuration file. Defaults to None.
-            log_level (int, optional): The log level. Defaults to None.
-            log_file_path (str, optional): The path to the log file. Defaults to None.
+            spawned_processes (Value): shared counter for the number of spawned processes (for ordered initialization)
+            lock (Lock): shared lock for spawned_processes (for ordered initialization)
+            ws_queue (Queue): the shared websocket queue
+            log_level (int, optional): the log level. Defaults to None.
+            log_file_path (str, optional): the log file path. Defaults to None.
         """
 
-        # initialize modules in the worker process, this will also initialize LOGGER
-        gulp.utils.init_modules(
-            l=None,
-            logger_prefix=str(os.getpid()),
-            log_level=log_level,
-            log_file_path=log_file_path,
-            ws_queue=ws_queue,
-        )
-
-        # add plugins paths
+        # this is needed to load plugins from the plugins directories
         plugins_path = GulpConfig.get_instance().path_plugins()
         ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
         if plugins_path not in sys.path:
@@ -72,65 +70,34 @@ class GulpWorker:
         if ext_plugins_path not in sys.path:
             sys.path.append(ext_plugins_path)
 
-        # initialize per-process clients
-        asyncio.run(collab_api.session())
-        opensearch_api.elastic()
+        # initialize per-process structures and clients
+        GulpLogger.get_instance().reconfigure(log_to_file=log_file_path, level=log_level)
+        # read configuration
+        GulpConfig.get_instance()
+        # create a thread executor for this worker process
+        GulpWorker.thread_pool_executor = ThreadPoolExecutor()
 
-        # initialize per-process thread pool executor
-        rest_api.thread_pool_executor()
+        # initialize collab and opensearch clients
+        asyncio.run(GulpCollab.get_instance().init())
+        GulpOpenSearch.get_instance()
 
+        # initializes the shared websocket queue
+        GulpSharedWsQueue.get_instance().init_queue(ws_queue)
+
+        # done
         lock.acquire()
         spawned_processes.value += 1
         lock.release()
-        GulpLogger.get_instance().warning(
-            "workerprocess initializer DONE, sys.path=%s, logger=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
+        GulpLogger.get_logger().warning(
+            "workerprocess initializer DONE, sys.path=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
             % (
                 sys.path,
-                logger(),
-                GulpLogger.get_instance().level,
+                GulpLogger.get_logger().level,
                 log_file_path,
                 spawned_processes.value,
                 ws_queue,
             )
         )
-
-def init_modules(
-    l: logging.Logger,
-    logger_prefix: str = None,
-    log_level: int = None,
-    log_file_path: str = None,
-    ws_queue: Queue = None,
-) -> logging.Logger:
-    """
-    Initializes the gulp modules **in the current process**.
-
-    @param l: the source logger, ignored if log_level is set
-    @param log_level: if set, l is reinitialized with the given log level and l is ignored
-    @param logger_prefix: if set, will prefix the reinitialized logger name with this string (ignored if log_level is not set)
-    @param log_file_path: if set, will log to this file (ignored if log_level is not set)
-    @param ws_queue: the proxy queue for websocket messages
-    returns the logger (reinitialized if log_level is set)
-    """
-    global _logger
-
-    if log_level is not None:
-        # recreate logger
-        _logger = configure_logger(
-            log_to_file=log_file_path,
-            level=log_level,
-            force_reconfigure=True,
-            prefix=logger_prefix,
-        )
-    else:
-        # use provided
-        _logger = l
-
-    # initialize modules
-    from gulp.config import GulpConfig
-    from gulp.api.rest import ws as ws_api
-    #config.init()
-    ws_api.init(ws_queue, main_process=False)
-    return _logger
 
 
 
@@ -152,7 +119,7 @@ async def _print_debug_ingestion_stats(collab: AsyncEngine, req_id: str):
         started_at = muty.time.unix_millis_to_datetime(cs.time_created).isoformat()
 
         # we use error just to print the exception in any case, even when most of the debug messages are skipped
-        GulpLogger.get_instance().error(
+        GulpLogger.get_logger().error(
             "(NOT AN ERROR) req_id=%s, started_at=%s, took seconds=%f, (minutes=%f, hours=%f)\n"
             "final stats req_id=%s: processed=%d, failed=%d, skipped=%d, num (UNIQUE) ingest_errors=%d, QueuePool status=%s"
             % (
@@ -216,12 +183,12 @@ async def _ingest_file_task_internal(
     mod = None
     if plugin == "raw":
         # src_file is a list of events
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "ingesting %d raw events with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
             % (len(src_file), plugin, collab, elastic, type(flt), flt, plugin_params)
         )
     else:
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "ingesting file=%s with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
             % (src_file, plugin, collab, elastic, type(flt), flt, plugin_params)
         )
@@ -261,7 +228,7 @@ async def _ingest_file_task_internal(
     )
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger.get_instance().debug(
+    GulpLogger.get_logger().debug(
         "execution time for ingesting file %s: %f sec." % (src_file, execution_time)
     )
 
@@ -314,7 +281,7 @@ async def ingest_directory_task(
 
     # ingestion started for this request
     files = await muty.file.list_directory_async(directory)
-    GulpLogger.get_instance().info("ingesting directory %s with files=%s ..." % (directory, files))
+    GulpLogger.get_logger().info("ingesting directory %s with files=%s ..." % (directory, files))
     if len(files) == 0:
         ex = ObjectNotFound("directory %s empty or not found!" % (directory))
         await GulpStats.create(
@@ -499,21 +466,21 @@ async def ingest_zip_task(
     user_id = kwargs.get("user_id", None)
     files_path = None
 
-    GulpLogger.get_instance().debug("ingesting zip file %s ..." % (f))
+    GulpLogger.get_logger().debug("ingesting zip file %s ..." % (f))
 
     try:
         # decompress
         files_path = await muty.file.unzip(f)
-        GulpLogger.get_instance().debug("zipfile unzipped to %s" % (files_path))
+        GulpLogger.get_logger().debug("zipfile unzipped to %s" % (files_path))
 
         # read metadata file
         metadata_path = muty.file.safe_path_join(files_path, "metadata.json")
         metadata = json5.loads(await muty.file.read_file_async(metadata_path))
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "metadata.json content:\n %s" % (json5.dumps(metadata, indent=2))
         )
     except Exception as ex:
-        GulpLogger.get_instance().exception(ex)
+        GulpLogger.get_logger().exception(ex)
         await GulpStats.create(
             collab,
             GulpCollabType.STATS_INGESTION,
@@ -643,7 +610,7 @@ async def _rebase_internal(
         )
     except Exception as ex:
         # can't rebase, delete the datastream
-        GulpLogger.get_instance().exception(ex)
+        GulpLogger.get_logger().exception(ex)
         ws_api.shared_queue_add_data(
             gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
             req_id,
@@ -663,7 +630,7 @@ async def _rebase_internal(
         if template_file is not None:
             await muty.file.delete_file_or_dir_async(template_file)
     # done
-    GulpLogger.get_instance().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
+    GulpLogger.get_logger().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
     ws_api.shared_queue_add_data(
         gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
         req_id,
@@ -754,7 +721,7 @@ async def _query_external_internal(
         )
     except Exception as ex:
         # can't load plugin ...
-        GulpLogger.get_instance().exception(ex)
+        GulpLogger.get_logger().exception(ex)
         await GulpStats.update(
             collab,
             req_id,
@@ -792,12 +759,12 @@ async def _query_external_internal(
 
         end_time = timeit.default_timer()
         execution_time = end_time - start_time
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "execution time for querying plugin %s: %f sec." % (plugin, execution_time)
         )
     except Exception as ex:
         # can't query external source ...
-        GulpLogger.get_instance().exception(ex)
+        GulpLogger.get_logger().exception(ex)
         await GulpStats.update(
             collab,
             req_id,
@@ -912,7 +879,7 @@ async def query_multi_task(**kwargs):
         None
     """
 
-    # GulpLogger.get_instance().debug("query_multi_task: %s" % (kwargs))
+    # GulpLogger.get_logger().debug("query_multi_task: %s" % (kwargs))
     index = kwargs["index"]
     user_id = kwargs["user_id"]
     username = kwargs["username"]
@@ -936,7 +903,7 @@ async def query_multi_task(**kwargs):
     qres_list: list[QueryResult] = []
     batch_size = GulpConfig.get_instance().multiprocessing_batch_size()
     status: GulpRequestStatus = GulpRequestStatus.ONGOING
-    # GulpLogger.get_instance().debug("sigma_group_filters=%s" % (sigma_group_flts))
+    # GulpLogger.get_logger().debug("sigma_group_filters=%s" % (sigma_group_flts))
 
     # run tasks in batch_size chunks
     for i in range(0, len(q), batch_size):
@@ -972,7 +939,7 @@ async def query_multi_task(**kwargs):
             )
 
         # run a batch of tasks
-        GulpLogger.get_instance().debug("running %d query tasks ..." % (len(tasks)))
+        GulpLogger.get_logger().debug("running %d query tasks ..." % (len(tasks)))
         ql: list[QueryResult] = await asyncio.gather(*tasks, return_exceptions=True)
         qres_list.extend(ql)
 
@@ -990,7 +957,7 @@ async def query_multi_task(**kwargs):
             force=True,
         )
         if status in [GulpRequestStatus.FAILED, GulpRequestStatus.CANCELED]:
-            GulpLogger.get_instance().error(
+            GulpLogger.get_logger().error(
                 "query_multi_task: request failed or canceled, stopping further queries!"
             )
             break
@@ -1019,13 +986,13 @@ async def query_multi_task(**kwargs):
             if isinstance(r, QueryResult):
                 if len(r.events) > 0:
                     qr.append(r)
-        GulpLogger.get_instance().debug("applying sigma group filters on %d results ..." % (len(qr)))
+        GulpLogger.get_logger().debug("applying sigma group filters on %d results ..." % (len(qr)))
         sgr = await query_utils.apply_sigma_group_filters(
             sigma_group_flts,
             [x.to_dict() for x in qr],
         )
         if sgr is not None and len(sgr) > 0:
-            GulpLogger.get_instance().debug("sigma group filter %s matched!" % (len(qr)))
+            GulpLogger.get_logger().debug("sigma group filter %s matched!" % (len(qr)))
             # send sigma group result over websocket
             ws_api.shared_queue_add_data(
                 WsQueueDataType.SIGMA_GROUP_RESULT,
@@ -1073,11 +1040,11 @@ async def gather_sigma_directories_to_stored_queries(
     if len(files) == 0:
         raise ObjectNotFound("no sigma files found in directory %s" % (files_path))
 
-    GulpLogger.get_instance().debug("sigma files in directory %s: %s" % (files_path, files))
+    GulpLogger.get_logger().debug("sigma files in directory %s: %s" % (files_path, files))
 
     # parallelize queries through multiple worker processes, each one running asyncio tasks
     tasks = []
-    GulpLogger.get_instance().debug(
+    GulpLogger.get_logger().debug(
         "gathering results for %d sigma files to be converted ..." % (len(files))
     )
     for f in files:

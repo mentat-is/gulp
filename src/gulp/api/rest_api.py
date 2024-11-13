@@ -61,7 +61,7 @@ def set_shutdown(*args):
     Sets the global `_shutting_down` flag to True.
     """
     global _shutting_down
-    GulpLogger.get_instance().debug("setting _shutting_down=True ...")
+    GulpLogger.get_logger().debug("setting _shutting_down=True ...")
     _shutting_down = True
 
 
@@ -73,9 +73,9 @@ def is_shutdown() -> bool:
         bool: True if the server is shutting down, False otherwise.
     """
     global _shutting_down
-    # GulpLogger.get_instance().debug("is_shutdown()=%r" % (_shutting_down))
+    # GulpLogger.get_logger().debug("is_shutdown()=%r" % (_shutting_down))
     if _shutting_down:
-        GulpLogger.get_instance().debug("is_shutdown()=True")
+        GulpLogger.get_logger().debug("is_shutdown()=True")
 
     return _shutting_down
 
@@ -122,7 +122,7 @@ def thread_pool_executor() -> ThreadPoolExecutor:
     """
     global _thread_pool_executor
     if _thread_pool_executor is None:
-        GulpLogger.get_instance().debug("creating thread pool executor for the current process...")
+        GulpLogger.get_logger().debug("creating thread pool executor for the current process...")
         _thread_pool_executor = ThreadPoolExecutor()
 
     return _thread_pool_executor
@@ -135,7 +135,7 @@ def _unload_extension_plugins():
     from gulp import plugin
 
     global _extension_plugins
-    GulpLogger.get_instance().debug("unloading extension plugins ...")
+    GulpLogger.get_logger().debug("unloading extension plugins ...")
     for p in _extension_plugins:
         plugin.unload_plugin(p)
 
@@ -151,7 +151,7 @@ async def _load_extension_plugins() -> list["PluginBase"]:
     """
     from gulp import plugin
 
-    GulpLogger.get_instance().debug("loading extension plugins ...")
+    GulpLogger.get_logger().debug("loading extension plugins ...")
     path_plugins = GulpConfig.get_instance().path_plugins(GulpPluginType.EXTENSION)
     files = await muty.file.list_directory_async(path_plugins, "*.py*", recursive=True)
     l = []
@@ -161,7 +161,7 @@ async def _load_extension_plugins() -> list["PluginBase"]:
             plugin_name = os.path.basename(f).rsplit(".", 1)[0]
             p = plugin.load_plugin(plugin_name, GulpPluginType.EXTENSION)
             l.append(p)
-    GulpLogger.get_instance().debug("loaded %d extension plugins: %s" % (len(l), l))
+    GulpLogger.get_logger().debug("loaded %d extension plugins: %s" % (len(l), l))
     return l
 
 
@@ -172,7 +172,7 @@ async def validation_exception_handler(
 ) -> JSendResponse:
     status_code = 400
     jsend_ex = JSendException(ex=ex, status_code=status_code)
-    GulpLogger.get_instance().debug(
+    GulpLogger.get_logger().debug(
         "in request-validation exception handler, status_code=%d" % (status_code)
     )
     return muty.jsend.fastapi_jsend_exception_handler(jsend_ex, status_code)
@@ -184,7 +184,7 @@ async def bad_request_exception_handler(
 ) -> JSendResponse:
     status_code = 400
     jsend_ex = JSendException(ex=ex, status_code=status_code)
-    GulpLogger.get_instance().debug("in bad-request exception handler, status_code=%d" % (status_code))
+    GulpLogger.get_logger().debug("in bad-request exception handler, status_code=%d" % (status_code))
     return muty.jsend.fastapi_jsend_exception_handler(jsend_ex, status_code)
 
 
@@ -213,7 +213,7 @@ async def gulp_exception_handler(_: Request, ex: JSendException) -> JSendRespons
             status_code = 401
         else:
             status_code = 500
-    GulpLogger.get_instance().debug("in exception handler, status_code=%d" % (status_code))
+    GulpLogger.get_logger().debug("in exception handler, status_code=%d" % (status_code))
     return muty.jsend.fastapi_jsend_exception_handler(ex, status_code)
 
 
@@ -246,10 +246,10 @@ class GulpRestServer():
                 self._elastic_index_to_reset = "gulpidx"
                 self._reset_collab_on_start = True
                 self._first_run=True
-                GulpLogger.get_instance().info("first run detected!")
+                GulpLogger.get_logger().info("first run detected!")
                 
             else:
-                GulpLogger.get_instance().info("not first run")
+                GulpLogger.get_logger().info("not first run")
 
             # create multiprocessing manager
             self._mp_manager: SyncManager = multiprocessing.Manager()
@@ -289,10 +289,8 @@ class GulpRestServer():
         """
         for debugging purposes only, to catch exception eaten by aiopool (they're critical exceptions, the process dies) ...
         """
-        GulpLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
+        GulpLogger.get_logger().exception("WORKER EXCEPTION: %s" % (ex))
 
-    @staticmethod
-    def _worker_process_init
 
     @staticmethod
     @asynccontextmanager
@@ -307,8 +305,8 @@ class GulpRestServer():
             None
         """
         instance = GulpRestServer.
-        GulpLogger.get_instance().info("gULP starting!")
-        GulpLogger.get_instance().warning(
+        GulpLogger.get_logger().info("gULP starting!")
+        GulpLogger.get_logger().warning(
             "concurrency_max_tasks=%d, parallel_processes_max=%d, parallel_processes_respawn_after_tasks=%d"
             % (
                 GulpConfig.get_instance().concurrency_max_tasks(),
@@ -333,7 +331,7 @@ class GulpRestServer():
 
         # setup collab and elastic
         if _reset_collab_on_start:
-            GulpLogger.get_instance().warning("--reset-collab is set!")
+            GulpLogger.get_logger().warning("--reset-collab is set!")
         try:
             await collab_db.setup(force_recreate=_reset_collab_on_start)
         except Exception as ex:
@@ -344,12 +342,12 @@ class GulpRestServer():
 
         elastic = opensearch_api.elastic()
         collab_session = await collab_api.session()
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "main process collab_session=%s, elastic=%s" % (collab_session, elastic)
         )
 
         if _elastic_index_to_reset is not None:
-            GulpLogger.get_instance().warning(
+            GulpLogger.get_logger().warning(
                 "--reset-elastic is set, dropping and recreating the ElasticSearch index %s ..."
                 % (_elastic_index_to_reset)
             )
@@ -362,7 +360,7 @@ class GulpRestServer():
                     await opensearch_api.datastream_create(elastic, _elastic_index_to_reset)
                     elastic_reset_ok = True
                 except Exception as ex:
-                    GulpLogger.get_instance().exception(
+                    GulpLogger.get_logger().exception(
                         "waiting elasticsearch to come up, or error in datastream_create() ... retrying in 1 second ..."
                     )
                     await asyncio.sleep(1)
@@ -385,7 +383,7 @@ class GulpRestServer():
         # wait for shutdown
         yield
 
-        GulpLogger.get_instance().info("gULP shutting down!, logger level=%d" % (GulpLogger.get_instance().level))
+        GulpLogger.get_logger().info("gULP shutting down!, logger level=%d" % (GulpLogger.get_logger().level))
         set_shutdown()
 
         # wait websockets close
@@ -401,21 +399,21 @@ class GulpRestServer():
         await opensearch_api.shutdown_client(elastic)
 
         # close queues
-        GulpLogger.get_instance().debug("closing ws queue ...")
+        GulpLogger.get_logger().debug("closing ws queue ...")
         gulp_ws.shared_queue_close(_ws_q)
 
-        GulpLogger.get_instance().debug("shutting down aiopool ...")
+        GulpLogger.get_logger().debug("shutting down aiopool ...")
         await _aiopool.cancel()
         await _aiopool.join()
 
-        GulpLogger.get_instance().debug("shutting down thread pool executor for the main process...")
+        GulpLogger.get_logger().debug("shutting down thread pool executor for the main process...")
         _thread_pool_executor.shutdown(wait=True)
 
-        GulpLogger.get_instance().debug("shutting down aiomultiprocess ...")
+        GulpLogger.get_logger().debug("shutting down aiomultiprocess ...")
         _process_executor.close()
         await _process_executor.join()
 
-        GulpLogger.get_instance().debug("executors shut down, we can gracefully exit.")
+        GulpLogger.get_logger().debug("executors shut down, we can gracefully exit.")
 
     async def recreate_process_executor(self):
         """
@@ -447,17 +445,17 @@ class GulpRestServer():
                 spawned_processes,
                 lock,
                 _ws_q,
-                GulpLogger.get_instance().level,
+                GulpLogger.get_logger().level,
                 _log_file_path,
             ),
         )
 
         # wait for all processes are spawned
         while spawned_processes.value < num_processes:
-            # GulpLogger.get_instance().debug('waiting for all processes to be spawned ...')
+            # GulpLogger.get_logger().debug('waiting for all processes to be spawned ...')
             await asyncio.sleep(0.1)
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "all processes spawned, spawned_processes=%d" % (spawned_processes.value)
         )
         return _process_executor
@@ -476,11 +474,11 @@ class GulpRestServer():
         config_directory = GulpConfig.get_instance().config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
-            GulpLogger.get_instance().debug("first run file exists: %s" % (check_first_run_file))
+            GulpLogger.get_logger().debug("first run file exists: %s" % (check_first_run_file))
             return False
 
         # create firstrun file
-        GulpLogger.get_instance().warning("first run file does not exist: %s" % (check_first_run_file))
+        GulpLogger.get_logger().warning("first run file does not exist: %s" % (check_first_run_file))
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")
         return True
@@ -494,9 +492,9 @@ class GulpRestServer():
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
-            GulpLogger.get_instance().info("first run file deleted: %s" % (check_first_run_file))
+            GulpLogger.get_logger().info("first run file deleted: %s" % (check_first_run_file))
         else:
-            GulpLogger.get_instance().warning("first run file does not exist: %s" % (check_first_run_file))
+            GulpLogger.get_logger().warning("first run file does not exist: %s" % (check_first_run_file))
 
 
     def start(
@@ -563,12 +561,12 @@ class GulpRestServer():
         _app.include_router(gulp.api.rest.user_data.router())
         _app.include_router(gulp_ws.router())
 
-        GulpLogger.get_instance().info(
+        GulpLogger.get_logger().info(
             "starting server at %s, port=%d, logger level=%d, config path=%s, log_file_path=%s, reset_collab=%r, elastic_index to reset=%s ..."
             % (
                 address,
                 port,
-                GulpLogger.get_instance().level,
+                GulpLogger.get_logger().level,
                 GulpConfig.get_instance().path_config(),
                 log_file_path,
                 reset_collab,
@@ -576,7 +574,7 @@ class GulpRestServer():
             )
         )
         if GulpConfig.get_instance().enforce_https():
-            GulpLogger.get_instance().info("enforcing HTTPS ...")
+            GulpLogger.get_logger().info("enforcing HTTPS ...")
 
             certs_path: str = GulpConfig.get_instance().path_certs()
             cert_password: str = GulpConfig.get_instance().https_cert_password()
@@ -588,11 +586,11 @@ class GulpRestServer():
             ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
             if GulpConfig.get_instance().enforce_https_client_certs():
                 ssl_cert_verify_mode = ssl.VerifyMode.CERT_REQUIRED
-                GulpLogger.get_instance().info("enforcing HTTPS client certificates ...")
+                GulpLogger.get_logger().info("enforcing HTTPS client certificates ...")
 
             ssl_keyfile = muty.file.safe_path_join(certs_path, "gulp.key")
             ssl_certfile = muty.file.safe_path_join(certs_path, "gulp.pem")
-            GulpLogger.get_instance().info(
+            GulpLogger.get_logger().info(
                 "ssl_keyfile=%s, ssl_certfile=%s, cert_password=%s, ssl_ca_certs=%s, ssl_cert_verify_mode=%d"
                 % (
                     ssl_keyfile,
@@ -614,7 +612,7 @@ class GulpRestServer():
             )
         else:
             # http
-            GulpLogger.get_instance().warning("HTTP!")
+            GulpLogger.get_logger().warning("HTTP!")
             uvicorn.run(_app, host=address, port=port)
 
 _app: FastAPI = FastAPI(

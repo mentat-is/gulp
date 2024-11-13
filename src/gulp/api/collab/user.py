@@ -162,7 +162,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             )
             if pwd_changed and user.session:
                 # invalidate (delete) the session if the password was changed
-                GulpLogger.get_instance().debug(
+                GulpLogger.get_logger().debug(
                     "password changed, deleting session for user=%s" % (user.id)
                 )
                 sess.add(user.session)
@@ -229,14 +229,14 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        GulpLogger.get_instance().debug("---> logging in user=%s ..." % (user))
+        GulpLogger.get_logger().debug("---> logging in user=%s ..." % (user))
 
         sess = GulpCollab.get_instance().session()
         async with sess:
             u: GulpUser = await GulpUser.get_one_by_id(id=user, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
-                GulpLogger.get_instance().debug("resetting previous session for user=%s" % (user))
+                GulpLogger.get_logger().debug("resetting previous session for user=%s" % (user))
                 u.session = None
                 sess.add(u)  # keep track of the change
 
@@ -284,7 +284,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Returns:
             None
         """
-        GulpLogger.get_instance().debug("---> logging out token=%s ..." % (token))
+        GulpLogger.get_logger().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
 
         await GulpUserSession.delete_by_id(token=token, id=token, ws_id=ws_id, req_id=req_id)

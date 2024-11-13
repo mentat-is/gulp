@@ -2,7 +2,6 @@ import logging
 import os
 import ssl
 from email.message import EmailMessage
-from importlib import resources as impresources
 
 import aiosmtplib
 import muty.file
@@ -11,8 +10,6 @@ import muty.string
 import muty.time
 import muty.version
 from logging import Logger
-from gulp import mapping_files
-from gulp.config import GulpConfig
 class GulpLogger:
     """
     singleton logger class, represents a logger for the process
@@ -31,14 +28,20 @@ class GulpLogger:
             self._logger = self.create()
 
     @classmethod
-    def get_instance(cls) -> Logger:
+    def get_instance(cls) -> "GulpLogger":
         """
         returns the singleton instance
         """
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
-        return cls._instance._logger    
+        return cls._instance
+    
+    @classmethod
+    def get_logger(cls) -> Logger:
+        """
+        returns the singleton's logger instance
+        """
+        return cls.get_instance()._logger
 
     def reconfigure(self, log_to_file: str = None, level: int = logging.DEBUG, prefix: str = None) -> logging.Logger:
         """
@@ -130,7 +133,7 @@ async def send_mail(
         cc_list = to[1:]
 
     m = EmailMessage()
-    GulpLogger.get_instance().info(
+    GulpLogger.get_logger().info(
         "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
         % (server, port, sender, to_email, cc_list, subject)
     )
@@ -152,27 +155,6 @@ async def send_mail(
         tls_context=ssl_ctx,
         validate_certs=False,
     )
-
-
-def build_mapping_file_path(filename: str) -> str:
-    """
-    get path of a file in the gulp/mapping_files directory (or the overridden one from configuration/env)
-
-    @return the full path of a file in the mapping_files directory
-    """
-    
-
-    if filename is None:
-        return None
-
-    configured_mappings_path = GulpConfig.get_instance().path_mapping_files()
-    if configured_mappings_path is not None:
-        # use provided
-        p = muty.file.safe_path_join(configured_mappings_path, filename)
-    else:
-        # default, internal mapping_files directory with default mappings
-        p = muty.file.safe_path_join(impresources.files(mapping_files), filename)
-    return p
 
 
 def version_string() -> str:

@@ -107,24 +107,24 @@ class Plugin(GulpPluginBase):
         d = {}
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
-            # GulpLogger.get_instance().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
+            # GulpLogger.get_logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
 
             # map attrs and values
             if len(e.attrib) == 0:
                 # no attribs, i.e. <Opcode>0</Opcode>
                 if not e.text or not e.text.strip():
                     # none/empty text
-                    # GulpLogger.get_instance().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
+                    # GulpLogger.get_logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
                     continue
 
-                # GulpLogger.get_instance().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
+                # GulpLogger.get_logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
                 mapped = self._process_key(e.tag, e.text)
                 d.update(mapped)
             else:
                 # attribs, i.e. <TimeCreated SystemTime="2019-11-08T23:20:54.670500400Z" />
                 for attr_k, attr_v in e.attrib.items():
                     if not attr_v or not attr_v.strip():
-                        # GulpLogger.get_instance().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
+                        # GulpLogger.get_logger().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
                         continue
                     if attr_k == "Name":
                         if e.text:
@@ -134,18 +134,18 @@ class Plugin(GulpPluginBase):
                         else:
                             k = e.tag
                             v = attr_v
-                        # GulpLogger.get_instance().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # GulpLogger.get_logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
                         k = "%s.%s" % (e.tag, attr_k)
                         v = attr_v
-                        # GulpLogger.get_instance().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # GulpLogger.get_logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     mapped = self._process_key(k, v)
                     d.update(mapped)
 
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-        #GulpLogger.get_instance().debug("timestampmapped=%s" % d)
+        #GulpLogger.get_logger().debug("timestampmapped=%s" % d)
         return GulpDocument(
             self,
             timestamp=timestamp,

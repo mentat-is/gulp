@@ -60,7 +60,7 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        GulpLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
+        GulpLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         # attempt_decode = plugin_params.extra.get("decode", True)

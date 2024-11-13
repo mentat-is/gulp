@@ -85,7 +85,7 @@ async def collabobj_list(
             flt.type = [t]
         if flt.limit is None or flt.limit == 0:
             flt.limit = 1000
-            GulpLogger.get_instance().warning("collabobj_list: setting limit to 1000 (default)")
+            GulpLogger.get_logger().warning("collabobj_list: setting limit to 1000 (default)")
 
         l = await GulpCollabObject.get(await collab_api.session(), flt)
         for n in l:

@@ -100,7 +100,7 @@ class GulpCollab:
             sslmode = "verify-full"
         else:
             sslmode = "prefer"
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> collab: creating AsyncEngine connection, sslmode=%s..." % (sslmode)
         )
 
@@ -115,7 +115,7 @@ class GulpCollab:
             client_key = muty.file.safe_path_join(certs_dir, "postgres.key")
             client_key_password = GulpConfig.get_instance().postgres_client_cert_password()
             if os.path.exists(client_cert) and os.path.exists(client_key):
-                GulpLogger.get_instance().debug(
+                GulpLogger.get_logger().debug(
                     "using client certificate: %s, key=%s, ca=%s"
                     % (client_cert, client_key, ca)
                 )
@@ -128,7 +128,7 @@ class GulpCollab:
                 }
             else:
                 # no client certificate
-                GulpLogger.get_instance().debug(
+                GulpLogger.get_logger().debug(
                     "using server CA certificate only: %s" % (ca)
                 )
                 connect_args = {"sslrootcert": ca, "sslmode": sslmode}
@@ -141,7 +141,7 @@ class GulpCollab:
             url, echo=GulpConfig.get_instance().debug_collab(), pool_timeout=30, connect_args=connect_args
         )
 
-        GulpLogger.get_instance().info(
+        GulpLogger.get_logger().info(
             "engine %s created/initialized, url=%s ..." % (_engine, url)
         )
         return _engine
@@ -169,7 +169,7 @@ class GulpCollab:
         Returns:
             None
         """
-        GulpLogger.get_instance().warning(
+        GulpLogger.get_logger().warning(
             "shutting down collab database engine and invalidate existing connections ..."
         )
         await self._engine.dispose()
@@ -189,7 +189,7 @@ class GulpCollab:
             bool: True if the database exists, False otherwise.
         """
         b = await asyncio.to_thread(database_exists, url=url)
-        GulpLogger.get_instance().debug("---> exists: url=%s, result=%r" % (url, b))
+        GulpLogger.get_logger().debug("---> exists: url=%s, result=%r" % (url, b))
         return b
 
     @staticmethod
@@ -210,21 +210,21 @@ class GulpCollab:
             internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
             """
             if database_exists(url):
-                GulpLogger.get_instance().info(
+                GulpLogger.get_logger().info(
                     "--> drop: dropping database %s ..." % (url)
                 )
                 drop_database(url)
-                GulpLogger.get_instance().info(
+                GulpLogger.get_logger().info(
                     "--> drop: database %s dropped ..." % (url)
                 )
             else:
-                GulpLogger.get_instance().warning(
+                GulpLogger.get_logger().warning(
                     "--> drop: database %s does not exist!" % (url)
                 )
                 if raise_if_not_exists:
                     raise ObjectNotFound("database %s does not exist!" % (url))
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
         )
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
@@ -237,12 +237,12 @@ class GulpCollab:
         Args:
             url (str): The URL of the database to create.
         """
-        GulpLogger.get_instance().debug("---> create: url=%s" % (url))
+        GulpLogger.get_logger().debug("---> create: url=%s" % (url))
         await asyncio.to_thread(create_database, url=url)
 
     async def _setup_collab_expirations(self) -> None:
         # TODO: check issues with pg-cron process dying
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "setting up stats and tokens expiration with pg_cron ..."
         )
 
@@ -439,7 +439,7 @@ class GulpCollab:
 
         url = GulpConfig.get_instance().postgres_url()
         if force_recreate:
-            GulpLogger.get_instance().warning(
+            GulpLogger.get_logger().warning(
                 "force_recreate=True, dropping and recreating collab database ..."
             )
             await _recreate_internal(url, expire_on_commit=expire_on_commit)
@@ -452,14 +452,14 @@ class GulpCollab:
                     )
                     if res.scalar_one_or_none():
                         # tables ok
-                        GulpLogger.get_instance().info(
+                        GulpLogger.get_logger().info(
                             "collab database exists and tables are ok."
                         )
                         self._setup_done = True
                         return
 
                 # recreate tables
-                GulpLogger.get_instance().warning(
+                GulpLogger.get_logger().warning(
                     "collab database exists but tables are missing."
                 )
                 await _recreate_internal(url, expire_on_commit=expire_on_commit)

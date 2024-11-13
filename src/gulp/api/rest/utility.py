@@ -17,6 +17,7 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
 
+import gulp.config
 import gulp.defs
 import gulp.plugin
 import gulp.utils as gulp_utils
@@ -419,7 +420,7 @@ async def mapping_file_upload_handler(
         if not filename.lower().endswith(".json"):
             raise gulp.defs.InvalidArgument("mapping_file must be a JSON file.")
 
-        full_mapping_file_path = gulp_utils.build_mapping_file_path(filename)
+        full_mapping_file_path = GulpConfig.build_mapping_file_path(filename)
         if not allow_overwrite:
             # overwrite disabled
             if os.path.exists(full_mapping_file_path):
@@ -565,7 +566,7 @@ async def mapping_file_list_handler(
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
         path = GulpConfig.get_instance().path_mapping_files()
-        GulpLogger.get_instance().debug("listing mapping files in %s" % (path))
+        GulpLogger.get_logger().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
 
         # purge paths
@@ -627,7 +628,7 @@ async def mapping_file_get_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
-        file_path = gulp_utils.build_mapping_file_path(mapping_file)
+        file_path = GulpConfig.build_mapping_file_path(mapping_file)
 
         # read file content
         f = await muty.file.read_file_async(file_path)
@@ -674,7 +675,7 @@ async def mapping_file_delete_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
-        file_path = gulp_utils.build_mapping_file_path(mapping_file)
+        file_path = GulpConfig.build_mapping_file_path(mapping_file)
 
         # delete file
         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)

@@ -215,7 +215,7 @@ class GulpDocument(GulpBasicDocument):
             return ts, ns, False
         except Exception as e:
             # invalid timestamp
-            #GulpLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
+            #GulpLogger.get_logger().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
     
     @override
@@ -301,7 +301,7 @@ class GulpDocument(GulpBasicDocument):
         
         # finally check for consistency
         GulpDocument.model_validate(self)
-        #GulpLogger.get_instance().debug(self.model_dump(by_alias=True, exclude='event_original'))
+        #GulpLogger.get_logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     #def __repr__(self) -> str:
     #    return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"

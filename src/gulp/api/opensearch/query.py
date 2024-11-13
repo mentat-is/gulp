@@ -145,7 +145,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         else:
             n["search_after"] = None
 
-        # GulpLogger.get_instance().debug("query options: %s" % (json.dumps(n, indent=2)))
+        # GulpLogger.get_logger().debug("query options: %s" % (json.dumps(n, indent=2)))
         return n
 
 class GulpQuery:

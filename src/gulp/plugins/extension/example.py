@@ -51,7 +51,7 @@ class Plugin(GulpPluginBase):
         if not self._check_pickled():
             # in the first init, add api routes (we are in the MAIN process here)
             self._add_api_routes()
-            GulpLogger.get_instance().debug(
+            GulpLogger.get_logger().debug(
                 "%s extension plugin initialized, aiopool=%s, executor=%s, fastapi_app=%s"
                 % (
                     self.display_name(),
@@ -62,7 +62,7 @@ class Plugin(GulpPluginBase):
             )
         else:
             # in the re-init, we are in the worker process here
-            GulpLogger.get_instance().debug("%s extension plugin re-initialized" % self.display_name())
+            GulpLogger.get_logger().debug("%s extension plugin re-initialized" % self.display_name())
 
     async def _run_in_worker(
         self,
@@ -73,7 +73,7 @@ class Plugin(GulpPluginBase):
         req_id: str,
         **kwargs,
     ) -> QueryResult:
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, client_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, client_id, ws_id, req_id)
         )
@@ -111,7 +111,7 @@ class Plugin(GulpPluginBase):
         # then run internal function in one of the tasks of the worker processes
         tasks = []
         executor = rest_api.process_executor()
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "spawning process for extension example for user_id=%s, operation_id=%s, client_id=%s, ws_id=%s, req_id=%s, executor=%s"
             % (user_id, operation_id, client_id, ws_id, req_id, executor)
         )
@@ -133,7 +133,7 @@ class Plugin(GulpPluginBase):
             qr: QueryResult = await asyncio.gather(*tasks, return_exceptions=True)
             print(qr)
         except Exception as ex:
-            GulpLogger.get_instance().exception(ex)
+            GulpLogger.get_logger().exception(ex)
             raise JSendException(req_id=req_id, ex=ex) from ex
 
     def _add_api_routes(self):

@@ -266,7 +266,7 @@ async def stored_query_create_from_sigma_zip_handler(
     try:
         # decompress
         files_path = await muty.uploadfile.unzip(z)
-        GulpLogger.get_instance().debug("zipfile unzipped to %s" % (files_path))
+        GulpLogger.get_logger().debug("zipfile unzipped to %s" % (files_path))
         try:
             # use multiprocessing to gather the rules
             s = await workers.gather_sigma_directories_to_stored_queries(

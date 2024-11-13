@@ -64,7 +64,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             await op.awaitable_attrs.context
             op.context.append(ctx)
             await sess.commit()
-            GulpLogger.get_instance().info(f"Context {context} added to operation {operation}.")
+            GulpLogger.get_logger().info(f"Context {context} added to operation {operation}.")
 
     async def remove_context(operation: str, context: str) -> None:
         """
@@ -87,7 +87,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 await op.awaitable_attrs.context        
                 op.context.remove(ctx)
                 await sess.commit()
-                GulpLogger.get_instance().info(f"Context {context} removed from operation {operation}.")                
+                GulpLogger.get_logger().info(f"Context {context} removed from operation {operation}.")                
 
     @override
     @classmethod

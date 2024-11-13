@@ -119,7 +119,7 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        GulpLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
+        GulpLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         regex = plugin_params.extra.get("regex", None)
@@ -130,7 +130,7 @@ class Plugin(GulpPluginBase):
 
             # make sure we have at least 1 named group
             if regex.groups == 0:
-                GulpLogger.get_instance().error("no named groups provided, invalid regex")
+                GulpLogger.get_logger().error("no named groups provided, invalid regex")
                 fs = self._source_failed(fs, source, "no named groups provided")
                 return await self._finish_ingestion(
                     index, source, req_id, client_id, ws_id, fs=fs, flt=flt
@@ -143,7 +143,7 @@ class Plugin(GulpPluginBase):
                     valid = True
 
             if not valid:
-                GulpLogger.get_instance().error("no timestamp named group provided, invalid regex")
+                GulpLogger.get_logger().error("no timestamp named group provided, invalid regex")
                 fs = self._source_failed(
                     fs, source, "no timestamp named group provided"
                 )

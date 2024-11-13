@@ -111,8 +111,9 @@ def main():
     )
 
     # initialize modules
-    gulp.utils.init_modules(_logger)
+    #gulp.utils.init_modules(_logger)
     _logger.debug("gulp configuration: %s" % (GulpConfig.get_instance().config()))
+    asyncio.run(GulpConfig.check_copy_mappings_and_plugins_to_custom_directories())
 
     if __RUN_TESTS__:
         # test stuff

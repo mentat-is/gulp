@@ -334,7 +334,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Initialize the object with the specified attributes.
         """
-        # GulpLogger.get_instance().debug("**** GulpCollabBase __init__")
+        # GulpLogger.get_logger().debug("**** GulpCollabBase __init__")
         if self.__class__ == GulpCollabBase:
             # cannot instantiate this class directly
             raise Exception(
@@ -353,7 +353,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         self.time_updated = self.time_created
 
         # call the base class constructor
-        # GulpLogger.get_instance().debug("---> GulpCollabBase self in __init__=%s" % self)
+        # GulpLogger.get_logger().debug("---> GulpCollabBase self in __init__=%s" % self)
         super().__init__()
 
     @override
@@ -435,7 +435,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.add(instance)
             await sess.commit()
 
-            GulpLogger.get_instance().debug(
+            GulpLogger.get_logger().debug(
                 f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, owner={owner}"
             )
             if ensure_eager_load:
@@ -458,7 +458,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return instance
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> _create: id=%s, type=%s, token=%s, required_permission=%s, ws_id=%s, req_id=%s, sess=%s, ensure_eager_load=%s, kwargs=%s"
             % (
                 id,
@@ -543,7 +543,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.expunge(instance)
             return instance
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> eager_load: %s, sess=%s" % (self.id, sess)
         )
         if not sess:
@@ -573,7 +573,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return await instance.eager_load(sess)
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> get: eager_load_by_id: %s, sess=%s" % (id, sess)
         )
         if not sess:
@@ -632,7 +632,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 )
 
             
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess)
         )
         if not sess:
@@ -670,7 +670,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> delete_by_id: obj_id=%s, type=%s, sess=%s"
             % (id, cls.__gulp_collab_type__, sess)
         )
@@ -723,7 +723,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If the object with the specified ID is not found.
         """
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             f"---> update_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, d={d}"
         )
         obj: GulpCollabBase = await cls.get_one_by_id(
@@ -798,7 +798,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             # update from d
             for k, v in d.items():
-                # GulpLogger.get_instance().debug(f"setattr: {k}={v}")
+                # GulpLogger.get_logger().debug(f"setattr: {k}={v}")
                 setattr(self_in_session, k, v)
 
             # sess update time
@@ -808,7 +808,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             # ensure the object is eager loaded before returning
             obj = await self_in_session.eager_load(sess)
-            GulpLogger.get_instance().debug("---> updated: %s" % (obj))
+            GulpLogger.get_logger().debug("---> updated: %s" % (obj))
 
             if ws_id and isinstance(obj, GulpCollabObject):
                 # notify the websocket of the collab object update
@@ -826,7 +826,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return obj
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             f"---> update: obj_id={self.id}, type={self.__class__}, d={d}"
         )
         if not sess:
@@ -860,7 +860,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}"
         )        
         o = await cls.get_one(
@@ -898,7 +898,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess)
         )
         c = await cls.get(
@@ -941,7 +941,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ):
             flt = flt or GulpCollabFilter()
             q = flt.to_select_query(cls)
-            GulpLogger.get_instance().debug("---> get: query=\n%s\n" % (q))
+            GulpLogger.get_logger().debug("---> get: query=\n%s\n" % (q))
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(
                 res, throw_if_not_found=throw_if_not_found, detail=flt
@@ -955,12 +955,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     ccb: GulpCollabBase = cc
                     c[i] = await ccb.eager_load(sess=sess)
 
-            GulpLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
+            GulpLogger.get_logger().debug("---> get: found %d objects" % (len(c)))
 
             # TODO: handle websocket ?
             return c
 
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> get: type=%s, filter=%s, sess=%s, ensure_eager_load=%r"
             % (cls.__name__, flt, sess, ensure_eager_load)
         )
@@ -993,7 +993,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                GulpLogger.get_instance().warning(msg)
+                GulpLogger.get_logger().warning(msg)
                 return None
 
         return c
@@ -1022,7 +1022,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                GulpLogger.get_instance().warning(msg)
+                GulpLogger.get_logger().warning(msg)
                 return None
         return c
 
@@ -1185,7 +1185,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         self.description = description
         self.color = color
         self.private = private
-        GulpLogger.get_instance().debug(
+        GulpLogger.get_logger().debug(
             "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, color=%s, tags=%s, title=%s, description=%s, private=%s"
             % (id, type, owner, operation, glyph, color, tags, title, description, private)
         )
