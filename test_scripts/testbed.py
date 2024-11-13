@@ -145,6 +145,22 @@ level: low
 #sigma_filter_2 = yaml.dump(yaml.safe_load(sigma_filter_2))
 
 async def testbed():
+    class MyModel(BaseModel):
+        class Config:
+            extra = "allow"
+        field1: str = Field(..., description="required field", min_length=1)
+        field2: str = Field("default", description="test field1")
+
+        @staticmethod
+        def test():
+            m = MyModel(field1="123456")
+            print('not set model_extra:', m.model_extra)
+            mm = m.model_dump(exclude_none=True)
+            mm['extra_shit'] = 'aaaa'
+            m = MyModel.model_validate(mm)
+            mm=m.model_dump(exclude_none=True)
+            print('dumped model after setting model_extra', m)
+
     class TestPydanticClass(BaseModel):
         class Config:
             extra = "allow"
@@ -401,15 +417,15 @@ async def test_sigma_convert():
 
 async def main():
     try:       
-        #await test_init()
+        await test_init()
 
         #await test_ingest_windows()
         #await test_ingest_csv()
-        #await test_ingest_csv_with_mappings()
+        await test_ingest_csv_with_mappings()
         #await test_ingest_csv_stacked()
         #await test_bulk_insert()
         #await GulpOperation.add_context(_operation, _context)
-        await test_sigma_convert()
+        #await test_sigma_convert()
 
     finally:
         await GulpOpenSearch.get_instance().shutdown()

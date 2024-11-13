@@ -73,7 +73,7 @@ class GulpDocumentsChunk(BaseModel):
     )
     search_after: Optional[dict] = Field(
         None,
-        description="to use in `QueryAdditionalOptions.search_after` to request the next chunk in a paged query.",
+        description="to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
     )
 
 
@@ -312,16 +312,6 @@ class GulpSharedWsQueue:
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._shared_q: Queue = None
-
-    @classmethod
-    def get_instance(cls) -> "GulpSharedWsQueue":
-        """
-        Returns the singleton instance.
-
-        Returns:
-            GulpSharedWsDataQueue: The singleton instance.
-        """
-        return cls()
 
     def init_in_worker_process(self, q: Queue):
         """

@@ -15,10 +15,6 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     text: Mapped[str] = mapped_column(
         String, doc="The query in its original format, as string.",
     )
-    converted: Mapped[Optional[str]] = mapped_column(
-        String, doc="If present, the query converted in the native format, as string.",
-        default=None,
-    )
     tags: Mapped[Optional[list[str]]] = mapped_column(
         ARRAY(String),
         doc="The tags associated with the query.",
@@ -28,6 +24,10 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     )
     glyph: Mapped[Optional[str]] = mapped_column(
         String, doc="ID of a glyph to associate with the query.",
+    )
+    converted: Mapped[Optional[str]] = mapped_column(
+        String, doc="If present, the query converted in the native format, as string.",
+        default=None,
     )
     
     @override

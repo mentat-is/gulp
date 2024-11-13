@@ -87,10 +87,10 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
     @staticmethod
     async def bulk_create_from_documents(
-        docs: list[dict],
-        ws_id: str,
         req_id: str,
+        ws_id: str,
         user_id: str,
+        docs: list[dict],
         title: str,
         tags: list[str] = None,
         color: str = None,
@@ -100,10 +100,10 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         create a note for each document in the list, using bulk insert
 
         Args:
-            docs(list[dict]): the list of GulpDocument dictionaries to be added to the note
-            ws_id(str): the websocket id
             req_id(str): the request id
+            ws_id(str): the websocket id
             user_id(str): the requestor user id
+            docs(list[dict]): the list of GulpDocument dictionaries to be added to the note
             title(str): the title of the note
             tags(list[str], optional): the tags of the note
             color(str, optional): the color of the note
