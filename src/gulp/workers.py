@@ -7,6 +7,7 @@ import sys
 import timeit
 from multiprocessing import Lock, Queue, Value
 
+import aiomultiprocess
 import json5
 import muty.file
 import muty.list
@@ -40,17 +41,140 @@ from gulp.config import GulpConfig
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpSharedWsQueue
+from asyncio_pool import AioPool as AioCoroPool
+from aiomultiprocess import Pool as AioProcessPool
+from multiprocessing import Manager
 
-class GulpWorker:
+class GulpProcess:
     """
-    a worker process, mostly used for parallel querying/ingestion
+    represents the main or one of the worker processes for the Gulp application.
     """
 
-    # thread pool executor for this worker process, if needed
-    thread_pool_executor: ThreadPoolExecutor = None
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
-    @staticmethod
-    def process_init(spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
+    def __init__(self):
+        raise RuntimeError("call get_instance() instead")
+
+    def _initialize(self):
+        if not hasattr(self, "_initialized"):
+            self._initialized = True
+            self.mp_manager = Manager()
+
+            # allow main/worker processes to spawn threads
+            self.thread_pool_executor: ThreadPoolExecutor = None
+            # allow main/worker processes to spawn coroutines
+            self.coro_pool:AioCoroPool = None
+            # allow the main process to spawn worker processes
+            self.mp_aio_pool:AioProcessPool = None
+            
+            self._main_process = True
+
+    @classmethod
+    def get_instance(cls) -> "GulpProcess":
+        """
+        returns the singleton instance of the OpenSearch client.
+        """
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+
+    def _worker_exception_handler(self, ex: Exception):
+        """
+        for debugging purposes only, to catch exception eaten by aiopool (they're critical exceptions, the process dies) ...
+        """
+        GulpLogger.get_logger().exception("WORKER EXCEPTION: %s" % (ex))
+
+
+    async def recreate_process_pool_and_shared_queue(self):
+        """
+        creates (or recreates if already running) the worker processes pool
+        and the shared websocket queue, waiting for them to terminate first
+        """
+        if not self._main_process:
+            raise RuntimeError("only the main process can recreate the process pool")
+        
+        if self.mp_aio_pool:
+            GulpLogger.get_logger().debug("closing existing mp pool...")
+            self.mp_pool.close()
+            await self.mp_pool.join()
+        
+        spawned_processes = self.mp_manager.Value(int, 0)
+        num_workers = GulpConfig.get_instance().parallel_processes_max()
+        lock = self.mp_manager.Lock()
+
+        # re/create the shared websocket queue
+        q = GulpSharedWsQueue.get_instance().init_queue(self.mp_manager)
+
+        # start workers
+        self.mp_aio_pool = AioProcessPool(
+            exception_handler=self._worker_exception_handler,
+            processes=num_workers,
+            childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
+            maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
+            initializer=self._worker_initializer,
+            initargs=(
+                spawned_processes,
+                lock,
+                q,
+                GulpLogger.get_logger().level,
+                GulpLogger.get_instance().log_file_path,
+            ),
+        )
+
+        # wait for all processes are spawned
+        GulpLogger.get_logger().debug("waiting for all processes to be spawned ...")
+        while spawned_processes.value < num_workers:
+            # GulpLogger.get_logger().debug('waiting for all processes to be spawned ...')
+            await asyncio.sleep(0.1)
+
+        GulpLogger.get_logger().debug(
+            "all %d processes spawned!" % (spawned_processes.value)
+        )        
+
+    async def init_gulp_process(self, log_level: int=None, log_file_path: str=None, is_main_process: bool=True) -> None:
+        """
+        initializes main or worker gulp process
+
+        Args:
+            log_level (int, optional): the log level. Defaults to None.
+            log_file_path (str, optional): the log file path. Defaults to None.
+            is_main_process (bool, optional): whether this is the main process. Defaults to True.            
+        """
+        GulpLogger.get_instance().reconfigure(log_file_path=log_file_path, level=log_level)
+        self._main_process = is_main_process
+        if is_main_process:
+            GulpLogger.get_logger().info("initializing main process...")
+        else:
+            GulpLogger.get_logger().info("initializing worker process...")
+        
+        # sys.path fix is needed to load plugins from the plugins directories correctly
+        plugins_path = GulpConfig.get_instance().path_plugins()
+        ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
+        if plugins_path not in sys.path:
+            sys.path.append(plugins_path)
+        if ext_plugins_path not in sys.path:
+            sys.path.append(ext_plugins_path)
+
+        # read configuration
+        GulpConfig.get_instance()
+
+        # initializes executors
+        self.coro_pool = AioCoroPool(GulpConfig.concurrency_max_tasks())
+        self.thread_pool_executor = ThreadPoolExecutor()
+
+        # initialize collab and opensearch clients
+        asyncio.run(GulpCollab.get_instance().init())
+        GulpOpenSearch.get_instance()
+
+        if is_main_process:
+            # creates the process pool and shared queue
+            await self.recreate_process_pool_and_shared_queue()
+        
+    def _worker_initializer(self, spawned_processes: Value, lock: Lock, ws_queue: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
         """
         initializes a worker process
 
@@ -61,28 +185,8 @@ class GulpWorker:
             log_level (int, optional): the log level. Defaults to None.
             log_file_path (str, optional): the log file path. Defaults to None.
         """
-
-        # this is needed to load plugins from the plugins directories
-        plugins_path = GulpConfig.get_instance().path_plugins()
-        ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
-        if plugins_path not in sys.path:
-            sys.path.append(plugins_path)
-        if ext_plugins_path not in sys.path:
-            sys.path.append(ext_plugins_path)
-
-        # initialize per-process structures and clients
-        GulpLogger.get_instance().reconfigure(log_to_file=log_file_path, level=log_level)
-        # read configuration
-        GulpConfig.get_instance()
-        # create a thread executor for this worker process
-        GulpWorker.thread_pool_executor = ThreadPoolExecutor()
-
-        # initialize collab and opensearch clients
-        asyncio.run(GulpCollab.get_instance().init())
-        GulpOpenSearch.get_instance()
-
-        # initializes the shared websocket queue
-        GulpSharedWsQueue.get_instance().init_queue(ws_queue)
+        p = GulpProcess.get_instance()
+        asyncio.run(p.init_gulp_process(log_level=log_level, log_file_path=log_file_path, is_main_process=False))
 
         # done
         lock.acquire()
@@ -99,9 +203,10 @@ class GulpWorker:
             )
         )
 
-
-
-
+    def is_main_process() -> bool:
+        # only the main process have a process_executor
+        return GulpProcess.process_executor is not None
+    
 async def _print_debug_ingestion_stats(collab: AsyncEngine, req_id: str):
     """
     get the stats for an ingestion request and print the time elapsed

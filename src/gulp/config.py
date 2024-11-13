@@ -416,10 +416,14 @@ class GulpConfig:
 
     def concurrency_max_tasks(self) -> int:
         """
-        Returns the maximum number of tasks to run per spawned process.
+        maximum number of concurrent coroutines per process which can be spawned by the API server
+
+        default: 16
+
+        @return the maximum number of tasks per process
         """
         n = self._config.get("concurrency_max_tasks", 0)
-        if n == 0 or n is None:
+        if not n:
             n = 16
             GulpLogger.get_logger().warning("using default number of tasks per process=%d" % (n))
         return n

@@ -26,6 +26,7 @@ class GulpLogger:
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._logger = self.create()
+            self.log_file_path = None            
 
     @classmethod
     def get_instance(cls) -> "GulpLogger":
@@ -43,23 +44,19 @@ class GulpLogger:
         """
         return cls.get_instance()._logger
 
-    def reconfigure(self, log_to_file: str = None, level: int = logging.DEBUG, prefix: str = None) -> logging.Logger:
+    def reconfigure(self, log_file_path: str = None, level: int = logging.DEBUG, prefix: str = None) -> None:
         """
-        reconfigure the logger instance with the given parameters and return it
+        reconfigure the process logger instance with the given parameters
 
         Args:
-            log_to_file (str, optional): path to the log file. Defaults to None (log to stdout only)
+            log_file_path (str, optional): path to the log file. Defaults to None (log to stdout only)
             level (int, optional): the debug level. Defaults to logging.DEBUG.
             prefix (str, optional): prefix to add to the logger name (ignored if log_to_file is None). Defaults to None.
-
-        Returns:
-            logging.Logger: the reconfigured logger
         """
-        self._logger = self.create(log_to_file, level, prefix)
-        return self._logger
+        self._logger = self.create(log_file_path, level, prefix)
 
     def create(self,
-        log_to_file: str = None,
+        log_file_path: str = None,
         level: int = logging.DEBUG,
         prefix: str = None,
     ) -> logging.Logger:
@@ -73,27 +70,28 @@ class GulpLogger:
         Returns:
             logging.Logger: the new logger
         """
+        self.log_file_path = log_file_path
 
         n = "gulp"
-        if log_to_file is not None:
+        if log_file_path:
             # if log_to_file is not None, build the filename
-            d = os.path.dirname(log_to_file)
-            filename = os.path.basename(log_to_file)
+            d = os.path.dirname(log_file_path)
+            filename = os.path.basename(log_file_path)
             if prefix is not None:
                 # add prefix to filename
                 filename = "%s-%s" % (prefix, filename)
-                log_to_file = muty.file.safe_path_join(d, filename)
+                log_file_path = muty.file.safe_path_join(d, filename)
 
-        l = muty.log.configure_logger(name=n, log_file=log_to_file, level=level, use_multiline_formatter=True)
+        l = muty.log.configure_logger(name=n, log_file=log_file_path, level=level, use_multiline_formatter=True)
 
         l.warning(
             "created logger %s, level=%d, file_path=%s"
-            % (l, l.level, log_to_file)
+            % (l, l.level, log_file_path)
         )
 
         # also reconfigure muty logger with the same level
         muty.log.internal_logger(
-            log_to_file=log_to_file, level=level, force_reconfigure=True, use_multiline_formatter=True
+            log_to_file=log_file_path, level=level, force_reconfigure=True, use_multiline_formatter=True
         )
         return l
 

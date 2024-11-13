@@ -263,11 +263,10 @@ class GulpRestServer():
             self._aio_task_pool = AioPool(GulpConfig.get_instance().concurrency_max_tasks())
 
             # threadpool for the main process
-            self._thread_pool_executor: ThreadPoolExecutor = ThreadPoolExecutor()
+            self.thread_pool_executor: ThreadPoolExecutor = ThreadPoolExecutor()
             
             # executor for worker processes
-            self._process_executor: aiomultiprocess.Pool = None
-            self._thread_pool_executor: ThreadPoolExecutor = ThreadPoolExecutor()
+            self.process_executor: aiomultiprocess.Pool = None
             
 
             # initialize 

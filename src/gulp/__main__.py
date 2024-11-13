@@ -12,11 +12,10 @@ import gulp.utils
 import muty.file
 from gulp.config import GulpConfig
 
-_logger = None
-__RUN_TESTS__ = False
+# just for quick testing from the command line
+__RUN_TESTS__ = os.getenv("INTERNAL_TEST", False)
 if not __debug__:
     __RUN_TESTS__ = False
-
 
 async def async_test():    
     if not __debug__:
@@ -53,7 +52,6 @@ def main():
     :return:
     """
 
-    global _logger
     installation_dir = os.path.dirname(os.path.realpath(__file__))
     banner = art.text2art("(g)ULP", font="random")
 
@@ -86,8 +84,8 @@ def main():
         default=False,
     )
     parser.add_argument(
-        "--reset-elastic",
-        help="reset elasticsearch database on start (create index).",
+        "--reset-data",
+        help="reset opensearch on start, creating an empty index.",
         nargs=1,
         metavar=("indexname"),
     )
@@ -103,17 +101,13 @@ def main():
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     log_file_path = args.log_to_file[0] if args.log_to_file else None
-    _logger = gulp.utils.configure_logger(
-        log_to_file=log_file_path, level=lv, force_reconfigure=True
-    )
-    _logger.debug(
-        "logger in main(): %s, lv=%d, level=%d" % (_logger, lv, _logger.level)
-    )
+    GulpLogger.get_instance().reconfigure(log_file_path=log_file_path, level=lv)
+    GulpLogger.get_instance().get_logger().debug("logger in main(): %s, lv=%d, level=%d" % (_logger, lv, _logger.level))
 
     # initialize modules
     #gulp.utils.init_modules(_logger)
-    _logger.debug("gulp configuration: %s" % (GulpConfig.get_instance().config()))
-    asyncio.run(GulpConfig.check_copy_mappings_and_plugins_to_custom_directories())
+    #_logger.debug("gulp configuration: %s" % (GulpConfig.get_instance().config()))
+    #asyncio.run(GulpConfig.check_copy_mappings_and_plugins_to_custom_directories())
 
     if __RUN_TESTS__:
         # test stuff
@@ -132,16 +126,16 @@ def main():
             print("%s\n%s" % (banner, gulp.utils.version_string()))
             address, port = GulpConfig.get_instance().bind_to()
             reset_collab = args.reset_collab
-            elastic_index = (
+            opensearch_index = (
                 args.reset_elastic[0] if args.reset_elastic is not None else None
             )
             
             rest_api.start(
-                address, port, log_file_path, reset_collab, elastic_index, is_first_run
+                address, port, log_file_path, reset_collab, opensearch_index, is_first_run
             )
     except Exception as ex:
         # print exception and exit
-        _logger.exception(ex)
+        GulpLogger.get_instance().get_logger().exception(ex)
         sys.exit(1)
 
     # done

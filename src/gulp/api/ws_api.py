@@ -11,6 +11,7 @@ import muty
 from pydantic import BaseModel, Field
 
 from gulp.utils import GulpLogger
+from multiprocessing.managers import SyncManager
 
 
 class WsQueueDataType(StrEnum):
@@ -315,14 +316,37 @@ class GulpSharedWsQueue:
             self._initialized = True
             self._shared_q: Queue = None
 
-    def init_queue(self, q: Queue):
+    def set_queue(self, q: Queue) -> None:
         """
-        Initializes the shared queue, must be called before using the shared queue.
+        Sets the shared queue.
+
+        Args:
+            q (Queue): The shared queue.
+        """
+        from gulp.workers import GulpProcess
+        if GulpProcess.is_main_process():
+            raise RuntimeError("set_queue() must be called in a worker process")
+        
+        self._shared_q = q    
+
+    def init_queue(self, mgr: SyncManager) -> Queue:
+        """
+        to be called by the MAIN PROCESS, initializes the shared multiprocessing queue: the same queue must then be passed to the worker processes
 
         Args:
             q (Queue): The shared queue created by the multiprocessing manager in the main process
         """
-        self._shared_q = q
+        from gulp.workers import GulpProcess
+        if not GulpProcess.is_main_process():
+            raise RuntimeError("init_queue() must be called in the main process")
+        
+        if self._shared_q:
+            # close first
+            self.close()
+
+        GulpLogger.get_logger().debug("re/initializing shared ws queue ...")
+        self._shared_q = mgr.Queue()
+        return self._shared_q
 
     async def _fill_ws_queues_from_shared_queue(self):
         """
@@ -369,6 +393,7 @@ class GulpSharedWsQueue:
         Returns:
             None
         """
+        GulpLogger.get_logger().debug("closing shared ws queue ...")
         # flush queue first
         while self._shared_q.qsize() != 0:
             try:
@@ -376,8 +401,9 @@ class GulpSharedWsQueue:
                 self._shared_q.task_done()
             except Exception:
                 pass
-
+                
         self._shared_q.join()
+        GulpLogger.get_logger().debug("shared queue flush done.")
 
     def put(
         self,
