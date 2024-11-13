@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
-from gulp import config
+from gulp.config import GulpConfig
 from gulp.api.collab.structs import (
     GulpCollabType,
     GulpRequestStatus,
@@ -17,6 +17,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.utils import GulpLogger
 from gulp.api.collab_api import GulpCollab
+from gulp.config import GulpConfig
 
 class RequestCanceledError(Exception):
     """
@@ -143,7 +144,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         context: str = kwargs.get("context", None)
 
         # configure expiration
-        time_expire = config.stats_ttl() * 1000
+        time_expire = GulpConfig.get_instance().stats_ttl() * 1000
         if time_expire > 0:
             now = muty.time.now_msec()
             time_expire = muty.time.now_msec() + time_expire
@@ -379,7 +380,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
                 self.status = GulpRequestStatus.FAILED
 
             # check threshold
-            failure_threshold = config.ingestion_evt_failure_threshold()
+            failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
             if (
                 failure_threshold > 0
                 and self.type == GulpCollabType.INGESTION_STATS

@@ -8,9 +8,9 @@ import art
 
 from gulp.utils import GulpLogger
 import gulp.api.rest_api as rest_api
-import gulp.config as config
 import gulp.utils
 import muty.file
+from gulp.config import GulpConfig
 
 _logger = None
 __RUN_TESTS__ = False
@@ -112,7 +112,7 @@ def main():
 
     # initialize modules
     gulp.utils.init_modules(_logger)
-    _logger.debug("gulp configuration: %s" % (config.config()))
+    _logger.debug("gulp configuration: %s" % (GulpConfig.get_instance().config()))
 
     if __RUN_TESTS__:
         # test stuff
@@ -120,7 +120,6 @@ def main():
         asyncio.run(async_test())
 
     # initialize custom directories if needed
-    asyncio.run(config.initialize_custom_directories())
 
     # get params
     try:
@@ -130,7 +129,7 @@ def main():
         else:
             # default
             print("%s\n%s" % (banner, gulp.utils.version_string()))
-            address, port = config.bind_to()
+            address, port = GulpConfig.get_instance().bind_to()
             reset_collab = args.reset_collab
             elastic_index = (
                 args.reset_elastic[0] if args.reset_elastic is not None else None

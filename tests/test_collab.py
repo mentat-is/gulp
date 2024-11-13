@@ -9,7 +9,7 @@ import pytest_asyncio
 # from gulp.api.collab import context as collab_context
 from gulp.api import collab_api
 import muty.json
-from gulp import config
+from gulp.config import GulpConfig
 from typing import Optional, TypeVar
 from gulp.api.collab.structs import GulpCollabType
 from gulp.utils import GulpLogger, configure_logger

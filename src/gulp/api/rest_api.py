@@ -28,11 +28,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from muty.jsend import JSendException, JSendResponse
 from opensearchpy import RequestError
+from gulp.api.ws_api import GulpSharedWsQueue
 from gulp.utils import GulpLogger
 import gulp.api.collab_api as collab_api
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest.ws as gulp_ws
-import gulp.config as config
+from gulp.config import GulpConfig
 import gulp.utils as gulp_utils
 from gulp.api.collab import db
 from gulp.api.collab.structs import (
@@ -151,7 +152,7 @@ async def _load_extension_plugins() -> list["PluginBase"]:
     from gulp import plugin
 
     GulpLogger.get_instance().debug("loading extension plugins ...")
-    path_plugins = config.path_plugins(GulpPluginType.EXTENSION)
+    path_plugins = GulpConfig.get_instance().path_plugins(GulpPluginType.EXTENSION)
     files = await muty.file.list_directory_async(path_plugins, "*.py*", recursive=True)
     l = []
     for f in files:
@@ -216,37 +217,27 @@ async def gulp_exception_handler(_: Request, ex: JSendException) -> JSendRespons
     return muty.jsend.fastapi_jsend_exception_handler(ex, status_code)
 
 
-def aiopool_exception_handler(ex: Exception):
-    """
-    for debugging purposes only, to catch exception eaten by aiopool (they're critical exceptions, the process dies) ...
-    """
-    l = muty.log.configure_logger("aiopool")
-    l.exception("AIOPOOLEX: %s" % (ex))
-
 
 class GulpRestServer():
     """
     manages the gULP REST server.
-    """
+    """    
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
+        raise RuntimeError("call get_instance() instead")
+
+    def _initialize(self):
         if not hasattr(self, "_initialized"):
-            self._initialized = True
-            
+            self._initialized = True            
             self._app = _app
             self._log_file_path = None
             self._reset_collab_on_start = False
             self._elastic_index_to_reset = None
             self._first_run = False
-            self._process_executor: aiomultiprocess.Pool = self.recreate_process_executor()
-            self._thread_pool_executor: ThreadPoolExecutor = None
-            self._aiopool: AioPool = None
-            self._mpManager: SyncManager = None
-            self._ws_q: Queue = None
             self._shutting_down: bool = False
             self._extension_plugins: list = []
 
@@ -255,56 +246,53 @@ class GulpRestServer():
                 self._elastic_index_to_reset = "gulpidx"
                 self._reset_collab_on_start = True
                 self._first_run=True
-                GulpLogger.get_instance().info(
-                    "first run detected, creating default index: %s" % (self._elastic_index_to_reset)
-                )
+                GulpLogger.get_instance().info("first run detected!")
+                
             else:
                 GulpLogger.get_instance().info("not first run")
 
-    async def recreate_process_executor(self):
+            # create multiprocessing manager
+            self._mp_manager: SyncManager = multiprocessing.Manager()
+
+            # initialize websocket shared queue
+            q = _mpManager.Queue()
+            GulpSharedWsQueue.get_instance().init_queue(q)
+
+            # aio_task_pool is used to run tasks in THE MAIN PROCESS (the main event loop), such as the trivial tasks (query_max_min, collabobj handling, etc...).
+            # ingest and query tasks are always run in parallel processes through self._process_executor.
+            self._aio_task_pool = AioPool(GulpConfig.get_instance().concurrency_max_tasks())
+
+            # threadpool for the main process
+            self._thread_pool_executor: ThreadPoolExecutor = ThreadPoolExecutor()
+            
+            # executor for worker processes
+            self._process_executor: aiomultiprocess.Pool = None
+            self._thread_pool_executor: ThreadPoolExecutor = ThreadPoolExecutor()
+            
+
+            # initialize 
+
+    @classmethod
+    def get_instance(cls) -> "GulpRestServer":
         """
-        Creates (or recreates, if it already exists) the process executor pool.
-
-        This function closes the existing process executor pool, waits for it to finish,
-        and then creates a new process executor pool with the specified configuration.
-
-        Returns:
-            The newly created process executor pool.
-
+        returns the singleton instance
         """
-        from gulp.workers import process_worker_init
+        if not hasattr(cls, "_instance"):
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
 
-        # close and wait
-        self._process_executor.close()
-        await self._process_executor.join()
+            
+        return cls._instance
 
-        spawned_processes = self._mpManager.Value(int, 0)
-        num_processes = config.parallel_processes_max()
-        lock = self._mpManager.Lock()
-        self._process_executor = aiomultiprocess.Pool(
-            exception_handler=aiopool_exception_handler,
-            processes=num_processes,
-            childconcurrency=config.concurrency_max_tasks(),
-            maxtasksperchild=config.parallel_processes_respawn_after_tasks(),
-            initializer=process_worker_init,
-            initargs=(
-                spawned_processes,
-                lock,
-                _ws_q,
-                GulpLogger.get_instance().level,
-                _log_file_path,
-            ),
-        )
+    @staticmethod
+    def _worker_exception_handler(ex: Exception):
+        """
+        for debugging purposes only, to catch exception eaten by aiopool (they're critical exceptions, the process dies) ...
+        """
+        GulpLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
 
-        # wait for all processes are spawned
-        while spawned_processes.value < num_processes:
-            # GulpLogger.get_instance().debug('waiting for all processes to be spawned ...')
-            await asyncio.sleep(0.1)
-
-        GulpLogger.get_instance().debug(
-            "all processes spawned, spawned_processes=%d" % (spawned_processes.value)
-        )
-        return _process_executor
+    @staticmethod
+    def _worker_process_init
 
     @staticmethod
     @asynccontextmanager
@@ -312,24 +300,20 @@ class GulpRestServer():
         """
         A handler function for FastAPI's lifespan events.
 
-        On startup, initializes a shared client if multiprocessing is not enabled (gulp is using multithreading/single process).
-        On shutdown, shuts down the shared client if multiprocessing is enabled (gulp is using multithreading/single process)
-
-        Args:
+                Args:
             app (FastAPI): The FastAPI instance.
 
         Yields:
             None
         """
-        global _mpManager, _aiopool, _process_executor, _reset_collab_on_start, _ws_q, _extension_plugins, _thread_pool_executor, _is_first_run
-
+        instance = GulpRestServer.
         GulpLogger.get_instance().info("gULP starting!")
         GulpLogger.get_instance().warning(
             "concurrency_max_tasks=%d, parallel_processes_max=%d, parallel_processes_respawn_after_tasks=%d"
             % (
-                config.concurrency_max_tasks(),
-                config.parallel_processes_max(),
-                config.parallel_processes_respawn_after_tasks(),
+                GulpConfig.get_instance().concurrency_max_tasks(),
+                GulpConfig.get_instance().parallel_processes_max(),
+                GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
             )
         )
 
@@ -342,7 +326,7 @@ class GulpRestServer():
 
         # aiopool is used to run tasks in THIS process (the main event loop), such as the trivial tasks (query_max_min, collabobj handling, etc...).
         # ingest and query tasks are always run in parallel processes through aiomultiprocess.
-        _aiopool = AioPool(config.concurrency_max_tasks())
+        _aiopool = AioPool(GulpConfig.get_instance().concurrency_max_tasks())
 
         # create thread pool executor
         _thread_pool_executor = ThreadPoolExecutor()
@@ -433,6 +417,52 @@ class GulpRestServer():
 
         GulpLogger.get_instance().debug("executors shut down, we can gracefully exit.")
 
+    async def recreate_process_executor(self):
+        """
+        Creates (or recreates, if it already exists) the process executor pool.
+
+        This function closes the existing process executor pool, waits for it to finish,
+        and then creates a new process executor pool with the specified configuration.
+
+        Returns:
+            The newly created process executor pool.
+
+        """
+        from gulp.workers import process_worker_init
+
+        # close and wait
+        self._process_executor.close()
+        await self._process_executor.join()
+
+        spawned_processes = self._mpManager.Value(int, 0)
+        num_processes = GulpConfig.get_instance().parallel_processes_max()
+        lock = self._mpManager.Lock()
+        self._process_executor = aiomultiprocess.Pool(
+            exception_handler=aiopool_exception_handler,
+            processes=num_processes,
+            childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
+            maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
+            initializer=process_worker_init,
+            initargs=(
+                spawned_processes,
+                lock,
+                _ws_q,
+                GulpLogger.get_instance().level,
+                _log_file_path,
+            ),
+        )
+
+        # wait for all processes are spawned
+        while spawned_processes.value < num_processes:
+            # GulpLogger.get_instance().debug('waiting for all processes to be spawned ...')
+            await asyncio.sleep(0.1)
+
+        GulpLogger.get_instance().debug(
+            "all processes spawned, spawned_processes=%d" % (spawned_processes.value)
+        )
+        return _process_executor
+
+
 
     def _check_first_run(self) -> bool:
         """
@@ -442,8 +472,8 @@ class GulpRestServer():
             bool: True if this is the first run, False otherwise.           
         """        
         # check if this is the first run
-        import gulp.config as config
-        config_directory = config.config_dir()
+        
+        config_directory = GulpConfig.get_instance().config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             GulpLogger.get_instance().debug("first run file exists: %s" % (check_first_run_file))
@@ -459,8 +489,8 @@ class GulpRestServer():
         """
         Resets the first run flag.
         """
-        import gulp.config as config
-        config_directory = config.config_dir()
+        
+        config_directory = GulpConfig.get_instance().config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
@@ -539,24 +569,24 @@ class GulpRestServer():
                 address,
                 port,
                 GulpLogger.get_instance().level,
-                config.path_config(),
+                GulpConfig.get_instance().path_config(),
                 log_file_path,
                 reset_collab,
                 index,
             )
         )
-        if config.enforce_https():
+        if GulpConfig.get_instance().enforce_https():
             GulpLogger.get_instance().info("enforcing HTTPS ...")
 
-            certs_path: str = config.path_certs()
-            cert_password: str = config.https_cert_password()
+            certs_path: str = GulpConfig.get_instance().path_certs()
+            cert_password: str = GulpConfig.get_instance().https_cert_password()
             gulp_ca_certs = muty.file.safe_path_join(certs_path, "gulp-ca.pem")
             if not os.path.exists(gulp_ca_certs):
                 # use server cert as CA cert
                 gulp_ca_certs = muty.file.safe_path_join(certs_path, "gulp.pem")
 
             ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
-            if config.enforce_https_client_certs():
+            if GulpConfig.get_instance().enforce_https_client_certs():
                 ssl_cert_verify_mode = ssl.VerifyMode.CERT_REQUIRED
                 GulpLogger.get_instance().info("enforcing HTTPS client certificates ...")
 

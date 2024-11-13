@@ -11,11 +11,12 @@ import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.endpoints import WebSocketEndpoint
 
-import gulp.config as config
+
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.ws_api import ConnectedSocket, GulpConnectedSockets, WsParameters
 from gulp.utils import GulpLogger
+from gulp.config import GulpConfig
 
 class WsRouter:
     """
@@ -111,7 +112,7 @@ class WsRouter:
                         await self._ws.ws.send_json(item)
 
                         # rate limit
-                        ws_delay = config.ws_rate_limit_delay()
+                        ws_delay = GulpConfig.get_instance().ws_rate_limit_delay()
                         await asyncio.sleep(ws_delay)
 
                     except WebSocketDisconnect as ex:

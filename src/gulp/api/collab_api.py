@@ -14,10 +14,9 @@ from sqlalchemy_utils import create_database, database_exists, drop_database
 import asyncio
 from importlib import resources, import_module
 
-from gulp import config
 from gulp.defs import ObjectNotFound
 from gulp.utils import GulpLogger
-
+from gulp.config import GulpConfig
 
 class GulpCollab:
     """
@@ -25,7 +24,7 @@ class GulpCollab:
 
     init() must be called first to initialize the connection.
 
-    for ssl connection, it will use the certificates in the config.path_certs() directory if they exist.
+    for ssl connection, it will use the certificates in the GulpConfig.get_instance().path_certs() directory if they exist.
 
     they should be named "postgres-ca.pem", "postgres.pem", "postgres.key" for the CA, client certificate, and client key respectively.
 
@@ -90,13 +89,13 @@ class GulpCollab:
         Returns:
             AsyncEngine: The collab database engine.
         """
-        url = config.postgres_url()
+        url = GulpConfig.get_instance().postgres_url()
 
         # check for ssl connection preferences
         # https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
-        certs_dir = config.path_certs()
-        postgres_ssl = config.postgres_ssl()
-        verify_certs = config.postgres_verify_certs()
+        certs_dir = GulpConfig.get_instance().path_certs()
+        postgres_ssl = GulpConfig.get_instance().postgres_ssl()
+        verify_certs = GulpConfig.get_instance().postgres_verify_certs()
         if verify_certs:
             sslmode = "verify-full"
         else:
@@ -114,7 +113,7 @@ class GulpCollab:
             # check if client certificate exists. if so, it will be used
             client_cert = muty.file.safe_path_join(certs_dir, "postgres.pem")
             client_key = muty.file.safe_path_join(certs_dir, "postgres.key")
-            client_key_password = config.postgres_client_cert_password()
+            client_key_password = GulpConfig.get_instance().postgres_client_cert_password()
             if os.path.exists(client_cert) and os.path.exists(client_key):
                 GulpLogger.get_instance().debug(
                     "using client certificate: %s, key=%s, ca=%s"
@@ -139,7 +138,7 @@ class GulpCollab:
 
         # create engine
         _engine = create_async_engine(
-            url, echo=config.debug_collab(), pool_timeout=30, connect_args=connect_args
+            url, echo=GulpConfig.get_instance().debug_collab(), pool_timeout=30, connect_args=connect_args
         )
 
         GulpLogger.get_instance().info(
@@ -438,14 +437,14 @@ class GulpCollab:
         for _, module_name, _ in pkgutil.iter_modules(package.__path__):
             import_module(f"{package_name}.{module_name}")
 
-        url = config.postgres_url()
+        url = GulpConfig.get_instance().postgres_url()
         if force_recreate:
             GulpLogger.get_instance().warning(
                 "force_recreate=True, dropping and recreating collab database ..."
             )
             await _recreate_internal(url, expire_on_commit=expire_on_commit)
         else:
-            if await GulpCollab.exists(config.postgres_url()):
+            if await GulpCollab.exists(GulpConfig.get_instance().postgres_url()):
                 # check if tables exist
                 async with self._collab_sessionmaker() as sess:
                     res = await sess.execute(

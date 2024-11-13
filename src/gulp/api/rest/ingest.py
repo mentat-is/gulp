@@ -22,11 +22,12 @@ from requests_toolbelt.multipart import decoder
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest_api as rest_api
-import gulp.config as config
+
 import gulp.defs
 import gulp.plugin
 import gulp.utils
 import gulp.workers as workers
+from gulp.config import GulpConfig
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.client import Client
 from gulp.api.collab.operation import Operation
@@ -136,7 +137,7 @@ async def _request_handle_multipart(r: Request, req_id: str) -> dict:
         filename = filename[:-1]
 
     GulpLogger.get_instance().debug("filename (extracted from Content-Disposition): %s" % (filename))
-    cache_dir = config.upload_tmp_dir()
+    cache_dir = GulpConfig.get_instance().upload_tmp_dir()
     cache_file_path = muty.file.safe_path_join(
         cache_dir, "%s/%s" % (req_id, filename), allow_relative=True
     )

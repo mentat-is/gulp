@@ -1,6 +1,8 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from enum import StrEnum
+import multiprocessing
+from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
 from typing import Any, Optional
 
@@ -313,22 +315,14 @@ class GulpSharedWsQueue:
             self._initialized = True
             self._shared_q: Queue = None
 
-    def init_in_worker_process(self, q: Queue):
+    def init_queue(self, q: Queue):
         """
-        Initializes the shared queue in a worker process.
+        Initializes the shared queue, must be called before using the shared queue.
 
         Args:
-            q (Queue): The shared queue from worker's process initializer
+            q (Queue): The shared queue created by the multiprocessing manager in the main process
         """
         self._shared_q = q
-
-    def init_in_main_process(self):
-        """
-        Initializes the shared queue in the main process.
-        """
-        # in the main process, initialize the shared queue and start the asyncio queue fill task
-        self._shared_q: Queue = Queue()
-        asyncio.create_task(self._fill_ws_queues_from_shared_queue())
 
     async def _fill_ws_queues_from_shared_queue(self):
         """

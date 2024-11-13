@@ -21,7 +21,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.ws_api
 import gulp.api.rest.ws as ws_api
-import gulp.config as config
+
 import gulp.plugin
 import gulp.utils
 from gulp.api import collab_api, opensearch_api, rest_api
@@ -37,7 +37,7 @@ from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginParameters
 from gulp.utils import _logger, configure_logger, logger
 import logging
-
+from gulp.config import GulpConfig
 
 class GulpWorker:
     
@@ -65,8 +65,8 @@ class GulpWorker:
         )
 
         # add plugins paths
-        plugins_path = config.path_plugins()
-        ext_plugins_path = config.path_plugins(extension=True)
+        plugins_path = GulpConfig.get_instance().path_plugins()
+        ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
         if plugins_path not in sys.path:
             sys.path.append(plugins_path)
         if ext_plugins_path not in sys.path:
@@ -126,9 +126,9 @@ def init_modules(
         _logger = l
 
     # initialize modules
-    from gulp import config
+    from gulp.config import GulpConfig
     from gulp.api.rest import ws as ws_api
-    config.init()
+    #config.init()
     ws_api.init(ws_queue, main_process=False)
     return _logger
 
@@ -370,7 +370,7 @@ async def ingest_directory_task(
                 ),
             )
         )
-        if len(tasks) == config.multiprocessing_batch_size():
+        if len(tasks) == GulpConfig.get_instance().multiprocessing_batch_size():
             # run a batch
             await asyncio.gather(*tasks, return_exceptions=True)
             tasks = []
@@ -582,7 +582,7 @@ async def ingest_zip_task(
                     ),
                 )
             )
-            if len(tasks) == config.multiprocessing_batch_size():
+            if len(tasks) == GulpConfig.get_instance().multiprocessing_batch_size():
                 # run a batch
                 await asyncio.gather(*tasks, return_exceptions=True)
                 tasks = []
@@ -934,7 +934,7 @@ async def query_multi_task(**kwargs):
     qs: TmpQueryStats = TmpQueryStats()
     qs.queries_total = len(q)
     qres_list: list[QueryResult] = []
-    batch_size = config.multiprocessing_batch_size()
+    batch_size = GulpConfig.get_instance().multiprocessing_batch_size()
     status: GulpRequestStatus = GulpRequestStatus.ONGOING
     # GulpLogger.get_instance().debug("sigma_group_filters=%s" % (sigma_group_flts))
 

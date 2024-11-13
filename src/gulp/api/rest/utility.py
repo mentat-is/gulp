@@ -16,13 +16,14 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
-import gulp.config as config
+
 import gulp.defs
 import gulp.plugin
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.utils import GulpLogger
+from gulp.config import GulpConfig
 
 _app: APIRouter = APIRouter()
 
@@ -157,7 +158,7 @@ async def plugin_get_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
-        path_plugins = config.path_plugins(plugin_type)
+        path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
         # read file content
@@ -213,7 +214,7 @@ async def plugin_delete_handler(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
 
-        path_plugins = config.path_plugins(plugin_type)
+        path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
         # delete file
@@ -272,7 +273,7 @@ async def plugin_upload_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.EDIT
         )
-        path_plugins = config.path_plugins(plugin_type)
+        path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
         plugin_path = muty.file.safe_path_join(
             path_plugins, filename, allow_relative=True
         )
@@ -430,7 +431,7 @@ async def mapping_file_upload_handler(
 
         await muty.uploadfile.to_path(
             mapping_file,
-            dest_dir=config.path_mapping_files(),
+            dest_dir=GulpConfig.get_instance().path_mapping_files(),
         )
         return JSONResponse(
             muty.jsend.success_jsend(req_id=req_id, data={"filename": filename})
@@ -563,7 +564,7 @@ async def mapping_file_list_handler(
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
-        path = config.path_mapping_files()
+        path = GulpConfig.get_instance().path_mapping_files()
         GulpLogger.get_instance().debug("listing mapping files in %s" % (path))
         files = await muty.file.list_directory_async(path)
 

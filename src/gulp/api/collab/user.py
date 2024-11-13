@@ -16,7 +16,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.utils import GulpLogger
-from gulp import config
+from gulp.config import GulpConfig
 from gulp.api.collab_api import GulpCollab
 class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     """
@@ -252,17 +252,17 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                 user_id=u.id,
                 user=u,
             )
-            if config.debug_no_token_expiration():
+            if GulpConfig.get_instance().debug_no_token_expiration():
                 new_session.time_expire = 0
             else:
                 # setup session expiration
                 if u.is_admin():
                     new_session.time_expire = (
-                        muty.time.now_msec() + config.token_admin_ttl() * 1000
+                        muty.time.now_msec() + GulpConfig.get_instance().token_admin_ttl() * 1000
                     )
                 else:
                     new_session.time_expire = (
-                        muty.time.now_msec() + config.token_ttl() * 1000
+                        muty.time.now_msec() + GulpConfig.get_instance().token_ttl() * 1000
                     )
 
             # update user with new session and write the new session object itself

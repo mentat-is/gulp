@@ -12,7 +12,7 @@ import muty.time
 import muty.version
 from logging import Logger
 from gulp import mapping_files
-
+from gulp.config import GulpConfig
 class GulpLogger:
     """
     singleton logger class, represents a logger for the process
@@ -154,19 +154,18 @@ async def send_mail(
     )
 
 
-
 def build_mapping_file_path(filename: str) -> str:
     """
     get path of a file in the gulp/mapping_files directory (or the overridden one from configuration/env)
 
     @return the full path of a file in the mapping_files directory
     """
-    import gulp.config as config
+    
 
     if filename is None:
         return None
 
-    configured_mappings_path = config.path_mapping_files()
+    configured_mappings_path = GulpConfig.get_instance().path_mapping_files()
     if configured_mappings_path is not None:
         # use provided
         p = muty.file.safe_path_join(configured_mappings_path, filename)

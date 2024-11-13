@@ -14,9 +14,9 @@ from gulp.api.collab.structs import (
     MissingPermission,
     WrongUsernameOrPassword,
 )
-import gulp.config as config
-from gulp.utils import GulpLogger
 
+from gulp.utils import GulpLogger
+from gulp.config import GulpConfig
 
 class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
     """
@@ -72,7 +72,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             ObjectNotFound: if the user session is not found.
         """
         GulpLogger.get_instance().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
-        if config.debug_allow_any_token_as_admin():
+        if GulpConfig.get_instance().debug_allow_any_token_as_admin():
             # return an admin session
             from gulp.api.collab.user import GulpUser
 

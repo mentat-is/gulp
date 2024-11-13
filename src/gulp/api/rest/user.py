@@ -19,7 +19,7 @@ from muty.jsend import JSendException, JSendResponse
 from pydantic import AfterValidator
 
 import gulp.api.collab_api as collab_api
-import gulp.config as config
+
 import gulp.defs
 import gulp.plugin
 import gulp.utils
@@ -27,6 +27,7 @@ from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import GulpUser
 from gulp.defs import InvalidArgument
+from gulp.config import GulpConfig
 
 _app: APIRouter = APIRouter()
 
@@ -38,7 +39,7 @@ def _pwd_regex_validator(value: str) -> str:
     Args:
         value (str): The password to validate.
     """
-    if config.debug_allow_insecure_passwords():
+    if GulpConfig.get_instance().debug_allow_insecure_passwords():
         return value
 
     r = re.match(gulp.defs.REGEX_PASSWORD, value)

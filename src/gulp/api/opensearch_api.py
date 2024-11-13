@@ -11,7 +11,7 @@ import muty.time
 from gulp.api.collab.note import GulpNote
 from gulp.api.opensearch.filters import GulpDocumentFilterResult, GulpQueryFilter
 from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
-import gulp.config as config
+
 from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
 )
@@ -20,7 +20,7 @@ from gulp.utils import GulpLogger
 
 from elasticsearch import AsyncElasticsearch
 from opensearchpy import AsyncOpenSearch
-
+from gulp.config import GulpConfig
 
 class GulpOpenSearch:
     """
@@ -74,8 +74,8 @@ class GulpOpenSearch:
             AsyncOpenSearch: An instance of the OpenSearch client.
 
         """
-        url = config.opensearch_url()
-        verify_certs = config.opensearch_verify_certs()
+        url = GulpConfig.get_instance().opensearch_url()
+        verify_certs = GulpConfig.get_instance().opensearch_verify_certs()
 
         # split into user:pwd@host:port
         parsed = urlparse(url)
@@ -85,7 +85,7 @@ class GulpOpenSearch:
 
         host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
         ca = None
-        certs_dir = config.path_certs()
+        certs_dir = GulpConfig.get_instance().path_certs()
         if certs_dir is not None and parsed.scheme.lower() == "https":
             # https and certs_dir is set
             ca: str = muty.file.abspath(
@@ -424,12 +424,12 @@ class GulpOpenSearch:
                 "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
             }
             settings["index"]["mapping"]["total_fields"] = {
-                "limit": config.index_template_default_total_fields_limit()
+                "limit": GulpConfig.get_instance().index_template_default_total_fields_limit()
             }
             settings["index"][
                 "refresh_interval"
-            ] = config.index_template_default_refresh_interval()
-            if not config.opensearch_multiple_nodes():
+            ] = GulpConfig.get_instance().index_template_default_refresh_interval()
+            if not GulpConfig.get_instance().opensearch_multiple_nodes():
                 # optimize for single node
                 # this also removes "yellow" node in single node mode
                 # this also removes "yellow" node in single node mode
@@ -510,7 +510,7 @@ class GulpOpenSearch:
         # if so, we only apply gulp-related patching and leaving everything else as is
         apply_patches = True
         if index_template is None:
-            template_path = config.path_index_template()
+            template_path = GulpConfig.get_instance().path_index_template()
         else:
             template_path = index_template
             GulpLogger.get_instance().debug(
@@ -605,7 +605,7 @@ class GulpOpenSearch:
         # GulpLogger.get_instance().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
         # bulk ingestion
-        timeout = config.ingestion_request_timeout()
+        timeout = GulpConfig.get_instance().ingestion_request_timeout()
         params = None
         if wait_for_refresh:
             params = {"refresh": "wait_for", "timeout": timeout}
@@ -892,7 +892,7 @@ class GulpOpenSearch:
         Returns:
             dict: The aggregations result (WARNING: will return at most "aggregation_max_buckets" hits, which should cover 99,99% of the usage ....).
         """
-        max_buckets = config.aggregation_max_buckets()
+        max_buckets = GulpConfig.get_instance().aggregation_max_buckets()
 
         def _create_terms_aggregation(field):
             return {"terms": {"field": field, "size": max_buckets}}
@@ -984,9 +984,9 @@ class GulpOpenSearch:
         self,
         index: str,
         q: dict,
-        req_id: str=None,
-        ws_id: str=None,
-        user_id: str=None,
+        req_id: str = None,
+        ws_id: str = None,
+        user_id: str = None,
         options: "GulpQueryAdditionalParameters" = None,
         el: AsyncElasticsearch = None,
     ) -> None:
@@ -1010,7 +1010,7 @@ class GulpOpenSearch:
 
         if not options:
             options = GulpQueryAdditionalParameters()
-        
+
         sigma = options.model_extra.get("sigma", False)
         sigma_create_notes = options.model_extra.get("sigma_create_notes", True)
         note_title = options.model_extra.get("note_title", None)

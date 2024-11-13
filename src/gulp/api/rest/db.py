@@ -20,7 +20,7 @@ import gulp.api.collab.db as collab_db
 import gulp.api.collab_api as collab_api
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest_api as rest_api
-import gulp.config as config
+
 import gulp.defs
 import gulp.plugin
 import gulp.utils
@@ -29,6 +29,7 @@ from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.utils import GulpLogger
+from gulp.config import GulpConfig
 
 _app: APIRouter = APIRouter()
 
@@ -405,7 +406,7 @@ async def collab_init_handler(
 
         # drop and recreate collab
         c = await collab_api.session()
-        await collab_db.drop(config.postgres_url())
+        await collab_db.drop(GulpConfig.get_instance().postgres_url())
         await collab_api.engine_close(c)
         GulpLogger.get_instance().debug("previous main process collab=%s" % (c))
         c = await collab_api.session(invalidate=True)

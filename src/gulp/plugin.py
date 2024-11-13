@@ -27,7 +27,7 @@ from gulp.api.opensearch.filters import (
 )
 from gulp.api.opensearch.query import GulpConvertedSigma, GulpQueryExternalParameters
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp import config
+from gulp.config import GulpConfig
 from gulp import utils as gulp_utils
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats
@@ -49,7 +49,7 @@ from gulp.plugin_params import (
 )
 from gulp.utils import GulpLogger
 from sigma.conversion.base import Backend, ProcessingPipeline
-
+from gulp.config import GulpConfig
 
 class GulpPluginCache:
     """
@@ -72,7 +72,7 @@ class GulpPluginCache:
         """
         Clear the cache.
         """
-        if not config.plugin_cache_enabled():
+        if not GulpConfig.get_instance().plugin_cache_enabled():
             return
 
         self._cache = {}
@@ -85,7 +85,7 @@ class GulpPluginCache:
             plugin (PluginBase): The plugin to add to the cache.
             name (str): The name of the plugin.
         """
-        if not config.plugin_cache_enabled():
+        if not GulpConfig.get_instance().plugin_cache_enabled():
             return
         if not name in self._cache:
             GulpLogger.get_instance().debug("adding plugin %s to cache" % (name))
@@ -100,7 +100,7 @@ class GulpPluginCache:
         Returns:
             PluginBase: The plugin if found in the cache, otherwise None.
         """
-        if not config.plugin_cache_enabled():
+        if not GulpConfig.get_instance().plugin_cache_enabled():
             return None
 
         p = self._cache.get(name, None)
@@ -115,7 +115,7 @@ class GulpPluginCache:
         Args:
             name (str): The name of the plugin to remove from the cache.
         """
-        if not config.plugin_cache_enabled():
+        if not GulpConfig.get_instance().plugin_cache_enabled():
             return
         if name in self._cache:
             GulpLogger.get_instance().debug("removing plugin %s from cache" % (name))
@@ -534,7 +534,7 @@ class GulpPluginBase(ABC):
                 NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
                 ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
                 """
-                if config.debug_abort_on_opensearch_ingestion_error():
+                if GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error():
                     raise Exception(
                         "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
                     )
@@ -820,7 +820,7 @@ class GulpPluginBase(ABC):
         Returns:
             None
         """
-        ingestion_buffer_size = config.config().get("ingestion_buffer_size", 1000)
+        ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
 
         # process record, initialize
         self._records_processed += 1
@@ -1151,9 +1151,9 @@ class GulpPluginBase(ABC):
         name = os.path.splitext(name)[0]
         if extension:
             return await _path_by_name_internal(
-                name, config.path_plugins(extension=True)
+                name, GulpConfig.get_instance().path_plugins(extension=True)
             )
-        return await _path_by_name_internal(name, config.path_plugins())
+        return await _path_by_name_internal(name, GulpConfig.get_instance().path_plugins())
 
     @staticmethod
     async def load(
@@ -1217,7 +1217,7 @@ class GulpPluginBase(ABC):
         Returns:
             None
         """
-        if config.plugin_cache_enabled():
+        if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
             return
 
@@ -1234,8 +1234,8 @@ class GulpPluginBase(ABC):
         Returns:
             list[dict]: The list of available plugins.
         """
-        path_plugins = config.path_plugins()
-        path_extension = config.path_plugins(extension=True)
+        path_plugins = GulpConfig.get_instance().path_plugins()
+        path_extension = GulpConfig.get_instance().path_plugins(extension=True)
         plugins = await muty.file.list_directory_async(path_plugins, "*.py*")
         extensions = await muty.file.list_directory_async(path_extension, "*.py*")
         files = plugins + extensions

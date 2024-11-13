@@ -8,7 +8,7 @@ from sqlalchemy.sql.base import _NoArg
 
 # from gulp.api.collab import context as collab_context
 import muty.json
-from gulp import config
+from gulp.config import GulpConfig
 from typing import Optional, Type, TypeVar
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpIngestionStats
@@ -48,8 +48,6 @@ _test_ws_id='test_ws_id'
 _guest_user='guest'
 _admin_user='admin'
 
-
-config.init()
 
 print('opt_samples_dir:', _opt_samples_dir)
 print('opt_reset:', _opt_reset)
@@ -261,7 +259,7 @@ async def test_init():
     #await testbed()
     #return
     GulpLogger.get_instance().debug("---> init")
-    config.init()
+    GulpConfig.get_instance()
     os = GulpOpenSearch.get_instance()
     collab = GulpCollab.get_instance()
     await collab.get_instance().init()
