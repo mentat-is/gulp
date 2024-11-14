@@ -18,7 +18,7 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import (
@@ -28,7 +28,7 @@ from gulp.api.collab.base import (
     GulpCollabType,
 )
 from gulp.api.collab.base import GulpCollabObject
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
@@ -59,9 +59,9 @@ _app: APIRouter = APIRouter()
     description="available filters: id, owner_id, operation_id, context, src_file, name(=title), text, time_start(=pin time), time_end, events, tags, private_only, level, limit, offset.",
 )
 async def note_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     return await collab_utility.collabobj_list(token, req_id, GulpCollabType.NOTE, flt)
@@ -89,9 +89,9 @@ async def note_list_handler(
     summary="gets a note.",
 )
 async def note_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     note_id: Annotated[int, Query(description="id of the note to be retrieved.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     return await collab_utility.collabobj_get_by_id(
@@ -121,10 +121,10 @@ async def note_get_by_id_handler(
     summary="deletes a note.",
 )
 async def note_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_EDIT_TOKEN)],
     note_id: Annotated[int, Query(description="id of the note to be deleted.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     return await collab_utility.collabobj_delete(
@@ -154,9 +154,9 @@ async def note_delete_handler(
     summary="updates an existing note.",
 )
 async def note_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     note_id: Annotated[int, Query(description="id of the note to be updated.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     events: Annotated[list[GulpAssociatedEvent], Body()] = None,
     text: Annotated[str, Body()] = None,
     title: Annotated[str, Body()] = None,
@@ -168,7 +168,7 @@ async def note_update_handler(
         str, Query(description="optional new note color in #rrggbb or css-name format.")
     ] = None,
     private: Annotated[bool, Query(description="whether the note is private.")] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -227,7 +227,7 @@ async def note_update_handler(
     summary='creates a note, associated with events ( { "id": ..., "@timestamp": ..."} ) or pinned at a certain time.',
 )
 async def note_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     operation_id: Annotated[
         int, Query(description="operation to be associated with this note.")
     ],
@@ -237,7 +237,7 @@ async def note_create_handler(
     src_file: Annotated[
         str, Query(description="source file to be associated with this note.")
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     text: Annotated[str, Body()],
     title: Annotated[str, Body()],
     time_pin: Annotated[
@@ -256,11 +256,11 @@ async def note_create_handler(
             description='optional color in #rrggbb or css-name format, default is "green".'
         ),
     ] = "green",
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
     level: Annotated[
-        GulpCollabLevel, Query(description=gulp.defs.API_DESC_COLLAB_LEVEL)
+        GulpCollabLevel, Query(description=gulp.structs.API_DESC_COLLAB_LEVEL)
     ] = GulpCollabLevel.DEFAULT,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
 

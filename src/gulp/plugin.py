@@ -39,12 +39,12 @@ from gulp.api.mapping.models import (
     GulpMappingFile,
 )
 from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
-from gulp.defs import (
-    GulpPluginType,
-)
-from gulp.plugin_params import (
+from gulp.structs import (
     GulpPluginAdditionalParameter,
     GulpPluginParameters,
+    GulpPluginType,
+)
+from gulp.structs import (
     GulpPluginSigmaSupport,
 )
 from gulp.utils import GulpLogger

@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=61", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gulp"
-version = "0.0.0.0"
+dynamic = ["version"]
 authors = [{ name = "Mentat", email = "info@mentat.is" }]
 description = "gULP - (generic) Unified Log Processor."
 readme = "README.md"
@@ -44,6 +44,7 @@ dependencies = [
     "requests_toolbelt",
     "requests",
     "setuptools",
+    "setuptools-scm",
     "sigma-cli",
     "sqlalchemy-dlock",
     "sqlalchemy-utils",
@@ -64,3 +65,7 @@ where = ["src"]
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"

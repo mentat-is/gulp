@@ -16,14 +16,14 @@ from fastapi import APIRouter, Body, Header, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api import collab_api, opensearch_api
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
@@ -56,15 +56,15 @@ _app: APIRouter = APIRouter()
     "if `recreate_operation` is set, the operation is recreated after deletion, and the returned `id` is the recreated operation id.",
 )
 async def operation_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
     delete_data: Annotated[
         bool, Query(description="delete related data on elasticsearch.")
     ] = False,
     recreate_operation: Annotated[
         bool, Query(description="recreate operation after delete.")
     ] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -140,15 +140,15 @@ async def operation_delete_handler(
     summary="creates an operation to use with the collaboration API.",
 )
 async def operation_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     name: Annotated[str, Query(description="the name of the operation.")],
     index: Annotated[str, Query(description="the elasticsearch index to associate.")],
     description: Annotated[str, Body()] = None,
     glyph_id: Annotated[int, Query(description="optional glyph ID to assign.")] = None,
     workflow_id: Annotated[
-        int, Query(description=gulp.defs.API_DESC_WORKFLOW_ID)
+        int, Query(description=gulp.structs.API_DESC_WORKFLOW_ID)
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -198,14 +198,14 @@ async def operation_create_handler(
     summary="updates an existing operation.",
 )
 async def operation_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
     description: Annotated[str, Body()] = None,
     glyph_id: Annotated[int, Query(description="optional glyph ID to assign.")] = None,
     workflow_id: Annotated[
-        int, Query(description=gulp.defs.API_DESC_WORKFLOW_ID)
+        int, Query(description=gulp.structs.API_DESC_WORKFLOW_ID)
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -262,9 +262,9 @@ async def operation_update_handler(
     summary="lists existing operations, optionally using a filter.",
 )
 async def operation_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -308,9 +308,9 @@ async def operation_list_handler(
     summary="get an operation.",
 )
 async def operation_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:

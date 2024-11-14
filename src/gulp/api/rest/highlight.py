@@ -18,12 +18,12 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabLevel, GulpCollabType
 from gulp.api.collab.base import GulpCollabObject
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 
 _app: APIRouter = APIRouter()
 
@@ -53,9 +53,9 @@ _app: APIRouter = APIRouter()
     description="available filters: id, owner_id, operation_id, context, src_file, name, start_msec, end_msec, private_only, level, limit, offset.",
 )
 async def highlight_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     return await collab_utility.collabobj_list(
@@ -85,9 +85,9 @@ async def highlight_list_handler(
     summary="get an hightlight.",
 )
 async def highlight_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     hl_id: Annotated[int, Query(description="highlight id to be retrieved.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -121,13 +121,13 @@ async def highlight_delete_handler(
     token: Annotated[
         str,
         Header(
-            description=gulp.defs.API_DESC_TOKEN
+            description=gulp.structs.API_DESC_TOKEN
             + " (must have at least EDIT permission to delete own highlights, or DELETE to delete other users highlights)."
         ),
     ],
     hl_id: Annotated[int, Query(description="highlight id to be deleted.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -166,9 +166,9 @@ async def highlight_delete_handler(
     summary="updates an existing highlight.",
 )
 async def highlight_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     hl_id: Annotated[int, Query(description="highlight id to be updated.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     time_start: Annotated[
         int,
         Query(
@@ -192,8 +192,8 @@ async def highlight_update_handler(
     color: Annotated[
         str, Query(description="optional new color in #rrggbb or css-name format. ")
     ] = None,
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -253,7 +253,7 @@ async def highlight_update_handler(
     summary="creates an highlight for events between start and end timestamp.",
 )
 async def highlight_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     operation_id: Annotated[
         int, Query(description="operation to be associated with this highlight.")
     ],
@@ -269,7 +269,7 @@ async def highlight_create_handler(
     time_end: Annotated[
         int, Query(description="end timestamp in milliseconds from unix epoch.")
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     name: Annotated[str, Query(description="name of the highlight.")] = None,
     description: Annotated[str, Body()] = None,
     glyph_id: Annotated[
@@ -282,11 +282,11 @@ async def highlight_create_handler(
             description='optional color in #rrggbb or css-name format, default is "yellow". '
         ),
     ] = "yellow",
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
     level: Annotated[
-        GulpCollabLevel, Query(description=gulp.defs.API_DESC_COLLAB_LEVEL)
+        GulpCollabLevel, Query(description=gulp.structs.API_DESC_COLLAB_LEVEL)
     ] = GulpCollabLevel.DEFAULT,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

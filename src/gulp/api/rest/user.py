@@ -20,13 +20,13 @@ from pydantic import AfterValidator
 
 import gulp.api.collab_api as collab_api
 
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import GulpUser
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 from gulp.config import GulpConfig
 
 _app: APIRouter = APIRouter()
@@ -42,7 +42,7 @@ def _pwd_regex_validator(value: str) -> str:
     if GulpConfig.get_instance().debug_allow_insecure_passwords():
         return value
 
-    r = re.match(gulp.defs.REGEX_PASSWORD, value)
+    r = re.match(gulp.structs.REGEX_PASSWORD, value)
     assert r is not None, "password does not meet requirements."
     return value
 
@@ -80,7 +80,7 @@ async def user_update_handler(
     token: Annotated[
         str,
         Header(
-            description=gulp.defs.API_DESC_TOKEN
+            description=gulp.structs.API_DESC_TOKEN
             + " (must be ADMIN if user_id != token.user_id)."
         ),
     ],
@@ -109,7 +109,7 @@ async def user_update_handler(
     glyph_id: Annotated[
         int, Query(description="new glyph ID, leave empty to keep the old one.")
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -181,9 +181,9 @@ async def user_update_handler(
     description="available filters: id, name, limit, offset.",
 )
 async def user_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -234,14 +234,14 @@ async def user_get_by_id_handler(
     token: Annotated[
         str,
         Header(
-            description=gulp.defs.API_DESC_TOKEN
+            description=gulp.structs.API_DESC_TOKEN
             + " (must be ADMIN if user_id != token.user_id)."
         ),
     ],
     user_id: Annotated[
         int, Query(description="if None, user_id is taken from token.user_id.")
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -289,11 +289,11 @@ async def user_get_by_id_handler(
     summary="create an user on the platform.",
 )
 async def user_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     username: Annotated[
         str,
         Query(
-            description="username for the new user.", pattern=gulp.defs.REGEX_USERNAME
+            description="username for the new user.", pattern=gulp.structs.REGEX_USERNAME
         ),
     ],
     password: Annotated[
@@ -311,7 +311,7 @@ async def user_create_handler(
     ] = GulpUserPermission.READ,
     email: Annotated[str, Query(description="email for the new user.")] = None,
     glyph_id: Annotated[int, Query(description="glyph ID for the new user.")] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -358,9 +358,9 @@ async def user_create_handler(
     summary="deletes an existing user.",
 )
 async def user_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     user_id: Annotated[int, Query(description="id of the user to be deleted.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -407,7 +407,7 @@ async def user_delete_handler(
 async def session_create_handler(
     username: Annotated[str, Query(description="username for authentication.")],
     password: Annotated[str, Query(description="password for authentication.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -443,8 +443,8 @@ async def session_create_handler(
     summary="logout a logged user (deletes a session).",
 )
 async def session_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

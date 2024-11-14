@@ -18,12 +18,12 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType
 from gulp.api.collab.base import GulpCollabObject
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 
 _app: APIRouter = APIRouter()
 
@@ -50,9 +50,9 @@ _app: APIRouter = APIRouter()
     summary="shortcut to get a single shared-data object by id.",
 )
 async def shared_data_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     obj_id: Annotated[int, Query(description="id of the shared-data to be retrieved.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -82,9 +82,9 @@ async def shared_data_get_by_id_handler(
     description="available filters: id, owner_id, operation_id, name, opt_basic_fields_only, limit, offset.",
 )
 async def shared_data_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -113,10 +113,10 @@ async def shared_data_list_handler(
     summary="deletes a shared-data object.",
 )
 async def shared_data_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_EDIT_TOKEN)],
     obj_id: Annotated[int, Query(description="id of the shared-data to be deleted.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -148,16 +148,16 @@ async def shared_data_delete_handler(
     summary="updates a shared-data object.",
 )
 async def shared_data_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     obj_id: Annotated[int, Query(description="id of the shared-data to be updated.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     data: Annotated[dict, Body()] = None,
     operation_id: Annotated[
         int,
         Query(description="optional operation to be associated with this shared-data."),
     ] = None,
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -201,19 +201,19 @@ async def shared_data_update_handler(
     summary="creates a shared-data object with arbitrary application/user defined data.",
 )
 async def shared_data_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     name: Annotated[str, Query(description="the shared-data (unique) name.")],
     t: Annotated[
         GulpCollabType, Query(description="one of the available shared data types.")
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     data: Annotated[dict, Body()],
     operation_id: Annotated[
         int,
         Query(description="optional operation to be associated with this shared-data."),
     ] = None,
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -256,14 +256,14 @@ async def shared_data_create_handler(
     summary="shortcut to shared_data_create to create a SigmaGroupFilter expression.",
 )
 async def sigma_group_filter_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     name: Annotated[str, Query(description="i.e. the attack common name")],
     expr: Annotated[str, Body()],
     operation_id: Annotated[
         int,
         Query(description="optional operation to be associated with this shared-data."),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -303,7 +303,7 @@ async def sigma_group_filter_create_handler(
     summary="shortcut to shared_data_update to update a sigma group filter.",
 )
 async def sigma_group_filter_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     obj_id: Annotated[
         int, Query(description="id of the sigma group filter to be updated.")
     ],
@@ -312,7 +312,7 @@ async def sigma_group_filter_update_handler(
         int,
         Query(description="optional operation to be associated with this shared-data."),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     data: dict = {"expr": expr}
@@ -341,14 +341,14 @@ async def sigma_group_filter_update_handler(
     summary="shortcut to shared_data_create to create a workflow.",
 )
 async def workflow_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     name: Annotated[str, Query(description="name of the workflow.")],
     workflow: Annotated[dict, Body()],
     operation_id: Annotated[
         int,
         Query(description="optional operation to be associated with this shared-data."),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -383,14 +383,14 @@ async def workflow_create_handler(
     summary="shortcut to shared_data_update to update a workflow.",
 )
 async def workflow_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     obj_id: Annotated[int, Query(description="id of the workflow to be updated.")],
     workflow: Annotated[dict, Body()] = None,
     operation_id: Annotated[
         int,
         Query(description="optional operation to be associated with this shared-data."),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     return await shared_data_update_handler(

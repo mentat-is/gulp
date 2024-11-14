@@ -7,10 +7,8 @@ from multiprocessing import freeze_support
 import art
 
 from gulp.utils import GulpLogger
-import gulp.api.rest_api as rest_api
-import gulp.utils
-import muty.file
 from gulp.config import GulpConfig
+from gulp.api.rest_api import GulpRestServer
 
 # just for quick testing from the command line
 __RUN_TESTS__ = os.getenv("INTERNAL_TEST", False)
@@ -35,23 +33,12 @@ async def async_test():
             % (count, batch_size, l, is_last)
         )
 
-    sys.exit(0)
-
-
-def test():
-    """
-    to test stuff in gulp environment, call it in main() as the first thing.
-    """
-    if not __debug__:
-        return
-    asyncio.run(async_test())
-
-
 def main():
     """
     :return:
     """
 
+    ver = GulpRestServer.get_instance().version_string()
     installation_dir = os.path.dirname(os.path.realpath(__file__))
     banner = art.text2art("(g)ULP", font="random")
 
@@ -59,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=banner,
         epilog="(generic) unified log parser\nversion: %s\ninstallation path: %s"
-        % (gulp.utils.version_string(), installation_dir),
+        % (ver, installation_dir),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
@@ -84,8 +71,8 @@ def main():
         default=False,
     )
     parser.add_argument(
-        "--reset-data",
-        help="reset opensearch on start, creating an empty index.",
+        "--reset-index",
+        help="reset the given opensearch index.",
         nargs=1,
         metavar=("indexname"),
     )
@@ -102,37 +89,28 @@ def main():
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     log_file_path = args.log_to_file[0] if args.log_to_file else None
     GulpLogger.get_instance().reconfigure(log_file_path=log_file_path, level=lv)
-    GulpLogger.get_instance().get_logger().debug("logger in main(): %s, lv=%d, level=%d" % (_logger, lv, _logger.level))
-
-    # initialize modules
-    #gulp.utils.init_modules(_logger)
-    #_logger.debug("gulp configuration: %s" % (GulpConfig.get_instance().config()))
-    #asyncio.run(GulpConfig.check_copy_mappings_and_plugins_to_custom_directories())
 
     if __RUN_TESTS__:
         # test stuff
-        test()
         asyncio.run(async_test())
-
-    # initialize custom directories if needed
-
+        return
+    
     # get params
     try:
         if args.version:
             # print version string and exit
-            print(gulp.utils.version_string())
+            print(ver)
         else:
             # default
-            print("%s\n%s" % (banner, gulp.utils.version_string()))
-            address, port = GulpConfig.get_instance().bind_to()
+            print("%s\n%s" % (banner, ver))
             reset_collab = args.reset_collab
-            opensearch_index = (
-                args.reset_elastic[0] if args.reset_elastic is not None else None
+            reset_index = (
+                args.reset_index[0] if args.reset_index is not None else None
             )
-            
-            rest_api.start(
-                address, port, log_file_path, reset_collab, opensearch_index, is_first_run
-            )
+            GulpRestServer.get_instance().start(
+                            log_file_path=log_file_path,
+                            reset_collab=reset_collab,
+                            reset_index=reset_index)
     except Exception as ex:
         # print exception and exit
         GulpLogger.get_instance().get_logger().exception(ex)

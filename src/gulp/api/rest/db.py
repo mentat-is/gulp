@@ -21,10 +21,10 @@ import gulp.api.collab_api as collab_api
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest_api as rest_api
 
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
-import gulp.workers as workers
+import gulp.process as process
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.opensearch.filters import GulpQueryFilter
@@ -57,19 +57,19 @@ _app: APIRouter = APIRouter()
 )
 async def rebase_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     dest_index: Annotated[
         str,
         Query(
             description="name of the destination index.",
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     offset_msec: Annotated[
@@ -80,9 +80,9 @@ async def rebase_handler(
             "rebasing happens in background and **uses one of the worker processess**: when it is done, a REBASE_DONE event is sent to the websocket.",
         ),
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     flt: Annotated[GulpQueryFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
     GulpLogger.get_logger().debug(
@@ -99,7 +99,7 @@ async def rebase_handler(
         await GulpUserSession.check_token(
             await collab_api.session(), token, GulpUserPermission.EDIT
         )
-        coro = workers.rebase_task(
+        coro = process.rebase_task(
             index=index,
             dest_index=dest_index,
             offset=offset_msec,
@@ -148,8 +148,8 @@ async def rebase_handler(
     summary="lists all existing datastreams on OpenSearch, with their backing indexes.",
 )
 async def elastic_list_index_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -188,16 +188,16 @@ async def elastic_list_index_handler(
     "**WARNING**: if the datastream already exists, it is **DELETED** first together with its backing index(=all data on it is **deleted**).",
 )
 async def elastic_init_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
     index_template: Annotated[
         UploadFile,
         File(
-            description=gulp.defs.API_DESC_INDEX_TEMPLATE,
-            example=gulp.defs.EXAMPLE_INDEX_TEMPLATE,
+            description=gulp.structs.API_DESC_INDEX_TEMPLATE,
+            example=gulp.structs.EXAMPLE_INDEX_TEMPLATE,
         ),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -248,9 +248,9 @@ async def elastic_init_handler(
     description="**WARNING: all data on the index will be erased!**",
 )
 async def elastic_delete_index_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -301,12 +301,12 @@ async def elastic_delete_index_handler(
     summary="get fields mapping for a given index or datastream on OpenSearch.",
 )
 async def elastic_get_mapping_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
     return_raw_result: Annotated[
         bool, Query(description="if true, the raw result is returned.")
     ] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -355,15 +355,15 @@ async def elastic_get_mapping_handler(
     summary="same as `elastic_get_mapping`, but considering `gulp.source.file=src AND gulp.context=context` only.",
 )
 async def elastic_get_mapping_by_source_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
     context: Annotated[
         str, Query(description='the "gulp.context" to return the mapping for.')
     ],
     src: Annotated[
         str, Query(description='the "log.file.path" to return the mapping for.')
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -394,8 +394,8 @@ async def elastic_get_mapping_by_source_handler(
     "This may take a few seconds to complete.",
 )
 async def collab_init_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -430,16 +430,16 @@ async def collab_init_handler(
     "**WARNING**: **ALL** collaboration data (including users and session tokens) related to **ALL** operations will be **DELETED**, all data in the datastream's backing index will be **DELETED** too.",
 )
 async def gulp_init_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
     index_template: Annotated[
         UploadFile,
         File(
-            description=gulp.defs.API_DESC_INDEX_TEMPLATE,
-            example=gulp.defs.EXAMPLE_INDEX_TEMPLATE,
+            description=gulp.structs.API_DESC_INDEX_TEMPLATE,
+            example=gulp.structs.EXAMPLE_INDEX_TEMPLATE,
         ),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -506,9 +506,9 @@ async def gulp_init_handler(
     "the obtained index template can be used as a base for new indexes through setting `PATH_INDEX_TEMPLATE` when running gulp, or by setting `path_index_template` in the configuration.",
 )
 async def elastic_get_index_template_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    index: Annotated[str, Query(description=gulp.defs.API_DESC_INDEX)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

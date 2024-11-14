@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
@@ -53,10 +53,10 @@ _app: APIRouter = APIRouter()
     summary="creates a glyph to use with the collaboration API.",
 )
 async def glyph_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     glyph: Annotated[UploadFile, File(description="the glyph file to be uploaded.")],
     name: Annotated[str, Query(description="the name of the glyph.")] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -96,10 +96,10 @@ async def glyph_create_handler(
     summary="updates a glyph.",
 )
 async def glyph_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    glyph_id: Annotated[int, Query(description=gulp.defs.API_DESC_GLYPH)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    glyph_id: Annotated[int, Query(description=gulp.structs.API_DESC_GLYPH)],
     glyph: Annotated[UploadFile, File(description="the glyph file to be uploaded.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -140,9 +140,9 @@ async def glyph_update_handler(
     description="available filters: name, id, opt_basic_fields_only, limit, offset.",
 )
 async def glyph_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -187,9 +187,9 @@ async def glyph_list_handler(
     summary="get a glyph by id.",
 )
 async def glyph_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    glyph_id: Annotated[int, Query(description=gulp.defs.API_DESC_GLYPH)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    glyph_id: Annotated[int, Query(description=gulp.structs.API_DESC_GLYPH)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -225,9 +225,9 @@ async def glyph_get_by_id_handler(
     summary="deletes a glyph.",
 )
 async def glyph_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
-    glyph_id: Annotated[int, Query(description=gulp.defs.API_DESC_GLYPH)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
+    glyph_id: Annotated[int, Query(description=gulp.structs.API_DESC_GLYPH)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

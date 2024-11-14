@@ -18,7 +18,7 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.structs import (
@@ -55,9 +55,9 @@ _app: APIRouter = APIRouter()
     description="available filters: id, owner_id, events, operation_id, context, src_file, name, private_only, level, limit, offset",
 )
 async def link_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     return await collab_utility.collabobj_list(token, req_id, GulpCollabType.LINK, flt)
@@ -85,9 +85,9 @@ async def link_list_handler(
     summary="get link.",
 )
 async def link_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     link_id: Annotated[int, Query(description="id of the link to be retrieved.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     return await collab_utility.collabobj_get_by_id(
@@ -117,10 +117,10 @@ async def link_get_by_id_handler(
     summary="deletes a link.",
 )
 async def link_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_EDIT_TOKEN)],
     link_id: Annotated[int, Query(description="id of the link to be deleted.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -152,9 +152,9 @@ async def link_delete_handler(
     description="in `events` array (if set), each entry's `operation_id`, `context` and `src_file` are optional.",
 )
 async def link_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     link_id: Annotated[int, Query(description="id of the link to be updated.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     events: Annotated[list[GulpAssociatedEvent], Body()] = None,
     name: Annotated[str, Query(description="optional new name.")] = None,
     description: Annotated[str, Body()] = None,
@@ -164,8 +164,8 @@ async def link_update_handler(
     color: Annotated[
         str, Query(description="optional new link color in #rrggbb or css-name format.")
     ] = None,
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -230,7 +230,7 @@ async def link_update_handler(
     summary="creates a link between the source and one or more destination events.",
 )
 async def link_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     operation_id: Annotated[
         int, Query(description="operation to be associated with this link.")
     ],
@@ -241,7 +241,7 @@ async def link_create_handler(
         str, Query(description="source file to be associated with this link.")
     ],
     src: Annotated[str, Query(description="id of the source GulpEvent.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     events: Annotated[list[GulpAssociatedEvent], Body()],
     name: Annotated[str, Query(description="name of the link.")] = None,
     description: Annotated[str, Body()] = None,
@@ -252,11 +252,11 @@ async def link_create_handler(
             description='optional color in #rrggbb or css-name format, default is "red".'
         ),
     ] = "red",
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
     level: Annotated[
-        GulpCollabLevel, Query(description=gulp.defs.API_DESC_COLLAB_LEVEL)
+        GulpCollabLevel, Query(description=gulp.structs.API_DESC_COLLAB_LEVEL)
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     data = {"color": color, "src": src}

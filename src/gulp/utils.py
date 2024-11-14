@@ -45,7 +45,7 @@ class GulpLogger:
         """
         return cls.get_instance()._logger
 
-    def reconfigure(self, log_file_path: str = None, level: int = logging.DEBUG, prefix: str = None) -> None:
+    def reconfigure(self, log_file_path: str = None, level: int = None, prefix: str = None) -> None:
         """
         reconfigure the process logger instance with the given parameters
 
@@ -54,11 +54,14 @@ class GulpLogger:
             level (int, optional): the debug level. Defaults to logging.DEBUG.
             prefix (str, optional): prefix to add to the logger name (ignored if log_to_file is None). Defaults to None.
         """
-        self._logger = self.create(log_file_path, level, prefix)
+        if level is None:
+            level = logging.DEBUG
+
+        self._logger = self.create(log_file_path=log_file_path, level=level, prefix=prefix)
 
     def create(self,
         log_file_path: str = None,
-        level: int = logging.DEBUG,
+        level: int = None,
         prefix: str = None,
     ) -> logging.Logger:
         """
@@ -72,7 +75,9 @@ class GulpLogger:
             logging.Logger: the new logger
         """
         self.log_file_path = log_file_path
-
+        if level is None:
+            level = logging.DEBUG
+            
         n = "gulp"
         if log_file_path:
             # if log_to_file is not None, build the filename
@@ -96,90 +101,68 @@ class GulpLogger:
         )
         return l
 
-async def send_mail(
-    smtp_server: str,
-    subject: str,
-    content: str,
-    sender: str,
-    to: list[str],
-    username: str = None,
-    password: str = None,
-    use_ssl: bool = False,
-) -> None:
+class GulpUtils:
     """
-    Sends an email using the specified SMTP server.
-
-    Args:
-        smtp_server (str): The SMTP server address as host:port.
-        subject (str): The subject of the email.
-        content (str): The content of the email.
-        sender (str): The email address of the sender.
-        to (list[str]): The email addresses of the recipients: to[0]=TO, optionally to[1...n]=CC.
-        username (str, optional): The username for authentication. Defaults to None.
-        password (str, optional): The password for authentication. Defaults to None.
-        use_ssl (bool, optional): Whether to use SSL/TLS for the connection. Defaults to False.
-
-    Returns:
-        None: This function does not return anything.
+    utility class
     """
+    @staticmethod
+    async def send_mail(
+        smtp_server: str,
+        subject: str,
+        content: str,
+        sender: str,
+        to: list[str],
+        username: str = None,
+        password: str = None,
+        use_ssl: bool = False,
+    ) -> None:
+        """
+        Sends an email using the specified SMTP server.
 
-    splitted = smtp_server.split(":")
-    server = splitted[0]
-    port = int(splitted[1])
-    to_email = to[0]
-    cc_list = None
-    if len(to) > 1:
-        cc_list = to[1:]
+        Args:
+            smtp_server (str): The SMTP server address as host:port.
+            subject (str): The subject of the email.
+            content (str): The content of the email.
+            sender (str): The email address of the sender.
+            to (list[str]): The email addresses of the recipients: to[0]=TO, optionally to[1...n]=CC.
+            username (str, optional): The username for authentication. Defaults to None.
+            password (str, optional): The password for authentication. Defaults to None.
+            use_ssl (bool, optional): Whether to use SSL/TLS for the connection. Defaults to False.
 
-    m = EmailMessage()
-    GulpLogger.get_logger().info(
-        "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
-        % (server, port, sender, to_email, cc_list, subject)
-    )
-    m["From"] = sender
-    m["To"] = to_email
-    m["Subject"] = subject
-    if cc_list is not None:
-        m["cc"] = cc_list
-    m.set_content(content)
-    ssl_ctx = None
-    if use_ssl is not None:
-        ssl_ctx = ssl.create_default_context()
-    await aiosmtplib.send(
-        m,
-        hostname=server,
-        port=port,
-        username=username,
-        password=password,
-        tls_context=ssl_ctx,
-        validate_certs=False,
-    )
+        Returns:
+            None: This function does not return anything.
+        """
 
+        splitted = smtp_server.split(":")
+        server = splitted[0]
+        port = int(splitted[1])
+        to_email = to[0]
+        cc_list = None
+        if len(to) > 1:
+            cc_list = to[1:]
 
-def version_string() -> str:
-    """
-    returns the version string
+        m = EmailMessage()
+        GulpLogger.get_logger().info(
+            "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
+            % (server, port, sender, to_email, cc_list, subject)
+        )
+        m["From"] = sender
+        m["To"] = to_email
+        m["Subject"] = subject
+        if cc_list is not None:
+            m["cc"] = cc_list
+        m.set_content(content)
+        ssl_ctx = None
+        if use_ssl is not None:
+            ssl_ctx = ssl.create_default_context()
+        await aiosmtplib.send(
+            m,
+            hostname=server,
+            port=port,
+            username=username,
+            password=password,
+            tls_context=ssl_ctx,
+            validate_certs=False,
+        )
 
-    Returns:
-        str: version string
-    """
-    return "gulp v%s (muty v%s)" % (
-        muty.version.pkg_version("gulp"),
-        muty.version.muty_version(),
-    )
-
-
-def ensure_req_id(req_id: str = None) -> str:
-    """
-    Ensures a request ID is not None, either returns a new one.
-
-    Args:
-        req_id (str, optional): The request ID. Defaults to None.
-
-    Returns:
-        str: The request ID.
-    """
-    if req_id is None:
-        return muty.string.generate_unique()
-    return req_id
 

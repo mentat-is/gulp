@@ -105,7 +105,7 @@ class GulpConfig:
 
         # custom folders
         custom_mapping_files_path = os.path.abspath(GulpConfig.get_instance().path_mapping_files() or "")
-        custom_plugins_path = os.path.abspath(GulpConfig.get_instance().path_plugins(t=None) or "")
+        custom_plugins_path = os.path.abspath(GulpConfig.get_instance().path_plugins() or "")
 
         GulpLogger.get_logger().debug(f"default_mapping_files_path: {default_mapping_files_path}")
         GulpLogger.get_logger().debug(f"custom_mapping_files_path: {custom_mapping_files_path}")
@@ -183,7 +183,7 @@ class GulpConfig:
         """
         p = os.getenv("BIND_TO")
         if p is None:
-            p = self.self._config.get("bind_to", None)
+            p = self._config.get("bind_to", None)
             if p is None:
                 GulpLogger.get_logger().warning("bind_to not set, using default!")
                 p = '0.0.0.0:8080'
@@ -343,7 +343,7 @@ class GulpConfig:
 
     def https_cert_password(self) -> str:
         """
-        Returns the password for the HTTPS certificate.
+        Returns the password for the HTTPS certificate of the gulp server.
         """
         n = self._config.get("https_cert_password", None)
         return n
@@ -631,6 +631,10 @@ class GulpConfig:
     def path_certs(self) -> str:
         """
         Returns the directory where the certificates are stored.
+
+        - gulp-ca.pem, gulp.pem, gulp.key: the gulp server certificates
+        - os-ca.pem, os.pem, os.key: the gulp's opensearch client certificates
+        - postgres-ca.pem, postgres.pem, postgres.key: the gulp's postgres client certificates
         """
         # try env
         p = os.getenv("PATH_CERTS", None)

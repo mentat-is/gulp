@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy_mixins.serialize import SerializeMixin
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
-from gulp.defs import ObjectNotFound
+from gulp.structs import ObjectNotFound
 from gulp.utils import GulpLogger
 from gulp.api.collab_api import GulpCollab
 

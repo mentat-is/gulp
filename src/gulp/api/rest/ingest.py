@@ -23,10 +23,10 @@ from requests_toolbelt.multipart import decoder
 import gulp.api.collab_api as collab_api
 import gulp.api.rest_api as rest_api
 
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
-import gulp.workers as workers
+import gulp.process as process
 from gulp.config import GulpConfig
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.client import Client
@@ -249,45 +249,45 @@ async def ingest_raw_handler(
     token: Annotated[
         str,
         Header(
-            description=gulp.defs.API_DESC_TOKEN + " (must have INGEST permission)."
+            description=gulp.structs.API_DESC_TOKEN + " (must have INGEST permission)."
         ),
     ],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     operation_id: Annotated[
         int,
         Query(
-            description=gulp.defs.API_DESC_INGEST_OPERATION,
-            openapi_examples=gulp.defs.EXAMPLE_OPERATION_ID,
+            description=gulp.structs.API_DESC_INGEST_OPERATION,
+            openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
         ),
     ],
     client_id: Annotated[
         int,
         Query(
-            description=gulp.defs.API_DESC_CLIENT,
-            openapi_examples=gulp.defs.EXAMPLE_CLIENT_ID,
+            description=gulp.structs.API_DESC_CLIENT,
+            openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
         ),
     ],
     context: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INGEST_CONTEXT,
-            openapi_examples=gulp.defs.EXAMPLE_CONTEXT,
+            description=gulp.structs.API_DESC_INGEST_CONTEXT,
+            openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
         ),
     ],
     events: Annotated[
         list[dict],
         Body(description="chunk of raw JSON events to be ingested."),
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     plugin_params: Annotated[GulpPluginParameters, Body()] = None,
     flt: Annotated[GulpIngestionFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # check operation and client
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -300,7 +300,7 @@ async def ingest_raw_handler(
     )
 
     # process in background (may need to wait for pool space)
-    coro = workers.ingest_single_file_or_events_task(
+    coro = process.ingest_single_file_or_events_task(
         index=index,
         req_id=req_id,
         f=events,
@@ -350,38 +350,38 @@ async def ingest_raw_handler(
 )
 async def ingest_zip_handler(
     r: Request,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_INGEST_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_INGEST_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     client_id: Annotated[
         int,
         Query(
-            description=gulp.defs.API_DESC_CLIENT,
-            openapi_examples=gulp.defs.EXAMPLE_CLIENT_ID,
+            description=gulp.structs.API_DESC_CLIENT,
+            openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
         ),
     ],
     operation_id: Annotated[
         int,
         Query(
-            description=gulp.defs.API_DESC_INGEST_OPERATION,
-            openapi_examples=gulp.defs.EXAMPLE_OPERATION_ID,
+            description=gulp.structs.API_DESC_INGEST_OPERATION,
+            openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
         ),
     ],
     context: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INGEST_CONTEXT,
-            openapi_examples=gulp.defs.EXAMPLE_CONTEXT,
+            description=gulp.structs.API_DESC_INGEST_CONTEXT,
+            openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
         ),
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     # flt: Annotated[GulpIngestionFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSONResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     u, _, _ = await _check_parameters(
@@ -409,7 +409,7 @@ async def ingest_zip_handler(
     _, flt = _get_ingest_payload(multipart_result)
 
     # process in background (may need to wait for pool space)
-    coro = workers.ingest_zip_task(
+    coro = process.ingest_zip_task(
         ws_id=ws_id,
         index=index,
         req_id=req_id,
@@ -456,46 +456,46 @@ async def ingest_zip_handler(
 )
 async def ingest_file_handler(
     r: Request,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_INGEST_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_INGEST_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     plugin: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_PLUGIN,
-            openapi_examples=gulp.defs.EXAMPLE_PLUGIN,
+            description=gulp.structs.API_DESC_PLUGIN,
+            openapi_examples=gulp.structs.EXAMPLE_PLUGIN,
         ),
     ],
     client_id: Annotated[
         int,
         Query(
-            description=gulp.defs.API_DESC_CLIENT,
-            openapi_examples=gulp.defs.EXAMPLE_CLIENT_ID,
+            description=gulp.structs.API_DESC_CLIENT,
+            openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
         ),
     ],
     operation_id: Annotated[
         int,
         Query(
-            description=gulp.defs.API_DESC_INGEST_OPERATION,
-            openapi_examples=gulp.defs.EXAMPLE_OPERATION_ID,
+            description=gulp.structs.API_DESC_INGEST_OPERATION,
+            openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
         ),
     ],
     context: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INGEST_CONTEXT,
-            openapi_examples=gulp.defs.EXAMPLE_CONTEXT,
+            description=gulp.structs.API_DESC_INGEST_CONTEXT,
+            openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
         ),
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     # flt: Annotated[GulpIngestionFilter, Body()] = None,
     # plugin_params: Annotated[GulpPluginParameters, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -525,7 +525,7 @@ async def ingest_file_handler(
     plugin_params, flt = _get_ingest_payload(multipart_result)
 
     # process in background (may need to wait for pool space)
-    coro = workers.ingest_single_file_or_events_task(
+    coro = process.ingest_single_file_or_events_task(
         index=index,
         req_id=req_id,
         f=file_path,
@@ -557,12 +557,12 @@ if __debug__:
         summary="ingest files in the given local directory, non recursively, using the specified plugin.",
     )
     async def ingest_directory_handler(
-        token: Annotated[str, Header(description=gulp.defs.API_DESC_INGEST_TOKEN)],
+        token: Annotated[str, Header(description=gulp.structs.API_DESC_INGEST_TOKEN)],
         index: Annotated[
             str,
             Query(
-                description=gulp.defs.API_DESC_INDEX,
-                openapi_examples=gulp.defs.EXAMPLE_INDEX,
+                description=gulp.structs.API_DESC_INDEX,
+                openapi_examples=gulp.structs.EXAMPLE_INDEX,
             ),
         ],
         directory: Annotated[
@@ -574,38 +574,38 @@ if __debug__:
         plugin: Annotated[
             str,
             Query(
-                description=gulp.defs.API_DESC_PLUGIN,
-                openapi_examples=gulp.defs.EXAMPLE_PLUGIN,
+                description=gulp.structs.API_DESC_PLUGIN,
+                openapi_examples=gulp.structs.EXAMPLE_PLUGIN,
             ),
         ],
         client_id: Annotated[
             int,
             Query(
-                description=gulp.defs.API_DESC_CLIENT,
-                openapi_examples=gulp.defs.EXAMPLE_CLIENT_ID,
+                description=gulp.structs.API_DESC_CLIENT,
+                openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
             ),
         ],
         operation_id: Annotated[
             int,
             Query(
-                description=gulp.defs.API_DESC_INGEST_OPERATION,
-                openapi_examples=gulp.defs.EXAMPLE_OPERATION_ID,
+                description=gulp.structs.API_DESC_INGEST_OPERATION,
+                openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
             ),
         ],
         context: Annotated[
             str,
             Query(
-                description=gulp.defs.API_DESC_INGEST_CONTEXT,
-                openapi_examples=gulp.defs.EXAMPLE_CONTEXT,
+                description=gulp.structs.API_DESC_INGEST_CONTEXT,
+                openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
             ),
         ],
-        ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+        ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
         plugin_params: Annotated[
             GulpPluginParameters,
             Body(),
         ] = None,
         flt: Annotated[GulpIngestionFilter, Body()] = None,
-        req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+        req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
     ) -> JSendResponse:
         req_id = gulp.utils.ensure_req_id(req_id)
         u, _, _ = await _check_parameters(
@@ -617,7 +617,7 @@ if __debug__:
         )
 
         # process in background (may need to wait for pool space)
-        coro = workers.ingest_directory_task(
+        coro = process.ingest_directory_task(
             index=index,
             req_id=req_id,
             directory=directory,

@@ -20,7 +20,7 @@ from gulp.api.opensearch.structs import (
     gulpqueryflt_to_elastic_dsl,
 )
 import gulp.api.ws_api
-from gulp.defs import GulpPluginType, InvalidArgument, ObjectNotFound
+from gulp.structs import GulpPluginType, InvalidArgument, ObjectNotFound
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 from gulp.utils import GulpLogger

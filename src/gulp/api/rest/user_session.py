@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.session import GulpUserSession
@@ -53,9 +53,9 @@ _app: APIRouter = APIRouter()
     summary="Let administrator impersonate(=login as) user.",
 )
 async def session_impersonate(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     user_id: Annotated[int, Query(description="id of the user to impersonate.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

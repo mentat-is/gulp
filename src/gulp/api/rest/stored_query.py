@@ -19,15 +19,15 @@ from muty.jsend import JSendException, JSendResponse
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
 import gulp.api.rest_api as rest_api
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
-import gulp.workers as workers
+import gulp.process as process
 from gulp.api.collab.base import GulpCollabFilter, GulpCollabType
 from gulp.api.collab.base import GulpCollabObject
 from gulp.api.elastic import query_utils
 from gulp.api.opensearch.structs import GulpQueryParameter, GulpQueryType
-from gulp.defs import API_DESC_PYSYGMA_PLUGIN, InvalidArgument
+from gulp.structs import API_DESC_PYSYGMA_PLUGIN, InvalidArgument
 from gulp.utils import GulpLogger
 
 _app: APIRouter = APIRouter()
@@ -56,9 +56,9 @@ _app: APIRouter = APIRouter()
     description="available filters: id, owner_id, name, opt_basic_fields_only, tags, limit, offset.",
 )
 async def stored_query_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -89,12 +89,12 @@ async def stored_query_list_handler(
     summary="deletes a stored query.",
 )
 async def stored_query_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_EDIT_TOKEN)],
     stored_query_id: Annotated[
         int, Query(description="id of the stored query to be deleted.")
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -128,14 +128,14 @@ async def stored_query_delete_handler(
     summary="updates a stored query.",
 )
 async def stored_query_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     stored_query_id: Annotated[
         int, Query(description="id of the stored query to be updated.")
     ],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     q: Annotated[GulpQueryParameter, Body()] = None,
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -185,11 +185,11 @@ async def stored_query_update_handler(
     summary="creates a stored query from ElasticSearch raw query/DSL, SIGMA Rule YAML or GulpQueryFilter.",
 )
 async def stored_query_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     q: Annotated[GulpQueryParameter, Body()],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -242,9 +242,9 @@ async def stored_query_create_handler(
     summary="creates tagged stored queries from sigma rule YAMLs in a zip.",
 )
 async def stored_query_create_from_sigma_zip_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     z: Annotated[UploadFile, File(description="zip with sigma rules.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     pysigma_plugin: Annotated[
         str,
         Query(
@@ -258,7 +258,7 @@ async def stored_query_create_from_sigma_zip_handler(
             "to support this, rules in zip file must be organized like */windows/rule1, /windows/rule2, /windows/process/rule3, /windows/process/attacks/rule4, ...*."
         ),
     ] = True,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -269,7 +269,7 @@ async def stored_query_create_from_sigma_zip_handler(
         GulpLogger.get_logger().debug("zipfile unzipped to %s" % (files_path))
         try:
             # use multiprocessing to gather the rules
-            s = await workers.gather_sigma_directories_to_stored_queries(
+            s = await process.gather_sigma_directories_to_stored_queries(
                 token,
                 req_id.files_path,
                 pysigma_plugin,
@@ -309,11 +309,11 @@ async def stored_query_create_from_sigma_zip_handler(
     summary="shortcut to get a single shared-data object by id.",
 )
 async def stored_query_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     stored_query_id: Annotated[
         int, Query(description="id of the stored query to be retrieved.")
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

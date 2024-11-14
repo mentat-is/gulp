@@ -322,8 +322,8 @@ class GulpSharedWsQueue:
         Args:
             q (Queue): The shared queue.
         """
-        from gulp.workers import GulpProcess
-        if GulpProcess.is_main_process():
+        from gulp.process import GulpProcess
+        if GulpProcess.get_instance().is_main_process():
             raise RuntimeError("set_queue() must be called in a worker process")
         
         self._shared_q = q    
@@ -335,8 +335,8 @@ class GulpSharedWsQueue:
         Args:
             q (Queue): The shared queue created by the multiprocessing manager in the main process
         """
-        from gulp.workers import GulpProcess
-        if not GulpProcess.is_main_process():
+        from gulp.process import GulpProcess
+        if not GulpProcess.get_instance().is_main_process():
             raise RuntimeError("init_queue() must be called in the main process")
         
         if self._shared_q:
@@ -353,13 +353,14 @@ class GulpSharedWsQueue:
         """
 
         # uses an executor to run the blocking get() call in a separate thread
-        from gulp.api import rest_api
+        from gulp.api.rest_api import GulpRestServer
 
         GulpLogger.get_logger().debug("starting asyncio queue fill task ...")
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as pool:
             while True:
-                if rest_api.is_shutdown():
+                if GulpRestServer.get_instance().is_shutdown():
+                    # server is shutting down, break the loop
                     break
 
                 # GulpLogger.get_logger().debug("running ws_q.get in executor ...")

@@ -14,7 +14,7 @@ from sqlalchemy_utils import create_database, database_exists, drop_database
 import asyncio
 from importlib import resources, import_module
 
-from gulp.defs import ObjectNotFound
+from gulp.structs import ObjectNotFound
 from gulp.utils import GulpLogger
 from gulp.config import GulpConfig
 

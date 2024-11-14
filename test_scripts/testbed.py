@@ -16,7 +16,7 @@ from gulp.api.collab.structs import GulpCollabType
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api import opensearch_api
 from gulp.api.mapping.models import GulpMapping
-from gulp.plugin_params import GulpPluginParameters
+from gulp.structs import GulpPluginParameters
 from gulp.utils import GulpLogger
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy_mixins.serialize import SerializeMixin

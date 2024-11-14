@@ -15,9 +15,9 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.defs import GulpPluginType
+from gulp.structs import GulpPluginParameters, GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_params import GulpPluginParameters, GulpPluginSigmaSupport
+from gulp.structs import GulpPluginSigmaSupport
 from gulp.utils import GulpLogger
 
 # needs the following backends for sigma support (add others if needed)

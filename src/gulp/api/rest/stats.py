@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
@@ -49,11 +49,11 @@ _app: APIRouter = APIRouter()
     summary="delete all stats for the given operation.",
 )
 async def stats_delete_by_operation(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_TOKEN)],
     operation_id: Annotated[
         int, Query(description="operation id to delete stats for.")
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -119,11 +119,11 @@ async def stats_delete_by_operation(
     summary="get all stats for a given operation.",
 )
 async def stats_get_by_operation(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     operation_id: Annotated[
         int, Query(description="operation id to retrieve stats for.")
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -188,9 +188,9 @@ async def stats_get_by_operation(
     summary="get a single stats for the given request id.",
 )
 async def stats_get_by_req_id(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     r: Annotated[str, Query(description="the request id to retrieve stats for.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -256,9 +256,9 @@ async def stats_get_by_req_id(
     description="available filters: id, req_id, operation_id, client_id, type, context, status, time_created_start, time_created_end, limit, offset.",
 )
 async def stats_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -298,9 +298,9 @@ async def stats_list_handler(
     description="available filters: id, req_id, operation_id, client_id, type, context, status, time_created_start, time_created_end.",
 )
 async def stats_delete(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -361,9 +361,9 @@ async def stats_delete(
     summary="get a single stats using the id.",
 )
 async def stats_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     stats_id: Annotated[int, Query(description="id of the stats to retrieve")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -403,9 +403,9 @@ async def stats_get_by_id_handler(
     summary="cancel a request, setting status to CANCELED (3). The request will terminate asap.",
 )
 async def stats_cancel_request_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     r: Annotated[str, Query(description="req_id of the request to cancel.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

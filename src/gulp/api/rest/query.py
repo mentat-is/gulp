@@ -28,10 +28,10 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
-from gulp import workers
+from gulp import process
 from gulp.api import collab_api, opensearch_api, rest_api
 from gulp.api.collab.base import GulpCollabType, GulpUserPermission
 from gulp.api.collab.operation import Operation
@@ -44,7 +44,7 @@ from gulp.api.opensearch.structs import (
     GulpQueryParameter,
     GulpQueryType,
 )
-from gulp.defs import (
+from gulp.structs import (
     API_DESC_PYSYGMA_PLUGIN,
     API_DESC_WS_ID,
     GulpPluginType,
@@ -192,12 +192,12 @@ def _sanitize_tags(tags: list[str]) -> list[str]:
 )
 async def query_multi_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
@@ -205,7 +205,7 @@ async def query_multi_handler(
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
     sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     if flt is None:
@@ -258,7 +258,7 @@ async def query_multi_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
     # run
-    coro = workers.query_multi_task(
+    coro = process.query_multi_task(
         username=user.name,
         user_id=user_id,
         req_id=req_id,
@@ -324,12 +324,12 @@ async def query_multi_handler(
 )
 async def query_raw_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
@@ -339,7 +339,7 @@ async def query_raw_handler(
     ] = None,
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     gqp = GulpQueryParameter(rule=query_raw, type=GulpQueryType.RAW)
     if name is None:
@@ -381,12 +381,12 @@ async def query_raw_handler(
 )
 async def query_gulp_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
@@ -395,7 +395,7 @@ async def query_gulp_handler(
         str, Query(description="name of the query (leave empty to autogenerate)")
     ] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
     GulpLogger.get_logger().debug(
@@ -436,12 +436,12 @@ async def query_gulp_handler(
 )
 async def query_stored_sigma_tags_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
@@ -449,7 +449,7 @@ async def query_stored_sigma_tags_handler(
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
     sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     GulpLogger.get_logger().debug(
         "query_sigma_tags_handler: flt=%s, options=%s, tags=%s, sigma_group_flts=%s"
@@ -522,12 +522,12 @@ async def query_stored_sigma_tags_handler(
 )
 async def query_sigma_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
@@ -541,7 +541,7 @@ async def query_sigma_handler(
     plugin_params: Annotated[GulpPluginParameters, Body()] = None,
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     gqp = GulpQueryParameter(
         rule=sigma,
@@ -601,12 +601,12 @@ async def query_sigma_handler(
 )
 async def query_sigma_files_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
@@ -620,7 +620,7 @@ async def query_sigma_files_handler(
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
     sigma_group_flts: Annotated[SigmaGroupFiltersParam, Body(...)] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     files_path = None
@@ -707,19 +707,19 @@ async def query_sigma_files_handler(
 )
 async def query_stored_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
     q: Annotated[list[int], Body()],
     flt: Annotated[GulpQueryFilter, Body()] = None,
     options: Annotated[GulpQueryOptions, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -781,17 +781,17 @@ async def query_stored_handler(
     summary='get the "@timestamp" and "gulp.event.code" range in an index, possibly aggregating per field.',
 )
 async def query_max_min_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     group_by: Annotated[str, Query(description="group by this field.")] = None,
     flt: Annotated[GulpQueryFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -918,15 +918,15 @@ async def _parse_operation_aggregation(d: dict):
     "for every *context*, *src_file*s are returned as well.",
 )
 async def query_operations_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
-            description=gulp.defs.API_DESC_INDEX,
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            description=gulp.structs.API_DESC_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -985,18 +985,18 @@ async def query_operations_handler(
     summary="query a single event.",
 )
 async def query_single_event_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[
         str,
         Query(
             description="name of the datastream to query.",
-            openapi_examples=gulp.defs.EXAMPLE_INDEX,
+            openapi_examples=gulp.structs.EXAMPLE_INDEX,
         ),
     ],
     gulp_id: Annotated[
         str, Query(description='the elasticsearch "_id" of the event to be retrieved.')
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -1049,11 +1049,11 @@ async def query_single_event_handler(
 )
 async def query_external_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
-    client_id: Annotated[int, Query(description=gulp.defs.API_DESC_CLIENT)],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
+    client_id: Annotated[int, Query(description=gulp.structs.API_DESC_CLIENT)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    plugin: Annotated[str, Query(description=gulp.structs.API_DESC_PLUGIN)],
     plugin_params: Annotated[
         GulpPluginParameters,
         Body(
@@ -1084,7 +1084,7 @@ async def query_external_handler(
             ]
         ),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
 
@@ -1133,7 +1133,7 @@ async def query_external_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
     # run
-    coro = workers.query_external_task(
+    coro = process.query_external_task(
         req_id=req_id,
         ws_id=ws_id,
         operation_id=operation_id,
@@ -1176,8 +1176,8 @@ async def query_external_handler(
 )
 async def query_external_single_handler(
     bt: BackgroundTasks,
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    plugin: Annotated[str, Query(description=gulp.structs.API_DESC_PLUGIN)],
     plugin_params: Annotated[
         GulpPluginParameters,
         Body(
@@ -1209,7 +1209,7 @@ async def query_external_single_handler(
             ]
         ),
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
 

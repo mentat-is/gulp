@@ -14,12 +14,8 @@ from muty.jsend import JSendException, JSendResponse
 import gulp.api.collab_api as collab_api
 import gulp.api.ws_api
 import gulp.api.rest_api as rest_api
-import gulp.defs
+import gulp.structs
 import gulp.utils
-from gulp.api.collab.base import GulpCollabType, GulpUserPermission
-from gulp.api.collab.session import GulpUserSession
-from gulp.api.collab.stats import GulpStats
-from gulp.api.elastic.query import QueryResult
 from gulp.api.rest import ws as ws_api
 from gulp.plugin import GulpPluginBase
 from gulp.utils import GulpLogger
@@ -167,10 +163,10 @@ class Plugin(GulpPluginBase):
 
     async def example_extension_handler(
         self,
-        token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-        operation_id: Annotated[str, Query(description=gulp.defs.API_DESC_OPERATION)],
-        client_id: Annotated[str, Query(description=gulp.defs.API_DESC_CLIENT)],
-        ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+        token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+        operation_id: Annotated[str, Query(description=gulp.structs.API_DESC_OPERATION)],
+        client_id: Annotated[str, Query(description=gulp.structs.API_DESC_CLIENT)],
+        ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
         req_id: Annotated[str, Query(description=muty.jsend.API_DESC_REQID)] = None,
     ) -> JSendResponse:
         req_id = gulp.utils.ensure_req_id(req_id)
@@ -191,8 +187,8 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Extension example."
 
-    def type(self) -> gulp.defs.GulpPluginType:
-        return gulp.defs.GulpPluginType.EXTENSION
+    def type(self) -> gulp.structs.GulpPluginType:
+        return gulp.structs.GulpPluginType.EXTENSION
 
     def display_name(self) -> str:
         return "extension_example"

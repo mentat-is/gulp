@@ -18,12 +18,12 @@ from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpAssociatedEvent, GulpCollabFilter, GulpCollabType
 from gulp.api.collab.base import GulpCollabObject
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 
 _app: APIRouter = APIRouter()
 
@@ -51,9 +51,9 @@ _app: APIRouter = APIRouter()
     description="available filters: id, owner_id, operation_id, context, src_file, name, events, limit, offset",
 )
 async def story_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -82,9 +82,9 @@ async def story_list_handler(
     summary="get story.",
 )
 async def story_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     story_id: Annotated[int, Query(description="id of the story to be retrieved.")],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -115,10 +115,10 @@ async def story_get_by_id_handler(
     summary="deletes a story",
 )
 async def story_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_DELETE_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_EDIT_TOKEN)],
     story_id: Annotated[int, Query(description="id of the story to be deleted.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -149,9 +149,9 @@ async def story_delete_handler(
     summary="updates an existing story.",
 )
 async def story_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     story_id: Annotated[int, Query(description="id of the story to be updated.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     events: Annotated[list[GulpAssociatedEvent], Body()] = None,
     name: Annotated[str, Query(description="optional new name.")] = None,
     description: Annotated[str, Body()] = None,
@@ -163,8 +163,8 @@ async def story_update_handler(
         str,
         Query(description="optional new story color in #rrggbb or css-name format."),
     ] = None,
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -222,10 +222,10 @@ async def story_update_handler(
     summary="creates a story from a list of events.",
 )
 async def story_create_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_EDIT_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
     operation_id: Annotated[int, Query(description="operation related to the story.")],
     name: Annotated[str, Query(description="name for the story.")],
-    ws_id: Annotated[str, Query(description=gulp.defs.API_DESC_WS_ID)],
+    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     events: Annotated[list[GulpAssociatedEvent], Body()],
     description: Annotated[str, Body()] = None,
     glyph_id: Annotated[
@@ -237,8 +237,8 @@ async def story_create_handler(
             description='optional color in #rrggbb or css-name format, default is "blue". '
         ),
     ] = "blue",
-    private: Annotated[bool, Query(description=gulp.defs.API_DESC_PRIVATE)] = False,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

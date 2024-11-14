@@ -18,7 +18,7 @@ from muty.jsend import JSendException, JSendResponse
 import gulp.api.collab_api as collab_api
 
 import gulp.config
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils as gulp_utils
 from gulp.api.collab.base import GulpUserPermission
@@ -107,8 +107,8 @@ _app: APIRouter = APIRouter()
     summary="list available plugins.",
 )
 async def plugin_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp_utils.ensure_req_id(req_id)
@@ -142,7 +142,7 @@ async def plugin_list_handler(
     summary="get plugin content (i.e. for editing and reupload).",
 )
 async def plugin_get_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     plugin: Annotated[
         str,
         Query(
@@ -150,10 +150,10 @@ async def plugin_get_handler(
         ),
     ],
     plugin_type: Annotated[
-        gulp.defs.GulpPluginType,
-        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
-    ] = gulp.defs.GulpPluginType.INGESTION,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+        gulp.structs.GulpPluginType,
+        Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
+    ] = gulp.structs.GulpPluginType.INGESTION,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp_utils.ensure_req_id(req_id)
@@ -196,7 +196,7 @@ async def plugin_get_handler(
     summary="deletes an existing plugin file.",
 )
 async def plugin_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     plugin: Annotated[
         str,
         Query(
@@ -204,10 +204,10 @@ async def plugin_delete_handler(
         ),
     ],
     plugin_type: Annotated[
-        gulp.defs.GulpPluginType,
-        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
-    ] = gulp.defs.GulpPluginType.INGESTION,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+        gulp.structs.GulpPluginType,
+        Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
+    ] = gulp.structs.GulpPluginType.INGESTION,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
@@ -251,7 +251,7 @@ async def plugin_delete_handler(
 )
 async def plugin_upload_handler(
     token: Annotated[
-        str, Header(description=gulp.defs.API_DESC_TOKEN + " with EDIT permission")
+        str, Header(description=gulp.structs.API_DESC_TOKEN + " with EDIT permission")
     ],
     plugin: Annotated[UploadFile, File(description="the plugin file")],
     filename: Annotated[
@@ -261,13 +261,13 @@ async def plugin_upload_handler(
         ),
     ],
     plugin_type: Annotated[
-        gulp.defs.GulpPluginType,
-        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
-    ] = gulp.defs.GulpPluginType.INGESTION,
+        gulp.structs.GulpPluginType,
+        Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
+    ] = gulp.structs.GulpPluginType.INGESTION,
     allow_overwrite: Annotated[
         bool, Query(description="if set, will overwrite an existing plugin file.")
     ] = True,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
@@ -282,12 +282,12 @@ async def plugin_upload_handler(
         if not filename.lower().endswith(".py") and not filename.lower().endswith(
             ".pyc"
         ):
-            raise gulp.defs.InvalidArgument("plugin must be a .py/.pyc file.")
+            raise gulp.structs.InvalidArgument("plugin must be a .py/.pyc file.")
 
         if not allow_overwrite:
             # overwrite disabled
             if os.path.exists(plugin_path):
-                raise gulp.defs.ObjectAlreadyExists(
+                raise gulp.structs.ObjectAlreadyExists(
                     "plugin %s already exists." % (filename)
                 )
 
@@ -322,13 +322,13 @@ async def plugin_upload_handler(
     summary="get tags for the given plugin, if they are set: this allow to better identify plugin capabilities.",
 )
 async def plugin_tags_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    plugin: Annotated[str, Query(description=gulp.defs.API_DESC_PLUGIN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    plugin: Annotated[str, Query(description=gulp.structs.API_DESC_PLUGIN)],
     plugin_type: Annotated[
-        gulp.defs.GulpPluginType,
-        Query(description=gulp.defs.API_DESC_PLUGIN_TYPE),
-    ] = gulp.defs.GulpPluginType.INGESTION,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+        gulp.structs.GulpPluginType,
+        Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
+    ] = gulp.structs.GulpPluginType.INGESTION,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp_utils.ensure_req_id(req_id)
@@ -362,8 +362,8 @@ async def plugin_tags_handler(
     summary="get gULP version.",
 )
 async def get_version_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
@@ -401,9 +401,9 @@ async def get_version_handler(
 )
 async def mapping_file_upload_handler(
     token: Annotated[
-        str, Header(description=gulp.defs.API_DESC_TOKEN + " with EDIT permission.")
+        str, Header(description=gulp.structs.API_DESC_TOKEN + " with EDIT permission.")
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
     mapping_file: Annotated[
         UploadFile, File(description="the mapping json file")
     ] = None,
@@ -418,13 +418,13 @@ async def mapping_file_upload_handler(
         )
         filename = os.path.basename(mapping_file.filename)
         if not filename.lower().endswith(".json"):
-            raise gulp.defs.InvalidArgument("mapping_file must be a JSON file.")
+            raise gulp.structs.InvalidArgument("mapping_file must be a JSON file.")
 
         full_mapping_file_path = GulpConfig.build_mapping_file_path(filename)
         if not allow_overwrite:
             # overwrite disabled
             if os.path.exists(full_mapping_file_path):
-                raise gulp.defs.ObjectAlreadyExists(
+                raise gulp.structs.ObjectAlreadyExists(
                     "mapping file %s already exists." % (filename)
                 )
 
@@ -559,8 +559,8 @@ async def mapping_file_upload_handler(
     summary="lists available mapping files.",
 )
 async def mapping_file_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
@@ -619,11 +619,11 @@ async def mapping_file_list_handler(
     description="file content is returned as base64.",
 )
 async def mapping_file_get_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     mapping_file: Annotated[
         str, Query(description='the mapping file to get (i.e. "windows.json")')
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:
@@ -664,11 +664,11 @@ async def mapping_file_get_handler(
     summary="deletes an existing mapping file.",
 )
 async def mapping_file_delete_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     mapping_file: Annotated[
         str, Query(description='the mapping file to delete (i.e. "windows.json")')
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp_utils.ensure_req_id(req_id)
     try:

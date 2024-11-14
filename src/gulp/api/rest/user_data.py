@@ -17,14 +17,14 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 import gulp.api.collab_api as collab_api
-import gulp.defs
+import gulp.structs
 import gulp.plugin
 import gulp.utils
 from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_data import GulpUserData
-from gulp.defs import InvalidArgument
+from gulp.structs import InvalidArgument
 
 _app: APIRouter = APIRouter()
 
@@ -57,7 +57,7 @@ _app: APIRouter = APIRouter()
     summary="updates an existing `user_data` object associated with an user.",
 )
 async def user_data_update_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     user_data_id: Annotated[
         int, Query(description="ID of the user_data object to update.")
     ],
@@ -71,7 +71,7 @@ async def user_data_update_handler(
             description="if set, the ID of the user to update `user_data` into (if different from `token.user_id`, then `token` must be an ADMIN token). either, `token.user_id` is used."
         ),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -127,9 +127,9 @@ async def user_data_update_handler(
     description="available filters: id, owner_id, name, operation_id, limit, offset.",
 )
 async def user_data_list_handler(
-    token: Annotated[str, Header(description=gulp.defs.API_DESC_ADMIN_TOKEN)],
+    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
     flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     req_id = gulp.utils.ensure_req_id(req_id)
     try:
@@ -177,12 +177,12 @@ async def user_data_list_handler(
 async def user_data_get_by_id_handler(
     token: Annotated[
         str,
-        Header(description=gulp.defs.API_DESC_TOKEN),
+        Header(description=gulp.structs.API_DESC_TOKEN),
     ],
     user_data_id: Annotated[
         int, Query(description="ID of the user_data object to get.")
     ],
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -237,7 +237,7 @@ async def user_data_create_handler(
     name: Annotated[
         str, Query(description="name for the new `user_data` object (must be unique).")
     ],
-    operation_id: Annotated[int, Query(description=gulp.defs.API_DESC_OPERATION)],
+    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
     data: Annotated[dict, Body()],
     user_id: Annotated[
         int,
@@ -245,7 +245,7 @@ async def user_data_create_handler(
             description="if set, the ID of the user to associate this data with (if different from `token.user_id`, then `token` must be an ADMIN token). either, `token.user_id` is used."
         ),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)
@@ -298,7 +298,7 @@ async def user_data_delete_handler(
             description="if set, the ID of the user to delete this `user_data` from (if different from `token.user_id`, then `token` must be an ADMIN token). either, `token.user_id` is used."
         ),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.defs.API_DESC_REQID)] = None,
+    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
 
     req_id = gulp.utils.ensure_req_id(req_id)

@@ -11,7 +11,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpDocumentsChunk
 from elasticsearch import AsyncElasticsearch
 from sigma.backends.opensearch import OpensearchLuceneBackend
-from gulp.plugin_params import GulpPluginParameters
+from gulp.structs import GulpPluginParameters
 
 
 class GulpConvertedSigma(BaseModel):

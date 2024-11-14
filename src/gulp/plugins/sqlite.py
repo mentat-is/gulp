@@ -14,7 +14,7 @@ from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
-from gulp.defs import GulpPluginType, InvalidArgument
+from gulp.structs import GulpPluginType, InvalidArgument
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 from gulp.config import GulpConfig

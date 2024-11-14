@@ -15,7 +15,7 @@ from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataTy
 from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
 )
-from gulp.defs import ObjectNotFound
+from gulp.structs import ObjectNotFound
 from gulp.utils import GulpLogger
 
 from elasticsearch import AsyncElasticsearch
