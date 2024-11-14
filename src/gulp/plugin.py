@@ -1,6 +1,8 @@
 """Gulp plugin base class and plugin utilities.
 """
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import ipaddress
 import json
 import os
@@ -16,19 +18,15 @@ import muty.log
 import muty.string
 import muty.time
 from sigma.collection import SigmaCollection
-from sigma.backends.opensearch import OpensearchLuceneBackend
-from sigma.rule import SigmaRule
 from gulp.api.collab.note import GulpNote
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
     GulpDocumentFilterResult,
     GulpIngestionFilter,
-    GulpQueryFilter,
 )
 from gulp.api.opensearch.query import GulpConvertedSigma, GulpQueryExternalParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.config import GulpConfig
-from gulp import config as gulp_utils
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.opensearch.structs import (
@@ -48,7 +46,7 @@ from gulp.structs import (
     GulpPluginSigmaSupport,
 )
 from gulp.utils import GulpLogger
-from sigma.conversion.base import Backend, ProcessingPipeline
+from sigma.conversion.base import Backend
 from gulp.config import GulpConfig
 
 class GulpPluginCache:
@@ -137,7 +135,7 @@ class GulpPluginBase(ABC):
 
         # load with ignore_cache=True, pickled=True
         extension = GulpPluginType.EXTENSION in self.type()
-        return (GulpPluginBase.load, (self.path, extension, True, True), self.__dict__)
+        return (GulpPluginBase.load_sync, (self.path, extension, True, True), self.__dict__)
 
     def __init__(
         self,
@@ -160,6 +158,7 @@ class GulpPluginBase(ABC):
 
         # tell if the plugin has been pickled by the multiprocessing module (internal)
         self._pickled = pickled
+        
         # if set, this plugin have another plugin on top
         self._stacked = False
         # plugin file path
@@ -1154,6 +1153,43 @@ class GulpPluginBase(ABC):
         return await _path_by_name_internal(name, GulpConfig.get_instance().path_plugins())
 
     @staticmethod
+    def load_sync(
+        plugin: str,
+        extension: bool = False,
+        ignore_cache: bool = False,
+        *args,
+        **kwargs,
+    ) -> "GulpPluginBase":
+        """
+        same as calling load, but synchronous.
+
+        Args:
+            plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
+            extension (bool, optional): Whether the plugin is an extension. Defaults to False.
+            ignore_cache (bool, optional): Whether to ignore the cache. Defaults to False.
+            *args: Additional arguments (args[0]: pickled).
+            **kwargs: Additional keyword arguments.
+        """
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If there's already a running event loop, run the coroutine in a separate thread
+            from gulp.process import GulpProcess
+            executor = GulpProcess.get_instance().thread_pool
+            future = executor.submit(
+                asyncio.run,
+                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+            )
+            return future.result()
+        else:
+            # Otherwise, create a new event loop to run the coroutine
+            return loop.run_until_complete(
+                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+            )
+
+        #return asyncio.run(
+        #    GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+        #)
+    @staticmethod
     async def load(
         plugin: str,
         extension: bool = False,
@@ -1198,8 +1234,9 @@ class GulpPluginBase(ABC):
 
         # load from file
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
-        p: GulpPluginBase = m.Plugin(path, _pickled=pickled, **kwargs)
-        GulpLogger.get_logger().debug(f"loaded plugin m={m}, p={p}, name()={p.name}")
+        GulpLogger.get_logger().debug(f"loading plugin m={m}, pickled={pickled}, kwargs={kwargs}")        
+        p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
+        GulpLogger.get_logger().debug(f"LOADED plugin m={m}, p={p}, name()={p.name}")
         GulpPluginCache().add(m, bare_name)
         return p
 
@@ -1272,4 +1309,4 @@ class GulpPluginBase(ABC):
             l.append(n)
             await p.unload()
 
-        return l
+        return lqqqq

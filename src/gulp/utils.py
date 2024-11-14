@@ -58,6 +58,7 @@ class GulpLogger:
             level = logging.DEBUG
 
         self._logger = self.create(log_file_path=log_file_path, level=level, prefix=prefix)
+        # self._logger.warning("reconfigured logger %s, level=%d, file_path=%s" % (self._logger, self._logger.level, log_file_path))        
 
     def create(self,
         log_file_path: str = None,
@@ -77,7 +78,7 @@ class GulpLogger:
         self.log_file_path = log_file_path
         if level is None:
             level = logging.DEBUG
-            
+
         n = "gulp"
         if log_file_path:
             # if log_to_file is not None, build the filename
@@ -89,11 +90,6 @@ class GulpLogger:
                 log_file_path = muty.file.safe_path_join(d, filename)
 
         l = muty.log.configure_logger(name=n, log_file=log_file_path, level=level, use_multiline_formatter=True)
-
-        l.warning(
-            "created logger %s, level=%d, file_path=%s"
-            % (l, l.level, log_file_path)
-        )
 
         # also reconfigure muty logger with the same level
         muty.log.internal_logger(

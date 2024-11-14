@@ -124,7 +124,7 @@ class GulpConfig:
         """
         config_file_path = self.path_config()
 
-        GulpLogger.get_logger().info("configuration path: %s" % (config_file_path))
+        # GulpLogger.get_logger().info("configuration path: %s" % (config_file_path))
 
         if not os.path.exists(config_file_path):
             # copy default configuration file
@@ -586,7 +586,7 @@ class GulpConfig:
                 p = default_path
 
         pp = os.path.expanduser(p)
-        GulpLogger.get_logger().debug("plugins path: %s" % (pp))    
+        #GulpLogger.get_logger().debug("plugins path: %s" % (pp))    
         if extension:
             return muty.file.safe_path_join(pp, "extension")
         return pp
@@ -646,7 +646,7 @@ class GulpConfig:
                 return None
         
         pp = os.path.expanduser(p)
-        GulpLogger.get_logger().debug("certs directory: %s" % (pp))
+        # GulpLogger.get_logger().debug("certs directory: %s" % (pp))
         return pp
 
 

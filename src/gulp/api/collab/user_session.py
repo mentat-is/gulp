@@ -71,7 +71,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         Raises:
             ObjectNotFound: if the user session is not found.
         """
-        GulpLogger.get_logger().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
+        # GulpLogger.get_logger().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
         if GulpConfig.get_instance().debug_allow_any_token_as_admin():
             # return an admin session
             from gulp.api.collab.user import GulpUser
@@ -81,9 +81,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
                 id="admin", sess=sess, throw_if_not_found=False)
             if admin_user.session:
                 # already exists
-                GulpLogger.get_logger().debug(
-                    "debug_allow_any_token_as_admin, reusing existing admin session: %s" % (admin_user.session)
-                )
+                #GulpLogger.get_logger().debug("debug_allow_any_token_as_admin, reusing existing admin session: %s" % (admin_user.session))
                 return admin_user.session
             else:
                 # create a new admin session
@@ -107,7 +105,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         sess: AsyncSession = None,
         throw_on_no_permission: bool = True) -> "GulpUserSession":
         """
-        Check if the user represented by token has the required permissions.
+        Check if the user represented by token is logged in and has the required permissions.
 
         Args:
             token (str): The token representing the user's session.
@@ -116,7 +114,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
         
         Returns:
-            GulpUserSession: The user session object.
+            GulpUserSession: The user session object (includes GulpUser object).
 
         Raises:
             MissingPermission: If the user does not have the required permissions.
@@ -129,6 +127,9 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         from gulp.api.collab.user import GulpUser
         u: GulpUser = user_session.user
         if u.has_permission(permission):
+            GulpLogger.get_logger().debug(
+                "OK! User %s has the required permissions %s to perform this operation." % (user_session.user_id, permission)
+            )
             return user_session
         
         if throw_on_no_permission:

@@ -53,7 +53,6 @@ class GulpRestServer():
             self._log_file_path = None
             self._reset_collab = False
             self._reset_index = None
-            self._first_run = False
             self._shutdown: bool = False
             self._extension_plugins: list[GulpPluginBase] = []
 
@@ -105,7 +104,7 @@ class GulpRestServer():
         """
         GulpLogger.get_logger().debug("unloading extension plugins ...")
         for p in self._extension_plugins:
-            p.unload()
+            await p.unload()
         self._extension_plugins = []
 
 
@@ -244,6 +243,17 @@ class GulpRestServer():
         _app.include_router(gulp_ws.router())
         """
         pass
+    
+    def add_api_route(self, path: str, handler: callable, **kwargs):
+        """
+        add a new API route, just bridges to FastAPI.add_api_route
+
+        Args:
+            path (str): the path
+            handler: the handler
+            **kwargs: additional arguments to FastAPI.add_api_route
+        """
+        self._app.add_api_route(path, handler, **kwargs)
 
     def start(self, log_file_path: str=None, reset_collab: bool = False, reset_index: str = None):
         """
@@ -354,7 +364,7 @@ class GulpRestServer():
             GulpLogger.get_logger().info("not first run")
 
         # init the main process
-        await main_process.init_gulp_process(is_main_process=True)
+        await main_process.init_gulp_process()
 
         # check for reset flags
         try:

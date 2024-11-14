@@ -11,13 +11,19 @@ import muty.uploadfile
 from fastapi import Header, Query
 from muty.jsend import JSendException, JSendResponse
 
-import gulp.api.collab_api as collab_api
-import gulp.api.ws_api
-import gulp.api.rest_api as rest_api
-import gulp.structs
-import gulp.utils
-from gulp.api.rest import ws as ws_api
+from gulp.api.collab.stats import GulpIngestionStats
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.rest_api import GulpRestServer
+from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.plugin import GulpPluginBase
+from gulp.process import GulpProcess
+from gulp.structs import (
+    API_DESC_OPERATION,
+    API_DESC_REQ_ID,
+    API_DESC_TOKEN,
+    API_DESC_WS_ID,
+    GulpPluginType,
+)
 from gulp.utils import GulpLogger
 
 """
@@ -40,104 +46,84 @@ class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
+        pickled: bool = False,
         **kwargs,
     ) -> None:
-        super().__init__(path, **kwargs)
+
+        # extensions must support pickling
+        super().__init__(path, pickled, **kwargs)
+        GulpLogger.get_logger().debug("path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs))
+
         # add api routes for this plugin
-        if not self._check_pickled():
+        if not self._pickled:
             # in the first init, add api routes (we are in the MAIN process here)
             self._add_api_routes()
             GulpLogger.get_logger().debug(
-                "%s extension plugin initialized, aiopool=%s, executor=%s, fastapi_app=%s"
-                % (
-                    self.display_name(),
-                    rest_api.aiopool(),
-                    rest_api.process_executor(),
-                    rest_api.fastapi_app(),
-                )
+                "%s extension plugin initialized" % (self.display_name)
             )
         else:
             # in the re-init, we are in the worker process here
-            GulpLogger.get_logger().debug("%s extension plugin re-initialized" % self.display_name())
+            GulpLogger.get_logger().debug(
+                "%s extension plugin re-initialized" % self.display_name()
+            )
 
     async def _run_in_worker(
         self,
-        user_id: int,
-        operation_id: int,
-        client_id: int,
+        user_id: str,
+        operation: str,
         ws_id: str,
         req_id: str,
         **kwargs,
-    ) -> QueryResult:
-        GulpLogger.get_logger().debug(
-            "IN WORKER PROCESS, for user_id=%s, operation_id=%s, client_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation_id, client_id, ws_id, req_id)
+    ) -> dict:
+        GulpLogger.get_logger().error(
+            "IN WORKER PROCESS, for user_id=%s, operation=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation, ws_id, req_id)
         )
-        ws_api.shared_queue_add_data(
-            gulp.api.ws_api.WsQueueDataType.QUERY_RESULT,
-            req_id,
-            {"hellooooooooooooo": "wooooooooorld"},
-            ws_id=ws_id,
-        )
-
-        return QueryResult(query_raw={"result": "example"})
-
+        GulpSharedWsQueue.get_instance().put(WsQueueDataType.COLLAB_UPDATE, req_id=req_id, ws_id=ws_id, user_id="dummy", data={"hello": "world"}, ) 
+        return {'done': True}
+    
     async def _example_task(
         self,
-        user_id: int,
-        operation_id: int,
-        client_id: int,
+        user_id: str,
+        operation: str,
         ws_id: str,
         req_id: str,
         **kwargs,
     ):
+        GulpLogger.get_logger().error(
+            "IN MAIN PROCESS, for user_id=%s, operation=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation, ws_id, req_id)
+        )
         # create an example stats
         try:
-            await GulpStats.create(
-                await gulp.api.collab_api.collab(),
-                GulpCollabType.STATS_QUERY,
-                req_id,
-                ws_id,
-                operation_id,
-                client_id,
-            )
+            await GulpIngestionStats.create_or_get(req_id, source_total=33)
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex
 
-        # then run internal function in one of the tasks of the worker processes
+        # spawn coro in worker process
         tasks = []
-        executor = rest_api.process_executor()
         GulpLogger.get_logger().debug(
-            "spawning process for extension example for user_id=%s, operation_id=%s, client_id=%s, ws_id=%s, req_id=%s, executor=%s"
-            % (user_id, operation_id, client_id, ws_id, req_id, executor)
+            "spawning process for extension example for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation, ws_id, req_id)
         )
         try:
             tasks.append(
-                executor.apply(
-                    self._run_in_worker,
-                    (
-                        user_id,
-                        operation_id,
-                        client_id,
-                        ws_id,
-                        req_id,
-                    ),
+                GulpProcess.get_instance().process_pool.apply(self._run_in_worker,
+                                                              (user_id, operation, ws_id, req_id)
                 )
             )
 
             # and async wait for it to finish
-            qr: QueryResult = await asyncio.gather(*tasks, return_exceptions=True)
-            print(qr)
+            res = await asyncio.gather(*tasks, return_exceptions=True)
+            GulpLogger.get_logger().error("extension example done: %s" % res)
+
         except Exception as ex:
             GulpLogger.get_logger().exception(ex)
             raise JSendException(req_id=req_id, ex=ex) from ex
 
     def _add_api_routes(self):
-        # setup own router
-        fa = rest_api.fastapi_app()
-
         # add /example_extension API
-        fa.add_api_route(
+        GulpRestServer.get_instance().add_api_route(
             "/example_extension",
             self.example_extension_handler,
             methods=["PUT"],
@@ -163,32 +149,28 @@ class Plugin(GulpPluginBase):
 
     async def example_extension_handler(
         self,
-        token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-        operation_id: Annotated[str, Query(description=gulp.structs.API_DESC_OPERATION)],
-        client_id: Annotated[str, Query(description=gulp.structs.API_DESC_CLIENT)],
-        ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
-        req_id: Annotated[str, Query(description=muty.jsend.API_DESC_REQID)] = None,
+        token: Annotated[str, Header(description=API_DESC_TOKEN)],
+        operation: Annotated[str, Query(description=API_DESC_OPERATION)],
+        ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
+        req_id: Annotated[str, Query(description=API_DESC_REQ_ID)] = None,
     ) -> JSendResponse:
-        req_id = gulp.utils.ensure_req_id(req_id)
+        req_id = GulpRestServer.ensure_req_id()
 
         try:
-            user, session = await GulpUserSession.check_token(
-                await collab_api.session(), token, GulpUserPermission.READ
-            )
-            user_id = session.user_id
+            session = await GulpUserSession.check_token_permission(token)
+        
+            # spawn coroutine in the main process, will run asap
+            coro = self._example_task(session.user_id, operation, ws_id, req_id)
+            await GulpProcess.get_instance().coro_pool.spawn(coro)
+            return muty.jsend.pending_jsend(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex
-
-        # run task in the background of the MAIN process
-        coro = self._example_task(user_id, operation_id, client_id, ws_id, req_id)
-        await rest_api.aiopool().spawn(coro)
-        return muty.jsend.pending_jsend(req_id=req_id)
 
     def desc(self) -> str:
         return "Extension example."
 
-    def type(self) -> gulp.structs.GulpPluginType:
-        return gulp.structs.GulpPluginType.EXTENSION
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.EXTENSION
 
     def display_name(self) -> str:
         return "extension_example"

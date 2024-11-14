@@ -86,7 +86,7 @@ class GulpOpenSearch:
         host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
         ca = None
         certs_dir = GulpConfig.get_instance().path_certs()
-        if certs_dir is not None and parsed.scheme.lower() == "https":
+        if certs_dir and parsed.scheme.lower() == "https":
             # https and certs_dir is set
             ca: str = muty.file.abspath(
                 muty.file.safe_path_join(certs_dir, "os-ca.pem")

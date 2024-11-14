@@ -100,9 +100,7 @@ class GulpCollab:
             sslmode = "verify-full"
         else:
             sslmode = "prefer"
-        GulpLogger.get_logger().debug(
-            "---> collab: creating AsyncEngine connection, sslmode=%s..." % (sslmode)
-        )
+        # GulpLogger.get_logger().debug("---> collab: creating AsyncEngine connection, sslmode=%s..." % (sslmode))
 
         if certs_dir is not None and postgres_ssl:
             # https and certs_dir is set

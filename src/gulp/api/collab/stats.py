@@ -32,11 +32,13 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
 
     operation: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
+        nullable=True,
         default=None,
         doc="The operation associated with the stats.",
     )
-    context: Mapped[str] = mapped_column(
+    context: Mapped[Optional[str]] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
+        nullable=True,
         default=None,
         doc="The context associated with the stats.",
     )
