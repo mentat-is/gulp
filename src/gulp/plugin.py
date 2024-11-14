@@ -409,7 +409,7 @@ class GulpPluginBase(ABC):
         **kwargs,
     ) -> None:
         """
-        query an external source and stream results, converted to gulpdocuments, to the websocket.
+        query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
 
         optionally ingest them.
 
@@ -442,26 +442,25 @@ class GulpPluginBase(ABC):
         self._user_id = user
         self._operation = operation
         self._log_file_path = source
+
+        # setup internal state to be able to call process_record as during ingestion
+        self._stats_enabled = False        
         if ingest_index:
-            # ingest during query, but external query do not have stats
+            # ingest during query
             self._index = ingest_index
             self._ingestion_enabled = True
-            self._stats_enabled = False
-            sigma = query.model_extra.get("sigma", False)
-            if sigma:
-                self._query_create_notes = query.model_extra.get(
-                    "sigma_create_notes", True
-                )
-                self._note_title = query.model_extra.get("note_title", None)
-                self._note_color = query.model_extra.get("note_color", None)
-                self._note_tags = query.model_extra.get("note_tags", None)
-                self._note_glyph = query.model_extra.get("note_glyph", None)
+            self._query_create_notes = query.sigma_parameters.create_notes
+            if self._query_create_notes:
+                # this is a sigma query
+                self._note_title = query.sigma_parameters.note_title
+                self._note_color = query.sigma_parameters.note_color
+                self._note_tags = query.sigma_parameters.note_glyph
+                self._note_glyph = query.sigma_parameters.note_tags
 
         else:
-            # just query, no ingestion and no stats
+            # just query, no ingestion
             self._ingestion_enabled = False
-            self._stats_enabled = False
-
+        
         GulpLogger.get_logger().debug(
             f"querying external source with plugin {self.name}, user={user}, operation={operation}, ws_id={ws_id}, req_id={req_id}"
         )
@@ -469,7 +468,7 @@ class GulpPluginBase(ABC):
     async def query_external_single(
         self,
         req_id: str,
-        id_and_params: GulpQueryExternalParameters,
+        query: GulpQueryExternalParameters,
         plugin_params: GulpPluginParameters = None,
     ) -> dict:
         """
@@ -477,7 +476,7 @@ class GulpPluginBase(ABC):
 
         Args:
             req_id (str): the request id
-            id (GulpExternalQuery): set `query` to the id of the single document to query here.
+            query (GulpExternalQuery): `query.query` must be set to the `id` of the single document to query here.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
@@ -490,7 +489,7 @@ class GulpPluginBase(ABC):
             - implementers must call super().query_external first then _initialize().<br>
         """
         GulpLogger.get_logger().debug(
-            f"querying external source with plugin {self.name}, req_id={req_id}, id_and_params={id_and_params}"
+            f"querying external source with plugin {self.name}, req_id={req_id}, id_and_params={query}"
         )
         return {}
 
@@ -519,6 +518,7 @@ class GulpPluginBase(ABC):
         el = GulpOpenSearch.get_instance()
         skipped: int=0
         ingested_docs: list[dict]=[]
+        
         # GulpLogger.get_logger().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
         if self._ingestion_enabled:
             # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
@@ -575,25 +575,17 @@ class GulpPluginBase(ABC):
             self._chunks_ingested += 1
 
             if self._query_create_notes:
-                # create notes during external query with ingestion
-                default_tags = ["auto"]
-                if self._note_tags:
-                    # add the default tags if not already present
-                    tags = list(default_tags.union(tag.lower() for tag in self._note_tags))
-                else:
-                    tags = list(default_tags)
-
-                    # create a note for each document
-                    GulpNote.bulk_create_from_documents(
-                        req_id=self._req_id,
-                        ws_id=self._ws_id,
-                        user_id=self._user_id,
-                        docs=data,
-                        title=self._note_title,
-                        tags=tags,
-                        color=self._note_color,
-                        glyph=self._note_glyph,
-                    )
+                # auto-create notes during external query with ingestion (this is a sigma query)
+                GulpNote.bulk_create_from_documents(
+                    req_id=self._req_id,
+                    ws_id=self._ws_id,
+                    user_id=self._user_id,
+                    docs=data,
+                    title=self._note_title,
+                    tags=self._note_tags,
+                    color=self._note_color,
+                    glyph=self._note_glyph,
+                )
 
         return len(ingested_docs), skipped
 
@@ -810,7 +802,10 @@ class GulpPluginBase(ABC):
         wait_for_refresh: bool = False,
     ) -> None:
         """
-        Processes a single record by converting it to one or more documents and ingesting them.
+        Processes a single record by converting it to one or more documents.
+         
+        the document is then sent to the configured websocket and, if enabled, ingested in the configured opensearch index.
+
         Args:
             stats (GulpIngestionStats): The ingestion statistics object to update.
             record (any): The record to process.
@@ -822,9 +817,10 @@ class GulpPluginBase(ABC):
         """
         ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
 
-        # process record, initialize
         self._records_processed += 1
         self._extra_docs = []
+
+        # process this record and generate one or more gulpdocument dictionaries
         try:
             docs = await self._record_to_gulp_documents_wrapper(record, record_idx)
         except Exception as ex:
@@ -837,14 +833,16 @@ class GulpPluginBase(ABC):
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
-                # flush to opensearch and update stats
+                
+                # flush to opensearch (ingest and ws)
                 ingested, skipped = await self._flush_buffer(flt, wait_for_refresh)
+
                 # update stats
                 GulpLogger.get_logger().debug(
                     "updating stats, processed=%d, ingested=%d, skipped=%d"
                     % (self._records_processed, ingested, skipped)
                 )
-                if self._ingestion_enabled and self._stats_enabled:
+                if self._stats_enabled:
                     # update stats
                     await stats.update(
                         ws_id=self._ws_id,
@@ -1080,7 +1078,7 @@ class GulpPluginBase(ABC):
             "INGESTION SOURCE DONE: %s" % (self._log_file_path)
         )
         ingested, skipped = await self._flush_buffer(flt, wait_for_refresh=True)
-        if self._ingestion_enabled and self._stats_enabled:
+        if self._stats_enabled:
             return await stats.update(
                 ws_id=self._ws_id,
                 source_processed=1,
@@ -1112,7 +1110,7 @@ class GulpPluginBase(ABC):
             "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._log_file_path, err)
         )
 
-        if self._ingestion_enabled and self._stats_enabled:
+        if self._stats_enabled:
             # update and force-flush stats
             err = "source=%s, %s" % (self._log_file_path or "-", err)
             return await stats.update(ws_id=self._ws_id, source_failed=1, error=err)

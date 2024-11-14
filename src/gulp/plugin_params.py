@@ -1,7 +1,7 @@
 import json
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, SkipValidation, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation, model_validator
 from gulp.api.mapping.models import GulpMapping
 
 class GulpPluginParameters(BaseModel):
@@ -11,9 +11,7 @@ class GulpPluginParameters(BaseModel):
     this may also include GulpPluginAdditionalParameter.name entries specific to the plugin
     """
 
-    class Config:
-        # allow extra fields in the model
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     mapping_file: Optional[str] = Field(
         None,

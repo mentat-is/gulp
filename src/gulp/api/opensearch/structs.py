@@ -5,7 +5,7 @@ import muty.crypto
 import muty.dict
 import muty.string
 import muty.time
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
@@ -77,10 +77,9 @@ T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
 
 class GulpBasicDocument(BaseModel):
-    class Config:
-        extra = "allow"
-        # solves the issue of not being able to populate fields with the same name as the model fields (aliasing)
-        populate_by_name = True 
+    model_config = ConfigDict(extra="allow",
+                              # solves the issue of not being able to populate fields using field name instead of alias
+                              populate_by_name=True)
 
     """
     a stripped down basic version of a Gulp document, used to associate documents with a note/link

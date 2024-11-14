@@ -1,8 +1,8 @@
 import json
-from typing import Any, Optional, Union
+from typing import Any, Optional, Self, Union
 
 import muty.string
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.user_session import GulpUserSession
@@ -25,15 +25,49 @@ class GulpConvertedSigma(BaseModel):
     backend: str = Field(..., description="the backend used to convert the sigma rule.")
     pipeline: str = Field(..., description="the pipeline used to convert the sigma rule.")
 
+class GulpSigmaQueryParameters(BaseModel):
+    """
+    represents options for a sigma query.
+    """
+    create_notes: bool = Field(
+        True,
+        description="if set, create notes on match",
+    )
+    note_title: str = Field(
+        None,
+        description="the title of the note to create on match, defaults=sigma rule title",
+    )
+    note_tags: list[str] = Field(
+        None,
+        description="the tags of the note to create, default=[\"auto\"]",
+    )
+    note_color: str = Field(
+        None,
+        description="the color of the note to create, default=use notes default",
+    )
+    note_glyph: str = Field(
+        None,
+        description="id of the glyph of the note to create, default=use glyphs default",
+    )
+    pipeline: str = Field(
+        None,
+        description="the pipeline to use when converting the sigma rule, default=plugin's default",
+    )
+    backend: str = Field(
+        None,
+        description="the backend to use when converting the sigma rule, default=plugin's default",
+    )
+    output_format: str = Field(
+        None,
+        description="the output format to use when converting the sigma rule, default=plugin's default",
+    )
+
 class GulpQueryExternalParameters(BaseModel):
     """
     Parameters to query an external system.
-
-    may also include the same extra fields as `GulpQueryAdditionalParameters` in `model_extra`.
     """
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     uri: str = Field(
         ...,
@@ -60,24 +94,27 @@ class GulpQueryExternalParameters(BaseModel):
         True,
         description="if set, the query will be repeated in a loop until the external system returns no more results.",
     )
-    
+    sigma_parameters: Optional[GulpSigmaQueryParameters] = Field(
+        None,
+        description="if set, this is a sigma query and these are the additional parameters.",
+    )
+
 class GulpQueryAdditionalParameters(BaseModel):
     """
     additional options for a query.
 
     may include the following extra fields in `model_extra`:
-        - sigma: bool: if set, the query is a sigma query (this is automatically set by the sigma query functions)
-        - sigma_create_notes: bool: if set, create notes on sigma query match (default True)
-        - note_title: str: the title of the note to create on match, mandatory if sigma is set.
-        - note_tags: list[str], optional: the tags of the note to create
-        - note_color: str, optional: the color of the note to create
-        - note_glyph: str, optional: id of the glyph of the note to create.
-        - sigma_pipeline: str, optional: the pipeline to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
-        - sigma_backend: str, optional: the backend to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
-        - sigma_output_format: str, optional: the output format to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
+        - sigma_parameters: GulpSigmaQueryParameter
+        - sigma_create_notes: bool: if set, this is a sigma query and indicates to create notes on match
+        - note_title: str: for sigma queries, the title of the note to create on match, mandatory if sigma is set.
+        - note_tags: list[str], optional: for sigma queries, the tags of the note to create
+        - note_color: str, optional: for sigma queries, the color of the note to create
+        - note_glyph: str, optional: for sigma queries, id of the glyph of the note to create.
+        - sigma_pipeline: str, optional: for sigma queries, the pipeline to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
+        - sigma_backend: str, optional: for sigma queries, the backend to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
+        - sigma_output_format: str, optional: for sigma queries, the output format to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
     """
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     sort: Optional[dict[str, GulpSortOrder]] = Field(
         default={"@timestamp": "asc", "_id": "asc", "event.sequence": "asc"},
@@ -103,6 +140,10 @@ class GulpQueryAdditionalParameters(BaseModel):
     loop: Optional[bool] = Field(
         True,
         description="if set, keep querying until all documents are returned (default=True, ignores `search_after`).",
+    )
+    sigma_parameters: Optional[GulpSigmaQueryParameters] = Field(
+        None,
+        description="if set, this is a sigma query and these are the additional parameters.",
     )
 
     def parse(self) -> dict:
@@ -249,6 +290,10 @@ class GulpQuery:
             MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
         """
+        if not options:
+            options = GulpQueryAdditionalParameters()
+        options.sigma_parameters=None
+        
         dsl = flt.to_opensearch_dsl()
         return await GulpQuery.query_raw(
             token=token,
@@ -334,21 +379,22 @@ class GulpQuery:
         if not options:
             options = GulpQueryAdditionalParameters()
         
+        if not options.sigma_parameters:
+            options.sigma_parameters = GulpSigmaQueryParameters()
+
         queries:list[GulpConvertedSigma] = GulpQuery.query_sigma_build(
             sigma=sigma,
             plugin=plugin,
             referenced_sigma=referenced_sigma,
             backend="opensearch",
-            pipeline=options.model_extra.get('sigma_pipeline', None),
+            pipeline=options.sigma_parameters.pipeline,
             output_format="dsl_lucene",
         )
         
-        options.model_extra['sigma'] = True
-        options.model_extra['sigma_create_notes'] = options.model_extra.get('sigma_create_notes', True)
         for q in queries:
             # perform queries
-            options.model_extra['note_title'] = q.title
-            options.model_extra['note_tags'] = q.tags
+            options.sigma_parameters.note_title = q.title
+            options.sigma_parameters.note_tags = q.tags
             return await GulpQuery.query_raw(
                 token=None,
                 user_id=user_id,
@@ -391,8 +437,11 @@ class GulpQuery:
         """
         # get stored query by id
         q: GulpStoredQuery = await GulpStoredQuery.get_one_by_id(id)
+        if not options:
+            options = GulpQueryAdditionalParameters()
+        options.sigma_parameters = None
+
         if q.converted:
-            # already converted to dsl
             return await GulpQuery.query_raw(
                 token=token,
                 req_id=req_id,
@@ -403,7 +452,7 @@ class GulpQuery:
                 options=options,
                 el=el,
             )
-        raise ValueError("stored query must be preprocessed first")
+        raise ValueError("query.converted is not set, stored query must be preprocessed first")
 
     @staticmethod
     async def query_external(
@@ -439,13 +488,14 @@ class GulpQuery:
             - implementers must call super().query_external first then _initialize().<br>
         """
         user_id = await GulpQuery._get_requestor_user_id(token)
-        
+                
         try:
             # load plugin
             from gulp.plugin import GulpPluginBase
             p = await GulpPluginBase.load(plugin)
 
             # query
+            query.sigma_parameters=None
             await p.query_external(
                 req_id=req_id,
                 ws_id=ws_id,
@@ -466,7 +516,7 @@ class GulpQuery:
         token: str,
         req_id: str,
         plugin: str,
-        id_and_params: GulpQueryExternalParameters,
+        query: GulpQueryExternalParameters,
         plugin_params: GulpPluginParameters = None,
     ) -> dict:
         """
@@ -474,7 +524,7 @@ class GulpQuery:
 
         Args:
             req_id (str): the request id
-            id (GulpExternalQuery): set `query` to the id of the single document to query here.
+            query (GulpExternalQuery): set `query.query` to the `id` of the single document to query here.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
@@ -495,9 +545,10 @@ class GulpQuery:
             p = await GulpPluginBase.load(plugin)
 
             # query
+            query.sigma_parameters=None
             return await p.query_external_single(
                 req_id=req_id,
-                id_and_params=id_and_params,
+                query=query,
                 plugin_params=plugin_params,
             )
         finally:
@@ -531,7 +582,6 @@ class GulpQuery:
             plugin(str): the plugin to use to query the external source, must implement `query_external`
             sigma (str): the sigma rule YAML
             query (GulpExternalQuery): includes the query and all the necessary parameters to communicate with the external source.
-                refer to `GulpQueryAdditionalParameters` for more details about sigma rule options
             referenced_sigma(list[str], optional): if any, each element is a sigma rule YAML referenced by `name` in the main sigma rule
             ingest_index(str, optional): if set, a gulp index to ingest the results to (to perform direct ingestion into gulp during query)
 
@@ -539,24 +589,24 @@ class GulpQuery:
             - implementers must call super().query_external first then _initialize().<br>
         """
         user_id = await GulpQuery._get_requestor_user_id(token)
+        if not query.sigma_parameters:
+            query.sigma_parameters = GulpSigmaQueryParameters()
 
         # convert sigma
         queries:list[GulpConvertedSigma] = await GulpQuery.query_sigma_build(
             sigma=sigma,
             plugin=plugin,
             referenced_sigma=referenced_sigma,
-            backend=query.model_extra.get('sigma_backend', None),
-            pipeline=query.model_extra.get('sigma_pipeline', None),
-            output_format=query.model_extra.get('sigma_output_format', None),
+            backend=query.sigma_parameters.backend,
+            pipeline=query.sigma_parameters.pipeline,
+            output_format=query.sigma_parameters.output_format,
         )
 
-        query.model_extra['sigma'] = True
-        if ingest_index:
-            query.model_extra['sigma_create_notes'] = query.model_extra.get('sigma_create_notes', True)
-        else:
-            # no ingestion, no notes
-            query.model_extra['sigma_create_notes'] = False
-
+        # if ingesting to our index, by default sigma note creation is set unless explicitly set to False
+        if not ingest_index:
+            # either, no ingestion=no notes
+            query.sigma_parameters.create_notes = False
+            
         try:
             # load plugin
             from gulp.plugin import GulpPluginBase
@@ -565,8 +615,8 @@ class GulpQuery:
             # query
             for q in queries:
                 # perform queries
-                query.model_extra['note_title'] = q.title
-                query.model_extra['note_tags'] = q.tags
+                query.sigma_parameters.note_title = q.title
+                query.sigma_parameters.note_tags = q.tags
                 query.query = q.q
                 await p.query_external(
                     req_id=req_id,

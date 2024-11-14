@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from fastapi import WebSocket
 import muty
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.utils import GulpLogger
 from multiprocessing.managers import SyncManager
@@ -55,8 +55,7 @@ class GulpDocumentsChunk(BaseModel):
     
     """
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     docs: list[dict] = Field(
         ...,

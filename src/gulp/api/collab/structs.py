@@ -3,7 +3,7 @@ import json
 from typing import List, Optional, TypeVar, override
 import muty.string
 import muty.time
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy import (
     ARRAY,
@@ -112,8 +112,7 @@ class GulpCollabFilter(BaseModel):
 
     allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
     """
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
         
     id: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     type: Optional[list[GulpCollabType]] = Field(

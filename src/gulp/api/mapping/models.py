@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 """
 mapping files structure:
@@ -40,8 +40,7 @@ class GulpMappingField(BaseModel):
     defines how to map a single field, including field-specific options.
     """
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     ecs: Optional[list[str]] = Field(None,
         description="one or more ECS field names to map the source field to in the resulting document.",
@@ -62,8 +61,7 @@ class GulpMapping(BaseModel):
     defines a logsource -> gulp document mapping
     """
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     fields: Optional[dict[str, GulpMappingField]] = Field({},
         description="field mappings { raw_field: { GulpMappingField } } to translate a logsource to gulp document.",
@@ -97,8 +95,7 @@ class GulpMappingFileMetadata(BaseModel):
     """
     metadata for a mapping file.
     """
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
     
     plugin: list[str] = Field(...,
         description="one or more plugin names that this mapping file is associated with.",
@@ -108,8 +105,7 @@ class GulpMappingFile(BaseModel):
     a mapping file, containing one or more GulpMapping objects.
     """
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
     mappings: dict[str, GulpMapping] = Field(...,
         description="defined mappings for this mapping file, key is the `mapping_id`", min_length=1,

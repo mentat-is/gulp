@@ -18,7 +18,7 @@ from gulp.api import opensearch_api
 from gulp.api.mapping.models import GulpMapping
 from gulp.plugin_params import GulpPluginParameters
 from gulp.utils import GulpLogger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import BIGINT, ForeignKey, String
@@ -144,8 +144,7 @@ level: low
 
 async def testbed():
     class MyModel(BaseModel):
-        class Config:
-            extra = "allow"
+        model_config = ConfigDict(extra="allow")
         field1: str = Field(..., description="required field", min_length=1)
         field2: str = Field("default", description="test field1")
 
@@ -160,8 +159,7 @@ async def testbed():
             print('dumped model after setting model_extra', m)
 
     class TestPydanticClass(BaseModel):
-        class Config:
-            extra = "allow"
+        model_config = ConfigDict(extra="allow")
         field_required: dict = Field(..., description="required field", min_length=1)
         field2: str = Field("default", description="test field1")
         field1: int = Field("default", description="test field2")

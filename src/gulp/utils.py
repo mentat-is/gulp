@@ -35,6 +35,7 @@ class GulpLogger:
         """
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
+            cls._instance._initialize()
         return cls._instance
     
     @classmethod

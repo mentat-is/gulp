@@ -1,5 +1,5 @@
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 from typing import Optional, override
@@ -22,8 +22,8 @@ class GulpBaseDocumentFilter(BaseModel):
     """
     base class for Gulp filters acting on documents.
     """
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
+
     time_range: Optional[tuple[int|str, int|str, bool]] = Field(
         None,
         description="include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.<br>"

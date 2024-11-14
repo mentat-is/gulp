@@ -1011,13 +1011,12 @@ class GulpOpenSearch:
         if not options:
             options = GulpQueryAdditionalParameters()
 
-        sigma = options.model_extra.get("sigma", False)
         sigma_create_notes = options.model_extra.get("sigma_create_notes", True)
         note_title = options.model_extra.get("note_title", None)
         note_color = options.model_extra.get("note_color", None)
         note_tags = options.model_extra.get("note_tags", None)
         note_glyph = options.model_extra.get("note_glyph", None)
-        if sigma and not note_title:
+        if sigma_create_notes and not note_title:
             raise ValueError("note_title is required for a sigma query")
 
         use_elasticsearch_api = False
@@ -1110,22 +1109,15 @@ class GulpOpenSearch:
                 data=chunk.model_dump(exclude_none=True),
             )
 
-            if sigma_create_notes and sigma:
-                default_tags = ["auto"]
-                if note_tags:
-                    # add the default tags if not already present
-                    tags = list(default_tags.union(tag.lower() for tag in note_tags))
-                else:
-                    tags = list(default_tags)
-
-                # create a note for each of the matched document on collab db
+            if sigma_create_notes:
+                # this is a sigma, auto-create a note for each of the matched document on collab db
                 GulpNote.bulk_create_from_documents(
                     req_id=req_id,
                     ws_id=ws_id,
                     user_id=user_id,
                     docs=docs,
                     title=note_title,
-                    tags=tags,
+                    tags=note_tags,
                     color=note_color,
                     glyph=note_glyph,
                 )

@@ -105,7 +105,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             user_id(str): the requestor user id
             docs(list[dict]): the list of GulpDocument dictionaries to be added to the note
             title(str): the title of the note
-            tags(list[str], optional): the tags of the note
+            tags(list[str], optional): the tags of the note: if not set, ["auto"] is automatically set here.
             color(str, optional): the color of the note
             glyph(str, optional): the id of the glyph of the note
 
@@ -113,6 +113,13 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             the number of notes created
 
         """
+        default_tags = ["auto"]
+        if tags:
+            # add the default tags if not already present
+            tags = list(default_tags.union(tag.lower() for tag in tags))
+        else:
+            tags = list(default_tags)
+
         async with GulpCollab.get_instance().session() as sess:
             color = color or "yellow"
             
