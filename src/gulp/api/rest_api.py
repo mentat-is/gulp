@@ -50,7 +50,7 @@ class GulpRestServer():
         if not hasattr(self, "_initialized"):
             self._initialized = True            
             self._app = None
-            self._log_file_path = None
+            self._logger_file_path = None
             self._reset_collab = False
             self._reset_index = None
             self._shutdown: bool = False
@@ -258,16 +258,16 @@ class GulpRestServer():
         """
         self._app.add_api_route(path, handler, **kwargs)
 
-    def start(self, log_file_path: str=None, reset_collab: bool = False, reset_index: str = None):
+    def start(self, logger_file_path: str=None, reset_collab: bool = False, reset_index: str = None):
         """
         starts the server.
 
         Args:
-            log_file_path (str, optional): path to the log file.
+            logger_file_path (str, optional): path to the logger file.
             reset_collab (bool, optional): if True, the collab database will be reset on start.
             reset_index (str, optional): name of the OpenSearch/Elasticsearch index to reset (if --reset-data is provided on the commandline).
         """
-        self._log_file_path = log_file_path
+        self._logger_file_path = logger_file_path
         self._reset_collab = reset_collab
         self._reset_index = reset_index
 
@@ -300,7 +300,7 @@ class GulpRestServer():
         self._add_routers()
 
         address, port = GulpConfig.get_instance().bind_to()
-        GulpLogger.get_logger().info("starting server at %s, port=%d, log_file_path=%s, reset_collab=%r, reset_index=%s ..." % (address, port, log_file_path, reset_collab, reset_index))
+        GulpLogger.get_logger().info("starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, reset_index=%s ..." % (address, port, logger_file_path, reset_collab, reset_index))
         
         if cfg.enforce_https():
             GulpLogger.get_logger().info("enforcing HTTPS ...")

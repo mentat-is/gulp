@@ -93,7 +93,7 @@ class GulpProcess:
         GulpLogger.get_logger().exception("WORKER EXCEPTION: %s" % (ex))
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, log_level: int = None, log_file_path: str = None):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, log_level: int = None, logger_file_path: str = None):  # type: ignore
         """
         initializes a worker process
 
@@ -104,21 +104,21 @@ class GulpProcess:
             lock (Lock): shared lock for spawned_processes (for ordered initialization)
             q (Queue): the shared websocket queue created by the main process
             log_level (int, optional): the log level. Defaults to None.
-            log_file_path (str, optional): the log file path. Defaults to None.
+            logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
         """
         p = GulpProcess.get_instance()
-        asyncio.run(p.init_gulp_process(log_level=log_level, log_file_path=log_file_path, q=q))
+        asyncio.run(p.init_gulp_process(log_level=log_level, logger_file_path=logger_file_path, q=q))
 
         # done
         lock.acquire()
         spawned_processes.value += 1
         lock.release()
         GulpLogger.get_logger().warning(
-            "workerprocess initializer DONE, sys.path=%s, logger level=%d, log_file_path=%s, spawned_processes=%d, ws_queue=%s"
+            "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s"
             % (
                 sys.path,
                 GulpLogger.get_logger().level,
-                log_file_path,
+                logger_file_path,
                 spawned_processes.value,
                 q,
             )
@@ -189,7 +189,7 @@ class GulpProcess:
                 lock,
                 q,
                 GulpLogger.get_logger().level,
-                GulpLogger.get_instance().log_file_path,
+                GulpLogger.get_instance().logger_file_path,
             ),
         )
 
@@ -203,17 +203,17 @@ class GulpProcess:
             "all %d processes spawned!" % (spawned_processes.value)
         )        
 
-    async def init_gulp_process(self, log_level: int=None, log_file_path: str=None, is_main_process: bool=True, q: Queue=None) -> None:
+    async def init_gulp_process(self, log_level: int=None, logger_file_path: str=None, is_main_process: bool=True, q: Queue=None) -> None:
         """
         initializes main or worker gulp process
 
         Args:
             log_level (int, optional): the log level for the logger. Defaults to None.
-            log_file_path (str, optional): the log file path for the logger. Defaults to None.
+            logger_file_path (str, optional): the log file path for the logger. Defaults to None.
             q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
         """
-        GulpLogger.get_instance().reconfigure(log_file_path=log_file_path, level=log_level)
+        GulpLogger.get_instance().reconfigure(logger_file_path=logger_file_path, level=log_level)
         
         # only in a worker process we're passed the queue by the process pool initializer
         self._main_process = (q is None)

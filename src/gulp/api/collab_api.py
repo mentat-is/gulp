@@ -1,3 +1,4 @@
+import json
 import os
 import pkgutil
 
@@ -392,12 +393,15 @@ class GulpCollab:
             context_id=context.id,
             operation_id=operation.id,
         )
+
+        # add sources to context and context to operation
         await GulpContext.add_source(context.id, source_a.id, operation_id=operation.id)
         await GulpContext.add_source(context.id, source_b.id, operation_id=operation.id)
         await GulpOperation.add_context(operation.id, context.id)
         from gulp.api.collab.structs import GulpCollabFilter
-        ctx = await GulpContext.get(GulpCollabFilter(id=[context.id], operation_id=[operation.id]))
-        print(ctx)
+        ctx = await GulpContext.get_one(GulpCollabFilter(id=[context.id], operation_id=[operation.id]))        
+        js = json.dumps(ctx.to_dict(nested=True), indent=4)
+        GulpLogger.get_logger().info(f"test context dump:\n{js}")
 
         # create other users
         guest_user = await GulpUser.create(

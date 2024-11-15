@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T, GulpUserPermission
 from gulp.api.collab_api import GulpCollab
 from gulp.api.collab.context import GulpContext
 from gulp.utils import GulpLogger
@@ -27,7 +27,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     )
 
     # multiple sources can be associated with an operation
-    source: Mapped[Optional[list[GulpSource]]] = relationship(
+    sources: Mapped[Optional[list[GulpSource]]] = relationship(
         "GulpSource",
         back_populates="operation",
         cascade="all, delete-orphan",
@@ -35,7 +35,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     )
 
     # multiple contexts can be associated with an operation
-    context: Mapped[Optional[list[GulpContext]]] = relationship(
+    contexts: Mapped[Optional[list[GulpContext]]] = relationship(
         "GulpContext",
         back_populates="operation",
         cascade="all, delete-orphan",
@@ -65,13 +65,13 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             op = await sess.get(GulpOperation, operation_id)
             if not op:
                 raise ValueError(f"operation id={operation_id} not found.")
-            ctx = await sess.get(GulpContext, context_id)
+            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
             if not ctx:
-                raise ValueError(f"context id={context_id} not found.")
+                raise ValueError(f"context id={context_id}, {operation_id} not found.")
             
             # link
-            await op.awaitable_attrs.context
-            op.context.append(ctx)
+            await op.awaitable_attrs.contexts
+            op.contexts.append(ctx)
             await sess.commit()
             GulpLogger.get_logger().info(f"context {context_id} added to operation {operation_id}.")
 
@@ -89,13 +89,13 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 op = await sess.get(GulpOperation, operation_id)
                 if not op:
                     raise ValueError(f"operation id={operation_id} not found.")
-                ctx = await sess.get(GulpContext, context_id)
+                ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
                 if not ctx:
-                    raise ValueError(f"context id={context_id} not found.")
+                    raise ValueError(f"context id={context_id}, {operation_id} not found.")
             
                 # unlink
-                await op.awaitable_attrs.context        
-                op.context.remove(ctx)
+                await op.awaitable_attrs.contexts        
+                op.contexts.remove(ctx)
                 await sess.commit()
                 GulpLogger.get_logger().info(f"context id={context_id} removed from operation {operation_id}.")                
 

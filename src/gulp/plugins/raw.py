@@ -39,7 +39,7 @@ class Plugin(GulpPluginBase):
         req_id: str,
         client_id: int,
         operation_id: int,
-        context: str,
+        context_id: str,
         source: str | list[dict],
         ws_id: str,
         plugin_params: GulpPluginParameters = None,
@@ -52,7 +52,7 @@ class Plugin(GulpPluginBase):
             req_id=req_id,
             client_id=client_id,
             operation_id=operation_id,
-            context_id=context,
+            context_id=context_id,
             source=source,
             ws_id=ws_id,
             plugin_params=plugin_params,
@@ -78,12 +78,12 @@ class Plugin(GulpPluginBase):
             if "event.original" not in evt:
                 ori = str(evt)
                 evt["event.original"] = ori
-            if "gulp.operation.id" not in evt:
-                evt["gulp.operation.id"] = operation_id
+            if "gulp.operation_id.id" not in evt:
+                evt["gulp.operation_id.id"] = operation_id
             if "agent.id" not in evt:
                 evt["agent.id"] = client_id
-            if "gulp.context" not in evt:
-                evt["gulp.context"] = context
+            if "gulp.context_id" not in evt:
+                evt["gulp.context_id"] = context_id
             if "agent.type" not in evt:
                 evt["agent.type"] = self.display_name()
             if "event.hash" not in evt:

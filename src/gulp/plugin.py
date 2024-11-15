@@ -180,6 +180,8 @@ class GulpPluginBase(ABC):
         self._context_id: str = None
         # current log file path
         self._log_file_path: str = None
+        # current source id
+        self._source_id: str = None
         # opensearch index to operate on
         self._index: str = None
         # this is retrieved from the index to check types during ingestion
@@ -550,7 +552,7 @@ class GulpPluginBase(ABC):
 
         ws_docs = [
             # use only a minimal fields set to avoid sending too much data to the ws
-            {field: doc[field] for field in QUERY_DEFAULT_FIELDS}
+            {field: doc[field] for field in QUERY_DEFAULT_FIELDS if field in doc}
             for doc in ingested_docs
             if GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
             == GulpDocumentFilterResult.ACCEPT
@@ -596,6 +598,7 @@ class GulpPluginBase(ABC):
         index: str,
         operation_id: str,
         context_id: str,
+        source_id: str,
         log_file_path: str,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
@@ -605,12 +608,13 @@ class GulpPluginBase(ABC):
 
         Args:
             req_id (str): The request ID.
-            ws_id (str): The websocket ID.
-            user_id (str): The user performing the ingestion.
+            ws_id (str): The websocket ID to stream on
+            user_id (str): The user performing the ingestion (id on collab database)
             index (str): The name of the target opensearch/elasticsearch index or datastream.
-            operation_id (str): The operation.
-            context_id (str): The context.
-            log_file_path (str): The path to the log file.
+            operation_id (str): id of the operation on collab database.
+            context_id (str): id of the context on collab database.
+            source_id (str): id of the source on collab database.
+            log_file_path (str): The path to the log file currently being ingested.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
 
@@ -628,8 +632,9 @@ class GulpPluginBase(ABC):
         self._context_id = context_id
         self._index = index
         self._log_file_path = log_file_path
+        self._source_id = source_id
         GulpLogger.get_logger().debug(
-            f"ingesting file {log_file_path} with plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting file source_id={source_id}, log_file_path={log_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
         return GulpRequestStatus.ONGOING
 

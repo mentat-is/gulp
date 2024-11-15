@@ -9,13 +9,14 @@ from typing import Optional, override
 QUERY_DEFAULT_FIELDS = [
     "_id",
     "@timestamp",
-    "gulp.timestamp",
-    "gulp.operation",
-    "gulp.context",
-    "log.file.path",
     "event.duration",
     "event.code",
-    "gulp.event.code",
+    "gulp.timestamp",
+    'gulp.timestamp_invalid',
+    "gulp.operation_id",
+    "gulp.context_id",
+    "gulp.source_id",
+    "gulp.event_code",
 ]
 
 class GulpBaseDocumentFilter(BaseModel):
@@ -117,7 +118,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                     "agent_type": ["winlogbeat"],
                     "operation": ["test"],
                     "context": ["testcontext"],
-                    "log_file_path": ["test.log"],
+                    "source_id": ["test.log"],
                     "event_original": ["test event", True],
                     "event_code": ["5152"],
                 }
@@ -135,15 +136,15 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     )
     operation_id: Optional[list[str]] = Field(
         None,
-        description="include documents  matching the given `gulp.operation`/s.",
+        description="include documents  matching the given `gulp.operation_id`/s.",
     )
     context_id: Optional[list[str]] = Field(
         None,
-        description="include documents matching the given `gulp.context`/s.",
+        description="include documents matching the given `gulp.context_id`/s.",
     )
-    log_file_path: Optional[list[str]] = Field(
+    source_id: Optional[list[str]] = Field(
         None,
-        description="include documents matching the given `log.file.path`/s.",
+        description="include documents matching the given `gulp.source_id`/s.",
     )
     event_code: Optional[list[str]] = Field(
         None,
@@ -214,7 +215,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             {
                 "query": {
                     "query_string": {
-                        "query": "agent.type: \"winlogbeat\" AND gulp.operation: \"test\" AND gulp.context: \"testcontext\" AND log.file.path: \"test.log\" AND _id: \"testid\" AND event.original: \"test event\" AND event.code: \"5152\" AND @timestamp: >=1609459200000 AND @timestamp: <=1609545600000",
+                        "query": "agent.type: \"winlogbeat\" AND gulp.operation_id: \"test\" AND gulp.context_id: \"testcontext\" AND gulp.source_id: \"test.log\" AND _id: \"testid\" AND event.original: \"test event\" AND event.code: \"5152\" AND @timestamp: >=1609459200000 AND @timestamp: <=1609545600000",
                         "analyze_wildcard": true,
                         "default_field": "_id"
                     }
@@ -227,11 +228,11 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             if self.agent_type:
                 clauses.append(self._query_string_build_or_clauses("agent.type", self.agent_type))
             if self.operation_id:
-                clauses.append(self._query_string_build_or_clauses("gulp.operation", self.operation_id))
+                clauses.append(self._query_string_build_or_clauses("gulp.operation_id", self.operation_id))
             if self.context_id:
-                clauses.append(self._query_string_build_or_clauses("gulp.context", self.context_id))
-            if self.log_file_path:
-                clauses.append(self._query_string_build_or_clauses("log.file.path", self.log_file_path))
+                clauses.append(self._query_string_build_or_clauses("gulp.context_id", self.context_id))
+            if self.source_id:
+                clauses.append(self._query_string_build_or_clauses("gulp.source_id", self.source_id))
             if self.id:
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
@@ -322,7 +323,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                         self.id,
                         self.operation_id,
                         self.context_id,
-                        self.log_file_path,
+                        self.source_id,
                         self.event_code,
                         self.event_original,
                         self.time_range,

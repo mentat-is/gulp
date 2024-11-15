@@ -350,6 +350,8 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
             self.records_processed += records_processed
             self.records_ingested += records_ingested
             if error:                
+                if not self.errors:
+                    self.errors = []
                 if isinstance(error, Exception):
                     #GulpLogger.get_logger().error(f"PRE-COMMIT: ex error={error}")
                     error = str(error)

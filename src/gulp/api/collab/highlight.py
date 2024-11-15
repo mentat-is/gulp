@@ -1,7 +1,7 @@
 from typing import Optional, override
-from sqlalchemy import String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column,relationship
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 
 
@@ -14,10 +14,10 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         JSONB,
         doc="The time range of the highlight, in nanoseconds from unix epoch.",
     )
-    log_file_path: Mapped[Optional[str]] = mapped_column(
-        String, default=None, doc="The associated log file path or name."
+    source_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("source.id", ondelete="CASCADE"),
+        doc="The associated GulpSource id."
     )
-
     @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
@@ -29,7 +29,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         token: str,
         operation_id: str,
         time_range: tuple[int, int],
-        log_file_path: str,
+        source_id: str,
         glyph_id: str = None,
         color: str = None,
         tags: list[str] = None,
@@ -47,7 +47,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             token(str): the token of the user creating the object, for access check
             operation_id(str): the id of the operation associated with the highlight
             time_range(tuple[int, int]): the time range of the highlight (start, end, in nanoseconds from unix epoch)
-            log_file_path(str): the associated log file path or source name
+            source_id(str): the associated log file path or source name
             glyph_id(str, optional): the id of the glyph associated with the highlight
             color(str, optional): the color associated with the highlight (default: green)
             tags(list[str], optional): the tags associated with the highlight
@@ -64,7 +64,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         args = {
             "operation_id": operation_id,
             "time_range": time_range,
-            "log_file_path": log_file_path,
+            "source_id": source_id,
             "glyph_id": glyph_id,
             "color": color or "green",
             "tags": tags,

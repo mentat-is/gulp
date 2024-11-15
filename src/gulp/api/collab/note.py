@@ -25,7 +25,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         ForeignKey("context.id", ondelete="CASCADE"),
         doc="The context associated with the note.",
     )
-    log_file_path: Mapped[Optional[str]] = mapped_column(
+    source_id: Mapped[Optional[str]] = mapped_column(
         String, doc="The log file path (source) associated with the note."
     )
     documents: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
@@ -130,15 +130,15 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                     id=doc.get('_id'),
                     timestamp=doc.get('@timestamp'),
                     gulp_timestamp=doc.get('gulp.timestamp'),
-                    invalid_timestamp=doc.get('gulp.invalid.timestamp', False),
-                    operation_id=doc.get('gulp.operation'),
-                    context_id=doc.get('gulp.context'),
-                    log_file_path=doc.get('log.file.path'),
+                    invalid_timestamp=doc.get('gulp.timestamp_invalid', False),
+                    operation_id=doc.get('gulp.operation_id'),
+                    context_id=doc.get('gulp.context_id'),
+                    source_id=doc.get('gulp.source_id'),
                 )
                 args = {
                     "operation_id": associated_doc.operation_id,
                     "context_id": associated_doc.context_id,
-                    "log_file_path": associated_doc.log_file_path,
+                    "source_id": associated_doc.source_id,
                     "documents": [associated_doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)],
                     "glyph_id": glyph_id,
                     "color": color,
@@ -182,7 +182,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         title: str,
         operation_id: str,
         context_id: str,
-        log_file_path: str,
+        source_id: str,
         documents: list[GulpBasicDocument],
         text: str,
         description: str = None,
@@ -202,7 +202,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             title(str): the title of the note
             operation_id(str): the id of the operation associated with the note
             context_id(str): the id of the context associated with the note
-            log_file_path(str): the log file path (or source) associated with the note
+            source_id(str): the log file path (or source) associated with the note
             documents(list[GulpBasicDocument]): the list of documents associated with the note
             text(str): the text of the note
             description(str, optional): the description of the note
@@ -218,7 +218,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         args = {
             "operation_id": operation_id,
             "context_id": context_id,
-            "log_file_path": log_file_path,
+            "source_id": source_id,
             "documents": documents,
             "glyph_id": glyph_id,
             "color": color or "yellow",

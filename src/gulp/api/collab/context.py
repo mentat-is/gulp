@@ -1,3 +1,4 @@
+import json
 from typing import Optional, Union, override
 
 from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
@@ -20,7 +21,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     """
     operation: Mapped["GulpOperation"] = relationship(
         "GulpOperation",
-        back_populates="context",
+        back_populates="contexts",
         doc="The operation associated with the context.",
     )
     operation_id: Mapped[Optional[str]] = mapped_column(
@@ -29,7 +30,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     )
     
     # multiple sources can be associated with a context
-    source: Mapped[Optional[list[GulpSource]]] = relationship(
+    sources: Mapped[Optional[list[GulpSource]]] = relationship(
         "GulpSource",
         back_populates="context",
         cascade="all, delete-orphan",
@@ -67,16 +68,18 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             operation_id (str): The id of the operation.
         """
         async with GulpCollab.get_instance().session() as sess:            
-            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]))
+            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
             if not ctx:
                 raise ValueError(f"context id={context_id}, {operation_id} not found.")
-            src:GulpSource = await GulpSource.get_one(GulpCollabFilter(id=[source_id], context_id=[context_id], operation_id=[operation_id]))
+            src:GulpSource = await GulpSource.get_one(GulpCollabFilter(id=[source_id], context_id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
             if not src:
                 raise ValueError(f"source id={source_id}, {context_id}, {operation_id} not found.")
     
             # link
-            ctx.source.append(src)
+            await ctx.awaitable_attrs.sources
+            ctx.sources.append(src)
             await sess.commit()
+            #print(json.dumps(ctx.to_dict(nested=True), indent=4))
             GulpLogger.get_logger().info(f"source id={source_id} added to context {context_id}.")
 
     @staticmethod
@@ -90,16 +93,16 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             operation_id (str): The id of the operation.
         """
         async with GulpCollab.get_instance().session() as sess:
-            ctx = await sess.get(GulpContext, (context_id, operation_id))
+            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
             if not ctx:
                 raise ValueError(f"context id={context_id}, {operation_id} not found.")
-            src = await sess.get(GulpSource, (source_id, context_id, operation_id))
+            src:GulpSource = await GulpSource.get_one(GulpCollabFilter(id=[source_id], context_id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
             if not src:
                 raise ValueError(f"source id={source_id}, {context_id}, {operation_id} not found.")
-            
+                
             # unlink
-            await ctx.awaitable_attrs.source 
-            ctx.source.remove(src)
+            await ctx.awaitable_attrs.sources
+            ctx.sources.remove(src)
             await sess.commit()
             GulpLogger.get_logger().info(f"source id={source_id} removed from context {context_id}.")
 

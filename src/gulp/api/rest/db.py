@@ -282,7 +282,7 @@ async def elastic_delete_index_handler(
                         "req_id": "45db2622-dd8d-43c2-ab7b-d60af82fa114",
                         "data": {
                             "@timestamp": "date",
-                            "gulp.event.code": "long",
+                            "gulp.event_code": "long",
                             "event.sequence": "long",
                             "agent.build.original": "keyword",
                             "agent.ephemeral_id": "keyword",
@@ -336,7 +336,7 @@ async def elastic_get_mapping_handler(
                         "req_id": "45db2622-dd8d-43c2-ab7b-d60af82fa114",
                         "data": {
                             "@timestamp": "date",
-                            "gulp.event.code": "long",
+                            "gulp.event_code": "long",
                             "event.sequence": "long",
                             "agent.build.original": "keyword",
                             "agent.ephemeral_id": "keyword",
@@ -358,10 +358,10 @@ async def elastic_get_mapping_by_source_handler(
     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
     context_id: Annotated[
-        str, Query(description='the "gulp.context" to return the mapping for.')
+        str, Query(description='the "gulp.context_id" to return the mapping for.')
     ],
     src: Annotated[
-        str, Query(description='the "log.file.path" to return the mapping for.')
+        str, Query(description='the "gulp.source_id" to return the mapping for.')
     ],
     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
@@ -483,7 +483,7 @@ async def gulp_init_handler(
                             "mappings": {
                                 "properties": {
                                     "@timestamp": {"type": "date"},
-                                    "gulp.event.code": {"type": "long"},
+                                    "gulp.event_code": {"type": "long"},
                                     "event.sequence": {"type": "long"},
                                     "agent.build.original": {"type": "keyword"},
                                     "agent.ephemeral_id": {"type": "keyword"},

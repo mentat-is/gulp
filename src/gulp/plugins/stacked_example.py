@@ -93,20 +93,22 @@ class Plugin(GulpPluginBase):
         index: str,
         operation_id: str,
         context_id: str,
+        source_id: str,
         log_file_path: str,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
-            req_id,
-            ws_id,
-            user_id,
-            index,
-            operation_id,
-            context_id,
-            log_file_path,
-            plugin_params,
-            flt,
+            req_id= req_id,
+            ws_id=ws_id,
+            user_id=user_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            log_file_path=log_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
         )
 
         # initialize stats
@@ -117,7 +119,17 @@ class Plugin(GulpPluginBase):
         # set as stacked
         try:
             lower = await self.setup_stacked_plugin('csv')
-            return await lower.ingest_file(req_id, ws_id, user_id, index, operation_id, context_id, log_file_path, plugin_params, flt)
+            return await lower.ingest_file(
+                req_id=req_id, 
+                ws_id=ws_id, 
+                user_id=user_id, 
+                index=index, 
+                operation_id=operation_id, 
+                context_id=context_id, 
+                source_id=source_id,
+                log_file_path=log_file_path, 
+                plugin_params=plugin_params, 
+                flt=flt)
         except Exception as ex:
             await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED

@@ -43,7 +43,7 @@ _opt_index = os.environ.get('GULP_INDEX', 'testidx')
 _opt_gulp_integration_test = os.environ.get('GULP_INTEGRATION_TEST', False)
 _operation_id='test_operation'
 _context_id='test_context'
-_source='test_source'
+_source_id='test_source'
 _test_req_id='test_req_id'
 _test_ws_id='test_ws_id'
 _guest_user='guest'
@@ -286,7 +286,16 @@ async def test_ingest_windows():
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
         _test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
     
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file)
+    params = None
+    await plugin.ingest_file(_test_req_id, 
+                             _test_ws_id, 
+                             _guest_user, 
+                             _opt_index, 
+                             _operation_id, 
+                             _context_id, 
+                             _source_id,
+                             file, plugin_params=params)
+
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -307,7 +316,15 @@ async def test_ingest_csv():
     
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp")
     params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file, plugin_params=params)
+    await plugin.ingest_file(_test_req_id, 
+                             _test_ws_id, 
+                             _guest_user, 
+                             _opt_index, 
+                             _operation_id, 
+                             _context_id, 
+                             _source_id,
+                             file, plugin_params=params)
+    
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -327,7 +344,14 @@ async def test_ingest_csv_with_mappings():
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
 
     params: GulpPluginParameters = GulpPluginParameters(mapping_file="mftecmd_csv.json", mapping_id="record")
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file, plugin_params=params)
+    await plugin.ingest_file(_test_req_id, 
+                             _test_ws_id, 
+                             _guest_user, 
+                             _opt_index, 
+                             _operation_id, 
+                             _context_id, 
+                             _source_id,
+                             file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -348,7 +372,15 @@ async def test_ingest_csv_stacked():
 
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp", agent_type="mftecmd", event_code="j")
     params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file, plugin_params=params)
+    await plugin.ingest_file(_test_req_id, 
+                             _test_ws_id, 
+                             _guest_user, 
+                             _opt_index, 
+                             _operation_id, 
+                             _context_id, 
+                             _source_id,
+                             file, plugin_params=params)
+    
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -361,15 +393,16 @@ async def test_bulk_insert():
             "_id": "1",
             "@timestamp": "2016-11-17T16:54:58.794249+00:00",
             "gulp.timestamp": 1479401698794248960,
-            "gulp.operation": "test_operation",
-            "gulp.context": "test_context",
+            "gulp.operation_id": "test_operation",
+            "gulp.context_id": "test_context",
             "agent.type": "mftecmd",
             "event.original": "...",
             "event.sequence": 0,
             "event.code": "record_modified_0x10",
-            "gulp.event.code": 14872615,
+            "gulp.event_code": 14872615,
             "event.duration": 1,
-            "log.file.path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
+            "gulp.log_file_path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
+            "gulp.source_id": "test_source_1",
             "gulp.unmapped.SequenceNumber": "1",
             "gulp.unmapped.InUse": "True",
             "gulp.unmapped.ParentEntryNumber": "5",
@@ -382,15 +415,16 @@ async def test_bulk_insert():
             "_id": "2",
             "@timestamp": "2016-11-17T17:54:58.794249+00:00",
             "gulp.timestamp": 1479401798794248960,
-            "gulp.operation": "test_operation",
-            "gulp.context": "test_context",
+            "gulp.operation_id": "test_operation",
+            "gulp.context_id": "test_context",
             "agent.type": "mftecmd",
             "event.original": "...",
             "event.sequence": 0,
             "event.code": "record_modified_0x10",
-            "gulp.event.code": 14872615,
+            "gulp.event_code": 14872615,
             "event.duration": 1,
-            "log.file.path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
+            "gulp.log_file_path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
+            "gulp.source_id": "test_source_2",
             "gulp.unmapped.SequenceNumber": "1",
             "gulp.unmapped.InUse": "True",
             "gulp.unmapped.ParentEntryNumber": "5",
@@ -416,7 +450,7 @@ async def main():
     try:       
         await test_init()
 
-        #await test_ingest_windows()
+        await test_ingest_windows()
         #await test_ingest_csv()
         #await test_ingest_csv_with_mappings()
         #await test_ingest_csv_stacked()

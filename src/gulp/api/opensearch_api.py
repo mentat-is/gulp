@@ -202,7 +202,7 @@ class GulpOpenSearch:
         self, name: str, context_id: str, src_file: str
     ) -> dict:
         """
-        Get and parse mappings for the given index/datastream, considering only "gulp.context"=context and "log.file.path"=src_file.
+        Get and parse mappings for the given index/datastream, considering only "gulp.context_id"=context_id and "gulp.source_id"=src_file.
 
         The return type is the same as index_get_mapping with return_raw_result=False.
 
@@ -220,7 +220,7 @@ class GulpOpenSearch:
         options.fields_filter = ["*"]
         q = {
             "query_string": {
-                "query": 'gulp.context: "%s" AND gulp.source.file: "%s"'
+                "query": 'gulp.context_id: "%s" AND gulp.source.file: "%s"'
                 % (context_id, src_file)
             }
         }
@@ -385,11 +385,12 @@ class GulpOpenSearch:
         # always set gulp specific mappings
         mappings["properties"]["gulp"] = {
             "properties": {
-                "event": {"properties": {"code": {"type": "long"}}},
-                "invalid": {"properties": {"timestamp": {"type": "boolean"}}},
-                "context": {"type": "keyword"},
+                "event_code": {"type": "long"},
+                "context_id": {"type": "keyword"},
+                "operation_id": {"type": "keyword"},
+                "source_id": {"type": "keyword"},
                 "timestamp": {"type": "long"},
-                "operation": {"type": "keyword"},
+                "timestamp_invalid": {"type": "boolean"},
             }
         }
         dtt = []
@@ -744,7 +745,7 @@ class GulpOpenSearch:
         Returns:
             None
         """
-        q = {"query": {"term": {"gulp.operation": operation_id}}}
+        q = {"query": {"term": {"gulp.operation_id": operation_id}}}
 
         params = None
         if refresh:
@@ -828,8 +829,8 @@ class GulpOpenSearch:
             "count": {"value_count": {"field": "gulp.timestamp"}},
             "max_gulp.timestamp": {"max": {"field": "gulp.timestamp"}},
             "min_gulp.timestamp": {"min": {"field": "gulp.timestamp"}},
-            "max_event.code": {"max": {"field": "gulp.event.code"}},
-            "min_event.code": {"min": {"field": "gulp.event.code"}},
+            "max_event.code": {"max": {"field": "gulp.event_code"}},
+            "min_event.code": {"min": {"field": "gulp.event_code"}},
         }
         if group_by is not None:
             aggregations = {
@@ -899,18 +900,18 @@ class GulpOpenSearch:
             return {"terms": {"field": field, "size": max_buckets}}
 
         aggs = {
-            "operations": _create_terms_aggregation("gulp.operation"),
+            "operations": _create_terms_aggregation("gulp.operation_id"),
             "aggs": {
-                "context": _create_terms_aggregation("gulp.context"),
+                "context": _create_terms_aggregation("gulp.context_id"),
                 "aggs": {
                     "plugin": _create_terms_aggregation("agent.type"),
                     "aggs": {
-                        "src_file": _create_terms_aggregation("log.file.path"),
+                        "src_file": _create_terms_aggregation("gulp.source_id"),
                         "aggs": {
                             "max_gulp.timestamp": {"max": {"field": "gulp.timestamp"}},
                             "min_gulp.timestamp": {"min": {"field": "gulp.timestamp"}},
-                            "max_event.code": {"max": {"field": "gulp.event.code"}},
-                            "min_event.code": {"min": {"field": "gulp.event.code"}},
+                            "max_event.code": {"max": {"field": "gulp.event_code"}},
+                            "min_event.code": {"min": {"field": "gulp.event_code"}},
                         },
                     },
                 },

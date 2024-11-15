@@ -30,7 +30,7 @@ API_DESC_DELETE_TOKEN = "an authentication token with DELETE (or ADMIN) permissi
 API_DESC_EDIT_TOKEN = "an authentication token with EDIT permission."
 API_DESC_INGEST_TOKEN = "an authentication token with INGEST (or ADMIN) permission."
 API_DESC_INGEST_PLUGIN = "plugin to be used for ingestion."
-API_DESC_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation.id".'
+API_DESC_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation_id.id".'
 API_DESC_CONTEXT = 'id of a context,'
 API_DESC_INGEST_IGNORE_ERRORS = (
     "ignore errors instead of stopping (current file) ingestion at first error."

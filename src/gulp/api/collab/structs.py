@@ -1,4 +1,5 @@
 from enum import StrEnum
+import re
 from typing import List, Optional, TypeVar, override
 import muty.string
 import muty.time
@@ -135,7 +136,7 @@ class GulpCollabFilter(BaseModel):
     context_id: Optional[list[str]] = Field(
         None, description="filter by the given context/s."
     )
-    log_file_path: Optional[list[str]] = Field(
+    source_id: Optional[list[str]] = Field(
         None, description="filter by the given source path/s or name/s."
     )
     owner_id: Optional[list[str]] = Field(
@@ -186,6 +187,7 @@ class GulpCollabFilter(BaseModel):
         Returns:
             ColumnElement[bool]: The OR query.
         """
+        #print("column=%s, values=%s" % (column, values))
         conditions = [column.ilike(f"%{value}%") for value in values]
         return or_(*conditions)
 
@@ -207,13 +209,13 @@ class GulpCollabFilter(BaseModel):
             q = q.filter(type.type.in_(self.type))
         if self.operation_id and "operation_id" in type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.operation, self.operation_id)
+                self._case_insensitive_or_ilike(type.operation_id, self.operation_id)
             )
         if self.context_id and "context_id" in type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(type.context, self.context_id))
-        if self.log_file_path and "log_file_path" in type.columns:
+            q = q.filter(self._case_insensitive_or_ilike(type.context_id, self.context_id))
+        if self.source_id and "source_id" in type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.log_file_path, self.log_file_path)
+                self._case_insensitive_or_ilike(type.source_id, self.source_id)
             )
         if self.owner_id and "owner_id" in type.columns:
             q = q = q.filter(
@@ -278,6 +280,7 @@ class GulpCollabFilter(BaseModel):
         if self.private:
             q = q.where(GulpCollabObject.private is True)
 
+        GulpLogger.get_logger().debug(f"to_select_query: {q}")
         return q
 
 
@@ -357,6 +360,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if "id" not in kwargs or not kwargs["id"]:
             # generate a unique ID if not provided or None
             kwargs["id"] = muty.string.generate_unique()
+        else:
+            # check id is a valid string for a primary key (not having spaces, ...)
+            k = kwargs["id"]
+            if not k or ' 'in k or not re.match("^[a-zA-Z0-9_-]+$", k):
+                raise ValueError(f"invalid id: {k}")
+            
         for k, v in kwargs.items():
             setattr(self, k, v)
 

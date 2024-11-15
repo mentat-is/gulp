@@ -354,7 +354,7 @@ class RestApiIngest:
 #             - `@timestamp` (int): set to the ingestion time, in milliseconds from unix epoch.<br>
 #             - `operation_id` (int): set to provided `operation_id`.<br>
 #             - `agent.id` (int): set to provided `client_id`.<br>
-#             - `gulp.context` (str): set to provided `context`.
+#             - `gulp.context_id` (str): set to provided `context`.
 #         <br><br>
 #         this function returns a `pending` response and `INGESTION_STATS_CREATE, INGESTION_CHUNK, INGESTION_STATS_UPDATE` are streamed on the websocket at `/ws` until done.
 #     """,

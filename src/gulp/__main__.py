@@ -87,8 +87,8 @@ def main():
 
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
-    log_file_path = args.log_to_file[0] if args.log_to_file else None
-    GulpLogger.get_instance().reconfigure(log_file_path=log_file_path, level=lv)
+    logger_file_path = args.log_to_file[0] if args.log_to_file else None
+    GulpLogger.get_instance().reconfigure(logger_file_path=logger_file_path, level=lv)
 
     if __RUN_TESTS__:
         # test stuff
@@ -108,7 +108,7 @@ def main():
                 args.reset_index[0] if args.reset_index is not None else None
             )
             GulpRestServer.get_instance().start(
-                            log_file_path=log_file_path,
+                            logger_file_path=logger_file_path,
                             reset_collab=reset_collab,
                             reset_index=reset_index)
     except Exception as ex:

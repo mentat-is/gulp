@@ -1,11 +1,9 @@
-from typing import Optional, Union, override
+from typing import Optional, override
 
 from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
-from gulp.utils import GulpLogger
 
 
 class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
@@ -16,7 +14,7 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
     """
     operation: Mapped["GulpOperation"] = relationship(
         "GulpOperation",
-        back_populates="source",
+        back_populates="sources",
         doc="The operation associated with the source.",
     )
     operation_id: Mapped[Optional[str]] = mapped_column(
@@ -25,7 +23,7 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
     )
     context: Mapped["GulpContext"] = relationship(
         "GulpContext",
-        back_populates="source",
+        back_populates="sources",
         doc="The context associated with the source.",
     )
     context_id: Mapped[Optional[str]] = mapped_column(
@@ -43,9 +41,11 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
         default=None,
         doc="The glyph associated with the context.",
     )
-
-    # composite primary key
-    __table_args__ = (PrimaryKeyConstraint("operation_id", "context_id", "id"),)
+    
+    # composite primary key and contraints for operation_id and context_id (a source is unique for each operation and context)
+    __table_args__ = (
+        PrimaryKeyConstraint("operation_id", "context_id", "id"),
+    )
 
     @override
     def __init__(self, *args, **kwargs):
