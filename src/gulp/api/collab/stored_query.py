@@ -22,7 +22,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     description: Mapped[Optional[str]] = mapped_column(
         String, doc="The description of the query.",
     )
-    glyph: Mapped[Optional[str]] = mapped_column(
+    glyph_id: Mapped[Optional[str]] = mapped_column(
         String, doc="ID of a glyph to associate with the query.",
     )
     converted: Mapped[Optional[str]] = mapped_column(
@@ -44,7 +44,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
         converted: any = None,
         tags: list[str] = None,
         description: str = None,
-        glyph: str = None,
+        glyph_id: str = None,
         **kwargs,
     ) -> T:
         """
@@ -58,7 +58,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
             tags(list[str], optional): the tags associated with the query. Defaults to None.
                 for sigma rules, use "sigma" tag to store the query with id = rule.id
             description(str, optional): the description of the query. Defaults to None.
-            glyph(str, optional): the ID of a glyph to associate with the query. Defaults to None.
+            glyph_id(str, optional): the ID of a glyph to associate with the query. Defaults to None.
             kwargs: additional arguments
 
         Returns:
@@ -70,7 +70,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
             "converted": converted,
             "tags": tags,
             "description": description,
-            "glyph": glyph,
+            "glyph_id": glyph_id,
             **kwargs,
         }
         if "sigma" in tags:

@@ -352,12 +352,12 @@ async def elastic_get_mapping_handler(
             }
         }
     },
-    summary="same as `elastic_get_mapping`, but considering `gulp.source.file=src AND gulp.context=context` only.",
+    summary="same as `elastic_get_mapping`, but considering `gulp.source.file=src AND gulp.context_id=context` only.",
 )
 async def elastic_get_mapping_by_source_handler(
     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
     index: Annotated[str, Query(description=gulp.structs.API_DESC_INDEX)],
-    context: Annotated[
+    context_id: Annotated[
         str, Query(description='the "gulp.context" to return the mapping for.')
     ],
     src: Annotated[
@@ -370,7 +370,7 @@ async def elastic_get_mapping_by_source_handler(
     try:
         await GulpUserSession.check_token(await collab_api.session(), token)
         m = await opensearch_api.datastream_get_mapping_by_src(
-            opensearch_api.elastic(), index, context, src
+            opensearch_api.elastic(), index, context_id, src
         )
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=m))
     except Exception as ex:

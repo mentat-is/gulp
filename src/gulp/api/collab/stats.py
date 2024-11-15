@@ -30,13 +30,13 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     the id of the stats corresponds to the request "req_id" (unique per request).
     """
 
-    operation: Mapped[Optional[str]] = mapped_column(
+    operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
         nullable=True,
         default=None,
         doc="The operation associated with the stats.",
     )
-    context: Mapped[Optional[str]] = mapped_column(
+    context_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
         nullable=True,
         default=None,
@@ -142,8 +142,8 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         GulpLogger.get_logger().debug(
             f"--->_create: id={id}, ws_id={ws_id}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}"
         )
-        operation: str = kwargs.get("operation", None)
-        context: str = kwargs.get("context", None)
+        operation_id: str = kwargs.get("operation_id", None)
+        context_id: str = kwargs.get("context_id", None)
 
         # configure expiration
         time_expire = GulpConfig.get_instance().stats_ttl() * 1000
@@ -153,8 +153,8 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             GulpLogger.get_logger().debug(f"now={now}, setting stats \"{id}\".time_expire to {time_expire}")
 
         args = {
-            "operation": operation,
-            "context": context,
+            "operation_id": operation_id,
+            "context_id": context_id,
             "time_expire": time_expire,
             **kwargs,
         }
@@ -171,14 +171,14 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     async def _create_or_get(
         cls,
         id: str,
-        operation: str = None,
-        context: str = None,
+        operation_id: str = None,
+        context_id: str = None,
         sess: AsyncSession = None,
         ensure_eager_load: bool=True,
         **kwargs,
     ) -> T:
         GulpLogger.get_logger().debug(
-            f"--->_create_or_get: id={id}, operation={operation}, context={context}, kwargs={kwargs}"    
+            f"--->_create_or_get: id={id}, operation_id={operation_id}, context_id={context_id}, kwargs={kwargs}"    
         )
         existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
         if existing:
@@ -187,8 +187,8 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         # create new
         stats = await cls._create(
             id=id,
-            operation=operation,
-            context=context,
+            operation_id=operation_id,
+            context_id=context_id,
             ensure_eager_load=ensure_eager_load,
             **kwargs,
         )
@@ -228,7 +228,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
         default=0,
         doc="The number of records that were ingested (may be more than records_processed: a single record may originate more than one record to be ingested).",
     )
-    __table_args__ = (Index("idx_stats_operation", "operation"),)
+    __table_args__ = (Index("idx_stats_operation", "operation_id"),)
 
     @override
     def __init__(self, *args, **kwargs):
@@ -239,8 +239,8 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
     async def create_or_get(
         cls,
         req_id: str,
-        operation: str = None,
-        context: str = None,
+        operation_id: str = None,
+        context_id: str = None,
         source_total: int = 1,
         sess: AsyncSession = None,
         **kwargs,
@@ -250,8 +250,8 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
 
         Args:
             id (str): The unique identifier of the stats (= "req_id" of the request)
-            operation (str, optional): The operation associated with the stats. Defaults to None.
-            context (str, optional): The context associated with the stats. Defaults to None.
+            operation_id (str, optional): The operation associated with the stats. Defaults to None.
+            context_id (str, optional): The context associated with the stats. Defaults to None.
             source_total (int, optional): The total number of sources to be processed in the associated request. Defaults to 1.
             sess (AsyncSession, optional): The database session. Defaults to None.
             kwargs: Additional keyword arguments.
@@ -261,12 +261,12 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
             GulpIngestionStats: The created CollabStats object.
         """
         GulpLogger.get_logger().debug(
-            f"---> create_or_get: id={req_id}, operation={operation}, context={context}, source_total={source_total}, kwargs={kwargs}"
+            f"---> create_or_get: id={req_id}, operation_id={operation_id}, context_id={context_id}, source_total={source_total}, kwargs={kwargs}"
         )
         return await cls._create_or_get(
             id=req_id,
-            operation=operation,
-            context=context,
+            operation_id=operation_id,
+            context_id=context_id,
             sess=sess,
             source_total=source_total,
             **kwargs,

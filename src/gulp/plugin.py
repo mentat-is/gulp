@@ -175,9 +175,9 @@ class GulpPluginBase(ABC):
         # calling user
         self._user_id: str = None
         # current gulp operation
-        self._operation: str = None
+        self._operation_id: str = None
         # current gulp context
-        self._context: str = None
+        self._context_id: str = None
         # current log file path
         self._log_file_path: str = None
         # opensearch index to operate on
@@ -398,10 +398,10 @@ class GulpPluginBase(ABC):
         self,
         req_id: str,
         ws_id: str,
-        user: str,
+        user_id: str,
         query: GulpQueryExternalParameters,
-        operation: str = None,
-        context: str = None,
+        operation_id: str = None,
+        context_id: str = None,
         source: str = None,
         ingest_index: str = None,
         plugin_params: GulpPluginParameters = None,
@@ -417,8 +417,8 @@ class GulpPluginBase(ABC):
             ws_id (str): the websocket id
             user (str): the user performing the query
             query (GulpQueryExternalParameters): the query itself and any other parameter needed to perform the query on the external source.
-            operation (str, optional): the operation to set on the documents. Defaults to None.
-            context (str, optional): the context to set on the documents. Defaults to None.
+            operation_id (str, optional): the operation to set on the documents. Defaults to None.
+            context_id (str, optional): the context to set on the documents. Defaults to None.
             source (str, optional): the source to set on the documents. Defaults to None.
             ingest_index (str, optional): the index to ingest the results. Defaults to None.
             plugin_params (GulpPluginParameters, optional): any plugin specific parameters. Defaults to None.
@@ -438,8 +438,8 @@ class GulpPluginBase(ABC):
 
         self._ws_id = ws_id
         self._req_id = req_id
-        self._user_id = user
-        self._operation = operation
+        self._user_id = user_id
+        self._operation_id = operation_id
         self._log_file_path = source
 
         # setup internal state to be able to call process_record as during ingestion
@@ -461,7 +461,7 @@ class GulpPluginBase(ABC):
             self._ingestion_enabled = False
         
         GulpLogger.get_logger().debug(
-            f"querying external source with plugin {self.name}, user={user}, operation={operation}, ws_id={ws_id}, req_id={req_id}"
+            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={operation_id}, ws_id={ws_id}, req_id={req_id}"
         )
 
     async def query_external_single(
@@ -583,7 +583,7 @@ class GulpPluginBase(ABC):
                     title=self._note_title,
                     tags=self._note_tags,
                     color=self._note_color,
-                    glyph=self._note_glyph,
+                    glyph_id=self._note_glyph,
                 )
 
         return len(ingested_docs), skipped
@@ -592,10 +592,10 @@ class GulpPluginBase(ABC):
         self,
         req_id: str,
         ws_id: str,
-        user: str,
+        user_id: str,
         index: str,
-        operation: str,
-        context: str,
+        operation_id: str,
+        context_id: str,
         log_file_path: str,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
@@ -606,10 +606,10 @@ class GulpPluginBase(ABC):
         Args:
             req_id (str): The request ID.
             ws_id (str): The websocket ID.
-            user (str): The user performing the ingestion.
+            user_id (str): The user performing the ingestion.
             index (str): The name of the target opensearch/elasticsearch index or datastream.
-            operation (str): The operation.
-            context (str): The context.
+            operation_id (str): The operation.
+            context_id (str): The context.
             log_file_path (str): The path to the log file.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
@@ -623,13 +623,13 @@ class GulpPluginBase(ABC):
         """
         self._ws_id = ws_id
         self._req_id = req_id
-        self._user_id = user
-        self._operation = operation
-        self._context = context
+        self._user_id = user_id
+        self._operation_id = operation_id
+        self._context_id = context_id
         self._index = index
         self._log_file_path = log_file_path
         GulpLogger.get_logger().debug(
-            f"ingesting file {log_file_path} with plugin {self.name}, user={user}, operation={operation}, context={context}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting file {log_file_path} with plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
         return GulpRequestStatus.ONGOING
 

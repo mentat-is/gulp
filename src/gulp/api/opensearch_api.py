@@ -81,7 +81,7 @@ class GulpOpenSearch:
         parsed = urlparse(url)
 
         # url = "%s://%s:***********@%s:%s" % (parsed.scheme, parsed.username, parsed.hostname, parsed.port)
-        # GulpLogger.get_logger().debug('%s, opensearch hostname=%s, port=%d, user=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
+        # GulpLogger.get_logger().debug('%s, opensearch hostname=%s, port=%d, user_id=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
 
         host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
         ca = None
@@ -199,7 +199,7 @@ class GulpOpenSearch:
         return _parse_mappings_internal(properties)
 
     async def datastream_get_mapping_by_src(
-        self, name: str, context: str, src_file: str
+        self, name: str, context_id: str, src_file: str
     ) -> dict:
         """
         Get and parse mappings for the given index/datastream, considering only "gulp.context"=context and "log.file.path"=src_file.
@@ -207,8 +207,9 @@ class GulpOpenSearch:
         The return type is the same as index_get_mapping with return_raw_result=False.
 
         Args:
-            index (str): an index/datastream to query
-            src_file (str): the source file to filter by
+            name (str): The index/datastream name.
+            context_id (str): The context ID.
+            src_file (str): The source file.
 
         Returns:
             dict: The mapping dict.
@@ -220,7 +221,7 @@ class GulpOpenSearch:
         q = {
             "query_string": {
                 "query": 'gulp.context: "%s" AND gulp.source.file: "%s"'
-                % (context, src_file)
+                % (context_id, src_file)
             }
         }
 
@@ -730,7 +731,7 @@ class GulpOpenSearch:
         GulpLogger.get_logger().debug("refreshed index: %s" % (res))
 
     async def delete_data_by_operation(
-        self, index: str, operation: str, refresh: bool = True
+        self, index: str, operation_id: str, refresh: bool = True
     ):
         """
         Deletes all data from an index that matches the given operation.
@@ -743,7 +744,7 @@ class GulpOpenSearch:
         Returns:
             None
         """
-        q = {"query": {"term": {"gulp.operation": operation}}}
+        q = {"query": {"term": {"gulp.operation": operation_id}}}
 
         params = None
         if refresh:
@@ -1119,7 +1120,7 @@ class GulpOpenSearch:
                     title=note_title,
                     tags=note_tags,
                     color=note_color,
-                    glyph=note_glyph,
+                    glyph_id=note_glyph,
                 )
             if last or not options.loop:
                 break

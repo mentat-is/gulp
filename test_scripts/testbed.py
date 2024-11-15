@@ -41,8 +41,9 @@ _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
 _opt_reset = os.environ.get('GULP_RESET', False)
 _opt_index = os.environ.get('GULP_INDEX', 'testidx')
 _opt_gulp_integration_test = os.environ.get('GULP_INTEGRATION_TEST', False)
-_operation='test_operation'
-_context='test_context'
+_operation_id='test_operation'
+_context_id='test_context'
+_source='test_source'
 _test_req_id='test_req_id'
 _test_ws_id='test_ws_id'
 _guest_user='guest'
@@ -283,9 +284,9 @@ async def test_ingest_windows():
     # create stats upfront
     # 62031 ingested, 62031 processed, 0 failed
     stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-        _test_req_id, operation=_operation, context=_context, source_total=1)
+        _test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
     
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file)
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -302,11 +303,11 @@ async def test_ingest_csv():
     
     # create stats upfront
     # 75 ingested, 75 processed, 0 failed
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
     
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp")
     params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -323,10 +324,10 @@ async def test_ingest_csv_with_mappings():
     
     # create stats upfront
     # 10 processed, 44 ingested, 0 failed
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
 
     params: GulpPluginParameters = GulpPluginParameters(mapping_file="mftecmd_csv.json", mapping_id="record")
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -343,11 +344,11 @@ async def test_ingest_csv_stacked():
     
     # create stats upfront
     # 75 ingested, 75 processed, 0 failed, every document duration set to 9999
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation=_operation, context=_context, source_total=1)
+    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
 
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp", agent_type="mftecmd", event_code="j")
     params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation, _context, file, plugin_params=params)
+    await plugin.ingest_file(_test_req_id, _test_ws_id, _guest_user, _opt_index, _operation_id, _context_id, file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
     GulpLogger.get_logger().debug(
@@ -417,7 +418,7 @@ async def main():
 
         #await test_ingest_windows()
         #await test_ingest_csv()
-        await test_ingest_csv_with_mappings()
+        #await test_ingest_csv_with_mappings()
         #await test_ingest_csv_stacked()
         #await test_bulk_insert()
         #await GulpOperation.add_context(_operation, _context)

@@ -19,7 +19,7 @@ API_DESC_PLUGIN = (
 API_DESC_PLUGIN_TYPE = "the plugin type (ingestion, sigma, extension, query)."
 API_DESC_UPLOADFILE = "file to be uploaded."
 API_DESC_COUNT = "returns count only (limit, skip, sort are ignored if set)."
-API_DESC_INDEX = "the target elasticsearch index or datastream."
+API_DESC_INDEX = "the target opensearch index or datastream."
 API_DESC_INDEX_TEMPLATE = (
     "an optional index template json to override the default when creating new indexes."
 )
@@ -30,8 +30,8 @@ API_DESC_DELETE_TOKEN = "an authentication token with DELETE (or ADMIN) permissi
 API_DESC_EDIT_TOKEN = "an authentication token with EDIT permission."
 API_DESC_INGEST_TOKEN = "an authentication token with INGEST (or ADMIN) permission."
 API_DESC_INGEST_PLUGIN = "plugin to be used for ingestion."
-API_DESC_INGEST_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation.id".'
-API_DESC_INGEST_CONTEXT = '(optional) string to be set in ingested events as "context".'
+API_DESC_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation.id".'
+API_DESC_CONTEXT = 'id of a context,'
 API_DESC_INGEST_IGNORE_ERRORS = (
     "ignore errors instead of stopping (current file) ingestion at first error."
 )
@@ -47,10 +47,10 @@ API_DESC_WORKFLOW_ID = (
     "optional id of a workflow (in the shared-data table) to assign to the operation."
 )
 API_DESC_CUSTOM_MAPPINGS_FILE = 'an optional JSON filename (i.e. "custom_mapping.json") in the "mapping_files" directory, containing specific mappings. if not present, default for the plugin will be used.'
-EXAMPLE_INDEX = {"example": {"value": "testidx"}}
+EXAMPLE_INDEX = "test_idx"
 
-EXAMPLE_OPERATION_ID = {"example": {"value": 1}}
-EXAMPLE_CONTEXT = {"example": {"value": "testcontext"}}
+EXAMPLE_OPERATION_ID = "test_operation"
+EXAMPLE_CONTEXT = "test_context"
 EXAMPLE_INDEX_TEMPLATE = {
     "example": {
         "value": {
@@ -60,9 +60,7 @@ EXAMPLE_INDEX_TEMPLATE = {
         }
     }
 }
-EXAMPLE_CLIENT_ID = {"example": {"value": 1}}
-
-EXAMPLE_PLUGIN = {"example": {"value": "win_evtx"}}
+EXAMPLE_PLUGIN = "win_evtx"
 
 """
 5-16 characters length

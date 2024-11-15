@@ -103,12 +103,12 @@ class GulpBasicDocument(BaseModel):
         description="True if \"@timestamp\" is invalid and set to 1/1/1970 (the document should be checked, probably ...).",
         alias='gulp.invalid.timestamp',
     )
-    operation: Optional[str] = Field(
+    operation_id: Optional[str] = Field(
         None,
         description='"gulp.operation": the operation ID the document is associated with.',
         alias="gulp.operation",
     )
-    context: Optional[str] = Field(
+    context_id: Optional[str] = Field(
         None,
         description='"gulp.context": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context",
@@ -142,12 +142,12 @@ class GulpDocument(GulpBasicDocument):
         description="True if \"@timestamp\" is invalid and set to 1/1/1970 (the document should be checked, probably ...).",
         alias='gulp.invalid.timestamp',
     )
-    operation: str = Field(
+    operation_id: str = Field(
         None,
         description='"gulp.operation": the operation ID the document is associated with.',
         alias="gulp.operation",
     )
-    context: str = Field(
+    context_id: str = Field(
         None,
         description='"gulp.context": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context",
@@ -221,8 +221,8 @@ class GulpDocument(GulpBasicDocument):
     def __init__(
         self,
         plugin_instance,
-        operation: str|int,
-        context: str,
+        operation_id: str|int,
+        context_id: str,
         event_original: str,
         event_sequence: int,
         timestamp: str=None,
@@ -256,8 +256,8 @@ class GulpDocument(GulpBasicDocument):
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
         mapping: GulpMapping = plugin_instance.selected_mapping()        
         
-        self.operation = operation
-        self.context = context
+        self.operation_id = operation_id
+        self.context_id = context_id
         if mapping and mapping.agent_type:
             # force agent type from mapping
             self.agent_type = mapping.agent_type
@@ -303,7 +303,7 @@ class GulpDocument(GulpBasicDocument):
         #GulpLogger.get_logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
         
     #def __repr__(self) -> str:
-    #    return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation={self.operation}, context={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
+    #    return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation_id={self.operation}, context_id={self.context}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, log_file_path={self.log_file_path}"
     
     @override
     def model_dump(self, lite: bool=False, exclude_none: bool=True, exclude_unset: bool=True, **kwargs) -> dict:

@@ -133,11 +133,11 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         None,
         description="include documents matching the given `_id`/s.",
     )
-    operation: Optional[list[str]] = Field(
+    operation_id: Optional[list[str]] = Field(
         None,
         description="include documents  matching the given `gulp.operation`/s.",
     )
-    context: Optional[list[str]] = Field(
+    context_id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `gulp.context`/s.",
     )
@@ -226,10 +226,10 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             clauses = []
             if self.agent_type:
                 clauses.append(self._query_string_build_or_clauses("agent.type", self.agent_type))
-            if self.operation:
-                clauses.append(self._query_string_build_or_clauses("gulp.operation", self.operation))
-            if self.context:
-                clauses.append(self._query_string_build_or_clauses("gulp.context", self.context))
+            if self.operation_id:
+                clauses.append(self._query_string_build_or_clauses("gulp.operation", self.operation_id))
+            if self.context_id:
+                clauses.append(self._query_string_build_or_clauses("gulp.context", self.context_id))
             if self.log_file_path:
                 clauses.append(self._query_string_build_or_clauses("log.file.path", self.log_file_path))
             if self.id:
@@ -320,8 +320,8 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         """
         return not any([self.agent_type,
                         self.id,
-                        self.operation,
-                        self.context,
+                        self.operation_id,
+                        self.context_id,
                         self.log_file_path,
                         self.event_code,
                         self.event_original,

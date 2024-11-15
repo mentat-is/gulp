@@ -1,11 +1,9 @@
 import base64
-from typing import Optional, Union, override
+from typing import Optional, override
 import muty.file
-from sqlalchemy import ForeignKey, LargeBinary, String
+from sqlalchemy import LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
-from gulp.utils import GulpLogger
 
 
 class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):

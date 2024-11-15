@@ -462,8 +462,8 @@ class GulpQuery:
         plugin: str,
         query: GulpQueryExternalParameters,
         ingest_index: str=None,
-        operation: str=None,
-        context: str = None,
+        operation_id: str=None,
+        context_id: str = None,
         source: str = None,
         plugin_params: GulpPluginParameters = None,
     ) -> None:
@@ -479,10 +479,10 @@ class GulpQuery:
             query (GulpExternalQuery): includes the query and all the necessary parameters to communicate with the external source
             plugin(str): the plugin to use to query the external source, must implement `query_external`
             ingest_index(str, optional): if set, a gulp index to ingest the results to (to perform direct ingestion into gulp during query)
-            operation (str, optional): only used with `ingest_index`, the operation to associate with. Defaults to None.
-            context (str, optional): only used with `ingest_index`, the context to associate with. Defaults to None.
+            operation_id (str, optional): only used with `ingest_index`, the operation to associate with. Defaults to None.
+            context_id (str, optional): only used with `ingest_index`, the context to associate with. Defaults to None.
             source (str, optional): only used with `ingest_index`, indicates the log source. Defaults to None.
-            plugin_params (GulpPluginParameters, optional): plugin parameters, including i.e. in GulpPluginParameters.extra the login/pwd/token to connect to the external source, plugin dependent. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): plugin parameters
         
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
@@ -499,10 +499,10 @@ class GulpQuery:
             await p.query_external(
                 req_id=req_id,
                 ws_id=ws_id,
-                user=user_id,
+                user_id=user_id,
                 query=query,
-                operation=operation,
-                context=context,
+                operation_id=operation_id,
+                context_id=context_id,
                 source=source,
                 ingest_index=ingest_index,
                 plugin_params=plugin_params,
@@ -565,8 +565,8 @@ class GulpQuery:
         query: GulpQueryExternalParameters,
         referenced_sigma: list[str] = None,
         ingest_index: str=None,
-        operation: str=None,
-        context: str = None,
+        operation_id: str=None,
+        context_id: str = None,
         source: str = None,
         plugin_params: GulpPluginParameters = None,        
     ) -> None:
@@ -584,7 +584,9 @@ class GulpQuery:
             query (GulpExternalQuery): includes the query and all the necessary parameters to communicate with the external source.
             referenced_sigma(list[str], optional): if any, each element is a sigma rule YAML referenced by `name` in the main sigma rule
             ingest_index(str, optional): if set, a gulp index to ingest the results to (to perform direct ingestion into gulp during query)
-
+            operation_id (str, optional): only used with `ingest_index`, the operation to associate with. Defaults to None.
+            context_id (str, optional): only used with `ingest_index`, the context to associate with. Defaults to None.
+            source (str, optional): only used with `ingest_index`, indicates the log source. Defaults to None.            plugin_params (GulpPluginParameters, optional): plugin parameters
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
@@ -621,10 +623,10 @@ class GulpQuery:
                 await p.query_external(
                     req_id=req_id,
                     ws_id=ws_id,
-                    user=user_id,
+                    user_id=user_id,
                     query=query,
-                    operation=operation,
-                    context=context,
+                    operation_id=operation_id,
+                    context_id=context_id,
                     source=source,
                     ingest_index=ingest_index,
                     plugin_params=plugin_params,

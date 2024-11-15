@@ -1,10 +1,12 @@
 from typing import Optional, Union, override
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
+from gulp.api.collab.source import GulpSource
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T, GulpUserPermission
+from gulp.api.collab_api import GulpCollab
 from gulp.utils import GulpLogger
 
 
@@ -13,10 +15,9 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     Represents a context object
     
     in gulp terms, a context is used to group a set of data coming from the same host.
+
+    it has always associated an operation, and the tuple composed by the two is unique.
     """
-    title: Mapped[Optional[str]] = mapped_column(
-        String, doc="Display name for the context."
-    )
     operation: Mapped["GulpOperation"] = relationship(
         "GulpOperation",
         back_populates="context",
@@ -24,27 +25,90 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     )
     operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
-        doc="The ID of the operation associated with the context."
+        doc="The ID of the operation associated with the context.", primary_key=True
+    )
+    
+    # multiple sources can be associated with a context
+    source: Mapped[Optional[list[GulpSource]]] = relationship(
+        "GulpSource",
+        back_populates="context",
+        cascade="all, delete-orphan",
+        doc="The source/s associated with the contextt.",
+    )
+
+    title: Mapped[Optional[str]] = mapped_column(
+        String, doc="The title of the context."
     )
     color: Mapped[Optional[str]] = mapped_column(
         String, default="#ffffff", doc="The color of the context."
     )
-    glyph: Mapped[Optional[str]] = mapped_column(
+    glyph_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("glyph.id", ondelete="SET NULL"),
         default=None,
         doc="The glyph associated with the context.",
     )
+
+    # composite primary key
+    __table_args__ = (PrimaryKeyConstraint("operation_id", "id"),)
 
     @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
         super().__init__(*args, type=GulpCollabType.CONTEXT, **kwargs)
 
+    @staticmethod
+    async def add_source(context_id: str, source_id: str, operation_id: str) -> None:
+        """operation
+        Add a source to a context.
+
+        Args:
+            context_id (str): The id of the context.
+            source_id (str): The id of the source.
+            operation_id (str): The id of the operation.
+        """
+        async with GulpCollab.get_instance().session() as sess:            
+            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]))
+            if not ctx:
+                raise ValueError(f"context id={context_id}, {operation_id} not found.")
+            src:GulpSource = await GulpSource.get_one(GulpCollabFilter(id=[source_id], context_id=[context_id], operation_id=[operation_id]))
+            if not src:
+                raise ValueError(f"source id={source_id}, {context_id}, {operation_id} not found.")
+    
+            # link
+            ctx.source.append(src)
+            await sess.commit()
+            GulpLogger.get_logger().info(f"source id={source_id} added to context {context_id}.")
+
+    @staticmethod
+    async def remove_source(context_id: str, source_id: str, operation_id: str) -> None:
+        """
+        Remove a source from a context.
+
+        Args:
+            context_id (str): The id of the context.
+            source_id (str): The id of the source.
+            operation_id (str): The id of the operation.
+        """
+        async with GulpCollab.get_instance().session() as sess:
+            ctx = await sess.get(GulpContext, (context_id, operation_id))
+            if not ctx:
+                raise ValueError(f"context id={context_id}, {operation_id} not found.")
+            src = await sess.get(GulpSource, (source_id, context_id, operation_id))
+            if not src:
+                raise ValueError(f"source id={source_id}, {context_id}, {operation_id} not found.")
+            
+            # unlink
+            await ctx.awaitable_attrs.source 
+            ctx.source.remove(src)
+            await sess.commit()
+            GulpLogger.get_logger().info(f"source id={source_id} removed from context {context_id}.")
+
     @classmethod
     async def create(
         cls,
         token: str,
         id: str,
+        operation_id: str,
         title: str = None,
         color: str = None,
         glyph: str = None,
@@ -54,22 +118,24 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         Create a new context object on the collab database.
 
         Args:
-            token (str): The authentication token (must have ADMIN permission).
-            id (str): The name of the context (must be unique and not containing spaces)
-            title (str, optional): The display name for the context. Defaults to id.
+            token (str): The authentication token (must have INGEST permission).
+            id (str): The name of the context
+            operation_id (str): The id of the operation associated with the context.
+            title (str, optional): The display name of the context. Defaults to id.
             color (str, optional): The color of the context. Defaults to white.
-            glyph (str, optional): The id of the glyph associated with the context. Defaults to None.
+            glyph_id (str, optional): The id of the glyph associated with the context. Defaults to None.
             **kwargs: Arbitrary keyword arguments.  
         Returns:
             T: The created context object
         """
         args = {"color": color or 'white',
-                "glyph": glyph, 
-                "title": title or id, 
+                "glyph_id": glyph, 
+                "title": title or id,
+                "operation_id": operation_id,
                 **kwargs}
         return await super()._create(
             id=id,
             token=token,
-            required_permission=[GulpUserPermission.ADMIN],
+            required_permission=[GulpUserPermission.INGEST],
             **args,
         )

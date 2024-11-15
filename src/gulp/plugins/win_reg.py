@@ -185,7 +185,7 @@ class Plugin(GulpPluginBase):
             req_id=req_id,
             client_id=client_id,
             operation_id=operation_id,
-            context=context,
+            context_id=context,
             source=source,
             ws_id=ws_id,
             plugin_params=plugin_params,

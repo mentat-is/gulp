@@ -203,6 +203,9 @@ class GulpRestServer():
         return muty.jsend.fastapi_jsend_exception_handler(ex, status_code)
 
     def _add_routers(self):
+        from gulp.api.rest.ingest import RestApiIngest
+        self._app.include_router(RestApiIngest.router())
+        
         """
         import gulp.api.rest.collab_utility
         import gulp.api.rest.db

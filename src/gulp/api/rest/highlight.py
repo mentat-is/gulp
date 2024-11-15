@@ -257,7 +257,7 @@ async def highlight_create_handler(
     operation_id: Annotated[
         int, Query(description="operation to be associated with this highlight.")
     ],
-    context: Annotated[
+    context_id: Annotated[
         str, Query(description="context to be associated with this highlight.")
     ],
     src_file: Annotated[
@@ -298,7 +298,7 @@ async def highlight_create_handler(
             GulpCollabType.HIGHLIGHT,
             ws_id=ws_id,
             operation_id=operation_id,
-            context=context,
+            context_id=context_id,
             src_file=src_file,
             name=name,
             time_start=time_start,

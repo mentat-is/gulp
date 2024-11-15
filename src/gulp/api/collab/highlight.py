@@ -27,10 +27,10 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
     async def create(
         cls,
         token: str,
-        operation: str,
+        operation_id: str,
         time_range: tuple[int, int],
         log_file_path: str,
-        glyph: str = None,
+        glyph_id: str = None,
         color: str = None,
         tags: list[str] = None,
         title: str = None,
@@ -45,10 +45,10 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
 
         Args:
             token(str): the token of the user creating the object, for access check
-            operation(str): the id of the operation associated with the highlight
+            operation_id(str): the id of the operation associated with the highlight
             time_range(tuple[int, int]): the time range of the highlight (start, end, in nanoseconds from unix epoch)
             log_file_path(str): the associated log file path or source name
-            glyph(str, optional): the id of the glyph associated with the highlight
+            glyph_id(str, optional): the id of the glyph associated with the highlight
             color(str, optional): the color associated with the highlight (default: green)
             tags(list[str], optional): the tags associated with the highlight
             title(str, optional): the title of the highlight
@@ -62,10 +62,10 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             the created highlight object
         """
         args = {
-            "operation": operation,
+            "operation_id": operation_id,
             "time_range": time_range,
             "log_file_path": log_file_path,
-            "glyph": glyph,
+            "glyph_id": glyph_id,
             "color": color or "green",
             "tags": tags,
             "title": title,

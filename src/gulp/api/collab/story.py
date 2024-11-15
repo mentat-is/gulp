@@ -23,12 +23,12 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
     async def create(
         cls,
         token: str,
-        operation: str,
+        operation_id: str,
         title: str,
         documents: list[GulpBasicDocument],
         color: str = None,
         description: str = None,
-        glyph: str = None,
+        glyph_id: str = None,
         tags: list[str] = None,
         private: bool = False,
         ws_id: str = None,
@@ -40,12 +40,12 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
 
         Args:
             token(str): the token of the user creating the object, for access check
-            operation(str): the id of the operation associated with the story
+            operation_id(str): the id of the operation associated with the story
             title(str): the title of the story
             documents(list[GulpBasicDocument]): the documents associated with the story
             color(str, Optional): the color associated with the story (default: blue)
             description(str, Optional): the description of the story
-            glyph(str, Optional): the id of the glyph associated with the story
+            glyph_id(str, Optional): the id of the glyph associated with the story
             tags(list[str], Optional): the tags associated with the story
             private(bool, Optional): whether the story is private (default: False)
             ws_id(str, Optional): the websocket id
@@ -55,9 +55,9 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
             the created story object    
         """
         args = {
-            "operation": operation,
+            "operation": operation_id,
             "documents": documents,
-            "glyph": glyph,
+            "glyph_id": glyph_id,
             "color": color or "blue",
             "tags": tags,
             "title": title,

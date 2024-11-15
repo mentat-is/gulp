@@ -317,6 +317,7 @@ class GulpCollab:
         from gulp.api.collab.glyph import GulpGlyph
         from gulp.api.collab.operation import GulpOperation
         from gulp.api.collab.context import GulpContext
+        from gulp.api.collab.source import GulpSource
 
         # create database tables and functions
         async with self._engine.begin() as conn:
@@ -359,13 +360,7 @@ class GulpCollab:
 
         await admin_user.update(
             token=admin_session.id,
-            d={"glyph": user_glyph.id},
-        )
-
-        # create default context
-        context = await GulpContext.create(
-            token=admin_session.id,
-            id="test_context",
+            d={"glyph_id": user_glyph.id},
         )
 
         # create default operation
@@ -373,29 +368,57 @@ class GulpCollab:
             token=admin_session.id,
             id="test_operation",
             index="testidx",
-            glyph=operation_glyph.id,
+            glyph_id=operation_glyph.id,
         )
+
+        # create default context
+        context = await GulpContext.create(
+            token=admin_session.id,
+            id="test_context",
+            operation_id=operation.id,
+        )
+        # create sources
+        source_a = await GulpSource.create(
+            token=admin_session.id,
+            id="test_source_1",
+            context_id=context.id,
+            title="test source 1",
+            operation_id=operation.id,
+        )
+        source_b = await GulpSource.create(
+            token=admin_session.id,
+            id="test_source_2",
+            title="test source 2",
+            context_id=context.id,
+            operation_id=operation.id,
+        )
+        await GulpContext.add_source(context.id, source_a.id, operation_id=operation.id)
+        await GulpContext.add_source(context.id, source_b.id, operation_id=operation.id)
+        await GulpOperation.add_context(operation.id, context.id)
+        from gulp.api.collab.structs import GulpCollabFilter
+        ctx = await GulpContext.get(GulpCollabFilter(id=[context.id], operation_id=[operation.id]))
+        print(ctx)
 
         # create other users
         guest_user = await GulpUser.create(
             token=admin_session.id,
             id="guest",
             password="guest",
-            glyph=user_glyph.id,
+            glyph_id=user_glyph.id,
         )
         editor_user = await GulpUser.create(
             token=admin_session.id,
             id="editor",
             password="editor",
             permission=PERMISSION_MASK_EDIT,
-            glyph=user_glyph.id,
+            glyph_id=user_glyph.id,
         )
         power_user = await GulpUser.create(
             token=admin_session.id,
             id="power",
             password="power",
             permission=PERMISSION_MASK_DELETE,
-            glyph=user_glyph.id,
+            glyph_id=user_glyph.id,
         )
 
     async def _ensure_setup(

@@ -37,7 +37,7 @@ class WsParameters(BaseModel):
 
     token: str = Field(..., description="user token")
     ws_id: str = Field(..., description="The WebSocket ID.")
-    operation: Optional[list[str]] = Field(
+    operation_id: Optional[list[str]] = Field(
         None,
         description="The operation/s this websocket is registered to receive data for, defaults to None(=all).",
     )
@@ -91,7 +91,7 @@ class WsData(BaseModel):
     ws_id: str = Field(..., description="The WebSocket ID.")
     user_id: str = Field(..., description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
-    operation: Optional[str] = Field(
+    operation_id: Optional[str] = Field(
         None, description="The operation this data belongs to."
     )
     private: Optional[bool] = Field(
@@ -111,7 +111,7 @@ class ConnectedSocket:
         ws: WebSocket,
         ws_id: str,
         type: list[WsQueueDataType] = None,
-        operation: list[str] = None,
+        operation_id: list[str] = None,
     ):
         """
         Initializes the ConnectedSocket object.
@@ -125,13 +125,13 @@ class ConnectedSocket:
         self.ws = ws
         self.ws_id = ws_id
         self.type = type
-        self.operation = operation
+        self.operation_id = operation_id
 
         # each socket has its own asyncio queue
         self.q = asyncio.Queue()
 
     def __str__(self):
-        return f"ConnectedSocket(ws_id={self.ws_id}, registered_types={self.type}, registered_operations={self.operation})"
+        return f"ConnectedSocket(ws_id={self.ws_id}, registered_types={self.type}, registered_operations={self.operation_id})"
 
 
 class GulpConnectedSockets:
@@ -154,7 +154,7 @@ class GulpConnectedSockets:
         ws: WebSocket,
         ws_id: str,
         type: list[WsQueueDataType] = None,
-        operation: list[str] = None,
+        operation_id: list[str] = None,
     ) -> ConnectedSocket:
         """
         Adds a websocket to the connected sockets list.
@@ -163,12 +163,12 @@ class GulpConnectedSockets:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
             type (list[WsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
-            operation (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
+            operation_id (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
 
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
-        ws = ConnectedSocket(ws=ws, ws_id=ws_id, type=type, operation=operation)
+        ws = ConnectedSocket(ws=ws, ws_id=ws_id, type=type, operation_id=operation_id)
         self._sockets[str(id(ws))] = ws
         GulpLogger.get_logger().debug(f"added connected ws {id(ws)}: {ws}")
         return ws
@@ -256,12 +256,12 @@ class GulpConnectedSockets:
                         % (d.type, cws.ws_id, cws.type)
                     )
                     continue
-            if cws.operation:
+            if cws.operation_id:
                 # check operation/s
-                if not d.operation in cws.operation:
+                if not d.operation_id in cws.operation_id:
                     GulpLogger.get_logger().warning(
-                        "skipping entry type=%s for ws_id=%s, cws.operation=%s"
-                        % (d.type, cws.ws_id, cws.operation)
+                        "skipping entry type=%s for ws_id=%s, cws.operation_id=%s"
+                        % (d.type, cws.ws_id, cws.operation_id)
                     )
                     continue
 
@@ -410,7 +410,7 @@ class GulpSharedWsQueue:
         type: WsQueueDataType,
         ws_id: str,
         user_id: str,
-        operation: str = None,
+        operation_id: str = None,
         req_id: str = None,
         data: Any = None,
         private: bool = False,
@@ -430,7 +430,7 @@ class GulpSharedWsQueue:
         wsd = WsData(
             timestamp=muty.time.now_msec(),
             type=type,
-            operation=operation,
+            operation_id=operation_id,
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,

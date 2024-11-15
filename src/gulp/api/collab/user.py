@@ -5,6 +5,7 @@ import muty.time
 import muty.string
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, String, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.types import Enum as SQLEnum
@@ -23,22 +24,24 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     Represents a user in the system.
     """
 
-    pwd_hash: Mapped[str] = mapped_column(String)
+    pwd_hash: Mapped[str] = mapped_column(String, doc="The hashed password of the user.")
     permission: Mapped[Optional[list[GulpUserPermission]]] = mapped_column(
          MutableList.as_mutable(ARRAY(SQLEnum(GulpUserPermission))), 
-         default_factory=lambda: [GulpUserPermission.READ]
+         default_factory=lambda: [GulpUserPermission.READ], doc="One or more permissions of the user."
     )
-    glyph: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), default=None
+    glyph_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.id", ondelete="SET NULL"), default=None, doc="The glyph associated with the user."
     )
-    email: Mapped[Optional[str]] = mapped_column(String, default=None)
-    time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0)
+    email: Mapped[Optional[str]] = mapped_column(String, default=None, doc="The email of the user.")
+    time_last_login: Mapped[Optional[int]] = mapped_column(BIGINT, default=0, doc="The time of the last login, in milliseconds from the unix epoch.")
+    extra: Mapped[Optional[dict]] = mapped_column(JSONB, default=None, doc="Arbitrary user properties.")
+
     session: Mapped[Optional["GulpUserSession"]] = relationship(
         "GulpUserSession",
         back_populates="user",
         cascade="all,delete-orphan",
         default=None,
-        foreign_keys="[GulpUserSession.user_id]",
+        foreign_keys="[GulpUserSession.user_id]"
     )
 
     user_data: Mapped[Optional["GulpUserData"]] = relationship(
@@ -63,7 +66,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         password: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         email: str = None,
-        glyph: str = None,
+        glyph_id: str = None,
+        extra: dict = None,
         ws_id: str = None,
         req_id: str = None,
         **kwargs,
@@ -77,7 +81,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             password: The password of the user.
             permission: The permission of the user.
             email: The email of the user.
-            glyph: The glyph associated with the user.
+            glyph_id: The glyph associated with the user.
+            extra: Additional user properties.
             ws_id: The websocket id.
             req_id: The request id.            
             kwargs: Additional keyword arguments: "init" is used to create the default admin user and skip token check.
@@ -93,8 +98,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "pwd_hash": muty.crypto.hash_sha256(password),
             "permission": permission,
             "email": email,
-            "glyph": glyph,
-
+            "glyph": glyph_id,
+            "extra": extra,
             # force owner to the user itself
             "owner_id": id,
         }
@@ -163,7 +168,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             if pwd_changed and user.session:
                 # invalidate (delete) the session if the password was changed
                 GulpLogger.get_logger().debug(
-                    "password changed, deleting session for user=%s" % (user.id)
+                    "password changed, deleting session for user_id=%s" % (user.id)
                 )
                 sess.add(user.session)
                 user.session = None
@@ -217,7 +222,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     @staticmethod
     async def login(
-        user: str, password: str, ws_id: str = None, req_id: str = None
+        user_id: str, password: str, ws_id: str = None, req_id: str = None
     ) -> tuple["GulpUser", "GulpUserSession"]:
         """
         Asynchronously logs in a user and creates a session (=obtain token).
@@ -229,20 +234,20 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        GulpLogger.get_logger().debug("---> logging in user=%s ..." % (user))
+        GulpLogger.get_logger().debug("---> logging in user_id=%s ..." % (user_id))
 
         sess = GulpCollab.get_instance().session()
         async with sess:
-            u: GulpUser = await GulpUser.get_one_by_id(id=user, sess=sess)
+            u: GulpUser = await GulpUser.get_one_by_id(id=user_id, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
-                GulpLogger.get_logger().debug("resetting previous session for user=%s" % (user))
+                GulpLogger.get_logger().debug("resetting previous session for user_id=%s" % (user_id))
                 u.session = None
                 sess.add(u)  # keep track of the change
 
             # check password
             if u.pwd_hash != muty.crypto.hash_sha256(password):
-                raise WrongUsernameOrPassword("wrong password for user=%s" % (user))
+                raise WrongUsernameOrPassword("wrong password for use_id=%s" % (user_id))
 
             # create new session (will auto-generate a token)
             new_session: GulpUserSession = await GulpUserSession._create(

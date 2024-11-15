@@ -64,7 +64,7 @@ class WsRouter:
 
                 # connection is ok
                 GulpLogger.get_logger().debug("ws accepted for ws_id=%s!" % (params.ws_id))
-                ws = GulpConnectedSockets().add(websocket, params.ws_id, params.type, params.operation)
+                ws = GulpConnectedSockets().add(websocket, params.ws_id, params.type, params.operation_id)
                 self._ws = ws
                 self._cancel_event = asyncio.Event()
 

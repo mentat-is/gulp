@@ -70,14 +70,14 @@ class Plugin(GulpPluginBase):
     async def _run_in_worker(
         self,
         user_id: str,
-        operation: str,
+        operation_id: str,
         ws_id: str,
         req_id: str,
         **kwargs,
     ) -> dict:
         GulpLogger.get_logger().error(
-            "IN WORKER PROCESS, for user_id=%s, operation=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation, ws_id, req_id)
+            "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation_id, ws_id, req_id)
         )
         GulpSharedWsQueue.get_instance().put(WsQueueDataType.COLLAB_UPDATE, req_id=req_id, ws_id=ws_id, user_id="dummy", data={"hello": "world"}, ) 
         return {'done': True}
@@ -85,14 +85,14 @@ class Plugin(GulpPluginBase):
     async def _example_task(
         self,
         user_id: str,
-        operation: str,
+        operation_id: str,
         ws_id: str,
         req_id: str,
         **kwargs,
     ):
         GulpLogger.get_logger().error(
-            "IN MAIN PROCESS, for user_id=%s, operation=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation, ws_id, req_id)
+            "IN MAIN PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation_id, ws_id, req_id)
         )
         # create an example stats
         try:
@@ -104,12 +104,12 @@ class Plugin(GulpPluginBase):
         tasks = []
         GulpLogger.get_logger().debug(
             "spawning process for extension example for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation, ws_id, req_id)
+            % (user_id, operation_id, ws_id, req_id)
         )
         try:
             tasks.append(
                 GulpProcess.get_instance().process_pool.apply(self._run_in_worker,
-                                                              (user_id, operation, ws_id, req_id)
+                                                              (user_id, operation_id, ws_id, req_id)
                 )
             )
 
@@ -150,7 +150,7 @@ class Plugin(GulpPluginBase):
     async def example_extension_handler(
         self,
         token: Annotated[str, Header(description=API_DESC_TOKEN)],
-        operation: Annotated[str, Query(description=API_DESC_OPERATION)],
+        operation_id: Annotated[str, Query(description=API_DESC_OPERATION)],
         ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
         req_id: Annotated[str, Query(description=API_DESC_REQ_ID)] = None,
     ) -> JSendResponse:
@@ -160,7 +160,7 @@ class Plugin(GulpPluginBase):
             session = await GulpUserSession.check_token_permission(token)
         
             # spawn coroutine in the main process, will run asap
-            coro = self._example_task(session.user_id, operation, ws_id, req_id)
+            coro = self._example_task(session.user_id, operation_id, ws_id, req_id)
             await GulpProcess.get_instance().coro_pool.spawn(coro)
             return muty.jsend.pending_jsend(req_id=req_id)
         except Exception as ex:

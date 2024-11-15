@@ -1,9 +1,8 @@
 from enum import StrEnum
-import json
 from typing import List, Optional, TypeVar, override
 import muty.string
 import muty.time
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy import (
     ARRAY,
@@ -64,14 +63,19 @@ class GulpRequestStatus(StrEnum):
 
 
 class GulpUserPermission(StrEnum):
-    """represent the permission of a user in the Gulp platform."""
+    """represent the permission of a user in the Gulp platform.
+
+    a user can always read/edit/delete their own objects, but can only read other users' objects unless EDIT or DELETE permission is granted.
+    """
 
     # can read only
     READ = "read"
-    # can edit own highlights, notes, stories, links + ingest data
+    # can edit highlights, notes, stories, links
     EDIT = "edit"
-    # can delete others highlights, notes, stories, links + ingest data
+    # can delete highlights, notes, stories, links
     DELETE = "delete"
+    # can ingest data
+    INGEST = "ingest"
     # can do anything, including creating new users and change permissions
     ADMIN = "admin"
 
@@ -81,6 +85,11 @@ PERMISSION_MASK_DELETE = [
     GulpUserPermission.READ,
     GulpUserPermission.EDIT,
     GulpUserPermission.DELETE,
+]
+PERMISSION_MASK_INGEST = [
+    GulpUserPermission.READ,
+    GulpUserPermission.INGEST,
+    GulpUserPermission.EDIT,
 ]
 
 
@@ -101,6 +110,7 @@ class GulpCollabType(StrEnum):
     USER = "user"
     GLYPH = "glyph"
     OPERATION = "operation"
+    SOURCE = "source"
 
 
 T = TypeVar("T", bound="GulpCollabBase")
@@ -112,22 +122,23 @@ class GulpCollabFilter(BaseModel):
 
     allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
     """
+
     model_config = ConfigDict(extra="allow")
-        
+
     id: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     type: Optional[list[GulpCollabType]] = Field(
         None, description="filter by the given type/s."
     )
-    operation: Optional[list[str]] = Field(
+    operation_id: Optional[list[str]] = Field(
         None, description="filter by the given operation/s."
     )
-    context: Optional[list[str]] = Field(
+    context_id: Optional[list[str]] = Field(
         None, description="filter by the given context/s."
     )
     log_file_path: Optional[list[str]] = Field(
         None, description="filter by the given source path/s or name/s."
     )
-    owner: Optional[list[str]] = Field(
+    owner_id: Optional[list[str]] = Field(
         None, description="filter by the given owner user id/s."
     )
     tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
@@ -194,18 +205,20 @@ class GulpCollabFilter(BaseModel):
         if self.type:
             # match if equal to any in the list
             q = q.filter(type.type.in_(self.type))
-        if self.operation and "operation" in type.columns:
+        if self.operation_id and "operation_id" in type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.operation, self.operation)
+                self._case_insensitive_or_ilike(type.operation, self.operation_id)
             )
-        if self.context and "context" in type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(type.context, self.context))
+        if self.context_id and "context_id" in type.columns:
+            q = q.filter(self._case_insensitive_or_ilike(type.context, self.context_id))
         if self.log_file_path and "log_file_path" in type.columns:
             q = q.filter(
                 self._case_insensitive_or_ilike(type.log_file_path, self.log_file_path)
             )
-        if self.owner and "owner" in type.columns:
-            q = q = q.filter(self._case_insensitive_or_ilike(type.owner, self.owner))
+        if self.owner_id and "owner_id" in type.columns:
+            q = q = q.filter(
+                self._case_insensitive_or_ilike(type.owner_id, self.owner_id)
+            )
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
             if self.tags_and:
@@ -218,7 +231,7 @@ class GulpCollabFilter(BaseModel):
             q = q.filter(self._case_insensitive_or_ilike(type.title, self.title))
         if self.text and "text" in type.columns:
             q = q.filter(self._case_insensitive_or_ilike(type.text, self.text))
-        
+
         if self.model_extra:
             # any extra k,v to filter on
             for k, v in self.model_extra.items():
@@ -282,7 +295,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     type: Mapped[GulpCollabType] = mapped_column(
         SqlEnum(GulpCollabType), doc="The type of the object."
     )
-    owner: Mapped[str] = mapped_column(
+    owner_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The id of the user who created(=owns) the object.",
     )
@@ -294,7 +307,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         BIGINT,
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
-    
+
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
@@ -401,6 +414,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
+
         async def _create_internal(
             token: str,
             id: str,
@@ -428,14 +442,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 owner = kwargs.pop("owner_id")
 
             # create instance initializing the base class object (time created, time updated will be set by __init__)
-            instance = cls(id=id, owner=owner, **kwargs)
+            instance = cls(id=id, owner_id=owner, **kwargs)
 
             # and put on db
             sess.add(instance)
             await sess.commit()
 
             GulpLogger.get_logger().debug(
-                f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, owner={owner}"
+                f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, owner_id={owner}"
             )
             if ensure_eager_load:
                 # eagerly load the instance with all related attributes
@@ -444,12 +458,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if ws_id and isinstance(instance, GulpCollabObject):
                 # notify the websocket of the collab object creation
                 data = instance.to_dict(exclude_none=True)
-                data['created'] = True
+                data["created"] = True
                 await GulpSharedWsQueue.get_instance().put(
                     WsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
                     user_id=owner,
-                    operation=data.get("operation", None),
+                    operation_id=data.get("operation", None),
                     req_id=req_id,
                     private=data.get("private", False),
                     data=[data],
@@ -542,9 +556,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.expunge(instance)
             return instance
 
-        GulpLogger.get_logger().debug(
-            "---> eager_load: %s, sess=%s" % (self.id, sess)
-        )
+        GulpLogger.get_logger().debug("---> eager_load: %s, sess=%s" % (self.id, sess))
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
@@ -612,7 +624,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             token: str, permission: list[GulpUserPermission], sess: AsyncSession
         ) -> None:
             if token:
-                user_id = await self.check_token_against_object(token, permission, sess=sess)
+                user_id = await self.check_token_against_object(
+                    token, permission, sess=sess
+                )
             sess.delete(self)
             await sess.commit()
 
@@ -623,14 +637,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     WsQueueDataType.COLLAB_DELETE,
                     ws_id=ws_id,
                     # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
-                    user_id=user_id or self.owner,
-                    operation=data.get("operation", None),
+                    user_id=user_id or self.owner_id,
+                    operation_id=data.get("operation", None),
                     req_id=req_id,
                     private=data.get("private", False),
                     data=[data],
                 )
 
-            
         GulpLogger.get_logger().debug(
             "---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess)
         )
@@ -674,11 +687,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             % (id, cls.__gulp_collab_type__, sess)
         )
         obj: GulpCollabBase = await cls.get_one_by_id(
-            id=id, 
-            ws_id=ws_id, 
-            req_id=req_id, 
-            sess=sess, 
-            throw_if_not_found=throw_if_not_found
+            id=id,
+            ws_id=ws_id,
+            req_id=req_id,
+            sess=sess,
+            throw_if_not_found=throw_if_not_found,
         )
         if obj:
             await obj.delete(
@@ -731,7 +744,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             req_id=req_id,
             sess=sess,
             throw_if_not_found=throw_if_not_found,
-        )            
+        )
         if obj:
             return await obj.update(
                 token=token,
@@ -783,7 +796,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ) -> T:
             if token:
                 # chcek token permission here
-                user_id = await self.check_token_against_object(token, permission, sess=sess)
+                user_id = await self.check_token_against_object(
+                    token, permission, sess=sess
+                )
 
             # ensure d has no 'id' (cannot be updated)
             d.pop("id", None)
@@ -816,8 +831,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     WsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
                     # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
-                    user_id=user_id or self_in_session.owner,
-                    operation=data.get("operation", None),
+                    user_id=user_id or self_in_session.owner_id,
+                    operation_id=data.get("operation", None),
                     req_id=req_id,
                     private=data.get("private", False),
                     data=[data],
@@ -859,7 +874,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        # GulpLogger.get_logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}")        
+        # GulpLogger.get_logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}")
         o = await cls.get_one(
             GulpCollabFilter(id=[id], type=[cls.__gulp_collab_type__]),
             ws_id,
@@ -936,7 +951,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ):
             flt = flt or GulpCollabFilter()
             q = flt.to_select_query(cls)
-            # GulpLogger.get_logger().debug("---> get: query=\n%s\n" % (q))
+            GulpLogger.get_logger().debug("---> get: query=\n%s\n" % (q))
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(
                 res, throw_if_not_found=throw_if_not_found, detail=flt
@@ -1053,7 +1068,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             return user_session.user_id
 
         # check if the user is the owner of the object
-        if self.owner == user_session.user_id and allow_owner:
+        if self.owner_id == user_session.user_id and allow_owner:
             return user_session.user_id
 
         # user do not own the object, check permissions
@@ -1108,14 +1123,14 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     base for all collaboration objects (notes, links, stories, highlights) related to an operation
     """
 
-    operation: Mapped[Optional[str]] = mapped_column(
+    operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey(
             "operation.id",
             ondelete="CASCADE",
         ),
-        doc="The operation associated with the object.",
+        doc="The id of the operation associated with the object.",
     )
-    glyph: Mapped[Optional[str]] = mapped_column(
+    glyph_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("glyph.id", ondelete="SET NULL"),
         doc="The glyph ID.",
     )
@@ -1126,7 +1141,9 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     color: Mapped[Optional[str]] = mapped_column(
         String, doc="The color associated with the object."
     )
-    title: Mapped[Optional[str]] = mapped_column(String, doc="The display name of the object.")
+    title: Mapped[Optional[str]] = mapped_column(
+        String, doc="The display name of the object."
+    )
     description: Mapped[Optional[str]] = mapped_column(
         String, doc="The description of the object."
     )
@@ -1140,9 +1157,9 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         self,
         id: str,
         type: GulpCollabType,
-        owner: str,
-        operation: str = None,
-        glyph: str = None,
+        owner_id: str,
+        operation_id: str = None,
+        glyph_id: str = None,
         color: str = None,
         tags: list[str] = None,
         title: str = None,
@@ -1155,9 +1172,9 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         Args:
             id (str): The unique identifier for the collaboration object.
             type (GulpCollabType): The type of the collaboration object.
-            owner (str): The user ID of the owner of the collaboration object.
-            operation (str, optional): The operation performed on the collaboration object. Defaults to None.
-            glyph (str, optional): The glyph associated with the collaboration object. Defaults to None (uses default).
+            owner_id (str): The user ID of the owner of the collaboration object.
+            operation_id (str, optional): The operation performed on the collaboration object. Defaults to None.
+            glyph_id (str, optional): The glyph associated with the collaboration object. Defaults to None (uses default).
             color (str, optional): The color associated with the collaboration object. Defaults to None (uses default).
             tags (list[str], optional): A list of tags associated with the collaboration object. Defaults to None.
             title (str, optional): The title of the collaboration object. Defaults to None.
@@ -1169,16 +1186,26 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             raise NotImplementedError(
                 "GulpCollabObject is an abstract class and cannot be instantiated directly."
             )
-        super().__init__(id=id, type=type, owner=owner, **kwargs)
-        self.operation = operation
-        self.glyph = glyph
+        super().__init__(id=id, type=type, owner_id=owner_id, **kwargs)
+        self.operation_id = operation_id
+        self.glyph_id = glyph_id
         self.tags = tags
         self.title = title
         self.description = description
         self.color = color
         self.private = private
         GulpLogger.get_logger().debug(
-            "---> GulpCollabObject: id=%s, type=%s, user=%s, operation=%s, glyph=%s, color=%s, tags=%s, title=%s, description=%s, private=%s"
-            % (id, type, owner, operation, glyph, color, tags, title, description, private)
+            "---> GulpCollabObject: id=%s, type=%s, user_id=%s, operation_id=%s, glyph=%s, color=%s, tags=%s, title=%s, description=%s, private=%s"
+            % (
+                id,
+                type,
+                owner_id,
+                operation_id,
+                glyph_id,
+                color,
+                tags,
+                title,
+                description,
+                private,
+            )
         )
-

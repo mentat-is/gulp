@@ -149,8 +149,8 @@ class Plugin(GulpPluginBase):
         return GulpDocument(
             self,
             timestamp=timestamp,
-            operation=self._operation,
-            context=self._context,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
             event_original=event_original,
             event_sequence=record_idx,
             log_file_path=self._log_file_path,
@@ -162,10 +162,10 @@ class Plugin(GulpPluginBase):
         self,
         req_id: str,
         ws_id: str,
-        user: str,
+        user_id: str,
         index: str,
-        operation: str,
-        context: str,
+        operation_id: str,
+        context_id: str,
         log_file_path: str,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
@@ -173,10 +173,10 @@ class Plugin(GulpPluginBase):
         await super().ingest_file(
             req_id,
             ws_id,
-            user,
+            user_id,
             index,
-            operation,
-            context,
+            operation_id,
+            context_id,
             log_file_path,
             plugin_params,
             flt,
@@ -184,7 +184,7 @@ class Plugin(GulpPluginBase):
 
         # initialize stats
         stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-            req_id, oeration=operation, context=context
+            req_id, oeration=operation_id, context_id=context_id
         )
         try:
             # initialize plugin

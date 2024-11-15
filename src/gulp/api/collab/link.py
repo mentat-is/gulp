@@ -29,10 +29,10 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
     async def create(
         cls,
         token: str,
-        operation: str,
+        operation_id: str,
         document_from: str,
         documents: list[GulpBasicDocument],
-        glyph: str = None,
+        glyph_id: str = None,
         color: str = None,
         tags: list[str] = None,
         title: str = None,
@@ -47,10 +47,10 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
 
         Args:
             token(str): the token of the user creating the object, for access check
-            operation(str): the id of the operation associated with the link
+            operation_id(str): the id of the operation associated with the link
             document_from(str): the source document
             documents(list[GulpBasicDocument]): the target documents
-            glyph(str, optional): the id of the glyph associated with the link
+            glyph_id(str, optional): the id of the glyph associated with the link
             color(str, optional): the color associated with the link (default: red)
             tags(list[str], optional): the tags associated with the link
             title(str, optional): the title of the link
@@ -63,10 +63,10 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             the created link object
         """
         args = {
-            "operation": operation,
+            "operation_id": operation_id,
             "document_from": document_from,
             "documents": documents,
-            "glyph": glyph,
+            "glyph_id": glyph_id,
             "color": color or "red",
             "tags": tags,
             "title": title,
