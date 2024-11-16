@@ -21,6 +21,7 @@ from fastapi import APIRouter, Header, Query, Request
 from muty.jsend import JSendResponse
 from pydantic import BaseModel, ConfigDict, Field
 from requests_toolbelt.multipart import decoder
+from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.rest.server_utils import ServerUtils
 
 from gulp.api.collab.structs import GulpUserPermission
@@ -108,6 +109,77 @@ once the upload is done, the server will automatically delete the uploaded data 
         )
         return RestApiIngest._app
 
+    async def _ingest_single_internal(
+        req_id: str,
+        ws_id: str,
+        user_id: str,
+        operation_id: str,
+        context_id: str,
+        index: str,
+        plugin: str,
+        flt: GulpIngestionFilter,
+        plugin_params: GulpPluginParameters,
+    ) -> None:
+
+        collab = await collab_api.collab()
+        elastic = elastic_api.elastic()
+
+        mod = None
+        if plugin == "raw":
+            # src_file is a list of events
+            logger().debug(
+                "ingesting %d raw events with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
+                % (len(src_file), plugin, collab, elastic, type(flt), flt, plugin_params)
+            )
+        else:
+            logger().debug(
+                "ingesting file=%s with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
+                % (src_file, plugin, collab, elastic, type(flt), flt, plugin_params)
+            )
+
+        # load plugin
+        try:
+            mod: PluginBase = gulp.plugin.load_plugin(plugin)
+        except Exception as ex:
+            # can't load plugin ...
+            t = TmpIngestStats(src_file).update(ingest_errors=[ex])
+            status, _ = await GulpStats.update(
+                collab,
+                req_id,
+                ws_id,
+                fs=t,
+                file_done=True,
+                new_status=GulpRequestStatus.FAILED,
+            )
+            return status
+
+        # ingest
+        start_time = timeit.default_timer()
+        if flt is None:
+            flt = GulpIngestionFilter()
+
+        status = await mod.ingest(
+            index,
+            req_id,
+            client_id,
+            operation_id,
+            context,
+            src_file,
+            ws_id,
+            plugin_params=plugin_params,
+            flt=flt,
+            user_id=user_id,
+        )
+        end_time = timeit.default_timer()
+        execution_time = end_time - start_time
+        logger().debug(
+            "execution time for ingesting file %s: %f sec." % (src_file, execution_time)
+        )
+
+        # unload plugin
+        gulp.plugin.unload_plugin(mod)
+        return status    
+    
     @staticmethod
     async def ingest_file_handler(
         r: Request,
@@ -148,8 +220,9 @@ once the upload is done, the server will automatically delete the uploaded data 
         req_id = GulpRestServer.ensure_req_id(req_id)
 
         try:
-            # check token
-            GulpUserSession.check_token_permission(token, GulpUserPermission.INGEST)
+            # check token and get caller user id
+            s = await GulpUserSession.check_token_permission(token, GulpUserPermission.INGEST)
+            user_id = s.user_id
         except Exception as ex:
             raise JSendException(ex=ex, req_id=req_id)
 
@@ -160,6 +233,24 @@ once the upload is done, the server will automatically delete the uploaded data 
             # must continue upload with a new chunk
             d = JSendResponse.error(req_id=req_id, data=result.model_dump(exclude_none=True))
             return JSONResponse(d)
+
+        # TODO: create context and source if they do not exist
+
+        # create stats
+        stats, _ = await GulpIngestionStats.create_or_get(req_id=req_id, operation_id=operation_id,
+                                                       context_id=context_id)
+        # run ingestion in a coroutine in one of the workers
+        coro = RestApiIngest._ingest_single_internal(
+            req_id=req_id,
+            ws_id=ws_id,
+            user_id=user_id,
+            operation_id=operation_id,
+            context_id=context_id,
+            index=index,
+            plugin=plugin,
+            flt=payload.flt,
+            plugin_params=payload.plugin_params,
+        )
 
         # TODO: spawn coro
         # process in background (may need to wait for pool space)

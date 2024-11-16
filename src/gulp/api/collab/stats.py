@@ -1,5 +1,5 @@
 import inspect
-from typing import Optional, override
+from typing import Optional, Tuple, override
 import muty.log
 import muty.time
 from sqlalchemy import BIGINT, ForeignKey, Index, Integer, String, ARRAY
@@ -41,6 +41,12 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         nullable=True,
         default=None,
         doc="The context associated with the stats.",
+    )
+    source_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("source.id", ondelete="CASCADE"),
+        nullable=True,
+        default=None,
+        doc="The source associated with the stats.",
     )
     status: Mapped[GulpRequestStatus] = mapped_column(
         SQLEnum(GulpRequestStatus),
@@ -126,7 +132,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         Asynchronously creates a new GulpStats subclass instance
         Args:
             token (str, optional): The authentication token. Defaults to None (unused)
-            id (str): The unique identifier for the stats (req_id).
+            id (str): The unique identifier for the stats (req_id)
             required_permission (list[GulpUserPermission], optional): The required permission. Defaults to [GulpUserPermission.READ] (unused)
             ws_id (str, optional): The websocket ID. Defaults to None.
             req_id (str, optional): The request ID. Defaults to None (unused)
@@ -144,6 +150,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         )
         operation_id: str = kwargs.get("operation_id", None)
         context_id: str = kwargs.get("context_id", None)
+        source_id: str = kwargs.get("source_id", None)
 
         # configure expiration
         time_expire = GulpConfig.get_instance().stats_ttl() * 1000
@@ -155,6 +162,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         args = {
             "operation_id": operation_id,
             "context_id": context_id,
+            "source_id": source_id,
             "time_expire": time_expire,
             **kwargs,
         }
@@ -173,26 +181,30 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         id: str,
         operation_id: str = None,
         context_id: str = None,
+        source_id: str = None,
         sess: AsyncSession = None,
         ensure_eager_load: bool=True,
         **kwargs,
-    ) -> T:
+    ) -> Tuple[T, bool]:
         MutyLogger.get_logger().debug(
-            f"--->_create_or_get: id={id}, operation_id={operation_id}, context_id={context_id}, kwargs={kwargs}"    
+            f"--->_create_or_get: id={id}, operation_id={operation_id}, context_id={context_id}, 
+                source_id={source_id}, sess={sess}, ensure_eager_load={ensure_eager_load},
+                kwargs={kwargs}"    
         )
         existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
         if existing:
-            return existing
+            return existing, False
 
         # create new
         stats = await cls._create(
             id=id,
             operation_id=operation_id,
             context_id=context_id,
+            source_id=source_id,
             ensure_eager_load=ensure_eager_load,
             **kwargs,
         )
-        return stats
+        return stats, True
 
 
 class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
@@ -238,40 +250,53 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
     @classmethod
     async def create_or_get(
         cls,
-        req_id: str,
-        operation_id: str = None,
-        context_id: str = None,
-        source_total: int = 1,
-        sess: AsyncSession = None,
+        id: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
         **kwargs,
-    ) -> T:
+    ) -> Tuple[T, bool]:
         """
         Create new or get an existing GulpIngestionStats object on the collab database.
 
+        if the stats already exists (id matches) but source_id is different, stats refers to a multi-source
+        ingestion and source_total (and other relevant fields) are updated.
+
         Args:
             id (str): The unique identifier of the stats (= "req_id" of the request)
-            operation_id (str, optional): The operation associated with the stats. Defaults to None.
-            context_id (str, optional): The context associated with the stats. Defaults to None.
-            source_total (int, optional): The total number of sources to be processed in the associated request. Defaults to 1.
-            sess (AsyncSession, optional): The database session. Defaults to None.
+            operation_id (str): The operation associated with the stats
+            context_id (str): The context associated with the stats
+            source_id (str): The source associated with the stats
             kwargs: Additional keyword arguments.
-        Keyword Args:
-            source_total (int, optional): The total number of sources to be processed. Defaults to 0.
+
         Returns:
-            GulpIngestionStats: The created CollabStats object.
+            a tuple (GulpIngestionStats, bool): The created or retrieved instance and a boolean indicating if the instance was created.
         """
         MutyLogger.get_logger().debug(
-            f"---> create_or_get: id={req_id}, operation_id={operation_id}, context_id={context_id}, source_total={source_total}, kwargs={kwargs}"
+            f"---> create_or_get: id={id}, operation_id={operation_id}, context_id={context_id}, source_total={source_total}, kwargs={kwargs}"
         )
-        return await cls._create_or_get(
-            id=req_id,
-            operation_id=operation_id,
-            context_id=context_id,
-            sess=sess,
-            source_total=source_total,
-            **kwargs,
-        )
-
+        async with GulpCollab.get_instance().session() as sess:
+            s: GulpIngestionStats
+            s, created = await cls._create_or_get(
+                id=id,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                sess=sess,
+                source_total=1,
+                **kwargs,
+            )
+            if not created and s.source_id != source_id:
+                # already exists but source is different: source total must be updated
+                sess.add(s)
+                await sess.refresh(s)                
+                s.source_id = 'multiple' # refers to a multi-source ingestion
+                s.source_total +=1
+                s.status = GulpRequestStatus.PENDING
+                s.time_finished=0
+                await sess.commit()
+        
+        return s, created
 
     @classmethod
     async def cancel_by_id(cls, token: str, req_id: str, ws_id: str = None) -> None:
