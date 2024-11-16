@@ -15,7 +15,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.config import GulpConfig
 
 class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
@@ -46,7 +46,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
     @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
-        GulpLogger.get_logger().debug("---> GulpUserSession.__init__: args=%s, kwargs=%s ..." % (args, kwargs))
+        MutyLogger.get_logger().debug("---> GulpUserSession.__init__: args=%s, kwargs=%s ..." % (args, kwargs))
         super().__init__(*args,  type=GulpCollabType.USER_SESSION, **kwargs)
 
     @classmethod
@@ -71,7 +71,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         Raises:
             ObjectNotFound: if the user session is not found.
         """
-        # GulpLogger.get_logger().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
+        # MutyLogger.get_logger().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
         if GulpConfig.get_instance().debug_allow_any_token_as_admin():
             # return an admin session
             from gulp.api.collab.user import GulpUser
@@ -81,7 +81,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
                 id="admin", sess=sess, throw_if_not_found=False)
             if admin_user.session:
                 # already exists
-                #GulpLogger.get_logger().debug("debug_allow_any_token_as_admin, reusing existing admin session: %s" % (admin_user.session))
+                #MutyLogger.get_logger().debug("debug_allow_any_token_as_admin, reusing existing admin session: %s" % (admin_user.session))
                 return admin_user.session
             else:
                 # create a new admin session
@@ -89,7 +89,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
                     id=admin_user.id, user_id=admin_user.id, user=admin_user, ensure_eager_load=True
                 )
                 admin_user.session = admin_session
-                GulpLogger.get_logger().debug(
+                MutyLogger.get_logger().debug(
                     "debug_allow_any_token_as_admin, created new admin session: %s" % (admin_session)
                 )                
                 return await admin_session
@@ -120,14 +120,14 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             MissingPermission: If the user does not have the required permissions.
         """
         # get session
-        GulpLogger.get_logger().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
+        MutyLogger.get_logger().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
         user_session: GulpUserSession = await GulpUserSession.get_by_token(token, sess=sess)
-        GulpLogger.get_logger().debug("---> check_token_permission: user_session=%s ..." % (user_session))        
+        MutyLogger.get_logger().debug("---> check_token_permission: user_session=%s ..." % (user_session))        
         
         from gulp.api.collab.user import GulpUser
         u: GulpUser = user_session.user
         if u.has_permission(permission):
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 "OK! User %s has the required permissions %s to perform this operation." % (user_session.user_id, permission)
             )
             return user_session

@@ -11,13 +11,13 @@ import muty.string
 import muty.time
 import muty.xml
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.structs import GulpLogLevel, GulpPluginType
-from gulp.plugin import GulpPluginBase
+from gulp.structs import GulpLogLevel
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 
 # TODO support gzipped logs from rotated configurations, same for error logs
@@ -214,7 +214,7 @@ class Plugin(GulpPluginBase):
             flt=flt,
             **kwargs,
         )
-        GulpLogger.get_logger().debug("ingesting file: %s" % source)
+        MutyLogger.get_logger().debug("ingesting file: %s" % source)
         print("REGEX IS:", r"\s+".join(self._parts) + r".*\Z")
         fs = TmpIngestStats(source)
 

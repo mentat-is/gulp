@@ -9,13 +9,13 @@ import muty.os
 import muty.string
 import muty.time
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.structs import GulpPluginType, InvalidArgument
-from gulp.plugin import GulpPluginBase
+from gulp.structs import InvalidArgument
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 
 try:
@@ -100,7 +100,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
 
-        # GulpLogger.get_logger().debug(custom_mapping"record: %s" % record)
+        # MutyLogger.get_logger().debug(custom_mapping"record: %s" % record)
         event: Subkey = record
 
         regkey = {
@@ -129,15 +129,15 @@ class Plugin(GulpPluginBase):
 
                 values.append(json.dumps({name: data}))
             except Exception as e:
-                GulpLogger.get_logger().error(e)
+                MutyLogger.get_logger().error(e)
 
         regkey["values"] = values
 
-        # self.GulpLogger.get_logger().debug("VALUES: ",values)
+        # self.MutyLogger.get_logger().debug("VALUES: ",values)
         # apply mappings for each value
         fme: list[GulpMappingField] = []
         for k, v in muty.json.flatten_json(regkey).items():
-            # self.GulpLogger.get_logger().debug(f"MAPPING: path:{d['path']} subkey_name:{d['subkey_name']} type:{d['type']} {k}={v}")
+            # self.MutyLogger.get_logger().debug(f"MAPPING: path:{d['path']} subkey_name:{d['subkey_name']} type:{d['type']} {k}={v}")
             e = self._map_source_key(plugin_params, custom_mapping, k, v, **kwargs)
             for f in e:
                 fme.append(f)
@@ -147,7 +147,7 @@ class Plugin(GulpPluginBase):
         time_msec = muty.time.nanos_to_millis(time_nanosec)
         event_code = str(muty.crypto.hash_crc24(str(regkey["path"])))
 
-        # self.GulpLogger.get_logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
+        # self.MutyLogger.get_logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
         # event_code = custom_mapping.options.event_code if custom_mapping.options.event_code is not None else str(muty.crypto.hash_crc24(d["type"]))
 
         docs = self._build_gulpdocuments(
@@ -211,8 +211,8 @@ class Plugin(GulpPluginBase):
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
 
-        GulpLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
-        GulpLogger.get_logger().debug(plugin_params)
+        MutyLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
+        MutyLogger.get_logger().debug(plugin_params)
 
         path = plugin_params.extra.get("path", None)
         partial_hive_type = plugin_params.extra.get("partial_hive_type", None)
@@ -224,13 +224,13 @@ class Plugin(GulpPluginBase):
             plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
-            GulpLogger.get_logger().warning("using plugin name=%s" % (plugin))
+            MutyLogger.get_logger().warning("using plugin name=%s" % (plugin))
 
         record_to_gulp_document_fun = plugin_params.record_to_gulp_document_fun
         if record_to_gulp_document_fun is None:
             # no record_to_gulp_document() function defined in params, use the default one
             record_to_gulp_document_fun = self._record_to_gulp_document
-            GulpLogger.get_logger().warning("using win_reg plugin record_to_gulp_document().")
+            MutyLogger.get_logger().warning("using win_reg plugin record_to_gulp_document().")
 
         ev_idx = 0
         try:

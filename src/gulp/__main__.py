@@ -6,8 +6,7 @@ import sys
 from multiprocessing import freeze_support
 import art
 
-from gulp.utils import GulpLogger
-from gulp.config import GulpConfig
+from muty.log import MutyLogger
 from gulp.api.rest_api import GulpRestServer
 
 # just for quick testing from the command line
@@ -15,7 +14,8 @@ __RUN_TESTS__ = os.getenv("INTERNAL_TEST", False)
 if not __debug__:
     __RUN_TESTS__ = False
 
-async def async_test():    
+
+async def async_test():
     if not __debug__:
         return
     l = 10
@@ -32,6 +32,7 @@ async def async_test():
             "running batch %d of %d tasks, total=%d, last=%r ..."
             % (count, batch_size, l, is_last)
         )
+
 
 def main():
     """
@@ -88,13 +89,16 @@ def main():
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     logger_file_path = args.log_to_file[0] if args.log_to_file else None
-    GulpLogger.get_instance().reconfigure(logger_file_path=logger_file_path, level=lv)
-
+    
+    # force INFO loglevel here, or fastapi would spit out unrelevant stuff at startup.
+    # loglevel will be adjusted later to the desired level when GulpRestServer starts.
+    MutyLogger.get_instance().reconfigure(name="gulp", logger_file_path=logger_file_path, level=logging.INFO)
+    
     if __RUN_TESTS__:
         # test stuff
         asyncio.run(async_test())
         return
-    
+
     # get params
     try:
         if args.version:
@@ -104,16 +108,16 @@ def main():
             # default
             print("%s\n%s" % (banner, ver))
             reset_collab = args.reset_collab
-            reset_index = (
-                args.reset_index[0] if args.reset_index is not None else None
-            )
+            reset_index = args.reset_index[0] if args.reset_index is not None else None
             GulpRestServer.get_instance().start(
-                            logger_file_path=logger_file_path,
-                            reset_collab=reset_collab,
-                            reset_index=reset_index)
+                logger_file_path=logger_file_path,
+                level=lv,
+                reset_collab=reset_collab,
+                reset_index=reset_index,
+            )
     except Exception as ex:
         # print exception and exit
-        GulpLogger.get_instance().get_logger().exception(ex)
+        MutyLogger.get_instance().get_logger().exception(ex)
         sys.exit(1)
 
     # done

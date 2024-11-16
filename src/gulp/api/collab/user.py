@@ -16,7 +16,7 @@ from gulp.api.collab.structs import (
     T,
     WrongUsernameOrPassword,
 )
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.config import GulpConfig
 from gulp.api.collab_api import GulpCollab
 class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
@@ -167,7 +167,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             )
             if pwd_changed and user.session:
                 # invalidate (delete) the session if the password was changed
-                GulpLogger.get_logger().debug(
+                MutyLogger.get_logger().debug(
                     "password changed, deleting session for user_id=%s" % (user.id)
                 )
                 sess.add(user.session)
@@ -234,14 +234,14 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        GulpLogger.get_logger().debug("---> logging in user_id=%s ..." % (user_id))
+        MutyLogger.get_logger().debug("---> logging in user_id=%s ..." % (user_id))
 
         sess = GulpCollab.get_instance().session()
         async with sess:
             u: GulpUser = await GulpUser.get_one_by_id(id=user_id, sess=sess)
             # check if user has a session already, if so invalidate
             if u.session:
-                GulpLogger.get_logger().debug("resetting previous session for user_id=%s" % (user_id))
+                MutyLogger.get_logger().debug("resetting previous session for user_id=%s" % (user_id))
                 u.session = None
                 sess.add(u)  # keep track of the change
 
@@ -289,7 +289,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Returns:
             None
         """
-        GulpLogger.get_logger().debug("---> logging out token=%s ..." % (token))
+        MutyLogger.get_logger().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
 
         await GulpUserSession.delete_by_id(token=token, id=token, ws_id=ws_id, req_id=req_id)

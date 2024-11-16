@@ -4,10 +4,10 @@ from gulp import plugin
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.structs import GulpPluginType
+from gulp.plugin import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 
 class Plugin(GulpPluginBase):
@@ -60,7 +60,7 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        GulpLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
+        MutyLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         # attempt_decode = plugin_params.extra.get("decode", True)

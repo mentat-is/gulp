@@ -90,7 +90,7 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         Returns:
             GulpEventFilterResult: The result of the filter check.
         """
-        # GulpLogger.get_logger().error(flt)
+        # MutyLogger.get_logger().error(flt)
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
@@ -289,7 +289,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             }
 
 
-        # GulpLogger.get_logger().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
+        # MutyLogger.get_logger().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
     def merge_to_opensearch_dsl(self, dsl: dict) -> dict:

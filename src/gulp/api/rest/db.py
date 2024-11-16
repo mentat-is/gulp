@@ -28,7 +28,7 @@ import gulp.process as process
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.config import GulpConfig
 
 _app: APIRouter = APIRouter()
@@ -85,7 +85,7 @@ async def rebase_handler(
     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
-    GulpLogger.get_logger().debug(
+    MutyLogger.get_logger().debug(
         "rebasing index=%s to dest_index=%s with offset=%d, ws_id=%s, flt=%s"
         % (index, dest_index, offset_msec, ws_id, flt)
     )
@@ -158,7 +158,7 @@ async def elastic_list_index_handler(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         l: list[str] = await opensearch_api.datastream_list(opensearch_api.elastic())
-        # GulpLogger.get_logger().debug("datastreams=%s" % (l))
+        # MutyLogger.get_logger().debug("datastreams=%s" % (l))
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -408,9 +408,9 @@ async def collab_init_handler(
         c = await collab_api.session()
         await collab_db.drop(GulpConfig.get_instance().postgres_url())
         await collab_api.engine_close(c)
-        GulpLogger.get_logger().debug("previous main process collab=%s" % (c))
+        MutyLogger.get_logger().debug("previous main process collab=%s" % (c))
         c = await collab_api.session(invalidate=True)
-        GulpLogger.get_logger().debug("current main process collab=%s" % (c))
+        MutyLogger.get_logger().debug("current main process collab=%s" % (c))
 
         # we need also to reinit all processes
         gulp.plugin.plugin_cache_clear()

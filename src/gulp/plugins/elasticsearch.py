@@ -20,10 +20,10 @@ from gulp.api.opensearch.structs import (
     gulpqueryflt_to_elastic_dsl,
 )
 import gulp.api.ws_api
-from gulp.structs import GulpPluginType, InvalidArgument, ObjectNotFound
-from gulp.plugin import GulpPluginBase
+from gulp.structs import InvalidArgument, ObjectNotFound
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.api.rest import ws as ws_api
 from elasticsearch import AsyncElasticsearch
 from opensearchpy import AsyncOpenSearch
@@ -201,7 +201,7 @@ class Plugin(GulpPluginBase):
             )
         if not url.startswith("http"):
             # default to http
-            GulpLogger.get_logger().warning(
+            MutyLogger.get_logger().warning(
                 "url does not start with http, adding default http:// prefix!"
             )
             url = "http://" + url
@@ -336,7 +336,7 @@ class Plugin(GulpPluginBase):
                 basic_auth=(elastic_user, password),
                 verify_certs=False,
             )
-            GulpLogger.get_logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
+            MutyLogger.get_logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
         else:
             # opensearch
             cl: AsyncOpenSearch = AsyncOpenSearch(
@@ -344,7 +344,7 @@ class Plugin(GulpPluginBase):
                 http_auth=(elastic_user, password),
                 verify_certs=False,
             )
-            GulpLogger.get_logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
+            MutyLogger.get_logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
 
         # get the event from elasticsearch
         e = await opensearch_api.query_single_event(cl, index, event["_id"])
@@ -373,7 +373,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter,
         options: GulpQueryOptions = None,
     ) -> tuple[int, GulpRequestStatus]:
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "querying elasticsearch, params=%s, filter: %s" % (plugin_params, flt)
         )
 
@@ -405,7 +405,7 @@ class Plugin(GulpPluginBase):
                 verify_certs=False,
             )
             api = opensearch_api.query_raw_elastic
-            GulpLogger.get_logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
+            MutyLogger.get_logger().debug("connected to elasticsearch at %s, instance=%s" % (url, cl))
         else:
             # opensearch
             cl: AsyncOpenSearch = AsyncOpenSearch(
@@ -414,7 +414,7 @@ class Plugin(GulpPluginBase):
                 verify_certs=False,
             )
             api = opensearch_api.query_raw
-            GulpLogger.get_logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
+            MutyLogger.get_logger().debug("connected to opensearch at %s, instance=%s" % (url, cl))
 
         # initialize result
         query_res = QueryResult()
@@ -428,11 +428,11 @@ class Plugin(GulpPluginBase):
 
         try:
             while True:
-                GulpLogger.get_logger().debug("querying, query=%s, options=%s" % (q, o))
+                MutyLogger.get_logger().debug("querying, query=%s, options=%s" % (q, o))
                 try:
                     r = await api(cl, index, raw_query_dict, o)
                 except ObjectNotFound as ex:
-                    GulpLogger.get_logger().error("no more data found!")
+                    MutyLogger.get_logger().error("no more data found!")
                     break
                 except Exception as ex:
                     raise ex
@@ -459,7 +459,7 @@ class Plugin(GulpPluginBase):
                 # fill query result
                 query_res.search_after = r.get("search_after", None)
                 query_res.total_hits = r.get("total", 0)
-                GulpLogger.get_logger().debug(
+                MutyLogger.get_logger().debug(
                     "%d results (TOTAL), this chunk=%d"
                     % (query_res.total_hits, len_evts)
                 )
@@ -483,7 +483,7 @@ class Plugin(GulpPluginBase):
                 # processed an event chunk (evts)
                 processed += len_evts
                 chunk += 1
-                GulpLogger.get_logger().error(
+                MutyLogger.get_logger().error(
                     "sent %d events to ws, num processed events=%d, chunk=%d ..."
                     % (len(evts), processed, chunk)
                 )
@@ -493,13 +493,13 @@ class Plugin(GulpPluginBase):
 
                 query_res.chunk += 1
                 if query_res.search_after is None:
-                    GulpLogger.get_logger().debug(
+                    MutyLogger.get_logger().debug(
                         "search_after=None or search_after_loop=False, query done!"
                     )
                     break
 
                 o.search_after = query_res.search_after
-                GulpLogger.get_logger().debug(
+                MutyLogger.get_logger().debug(
                     "search_after=%s, total_hits=%d, running another query to get more results ...."
                     % (query_res.search_after, query_res.total_hits)
                 )
@@ -507,4 +507,4 @@ class Plugin(GulpPluginBase):
             return query_res.total_hits, status
         finally:
             await cl.close()
-            GulpLogger.get_logger().debug("elasticsearch connection instance=%s closed!" % (cl))
+            MutyLogger.get_logger().debug("elasticsearch connection instance=%s closed!" % (cl))

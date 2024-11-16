@@ -4,13 +4,14 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import os
 import ssl
+
+from fastapi.responses import JSONResponse
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpSharedWsQueue
 from gulp.plugin import GulpPluginBase
 import muty.crypto
 import muty.file
-import muty.jsend
 import muty.list
 import muty.log
 import muty.os
@@ -19,13 +20,12 @@ import muty.version
 import muty.uploadfile
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.concurrency import asynccontextmanager
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from muty.jsend import JSendException, JSendResponse
 from opensearchpy import RequestError
 from gulp.process import GulpProcess
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.config import GulpConfig
 from gulp.api.collab.structs import (
     MissingPermission,
@@ -33,7 +33,6 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.structs import ObjectNotFound
-
 class GulpRestServer():
     """
     manages the gULP REST server.
@@ -51,6 +50,7 @@ class GulpRestServer():
             self._initialized = True            
             self._app = None
             self._logger_file_path = None
+            self._log_level = None
             self._reset_collab = False
             self._reset_index = None
             self._shutdown: bool = False
@@ -102,7 +102,7 @@ class GulpRestServer():
         """
         unload extension plugins
         """
-        GulpLogger.get_logger().debug("unloading extension plugins ...")
+        MutyLogger.get_logger().debug("unloading extension plugins ...")
         for p in self._extension_plugins:
             await p.unload()
         self._extension_plugins = []
@@ -112,7 +112,7 @@ class GulpRestServer():
         """
         load available extension plugins
         """
-        GulpLogger.get_logger().debug("loading extension plugins ...")
+        MutyLogger.get_logger().debug("loading extension plugins ...")
         path_plugins = GulpConfig.get_instance().path_plugins(extension=True)
         files = await muty.file.list_directory_async(path_plugins, "*.py*", recursive=True)
         for f in files:
@@ -121,13 +121,13 @@ class GulpRestServer():
                 p = await GulpPluginBase.load(f, extension=True)
                 self._extension_plugins.append(p)
         
-        GulpLogger.get_logger().debug("loaded %d extension plugins: %s" % (len(self._extension_plugins), self._extension_plugins))
+        MutyLogger.get_logger().debug("loaded %d extension plugins: %s" % (len(self._extension_plugins), self._extension_plugins))
 
     def set_shutdown(self, *args):
         """
         Sets the global `_shutting_down` flag to True.
         """
-        GulpLogger.get_logger().debug("shutting down!")
+        MutyLogger.get_logger().debug("shutting down!")
         self._shutdown = True
 
 
@@ -139,68 +139,42 @@ class GulpRestServer():
             bool: True if the server is shutting down, False otherwise.
         """
         if self._shutdown:
-            GulpLogger.get_logger().warning("_shutdown set!")
+            MutyLogger.get_logger().warning("_shutdown set!")
         return self._shutdown
 
 
-    async def _validation_exception_handler(
-        _: Request, ex: RequestValidationError
-    ) -> JSendResponse:
-        """
-        set error code to 400 on validation exceptions
-        """
-        status_code = 400
-        jsend_ex = JSendException(ex=ex, status_code=status_code)
-        GulpLogger.get_logger().debug(
-            "in request-validation exception handler, status_code=%d" % (status_code)
-        )
-        return muty.jsend.fastapi_jsend_exception_handler(jsend_ex, status_code)
-
-
     async def _bad_request_exception_handler(
-        _: Request, ex: RequestValidationError
+        r: Request, ex: any
     ) -> JSendResponse:
         """
-        set error code to 400 on bad request exceptions
-        """
-        status_code = 400
-        jsend_ex = JSendException(ex=ex, status_code=status_code)
-        GulpLogger.get_logger().debug("in bad-request exception handler, status_code=%d" % (status_code))
-        return muty.jsend.fastapi_jsend_exception_handler(jsend_ex, status_code)
-
-
-    async def _gulp_rest_api_exception_handler(_: Request, ex: JSendException) -> JSendResponse:
-        """
-        handles gulp rest api errors
-
-        Args:
-            _: Request: the request
-            ex: JSendException: the exception
-
-        Returns:
-            JSendResponse
+        set error code 400 to generic bad requests
         """
         status_code = 500
+        MutyLogger.get_logger().debug(
+            "in request-validation exception handler, status_code=%d" % (status_code)
+        )
+        req = await r.body()
+        req_id = None
+        if isinstance(ex, JSendException):
+            req_id = ex.req_id
+            if ex.status_code is not None:
+                status_code = ex.status_code
+            if ex.ex is not None:
+                ex = ex.ex
 
-        if ex.status_code is not None:
-            # force status code
-            status_code = ex.status_code
-        elif ex.ex is not None:
-            # get from exception
-            if isinstance(ex.ex, ObjectNotFound) or isinstance(ex.ex, FileNotFoundError):
-                status_code = 404
-            elif isinstance(ex.ex, ValueError):
-                status_code = 400
-            elif (
-                isinstance(ex.ex, MissingPermission)
-                or isinstance(ex.ex, WrongUsernameOrPassword)
-                or isinstance(ex.ex, SessionExpired)
-            ):
-                status_code = 401
-            else:
-                status_code = 500
-        GulpLogger.get_logger().debug("in exception handler, status_code=%d" % (status_code))
-        return muty.jsend.fastapi_jsend_exception_handler(ex, status_code)
+        if isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
+            status_code = 404
+        elif isinstance(ex, ValueError):
+            status_code = 400
+        elif (
+            isinstance(ex, MissingPermission)
+            or isinstance(ex, WrongUsernameOrPassword)
+            or isinstance(ex, SessionExpired)
+        ):
+            status_code = 401
+
+        js = JSendResponse.error(req_id=req_id, ex=ex, data={"request": req})
+        return JSONResponse(js, status_code=status_code)
 
     def _add_routers(self):
         from gulp.api.rest.ingest import RestApiIngest
@@ -258,16 +232,18 @@ class GulpRestServer():
         """
         self._app.add_api_route(path, handler, **kwargs)
 
-    def start(self, logger_file_path: str=None, reset_collab: bool = False, reset_index: str = None):
+    def start(self, logger_file_path: str=None, level: int=None, reset_collab: bool = False, reset_index: str = None):
         """
         starts the server.
 
         Args:
             logger_file_path (str, optional): path to the logger file.
+            level (int, optional): the log level.
             reset_collab (bool, optional): if True, the collab database will be reset on start.
             reset_index (str, optional): name of the OpenSearch/Elasticsearch index to reset (if --reset-data is provided on the commandline).
         """
         self._logger_file_path = logger_file_path
+        self._log_level = level
         self._reset_collab = reset_collab
         self._reset_index = reset_index
 
@@ -290,20 +266,20 @@ class GulpRestServer():
             allow_methods=["*"],
             allow_headers=["*"],
         )
-        
+
         # add our custom exception handlers
-        self._app.add_exception_handler(RequestValidationError, self._validation_exception_handler)
+        self._app.add_exception_handler(RequestValidationError, self._bad_request_exception_handler)
         self._app.add_exception_handler(RequestError, self._bad_request_exception_handler)
-        self._app.add_exception_handler(JSendException, self._gulp_rest_api_exception_handler)
+        self._app.add_exception_handler(JSendException, self._bad_request_exception_handler)
 
         # add routers in other modules
         self._add_routers()
 
         address, port = GulpConfig.get_instance().bind_to()
-        GulpLogger.get_logger().info("starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, reset_index=%s ..." % (address, port, logger_file_path, reset_collab, reset_index))
+        MutyLogger.get_logger().info("starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, reset_index=%s ..." % (address, port, logger_file_path, reset_collab, reset_index))
         
         if cfg.enforce_https():
-            GulpLogger.get_logger().info("enforcing HTTPS ...")
+            MutyLogger.get_logger().info("enforcing HTTPS ...")
 
             path_certs: str = cfg.path_certs()
             cert_password: str = cfg.https_cert_password()
@@ -315,11 +291,11 @@ class GulpRestServer():
             ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
             if cfg.enforce_https_client_certs():
                 ssl_cert_verify_mode = ssl.VerifyMode.CERT_REQUIRED
-                GulpLogger.get_logger().warning("HTTPS client certificates ARE ENFORCED.")
+                MutyLogger.get_logger().warning("HTTPS client certificates ARE ENFORCED.")
 
             ssl_keyfile = muty.file.safe_path_join(path_certs, "gulp.key")
             ssl_certfile = muty.file.safe_path_join(path_certs, "gulp.pem")
-            GulpLogger.get_logger().info(
+            MutyLogger.get_logger().info(
                 "ssl_keyfile=%s, ssl_certfile=%s, cert_password=%s, ssl_ca_certs=%s, ssl_cert_verify_mode=%d"
                 % (
                     ssl_keyfile,
@@ -341,14 +317,15 @@ class GulpRestServer():
             )
         else:
             # http
-            GulpLogger.get_logger().warning("HTTP!")
+            MutyLogger.get_logger().warning("HTTP!")
             uvicorn.run(self._app, host=address, port=port)
 
     async def _lifespan_handler(self, app: FastAPI):
         """
         fastaapi lifespan handler
         """
-        GulpLogger.get_logger().info("gULP main server process is starting!")
+        MutyLogger.get_instance().reconfigure(name="gulp", logger_file_path=self._logger_file_path, level=self._log_level)
+        MutyLogger.get_logger().info("gULP main server process is starting!")
         main_process = GulpProcess.get_instance()
 
         # check configuration directories
@@ -361,24 +338,24 @@ class GulpRestServer():
             self._reset_index = "gulpidx"
             self._reset_collab = True
             first_run=True
-            GulpLogger.get_logger().warning("first run, creating collab database and data index '%s' ..." % (self._reset_index))
+            MutyLogger.get_logger().warning("first run, creating collab database and data index '%s' ..." % (self._reset_index))
             
         else:
-            GulpLogger.get_logger().info("not first run")
+            MutyLogger.get_logger().info("not first run")
 
         # init the main process
-        await main_process.init_gulp_process()
+        await main_process.init_gulp_process(log_level=self._log_level, logger_file_path=self._logger_file_path)
 
         # check for reset flags
         try:
             if self._reset_collab:
                 # reinit collab
-                GulpLogger.get_logger().warning("resetting collab!")
+                MutyLogger.get_logger().warning("resetting collab!")
                 collab = GulpCollab.get_instance()
                 await collab.init(force_recreate=True)
             if self._reset_index:
                 # reinit elastic
-                GulpLogger.get_logger().warning("resetting data, recreating index '%s' ..." % (self._reset_index))  
+                MutyLogger.get_logger().warning("resetting data, recreating index '%s' ..." % (self._reset_index))  
                 el = GulpOpenSearch.get_instance()
                 await el.datastream_create(self._reset_index)
         except Exception as ex:
@@ -393,7 +370,7 @@ class GulpRestServer():
         # wait for shutdown
         yield
 
-        GulpLogger.get_logger().info("gulp shutting down!")
+        MutyLogger.get_logger().info("gulp shutting down!")
         self.set_shutdown()
 
         await self._unload_extension_plugins()
@@ -410,7 +387,7 @@ class GulpRestServer():
         await GulpProcess.get_instance().close_coro_pool()
         await GulpProcess.get_instance().close_thread_pool()
 
-        GulpLogger.get_logger().debug("everything shut down, we can gracefully exit.")
+        MutyLogger.get_logger().debug("everything shut down, we can gracefully exit.")
 
     def _delete_first_run_file() -> None:
         """
@@ -420,7 +397,7 @@ class GulpRestServer():
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
-            GulpLogger.get_logger().warning("deleted: %s" % (check_first_run_file))
+            MutyLogger.get_logger().warning("deleted: %s" % (check_first_run_file))
 
     def _check_first_run(self) -> bool:
         """
@@ -434,11 +411,11 @@ class GulpRestServer():
         config_directory = GulpConfig.get_instance().config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
-            GulpLogger.get_logger().debug("first run file exists: %s" % (check_first_run_file))
+            MutyLogger.get_logger().debug("first run file exists: %s" % (check_first_run_file))
             return False
 
         # create firstrun file
-        GulpLogger.get_logger().warning("first run file does not exist: %s" % (check_first_run_file))
+        MutyLogger.get_logger().warning("first run file does not exist: %s" % (check_first_run_file))
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")
         return True
@@ -452,7 +429,7 @@ class GulpRestServer():
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
-            GulpLogger.get_logger().info("first run file deleted: %s" % (check_first_run_file))
+            MutyLogger.get_logger().info("first run file deleted: %s" % (check_first_run_file))
         else:
-            GulpLogger.get_logger().warning("first run file does not exist: %s" % (check_first_run_file))
+            MutyLogger.get_logger().warning("first run file does not exist: %s" % (check_first_run_file))
 

@@ -13,10 +13,10 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.structs import GulpPluginType
+from gulp.plugin import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 
 class Plugin(GulpPluginBase):
@@ -119,7 +119,7 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        GulpLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
+        MutyLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         regex = plugin_params.extra.get("regex", None)
@@ -130,7 +130,7 @@ class Plugin(GulpPluginBase):
 
             # make sure we have at least 1 named group
             if regex.groups == 0:
-                GulpLogger.get_logger().error("no named groups provided, invalid regex")
+                MutyLogger.get_logger().error("no named groups provided, invalid regex")
                 fs = self._source_failed(fs, source, "no named groups provided")
                 return await self._finish_ingestion(
                     index, source, req_id, client_id, ws_id, fs=fs, flt=flt
@@ -143,7 +143,7 @@ class Plugin(GulpPluginBase):
                     valid = True
 
             if not valid:
-                GulpLogger.get_logger().error("no timestamp named group provided, invalid regex")
+                MutyLogger.get_logger().error("no timestamp named group provided, invalid regex")
                 fs = self._source_failed(
                     fs, source, "no timestamp named group provided"
                 )

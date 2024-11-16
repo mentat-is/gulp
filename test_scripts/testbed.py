@@ -17,7 +17,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api import opensearch_api
 from gulp.api.mapping.models import GulpMapping
 from gulp.structs import GulpPluginParameters
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
@@ -257,24 +257,24 @@ async def test_init():
 
     #await testbed()
     #return
-    GulpLogger.get_logger().debug("---> init")
+    MutyLogger.get_logger().debug("---> init")
     GulpConfig.get_instance()
     os = GulpOpenSearch.get_instance()
     collab = GulpCollab.get_instance()
     await collab.get_instance().init()
     if _opt_reset:
-        GulpLogger.get_logger().debug("resetting...")
+        MutyLogger.get_logger().debug("resetting...")
         await os.datastream_create(_opt_index)
     await collab.init(force_recreate=_opt_reset)
     
 async def test_login_logout():
-    GulpLogger.get_logger().debug("---> test_login_logout")
+    MutyLogger.get_logger().debug("---> test_login_logout")
     session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
     await GulpUser.logout(session.id)
     return
 
 async def test_ingest_windows():
-    GulpLogger.get_logger().debug("---> test_ingest_windows")
+    MutyLogger.get_logger().debug("---> test_ingest_windows")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -298,12 +298,12 @@ async def test_ingest_windows():
 
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger.get_logger().debug(
+    MutyLogger.get_logger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv():
-    GulpLogger.get_logger().debug("---> test_ingest_csv")
+    MutyLogger.get_logger().debug("---> test_ingest_csv")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -327,12 +327,12 @@ async def test_ingest_csv():
     
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger.get_logger().debug(
+    MutyLogger.get_logger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv_with_mappings():
-    GulpLogger.get_logger().debug("---> test_ingest_csv")
+    MutyLogger.get_logger().debug("---> test_ingest_csv")
     
     # load plugin
     start_time = timeit.default_timer()
@@ -354,12 +354,12 @@ async def test_ingest_csv_with_mappings():
                              file, plugin_params=params)
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger.get_logger().debug(
+    MutyLogger.get_logger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
 async def test_ingest_csv_stacked():
-    GulpLogger.get_logger().debug("---> test_ingest_csv_stacked")
+    MutyLogger.get_logger().debug("---> test_ingest_csv_stacked")
 
     # load plugin
     start_time = timeit.default_timer()
@@ -383,7 +383,7 @@ async def test_ingest_csv_stacked():
     
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    GulpLogger.get_logger().debug(
+    MutyLogger.get_logger().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
@@ -438,7 +438,7 @@ async def test_bulk_insert():
                                               ws_id=None,req_id='123', user_id='admin', title="test match", tags=['tag1','tag2'])
 
 async def test_sigma_convert():
-    GulpLogger.get_logger().debug("---> test_sigma_convert")
+    MutyLogger.get_logger().debug("---> test_sigma_convert")
     
     # load plugin
     plugin = await GulpPluginBase.load("win_evtx")

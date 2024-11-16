@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 
 class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):

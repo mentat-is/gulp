@@ -16,7 +16,7 @@ from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
 )
 from gulp.structs import ObjectNotFound
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 from elasticsearch import AsyncElasticsearch
 from opensearchpy import AsyncOpenSearch
@@ -81,7 +81,7 @@ class GulpOpenSearch:
         parsed = urlparse(url)
 
         # url = "%s://%s:***********@%s:%s" % (parsed.scheme, parsed.username, parsed.hostname, parsed.port)
-        # GulpLogger.get_logger().debug('%s, opensearch hostname=%s, port=%d, user_id=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
+        # MutyLogger.get_logger().debug('%s, opensearch hostname=%s, port=%d, user_id=%s, password=***********' % (url, parsed.hostname, parsed.port, parsed.username))
 
         host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
         ca = None
@@ -96,7 +96,7 @@ class GulpOpenSearch:
             client_cert = muty.file.safe_path_join(certs_dir, "os.pem")
             client_key = muty.file.safe_path_join(certs_dir, "os.key")
             if os.path.exists(client_cert) and os.path.exists(client_key):
-                GulpLogger.get_logger().debug(
+                MutyLogger.get_logger().debug(
                     "using client certificate: %s, key=%s, ca=%s"
                     % (client_cert, client_key, ca)
                 )
@@ -110,7 +110,7 @@ class GulpOpenSearch:
                     verify_certs=verify_certs,
                 )
             else:
-                GulpLogger.get_logger().debug(
+                MutyLogger.get_logger().debug(
                     "no client certificate found, using CA certificate only: %s" % (ca)
                 )
                 return AsyncOpenSearch(
@@ -123,7 +123,7 @@ class GulpOpenSearch:
 
         # no https
         el = AsyncOpenSearch(host, http_auth=(parsed.username, parsed.password))
-        GulpLogger.get_logger().debug("created opensearch client: %s" % (el))
+        MutyLogger.get_logger().debug("created opensearch client: %s" % (el))
         return el
 
     async def shutdown(self) -> None:
@@ -134,7 +134,7 @@ class GulpOpenSearch:
             None
         """
         await self._opensearch.close()
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "opensearch client shutdown: %s" % (self._opensearch)
         )
         self._opensearch = None
@@ -148,7 +148,7 @@ class GulpOpenSearch:
 
         """
         res = await self._opensearch.info()
-        GulpLogger.get_logger().debug("opensearch info: %s" % (res))
+        MutyLogger.get_logger().debug("opensearch info: %s" % (res))
 
     async def datastream_get_key_value_mapping(
         self, name: str, return_raw_result: bool = False
@@ -185,12 +185,12 @@ class GulpOpenSearch:
         try:
             res = await self._opensearch.indices.get_mapping(index=name)
         except Exception as e:
-            GulpLogger.get_logger().warning(
+            MutyLogger.get_logger().warning(
                 'no mapping for index "%s" found: %s' % (name, e)
             )
             return {}
 
-        # GulpLogger.get_logger().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
+        # MutyLogger.get_logger().debug("index_get_mapping: %s" % (json.dumps(res, indent=2)))
         if return_raw_result:
             return res
 
@@ -233,7 +233,7 @@ class GulpOpenSearch:
         while True:
             try:
                 docs = await self.search_dsl(index=name, q=q, options=options)
-                # GulpLogger.get_logger().debug("docs: %s" % (json.dumps(docs, indent=2)))
+                # MutyLogger.get_logger().debug("docs: %s" % (json.dumps(docs, indent=2)))
             except ObjectNotFound:
                 break
             search_after = docs.get("search_after", None)
@@ -268,12 +268,12 @@ class GulpOpenSearch:
         """
         try:
             template_name = "%s-template" % (name)
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 "deleting index template: %s ..." % (template_name)
             )
             await self._opensearch.indices.delete_index_template(name=template_name)
         except Exception as e:
-            GulpLogger.get_logger().error("error deleting index template: %s" % (e))
+            MutyLogger.get_logger().error("error deleting index template: %s" % (e))
 
     async def index_template_get(self, name: str) -> dict:
         """
@@ -286,7 +286,7 @@ class GulpOpenSearch:
             dict: The index template.
         """
         template_name = "%s-template" % (name)
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "getting index template: %s ..." % (template_name)
         )
 
@@ -309,7 +309,7 @@ class GulpOpenSearch:
             dict: The response from the OpenSearch client.
         """
         template_name = "%s-template" % (name)
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "putting index template: %s ..." % (template_name)
         )
         headers = {"accept": "application/json", "content-type": "application/json"}
@@ -331,7 +331,7 @@ class GulpOpenSearch:
             dict: The response from OpenSearch after setting the index template.
         """
 
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             'loading index template from file "%s" ...' % (path)
         )
         d = muty.dict.from_json_file(path)
@@ -355,7 +355,7 @@ class GulpOpenSearch:
             - It applies specific patches to the mappings and settings before setting the index template.
             - If the OpenSearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
         """
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             'setting index template for "%s" ...' % (index_name)
         )
         template = d.get("template", None)
@@ -435,7 +435,7 @@ class GulpOpenSearch:
                 # optimize for single node
                 # this also removes "yellow" node in single node mode
                 # this also removes "yellow" node in single node mode
-                GulpLogger.get_logger().warning("setting number_of_replicas to 0")
+                MutyLogger.get_logger().warning("setting number_of_replicas to 0")
                 settings["index"]["number_of_replicas"] = 0
 
         # write template
@@ -456,7 +456,7 @@ class GulpOpenSearch:
         """
         headers = {"accept": "text/plain,application/json"}
         l = await self._opensearch.indices.get_data_stream(headers=headers)
-        # GulpLogger.get_logger().debug(json.dumps(l, indent=2))
+        # MutyLogger.get_logger().debug(json.dumps(l, indent=2))
         ll = []
         ds = l.get("data_streams", [])
         for c in ds:
@@ -482,15 +482,15 @@ class GulpOpenSearch:
         # params = {"ignore_unavailable": "true"}
         headers = {"accept": "application/json"}
         try:
-            GulpLogger.get_logger().debug('deleting datastream "%s" ...' % (name))
+            MutyLogger.get_logger().debug('deleting datastream "%s" ...' % (name))
             await self._opensearch.indices.delete_data_stream(name, headers=headers)
         except Exception as e:
-            GulpLogger.get_logger().error("error deleting datastream: %s" % (e))
+            MutyLogger.get_logger().error("error deleting datastream: %s" % (e))
             pass
         try:
             await self.index_template_delete(name)
         except Exception as e:
-            GulpLogger.get_logger().error("error deleting index template: %s" % (e))
+            MutyLogger.get_logger().error("error deleting index template: %s" % (e))
 
     async def datastream_create(self, name: str, index_template: str = None) -> None:
         """
@@ -505,7 +505,7 @@ class GulpOpenSearch:
         """
 
         # attempt to delete the datastream first, if it exists
-        GulpLogger.get_logger().debug('re/creating datastream "%s" ...' % (name))
+        MutyLogger.get_logger().debug('re/creating datastream "%s" ...' % (name))
         await self.datastream_delete(name)
 
         # create index template, check if we are overriding the default index template.
@@ -515,7 +515,7 @@ class GulpOpenSearch:
             template_path = GulpConfig.get_instance().path_index_template()
         else:
             template_path = index_template
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 'using custom index template "%s" ...' % (template_path)
             )
             apply_patches = False
@@ -527,7 +527,7 @@ class GulpOpenSearch:
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
             r = await self._opensearch.indices.create_data_stream(name, headers=headers)
-            GulpLogger.get_logger().debug("datastream created: %s" % (r))
+            MutyLogger.get_logger().debug("datastream created: %s" % (r))
             return r
         except Exception as e:
             # delete the index template
@@ -599,12 +599,12 @@ class GulpOpenSearch:
                 {k: v for k, v in item.items() if k != "_id"},
             )
         ]
-        # GulpLogger.get_logger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
+        # MutyLogger.get_logger().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
         if len(bulk_docs) == 0:
-            GulpLogger.get_logger().warning("no document to ingest (flt=%s)" % (flt))
+            MutyLogger.get_logger().warning("no document to ingest (flt=%s)" % (flt))
             return 0, 0, []
 
-        # GulpLogger.get_logger().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
+        # MutyLogger.get_logger().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
         # bulk ingestion
         timeout = GulpConfig.get_instance().ingestion_request_timeout()
@@ -639,7 +639,7 @@ class GulpOpenSearch:
                     if item["create"]["status"] not in [201, 200]
                 ]
                 s = json.dumps(failed_items, indent=2)
-                GulpLogger.get_logger().error(
+                MutyLogger.get_logger().error(
                     "%d failed ingestion, %d skipped: %s"
                     % (failed, skipped, muty.string.make_shorter(s, max_len=10000))
                 )
@@ -652,12 +652,12 @@ class GulpOpenSearch:
 
         if skipped != 0:
             # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
-            GulpLogger.get_logger().error(
+            MutyLogger.get_logger().error(
                 "**NOT AN ERROR** total %d skipped, %d failed in this bulk ingestion of %d documents !"
                 % (skipped, failed, len(bulk_docs) / 2)
             )
         if failed > 0:
-            GulpLogger.get_logger().critical(
+            MutyLogger.get_logger().critical(
                 "failed is set, ingestion format needs to be fixed!"
             )
         return skipped, failed, ingested
@@ -680,7 +680,7 @@ class GulpOpenSearch:
             dict: The response from the OpenSearch reindex operation.
 
         """
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "rebase index %s to %s with offset=%d, flt=%s ..."
             % (index, dest_index, msec_offset, flt)
         )
@@ -713,7 +713,7 @@ class GulpOpenSearch:
             "content-type": "application/x-ndjson",
         }
 
-        GulpLogger.get_logger().debug("rebase body=%s" % (body))
+        MutyLogger.get_logger().debug("rebase body=%s" % (body))
         res = await self._opensearch.reindex(body=body, params=params, headers=headers)
         return res
 
@@ -727,9 +727,9 @@ class GulpOpenSearch:
         Returns:
             None
         """
-        GulpLogger.get_logger().debug("refreshing index: %s" % (index))
+        MutyLogger.get_logger().debug("refreshing index: %s" % (index))
         res = await self._opensearch.indices.refresh(index=index)
-        GulpLogger.get_logger().debug("refreshed index: %s" % (res))
+        MutyLogger.get_logger().debug("refreshed index: %s" % (res))
 
     async def delete_data_by_operation(
         self, index: str, operation_id: str, refresh: bool = True
@@ -839,12 +839,12 @@ class GulpOpenSearch:
                     "aggs": aggregations,
                 }
             }
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 f"aggregations with group_by={group_by}: {json.dumps(aggregations, indent=2)}"
             )
 
         q = flt.to_opensearch_dsl()
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             f"query_max_min_per_field: q={json.dumps(q, indent=2)}"
         )
         body = {
@@ -862,7 +862,7 @@ class GulpOpenSearch:
             raise ObjectNotFound()
 
         if group_by:
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 f"group_by={group_by}, res['aggregations']={json.dumps(res['aggregations'], indent=2)}"
             )
             return self._parse_query_max_min(res["aggregations"])
@@ -929,7 +929,7 @@ class GulpOpenSearch:
         res = await self._opensearch.search(body=body, index=index, headers=headers)
         hits = res["hits"]["total"]["value"]
         if not hits:
-            GulpLogger.get_logger().warning(
+            MutyLogger.get_logger().warning(
                 "no results found, returning empty aggregations (possibly no data on opensearch)!"
             )
             # raise ObjectNotFound()
@@ -1025,7 +1025,7 @@ class GulpOpenSearch:
         if el:
             # force use_elasticsearch_api if el is provided
             use_elasticsearch_api = True
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 "search_dsl: using provided ElasticSearch client %s" % (el)
             )
 
@@ -1053,7 +1053,7 @@ class GulpOpenSearch:
                     # use the OpenSearch client (default)
                     body = {"track_total_hits": True, "query": q}
                     body.update(parsed_options)
-                    GulpLogger.get_logger().debug(
+                    MutyLogger.get_logger().debug(
                         "query_raw body=%s" % (json.dumps(body, indent=2))
                     )
 
@@ -1064,7 +1064,7 @@ class GulpOpenSearch:
                         body=body, index=index, headers=headers
                     )
 
-                # GulpLogger.get_logger().debug("search_dsl: res=%s" % (json.dumps(res, indent=2)))
+                # MutyLogger.get_logger().debug("search_dsl: res=%s" % (json.dumps(res, indent=2)))
                 hits = res["hits"]["hits"]
                 if not hits:
                     raise ObjectNotFound("no more results found!")
@@ -1092,7 +1092,7 @@ class GulpOpenSearch:
                     last = True
             except Exception as ex:
                 # something went wrong
-                GulpLogger.get_logger().error("search_dsl: error=%s" % (ex))
+                MutyLogger.get_logger().error("search_dsl: error=%s" % (ex))
                 raise ex
 
             # build a GulpDocumentsChunk and send to websocket
@@ -1126,6 +1126,6 @@ class GulpOpenSearch:
             if last or not options.loop:
                 break
 
-        GulpLogger.get_logger().info(
+        MutyLogger.get_logger().info(
             "search_dsl: processed %d documents, total=%d" % (processed, total_hits)
         )

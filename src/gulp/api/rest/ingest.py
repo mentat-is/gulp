@@ -2,8 +2,13 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
-from typing import Annotated
+import json
+import os
+import re
+from typing import Annotated, Optional, Tuple
 
+import aiofiles
+from fastapi.responses import JSONResponse
 import muty.crypto
 import muty.file
 import muty.jsend
@@ -14,17 +19,41 @@ import muty.string
 import muty.uploadfile
 from fastapi import APIRouter, Header, Query, Request
 from muty.jsend import JSendResponse
+from pydantic import BaseModel, ConfigDict, Field
+from requests_toolbelt.multipart import decoder
+from gulp.api.rest.server_utils import ServerUtils
 
-
+from gulp.api.collab.structs import GulpUserPermission
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.rest.server_utils import GulpChunkedUploadResponse
 from gulp.api.rest_api import GulpRestServer
-import gulp.structs
-import gulp.plugin
-import gulp.utils
+from gulp.config import GulpConfig
+from muty.jsend import JSendException, JSendResponseStatus
+from muty.log import MutyLogger
+
+from gulp.structs import GulpPluginParameters
+import gulp.api.rest.defs as api_defs
+
+
+class GulpIngestPayload(BaseModel):
+    """
+    payload for an ingestion request
+    """
+
+    flt: GulpIngestionFilter = Field(
+        GulpIngestionFilter(), description="The ingestion filter."
+    )
+    plugin_params: GulpPluginParameters = Field(
+        GulpPluginParameters(), description="The plugin parameters."
+    )
+
 
 class RestApiIngest:
     """
     This class contains the REST API for gULP (gui Universal Log Processor).
     """
+
     _app: APIRouter = APIRouter()
 
     @staticmethod
@@ -43,97 +72,96 @@ class RestApiIngest:
             response_model=JSendResponse,
             response_model_exclude_none=True,
             description="""
-            **NOTE**: this function cannot be used from the `/docs` page since it needs custom request handling (to support resume) which FastAPI (currently) does not support.
-            <br><br>
-            the following is an example CURL for the request:
-            <br>
-            `curl -v -X PUT http://localhost:8080/ingest_file?index=testidx&token=&plugin=win_evtx&client_id=1&operation_id=1&context=testcontext&req_id=2fe81cdf-5f0a-482e-a5b2-74684c6e05fb&sync=0&ws_id=the_ws_id
-                -k
-                -H size: 69632
-                -H continue_offset: 0
-                -F payload={
-                    "flt": {},
-                    "plugin_params": {}
-                }; type=application/json
-                -F f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx; type=application/octet-stream
-            `
-            <br><br>
-            once the file is fully uploaded, this function returns a `pending` response and `INGESTION_STATS_CREATE, INGESTION_CHUNK, INGESTION_STATS_UPDATE` are streamed on the websocket at `/ws` until done.
-            <br><br>
-            **if the upload is interrupted, it may be resumed by using the same `req_id` in another request.**
+**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume.
+
+The following is an example CURL for the request, containing GulpIngestionFilter and GulpPluginParameters.
+
+Headers:
+* `size`: The total size of the file being uploaded
+* `continue_offset`: The offset of the chunk being uploaded (must be 0 if this is the first chunk)
+
+```bash
+curl -v -X PUT "http://localhost:8080/ingest_file?index=testidx&token=&plugin=win_evtx&client_id=1&operation_id=1&context=testcontext&req_id=2fe81cdf-5f0a-482e-a5b2-74684c6e05fb&sync=0&ws_id=the_ws_id" \
+    -k \
+    -H "size: 69632" \
+    -H "continue_offset: 0" \
+    -F "payload={\"flt\":{},\"plugin_params\":{}};type=application/json" \
+    -F "f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx;type=application/octet-stream"
+```
+
+response's `data` is a `ChunkedUploadResponse`:
+
+```json
+{
+    "done": false,          # indicates whether the upload is complete
+    "continue_offset": 0    # the offset of the next chunk to be uploaded, if done is false
+}
+```
+
+once the file is fully uploaded, this function returns a `pending` response and `STATS_UPDATE`, `DOCUMENTS_CHUNK` are streamed to the `ws_id` websocket until done.
+
+if the upload is interrupted, this allows to resume the upload `by sending a request with the same req_id`:
+if this API responds with an `error` status and `continue_offset` is set, nothing has been written: it just requests you to upload another chunk starting at the requested offset.
+once the upload is done, the server will automatically delete the uploaded data corresponding to the `req_id` once processed.
             """,
             summary="ingest file using the specified plugin.",
         )
         return RestApiIngest._app
-    
-    
+
     @staticmethod
     async def ingest_file_handler(
         r: Request,
-        token: Annotated[str, Header(description=gulp.structs.API_DESC_INGEST_TOKEN)],
+        token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
         operation_id: Annotated[
             str,
             Query(
-                description=gulp.structs.API_DESC_OPERATION,
-                examples=[gulp.structs.EXAMPLE_OPERATION_ID],
+                description=api_defs.API_DESC_OPERATION,
+                examples=[api_defs.EXAMPLE_OPERATION_ID],
             ),
         ],
         context_id: Annotated[
             str,
             Query(
-                description=gulp.structs.API_DESC_CONTEXT,
-                examples=[gulp.structs.EXAMPLE_CONTEXT],
+                description=api_defs.API_DESC_CONTEXT,
+                examples=[api_defs.EXAMPLE_CONTEXT],
             ),
         ],
         index: Annotated[
             str,
             Query(
-                description=gulp.structs.API_DESC_INDEX,
-                examples=[gulp.structs.EXAMPLE_INDEX]
+                description=api_defs.API_DESC_INDEX,
+                examples=[api_defs.EXAMPLE_INDEX],
             ),
         ],
         plugin: Annotated[
             str,
             Query(
-                description=gulp.structs.API_DESC_PLUGIN,
-                examples=[gulp.structs.EXAMPLE_PLUGIN],
+                description=api_defs.API_DESC_PLUGIN,
+                examples=[api_defs.EXAMPLE_PLUGIN],
             ),
         ],
-        ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+        ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
         # flt: Annotated[GulpIngestionFilter, Body()] = None,
         # plugin_params: Annotated[GulpPluginParameters, Body()] = None,
-        req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQ_ID)] = None,
-    ) -> JSendResponse:
+        req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID)] = None,
+    ) -> JSONResponse:
         req_id = GulpRestServer.ensure_req_id(req_id)
 
-        return muty.jsend.success_jsend(req_id="123", data={"continue_offset": 0})
-        """
-        req_id = gulp.utils.ensure_req_id(req_id)
-        u, _, _ = await _check_parameters(
-            token,
-            req_id,
-            permission=GulpUserPermission.INGEST,
-            operation_id=operation_id,
-            client_id=client_id,
-        )
+        try:
+            # check token
+            GulpUserSession.check_token_permission(token, GulpUserPermission.INGEST)
+        except Exception as ex:
+            raise JSendException(ex=ex, req_id=req_id)
 
         # handle multipart request manually
-        GulpLogger.get_logger().debug("headers=%s" % (r.headers))
-        multipart_result = await _request_handle_multipart(r, req_id)
-        done: bool = multipart_result["done"]
-        file_path: str = multipart_result["file_path"]
-        continue_offset: int = multipart_result.get("continue_offset", 0)
-
-        if not done:
+        MutyLogger.get_logger().debug("headers=%s" % (r.headers))
+        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(r=r, req_id=req_id)
+        if not result.done:
             # must continue upload with a new chunk
-            d = muty.jsend.success_jsend(
-                req_id=req_id, data={"continue_offset": continue_offset}
-            )
+            d = JSendResponse.error(req_id=req_id, data=result.model_dump(exclude_none=True))
             return JSONResponse(d)
 
-        # get parameters and filter, if any
-        plugin_params, flt = _get_ingest_payload(multipart_result)
-
+        # TODO: spawn coro
         # process in background (may need to wait for pool space)
         coro = process.ingest_single_file_or_events_task(
             index=index,
@@ -155,44 +183,11 @@ class RestApiIngest:
         return muty.jsend.pending_jsend(req_id=req_id)
         """
 
-# async def _check_parameters(
-#     token: str,
-#     req_id: str,
-#     permission: GulpUserPermission = GulpUserPermission.READ,
-#     operation_id: int = None,
-#     client_id: int = None,
-# ) -> tuple[GulpUser, Operation, Client]:
-#     """
-#     A helper function to check the parameters of the request (token permission, operation and client) and raise a JSendException on error.
-
-#     returns: (User, Operation|None if operation_id is None, Client|None if client_id is None)
-#     """
-#     try:
-#         o = None
-#         c = None
-#         u, _ = await GulpUserSession.check_token(
-#             await collab_api.session(), token, permission
-#         )
-#         if operation_id is not None:
-#             o = await Operation.get(
-#                 await collab_api.session(), GulpCollabFilter(id=[operation_id])
-#             )
-#             o = o[0]
-
-#         if client_id is not None:
-#             c = await Client.get(
-#                 await collab_api.session(), GulpCollabFilter(id=[client_id])
-#             )
-#             c = c[0]
-
-#         return u, o, c
-
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
-
 
 # async def _request_handle_multipart(r: Request, req_id: str) -> dict:
 #     """
+
+
 #     Handles a multipart/form-data request and saves the file chunk to disk, used by the ingest API.
 
 #     the multipart MUST be composed of two parts:
@@ -211,7 +206,7 @@ class RestApiIngest:
 #     """
 
 #     # get headers and body
-#     GulpLogger.get_logger().debug("request headers: %s" % (r.headers))
+#     MutyLogger.get_logger().debug("request headers: %s" % (r.headers))
 #     continue_offset: int = int(r.headers.get("continue_offset", 0))
 #     total_file_size: int = int(r.headers["size"])
 #     body = await r.body()
@@ -222,8 +217,8 @@ class RestApiIngest:
 #     file_content: bytes = None
 #     json_payload_part = data.parts[0]
 #     file_part = data.parts[1]
-#     GulpLogger.get_logger().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
-#     GulpLogger.get_logger().debug("file_part.headers=\n%s" % (file_part.headers))
+#     MutyLogger.get_logger().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
+#     MutyLogger.get_logger().debug("file_part.headers=\n%s" % (file_part.headers))
 #     fsize: int = 0
 
 #     # ingestion filter
@@ -231,16 +226,16 @@ class RestApiIngest:
 #     payload_dict = None
 #     try:
 #         payload_dict = json.loads(payload)
-#         GulpLogger.get_logger().debug("ingestion json payload: %s" % (payload_dict))
+#         MutyLogger.get_logger().debug("ingestion json payload: %s" % (payload_dict))
 #         if len(payload_dict) == 0:
-#             GulpLogger.get_logger().warning('empty "payload" part')
+#             MutyLogger.get_logger().warning('empty "payload" part')
 #             payload_dict = None
 #     except:
-#         GulpLogger.get_logger().exception('invalid or None "payload" part: %s' % (payload))
+#         MutyLogger.get_logger().exception('invalid or None "payload" part: %s' % (payload))
 
 #     # download file chunk (also ensure cache dir exists)
 #     content_disposition = file_part.headers[b"Content-Disposition"].decode("utf-8")
-#     GulpLogger.get_logger().debug("Content-Disposition: %s" % (content_disposition))
+#     MutyLogger.get_logger().debug("Content-Disposition: %s" % (content_disposition))
 #     fname_start: int = content_disposition.find("filename=") + len("filename=")
 #     fname_end: int = content_disposition.find(";", fname_start)
 #     filename: str = content_disposition[fname_start:fname_end]
@@ -251,7 +246,7 @@ class RestApiIngest:
 #     if filename[-1] in ['"', "'"]:
 #         filename = filename[:-1]
 
-#     GulpLogger.get_logger().debug("filename (extracted from Content-Disposition): %s" % (filename))
+#     MutyLogger.get_logger().debug("filename (extracted from Content-Disposition): %s" % (filename))
 #     cache_dir = GulpConfig.get_instance().upload_tmp_dir()
 #     cache_file_path = muty.file.safe_path_join(
 #         cache_dir, "%s/%s" % (req_id, filename), allow_relative=True
@@ -260,7 +255,7 @@ class RestApiIngest:
 #     fsize = await muty.file.get_size(cache_file_path)
 #     if fsize == total_file_size:
 #         # upload is already complete
-#         GulpLogger.get_logger().info("file size matches, upload is already complete!")
+#         MutyLogger.get_logger().info("file size matches, upload is already complete!")
 #         js = {"file_path": cache_file_path, "done": True}
 #         if payload_dict is not None:
 #             # valid payload
@@ -270,7 +265,7 @@ class RestApiIngest:
 #     file_content = file_part.content
 #     # LOGGER.debug("filename=%s, file chunk size=%d" % (filename, len(file_content)))
 #     async with aiofiles.open(cache_file_path, "ab+") as f:
-#         GulpLogger.get_logger().debug(
+#         MutyLogger.get_logger().debug(
 #             "writing chunk of size=%d at offset=%d in %s ..."
 #             % (len(file_content), continue_offset, cache_file_path)
 #         )
@@ -280,12 +275,12 @@ class RestApiIngest:
 
 #     # get written file size
 #     fsize = await muty.file.get_size(cache_file_path)
-#     GulpLogger.get_logger().debug("current size of %s: %d" % (cache_file_path, fsize))
+#     MutyLogger.get_logger().debug("current size of %s: %d" % (cache_file_path, fsize))
 #     if fsize == total_file_size:
-#         GulpLogger.get_logger().info("file size matches, upload complete!")
+#         MutyLogger.get_logger().info("file size matches, upload complete!")
 #         js = {"file_path": cache_file_path, "done": True}
 #     else:
-#         GulpLogger.get_logger().warning(
+#         MutyLogger.get_logger().warning(
 #             "file size mismatch(total=%d, current=%d), upload incomplete!"
 #             % (total_file_size, fsize)
 #         )
@@ -297,7 +292,7 @@ class RestApiIngest:
 #     if payload_dict is not None:
 #         # valid payload
 #         js["payload"] = payload_dict
-#     GulpLogger.get_logger().debug("type=%s, payload=%s" % (type(js), js))
+#     MutyLogger.get_logger().debug("type=%s, payload=%s" % (type(js), js))
 #     return js
 
 
@@ -317,7 +312,7 @@ class RestApiIngest:
 #     payload = multipart_result.get("payload", None)
 #     if payload is None or len(payload) == 0:
 #         #  no payload
-#         GulpLogger.get_logger().debug("no payload found in multipart")
+#         MutyLogger.get_logger().debug("no payload found in multipart")
 #         return GulpPluginParameters(), GulpIngestionFilter()
 
 #     # parse each part of the payload
@@ -336,7 +331,7 @@ class RestApiIngest:
 #     else:
 #         plugin_params = GulpPluginParameters.from_dict(plugin_params)
 
-#     GulpLogger.get_logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
+#     MutyLogger.get_logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
 #     return plugin_params, flt
 
 
@@ -364,45 +359,45 @@ class RestApiIngest:
 #     token: Annotated[
 #         str,
 #         Header(
-#             description=gulp.structs.API_DESC_TOKEN + " (must have INGEST permission)."
+#             description=api_defs.API_DESC_TOKEN + " (must have INGEST permission)."
 #         ),
 #     ],
 #     index: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_INDEX,
-#             openapi_examples=gulp.structs.EXAMPLE_INDEX,
+#             description=api_defs.API_DESC_INDEX,
+#             openapi_examples=api_defs.EXAMPLE_INDEX,
 #         ),
 #     ],
 #     operation_id: Annotated[
 #         int,
 #         Query(
-#             description=gulp.structs.API_DESC_INGEST_OPERATION,
-#             openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
+#             description=api_defs.API_DESC_INGEST_OPERATION,
+#             openapi_examples=api_defs.EXAMPLE_OPERATION_ID,
 #         ),
 #     ],
 #     client_id: Annotated[
 #         int,
 #         Query(
-#             description=gulp.structs.API_DESC_CLIENT,
-#             openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
+#             description=api_defs.API_DESC_CLIENT,
+#             openapi_examples=api_defs.EXAMPLE_CLIENT_ID,
 #         ),
 #     ],
 #     context: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_INGEST_CONTEXT,
-#             openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
+#             description=api_defs.API_DESC_INGEST_CONTEXT,
+#             openapi_examples=api_defs.EXAMPLE_CONTEXT,
 #         ),
 #     ],
 #     events: Annotated[
 #         list[dict],
 #         Body(description="chunk of raw JSON events to be ingested."),
 #     ],
-#     ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+#     ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
 #     plugin_params: Annotated[GulpPluginParameters, Body()] = None,
 #     flt: Annotated[GulpIngestionFilter, Body()] = None,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
+#     req_id: Annotated[str, Query(description=api_defs.API_DESC_REQID)] = None,
 # ) -> JSendResponse:
 #     # check operation and client
 #     req_id = gulp.utils.ensure_req_id(req_id)
@@ -465,38 +460,38 @@ class RestApiIngest:
 # )
 # async def ingest_zip_handler(
 #     r: Request,
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_INGEST_TOKEN)],
+#     token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
 #     index: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_INDEX,
-#             openapi_examples=gulp.structs.EXAMPLE_INDEX,
+#             description=api_defs.API_DESC_INDEX,
+#             openapi_examples=api_defs.EXAMPLE_INDEX,
 #         ),
 #     ],
 #     client_id: Annotated[
 #         int,
 #         Query(
-#             description=gulp.structs.API_DESC_CLIENT,
-#             openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
+#             description=api_defs.API_DESC_CLIENT,
+#             openapi_examples=api_defs.EXAMPLE_CLIENT_ID,
 #         ),
 #     ],
 #     operation_id: Annotated[
 #         int,
 #         Query(
-#             description=gulp.structs.API_DESC_INGEST_OPERATION,
-#             openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
+#             description=api_defs.API_DESC_INGEST_OPERATION,
+#             openapi_examples=api_defs.EXAMPLE_OPERATION_ID,
 #         ),
 #     ],
 #     context: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_INGEST_CONTEXT,
-#             openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
+#             description=api_defs.API_DESC_INGEST_CONTEXT,
+#             openapi_examples=api_defs.EXAMPLE_CONTEXT,
 #         ),
 #     ],
-#     ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+#     ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
 #     # flt: Annotated[GulpIngestionFilter, Body()] = None,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
+#     req_id: Annotated[str, Query(description=api_defs.API_DESC_REQID)] = None,
 # ) -> JSONResponse:
 #     req_id = gulp.utils.ensure_req_id(req_id)
 #     u, _, _ = await _check_parameters(
@@ -571,46 +566,46 @@ class RestApiIngest:
 # )
 # async def ingest_file_handler(
 #     r: Request,
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_INGEST_TOKEN)],
+#     token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
 #     index: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_INDEX,
-#             openapi_examples=gulp.structs.EXAMPLE_INDEX,
+#             description=api_defs.API_DESC_INDEX,
+#             openapi_examples=api_defs.EXAMPLE_INDEX,
 #         ),
 #     ],
 #     plugin: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_PLUGIN,
-#             openapi_examples=gulp.structs.EXAMPLE_PLUGIN,
+#             description=api_defs.API_DESC_PLUGIN,
+#             openapi_examples=api_defs.EXAMPLE_PLUGIN,
 #         ),
 #     ],
 #     client_id: Annotated[
 #         int,
 #         Query(
-#             description=gulp.structs.API_DESC_CLIENT,
-#             openapi_examples=gulp.structs.EXAMPLE_CLIENT_ID,
+#             description=api_defs.API_DESC_CLIENT,
+#             openapi_examples=api_defs.EXAMPLE_CLIENT_ID,
 #         ),
 #     ],
 #     operation_id: Annotated[
 #         int,
 #         Query(
-#             description=gulp.structs.API_DESC_INGEST_OPERATION,
-#             openapi_examples=gulp.structs.EXAMPLE_OPERATION_ID,
+#             description=api_defs.API_DESC_INGEST_OPERATION,
+#             openapi_examples=api_defs.EXAMPLE_OPERATION_ID,
 #         ),
 #     ],
 #     context: Annotated[
 #         str,
 #         Query(
-#             description=gulp.structs.API_DESC_INGEST_CONTEXT,
-#             openapi_examples=gulp.structs.EXAMPLE_CONTEXT,
+#             description=api_defs.API_DESC_INGEST_CONTEXT,
+#             openapi_examples=api_defs.EXAMPLE_CONTEXT,
 #         ),
 #     ],
-#     ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
+#     ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
 #     # flt: Annotated[GulpIngestionFilter, Body()] = None,
 #     # plugin_params: Annotated[GulpPluginParameters, Body()] = None,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
+#     req_id: Annotated[str, Query(description=api_defs.API_DESC_REQID)] = None,
 # ) -> JSendResponse:
 
 #     req_id = gulp.utils.ensure_req_id(req_id)
@@ -623,7 +618,7 @@ class RestApiIngest:
 #     )
 
 #     # handle multipart request manually
-#     GulpLogger.get_logger().debug("headers=%s" % (r.headers))
+#     MutyLogger.get_logger().debug("headers=%s" % (r.headers))
 #     multipart_result = await _request_handle_multipart(r, req_id)
 #     done: bool = multipart_result["done"]
 #     file_path: str = multipart_result["file_path"]

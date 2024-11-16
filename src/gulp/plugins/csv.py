@@ -10,8 +10,8 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.structs import GulpPluginParameters, GulpPluginType
-from gulp.plugin import GulpPluginBase
+from gulp.structs import GulpPluginParameters
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginAdditionalParameter
 
 try:
@@ -88,7 +88,7 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int
     ) -> GulpDocument:
 
-        # GulpLogger.get_logger().debug("record: %s" % record)
+        # MutyLogger.get_logger().debug("record: %s" % record)
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]

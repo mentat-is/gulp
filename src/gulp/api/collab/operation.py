@@ -7,7 +7,7 @@ from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T, GulpUserPermission
 from gulp.api.collab_api import GulpCollab
 from gulp.api.collab.context import GulpContext
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 
 class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
@@ -73,7 +73,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             await op.awaitable_attrs.contexts
             op.contexts.append(ctx)
             await sess.commit()
-            GulpLogger.get_logger().info(f"context {context_id} added to operation {operation_id}.")
+            MutyLogger.get_logger().info(f"context {context_id} added to operation {operation_id}.")
 
     @staticmethod
     async def remove_context(operation_id: str, context_id: str) -> None:
@@ -97,7 +97,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 await op.awaitable_attrs.contexts        
                 op.contexts.remove(ctx)
                 await sess.commit()
-                GulpLogger.get_logger().info(f"context id={context_id} removed from operation {operation_id}.")                
+                MutyLogger.get_logger().info(f"context id={context_id} removed from operation {operation_id}.")                
 
     @override
     @classmethod

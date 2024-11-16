@@ -29,7 +29,7 @@ from gulp.api.collab.base import (
 )
 from gulp.api.collab.base import GulpCollabObject
 from gulp.structs import InvalidArgument
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 _app: APIRouter = APIRouter()
 
@@ -270,7 +270,7 @@ async def note_create_handler(
         if events is not None and time_pin is not None:
             raise InvalidArgument("events and time_pin cannot be both set.")
 
-        # GulpLogger.get_logger().debug('events=%s' % (events))
+        # MutyLogger.get_logger().debug('events=%s' % (events))
         o = await GulpCollabObject.create(
             await collab_api.session(),
             token,

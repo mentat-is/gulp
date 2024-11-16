@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T, GulpUserPermission
 from gulp.api.collab_api import GulpCollab
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 
 class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
@@ -56,7 +56,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     def __init__(self, *args, **kwargs):
         # initializes the base class
         super().__init__(*args, type=GulpCollabType.CONTEXT, **kwargs)
-
+    
     @staticmethod
     async def add_source(context_id: str, source_id: str, operation_id: str) -> None:
         """operation
@@ -80,7 +80,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             ctx.sources.append(src)
             await sess.commit()
             #print(json.dumps(ctx.to_dict(nested=True), indent=4))
-            GulpLogger.get_logger().info(f"source id={source_id} added to context {context_id}.")
+            MutyLogger.get_logger().info(f"source id={source_id} added to context {context_id}.")
 
     @staticmethod
     async def remove_source(context_id: str, source_id: str, operation_id: str) -> None:
@@ -104,7 +104,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             await ctx.awaitable_attrs.sources
             ctx.sources.remove(src)
             await sess.commit()
-            GulpLogger.get_logger().info(f"source id={source_id} removed from context {context_id}.")
+            MutyLogger.get_logger().info(f"source id={source_id} removed from context {context_id}.")
 
     @classmethod
     async def create(

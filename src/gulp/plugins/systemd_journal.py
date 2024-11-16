@@ -14,8 +14,8 @@ from gulp.api.collab.stats import TmpIngestStats
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.structs import GulpLogLevel, GulpPluginType
-from gulp.plugin import GulpPluginBase
+from gulp.structs import GulpLogLevel
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.plugin_internal import GulpPluginParameters
 
 # not available on macos, will throw exception

@@ -12,7 +12,7 @@ from gulp.api.collab.structs import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.api.collab_api import GulpCollab
 from sqlalchemy import insert
 import muty.string
@@ -149,17 +149,17 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 notes.append(note.to_dict(exclude_none=True))
 
             # bulk insert
-            GulpLogger.get_logger().debug("creating %d notes" % len(notes))
+            MutyLogger.get_logger().debug("creating %d notes" % len(notes))
             await sess.execute(insert(GulpNote).values(notes))
             await sess.commit()
 
-            GulpLogger.get_logger().info(
+            MutyLogger.get_logger().info(
                 "created %d notes" % len(notes)
             )
 
             if ws_id:
                 # send over the websocket
-                GulpLogger.get_logger().debug("sending %d notes on the websocket %s " % (len(notes), ws_id))
+                MutyLogger.get_logger().debug("sending %d notes on the websocket %s " % (len(notes), ws_id))
                 
                 # operation is always the same
                 operation = notes[0].get('operation')
@@ -171,7 +171,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                     req_id=req_id,
                     data=notes,
                 )
-                GulpLogger.get_logger().debug("sent %d notes on the websocket %s " % (len(notes), ws_id)) 
+                MutyLogger.get_logger().debug("sent %d notes on the websocket %s " % (len(notes), ws_id)) 
 
             return len(notes)
 

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 
 class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):

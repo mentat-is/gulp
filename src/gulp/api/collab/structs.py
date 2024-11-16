@@ -34,7 +34,7 @@ from sqlalchemy_mixins.serialize import SerializeMixin
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.structs import ObjectNotFound
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 from gulp.api.collab_api import GulpCollab
 
 
@@ -280,7 +280,7 @@ class GulpCollabFilter(BaseModel):
         if self.private:
             q = q.where(GulpCollabObject.private is True)
 
-        GulpLogger.get_logger().debug(f"to_select_query: {q}")
+        MutyLogger.get_logger().debug(f"to_select_query: {q}")
         return q
 
 
@@ -349,7 +349,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         Initialize the object with the specified attributes.
         """
-        # GulpLogger.get_logger().debug("**** GulpCollabBase __init__")
+        # MutyLogger.get_logger().debug("**** GulpCollabBase __init__")
         if self.__class__ == GulpCollabBase:
             # cannot instantiate this class directly
             raise Exception(
@@ -374,7 +374,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         self.time_updated = self.time_created
 
         # call the base class constructor
-        # GulpLogger.get_logger().debug("---> GulpCollabBase self in __init__=%s" % self)
+        # MutyLogger.get_logger().debug("---> GulpCollabBase self in __init__=%s" % self)
         super().__init__()
 
     @override
@@ -457,7 +457,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.add(instance)
             await sess.commit()
 
-            GulpLogger.get_logger().debug(
+            MutyLogger.get_logger().debug(
                 f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, owner_id={owner}"
             )
             if ensure_eager_load:
@@ -480,7 +480,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return instance
 
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "---> _create: id=%s, type=%s, token=%s, required_permission=%s, ws_id=%s, req_id=%s, sess=%s, ensure_eager_load=%s, kwargs=%s"
             % (
                 id,
@@ -565,7 +565,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.expunge(instance)
             return instance
 
-        GulpLogger.get_logger().debug("---> eager_load: %s, sess=%s" % (self.id, sess))
+        MutyLogger.get_logger().debug("---> eager_load: %s, sess=%s" % (self.id, sess))
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
@@ -593,7 +593,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return await instance.eager_load(sess)
 
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "---> get: eager_load_by_id: %s, sess=%s" % (id, sess)
         )
         if not sess:
@@ -653,7 +653,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     data=[data],
                 )
 
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "---> delete: obj_id=%s, type=%s, sess=%s" % (self.id, self.type, sess)
         )
         if not sess:
@@ -691,7 +691,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "---> delete_by_id: obj_id=%s, type=%s, sess=%s"
             % (id, cls.__gulp_collab_type__, sess)
         )
@@ -744,7 +744,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             Exception: If the object with the specified ID is not found.
         """
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             f"---> update_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, d={d}"
         )
         obj: GulpCollabBase = await cls.get_one_by_id(
@@ -821,7 +821,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             # update from d
             for k, v in d.items():
-                # GulpLogger.get_logger().debug(f"setattr: {k}={v}")
+                # MutyLogger.get_logger().debug(f"setattr: {k}={v}")
                 setattr(self_in_session, k, v)
 
             # sess update time
@@ -831,7 +831,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             # ensure the object is eager loaded before returning
             obj = await self_in_session.eager_load(sess)
-            GulpLogger.get_logger().debug("---> updated: %s" % (obj))
+            MutyLogger.get_logger().debug("---> updated: %s" % (obj))
 
             if ws_id and isinstance(obj, GulpCollabObject):
                 # notify the websocket of the collab object update
@@ -849,7 +849,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             return obj
 
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             f"---> update: obj_id={self.id}, type={self.__class__}, d={d}"
         )
         if not sess:
@@ -883,7 +883,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        # GulpLogger.get_logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}")
+        # MutyLogger.get_logger().debug(f"---> get_one_by_id: obj_id={id}, type={cls.__gulp_collab_type__}, sess={sess}")
         o = await cls.get_one(
             GulpCollabFilter(id=[id], type=[cls.__gulp_collab_type__]),
             ws_id,
@@ -919,7 +919,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
 
-        # GulpLogger.get_logger().debug("---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))
+        # MutyLogger.get_logger().debug("---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))
         c = await cls.get(
             flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load
         )
@@ -960,7 +960,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ):
             flt = flt or GulpCollabFilter()
             q = flt.to_select_query(cls)
-            GulpLogger.get_logger().debug("---> get: query=\n%s\n" % (q))
+            MutyLogger.get_logger().debug("---> get: query=\n%s\n" % (q))
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(
                 res, throw_if_not_found=throw_if_not_found, detail=flt
@@ -974,12 +974,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     ccb: GulpCollabBase = cc
                     c[i] = await ccb.eager_load(sess=sess)
 
-            GulpLogger.get_logger().debug("---> get: found %d objects" % (len(c)))
+            MutyLogger.get_logger().debug("---> get: found %d objects" % (len(c)))
 
             # TODO: handle websocket ?
             return c
 
-        # GulpLogger.get_logger().debug("---> get: type=%s, filter=%s, sess=%s, ensure_eager_load=%r"% (cls.__name__, flt, sess, ensure_eager_load))
+        # MutyLogger.get_logger().debug("---> get: type=%s, filter=%s, sess=%s, ensure_eager_load=%r"% (cls.__name__, flt, sess, ensure_eager_load))
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
@@ -1009,7 +1009,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                GulpLogger.get_logger().warning(msg)
+                MutyLogger.get_logger().warning(msg)
                 return None
 
         return c
@@ -1038,7 +1038,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if throw_if_not_found:
                 raise ObjectNotFound(msg)
             else:
-                GulpLogger.get_logger().warning(msg)
+                MutyLogger.get_logger().warning(msg)
                 return None
         return c
 
@@ -1203,7 +1203,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         self.description = description
         self.color = color
         self.private = private
-        GulpLogger.get_logger().debug(
+        MutyLogger.get_logger().debug(
             "---> GulpCollabObject: id=%s, type=%s, user_id=%s, operation_id=%s, glyph=%s, color=%s, tags=%s, title=%s, description=%s, private=%s"
             % (
                 id,

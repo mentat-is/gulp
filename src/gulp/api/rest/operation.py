@@ -24,7 +24,7 @@ from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.operation import Operation
 from gulp.api.collab.session import GulpUserSession
 from gulp.structs import InvalidArgument
-from gulp.utils import GulpLogger
+from muty.log import MutyLogger
 
 _app: APIRouter = APIRouter()
 
@@ -88,7 +88,7 @@ async def operation_delete_handler(
 
         if delete_data is not None:
             # we must also delete elasticsearch data
-            GulpLogger.get_logger().info(
+            MutyLogger.get_logger().info(
                 "deleting data related to operation_id=%d ..." % (operation_id)
             )
             await opensearch_api.delete_data_by_operation(
@@ -106,7 +106,7 @@ async def operation_delete_handler(
                 op.workflow_id,
             )
             res_data["id"] = new_op.id
-            GulpLogger.get_logger().info("recreated operation %s" % (new_op))
+            MutyLogger.get_logger().info("recreated operation %s" % (new_op))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
     return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res_data))
