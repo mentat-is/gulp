@@ -15,20 +15,19 @@ import muty.uploadfile
 from fastapi import APIRouter, BackgroundTasks, Body, File, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
 
 import gulp.api.collab.db as collab_db
 import gulp.api.collab_api as collab_api
 import gulp.api.opensearch_api as opensearch_api
 import gulp.api.rest_api as rest_api
-
-import gulp.structs
 import gulp.plugin
-import gulp.utils
 import gulp.process as process
+import gulp.structs
+import gulp.utils
 from gulp.api.collab.base import GulpUserPermission
 from gulp.api.collab.session import GulpUserSession
 from gulp.api.opensearch.filters import GulpQueryFilter
-from muty.log import MutyLogger
 from gulp.config import GulpConfig
 
 _app: APIRouter = APIRouter()
@@ -85,7 +84,7 @@ async def rebase_handler(
     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "rebasing index=%s to dest_index=%s with offset=%d, ws_id=%s, flt=%s"
         % (index, dest_index, offset_msec, ws_id, flt)
     )
@@ -158,7 +157,7 @@ async def elastic_list_index_handler(
             await collab_api.session(), token, GulpUserPermission.ADMIN
         )
         l: list[str] = await opensearch_api.datastream_list(opensearch_api.elastic())
-        # MutyLogger.get_logger().debug("datastreams=%s" % (l))
+        # MutyLogger.get_instance().debug("datastreams=%s" % (l))
         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -408,9 +407,9 @@ async def collab_init_handler(
         c = await collab_api.session()
         await collab_db.drop(GulpConfig.get_instance().postgres_url())
         await collab_api.engine_close(c)
-        MutyLogger.get_logger().debug("previous main process collab=%s" % (c))
+        MutyLogger.get_instance().debug("previous main process collab=%s" % (c))
         c = await collab_api.session(invalidate=True)
-        MutyLogger.get_logger().debug("current main process collab=%s" % (c))
+        MutyLogger.get_instance().debug("current main process collab=%s" % (c))
 
         # we need also to reinit all processes
         gulp.plugin.plugin_cache_clear()

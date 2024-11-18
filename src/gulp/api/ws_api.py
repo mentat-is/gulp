@@ -1,17 +1,14 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from enum import StrEnum
-import multiprocessing
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
 from typing import Any, Optional
 
-from fastapi import WebSocket
 import muty
-from pydantic import BaseModel, ConfigDict, Field
-
+from fastapi import WebSocket
 from muty.log import MutyLogger
-from multiprocessing.managers import SyncManager
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WsQueueDataType(StrEnum):
@@ -52,7 +49,7 @@ class GulpDocumentsChunk(BaseModel):
     Represents a chunk of GulpDocument dictionaries returned by a query or sent during ingestion.
 
     may include extra fields depending on the source.
-    
+
     """
 
     model_config = ConfigDict(extra="allow")
@@ -139,12 +136,21 @@ class GulpConnectedSockets:
     singleton class to hold all connected sockets
     """
 
-    def __new__(cls, *args, **kwargs):
+    def __init__(self):
+        raise RuntimeError("call get_instance() instead")
+
+    @classmethod
+    def get_instance(cls) -> "GulpConnectedSockets":
+        """
+        returns the singleton instance
+        """
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+
         return cls._instance
 
-    def __init__(self):
+    def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._sockets: dict[str, ConnectedSocket] = {}
@@ -170,7 +176,7 @@ class GulpConnectedSockets:
         """
         ws = ConnectedSocket(ws=ws, ws_id=ws_id, type=type, operation_id=operation_id)
         self._sockets[str(id(ws))] = ws
-        MutyLogger.get_logger().debug(f"added connected ws {id(ws)}: {ws}")
+        MutyLogger.get_instance().debug(f"added connected ws {id(ws)}: {ws}")
         return ws
 
     async def remove(self, ws: WebSocket, flush: bool = True) -> None:
@@ -185,7 +191,7 @@ class GulpConnectedSockets:
         id_str = str(id(ws))
         cws = self._sockets.get(id_str, None)
         if cws is None:
-            MutyLogger.get_logger().warning(f"no websocket found for ws_id={id_str}")
+            MutyLogger.get_instance().warning(f"no websocket found for ws_id={id_str}")
             return
 
         # flush queue first
@@ -199,9 +205,9 @@ class GulpConnectedSockets:
                     pass
 
             await q.join()
-            MutyLogger.get_logger().debug(f"queue flush done for ws id={id_str}")
+            MutyLogger.get_instance().debug(f"queue flush done for ws id={id_str}")
 
-        MutyLogger.get_logger().debug(f"removed connected ws, id={id_str}")
+        MutyLogger.get_instance().debug(f"removed connected ws, id={id_str}")
         del self._sockets[id_str]
 
     def find(self, ws_id: str) -> ConnectedSocket:
@@ -218,7 +224,7 @@ class GulpConnectedSockets:
             if v.ws_id == ws_id:
                 return v
 
-        MutyLogger.get_logger().warning(f"no websocket found for ws_id={ws_id}")
+        MutyLogger.get_instance().warning(f"no websocket found for ws_id={ws_id}")
         return None
 
     async def wait_all_close(self) -> None:
@@ -226,11 +232,11 @@ class GulpConnectedSockets:
         Waits for all active websockets to close.
         """
         while len(self._sockets) > 0:
-            MutyLogger.get_logger().debug(
+            MutyLogger.get_instance().debug(
                 "waiting for active websockets to close ..."
             )
             await asyncio.sleep(1)
-        MutyLogger.get_logger().debug("all active websockets closed!")
+        MutyLogger.get_instance().debug("all active websockets closed!")
 
     async def close_all(self) -> None:
         """
@@ -238,7 +244,7 @@ class GulpConnectedSockets:
         """
         for _, cws in self._sockets.items():
             await self.remove(cws.ws, flush=True)
-        MutyLogger.get_logger().debug("all active websockets closed!")
+        MutyLogger.get_instance().debug("all active websockets closed!")
 
     async def broadcast_data(self, d: WsData):
         """
@@ -250,16 +256,16 @@ class GulpConnectedSockets:
         for _, cws in self._sockets.items():
             if cws.type:
                 # check types
-                if not d.type in cws.type:
-                    MutyLogger.get_logger().warning(
+                if d.type not in cws.type:
+                    MutyLogger.get_instance().warning(
                         "skipping entry type=%s for ws_id=%s, cws.types=%s"
                         % (d.type, cws.ws_id, cws.type)
                     )
                     continue
             if cws.operation_id:
                 # check operation/s
-                if not d.operation_id in cws.operation_id:
-                    MutyLogger.get_logger().warning(
+                if d.operation_id not in cws.operation_id:
+                    MutyLogger.get_instance().warning(
                         "skipping entry type=%s for ws_id=%s, cws.operation_id=%s"
                         % (d.type, cws.ws_id, cws.operation_id)
                     )
@@ -272,7 +278,7 @@ class GulpConnectedSockets:
                 # not the target websocket
                 if d.private:
                     # do not broadcast private data
-                    MutyLogger.get_logger().warning(
+                    MutyLogger.get_instance().warning(
                         "skipping entry type=%s for ws_id=%s, private=True"
                         % (d.type, cws.ws_id)
                     )
@@ -284,15 +290,11 @@ class GulpConnectedSockets:
 
                 await cws.q.put(d)
 
+
 class GulpSharedWsQueue:
     """
     singleton class to manage adding data to the shared websocket queue
     """
-
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
@@ -323,10 +325,11 @@ class GulpSharedWsQueue:
             q (Queue): The shared queue.
         """
         from gulp.process import GulpProcess
+
         if GulpProcess.get_instance().is_main_process():
             raise RuntimeError("set_queue() must be called in a worker process")
-        
-        self._shared_q = q    
+
+        self._shared_q = q
 
     def init_queue(self, mgr: SyncManager) -> Queue:
         """
@@ -336,14 +339,15 @@ class GulpSharedWsQueue:
             q (Queue): The shared queue created by the multiprocessing manager in the main process
         """
         from gulp.process import GulpProcess
+
         if not GulpProcess.get_instance().is_main_process():
             raise RuntimeError("init_queue() must be called in the main process")
-        
+
         if self._shared_q:
             # close first
             self.close()
 
-        MutyLogger.get_logger().debug("re/initializing shared ws queue ...")
+        MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
         self._shared_q = mgr.Queue()
         return self._shared_q
 
@@ -355,7 +359,7 @@ class GulpSharedWsQueue:
         # uses an executor to run the blocking get() call in a separate thread
         from gulp.api.rest_api import GulpRestServer
 
-        MutyLogger.get_logger().debug("starting asyncio queue fill task ...")
+        MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as pool:
             while True:
@@ -363,7 +367,7 @@ class GulpSharedWsQueue:
                     # server is shutting down, break the loop
                     break
 
-                # MutyLogger.get_logger().debug("running ws_q.get in executor ...")
+                # MutyLogger.get_instance().debug("running ws_q.get in executor ...")
                 try:
                     # get a WsData entry from the shared multiprocessing queue
                     d: dict = await loop.run_in_executor(
@@ -373,13 +377,13 @@ class GulpSharedWsQueue:
                     entry = WsData.model_validate(d)
 
                     # find the websocket associated with this entry
-                    cws = GulpConnectedSockets().find(entry.ws_id)
+                    cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
                     if not cws:
                         # no websocket found for this entry, skip (this WsData entry will be lost)
                         continue
 
                     # broadcast
-                    await GulpConnectedSockets().broadcast_data(entry)
+                    await GulpConnectedSockets.get_instance().broadcast_data(entry)
 
                 except Empty:
                     # let's not busy wait...
@@ -393,7 +397,7 @@ class GulpSharedWsQueue:
         Returns:
             None
         """
-        MutyLogger.get_logger().debug("closing shared ws queue ...")
+        MutyLogger.get_instance().debug("closing shared ws queue ...")
         # flush queue first
         while self._shared_q.qsize() != 0:
             try:
@@ -401,9 +405,9 @@ class GulpSharedWsQueue:
                 self._shared_q.task_done()
             except Exception:
                 pass
-                
+
         self._shared_q.join()
-        MutyLogger.get_logger().debug("shared queue flush done.")
+        MutyLogger.get_instance().debug("shared queue flush done.")
 
     def put(
         self,
@@ -437,8 +441,9 @@ class GulpSharedWsQueue:
             private=private,
             data=data,
         )
-        MutyLogger.get_logger().debug(
+        MutyLogger.get_instance().debug(
             "adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id)
         )
         # TODO: try and see if it works without serializing...
-        self._shared_q.put(wsd.model_dump(exclude_none=True))
+        if self._shared_q and ws_id:
+            self._shared_q.put(wsd.model_dump(exclude_none=True))

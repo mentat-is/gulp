@@ -89,11 +89,11 @@ def main():
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     logger_file_path = args.log_to_file[0] if args.log_to_file else None
-    
+
     # force INFO loglevel here, or fastapi would spit out unrelevant stuff at startup.
     # loglevel will be adjusted later to the desired level when GulpRestServer starts.
     MutyLogger.get_instance().reconfigure(name="gulp", logger_file_path=logger_file_path, level=logging.INFO)
-    
+
     if __RUN_TESTS__:
         # test stuff
         asyncio.run(async_test())
@@ -117,7 +117,7 @@ def main():
             )
     except Exception as ex:
         # print exception and exit
-        MutyLogger.get_instance().get_logger().exception(ex)
+        MutyLogger.get_instance().exception(ex)
         sys.exit(1)
 
     # done

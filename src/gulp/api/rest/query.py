@@ -26,11 +26,10 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
 
-from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.plugin import GulpPluginType
-import gulp.structs
 import gulp.plugin
+import gulp.structs
 import gulp.utils
 from gulp import process
 from gulp.api import collab_api, opensearch_api, rest_api
@@ -40,19 +39,20 @@ from gulp.api.collab.session import GulpUserSession
 from gulp.api.collab.stats import GulpStats
 from gulp.api.elastic import query_utils
 from gulp.api.elastic.query import SigmaGroupFilter, SigmaGroupFiltersParam
+from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import (
     GulpQueryOptions,
     GulpQueryParameter,
     GulpQueryType,
 )
+from gulp.plugin import GulpPluginType
+from gulp.plugin_internal import GulpPluginParameters
 from gulp.structs import (
     API_DESC_PYSYGMA_PLUGIN,
     API_DESC_WS_ID,
     InvalidArgument,
     ObjectNotFound,
 )
-from gulp.plugin_internal import GulpPluginParameters
-from muty.log import MutyLogger
 
 _app: APIRouter = APIRouter()
 
@@ -217,7 +217,7 @@ async def query_multi_handler(
         # use default fields filter
         options.fields_filter = ",".join(query_utils.QUERY_DEFAULT_FIELDS)
 
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "query_multi_handler, q=%s,\nflt=%s,\noptions=%s,\nsigma_group_flts=%s"
         % (q, flt, options, sigma_group_flts)
     )
@@ -398,7 +398,7 @@ async def query_gulp_handler(
     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
     # print parameters
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "query_gulp_handler: flt=%s, name=%s, options=%s" % (flt, name, options)
     )
     gqp = GulpQueryParameter(rule=flt.to_dict(), type=GulpQueryType.GULP_FILTER)
@@ -451,7 +451,7 @@ async def query_stored_sigma_tags_handler(
     sigma_group_flts: Annotated[list[SigmaGroupFilter], Body()] = None,
     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
 ) -> JSendResponse:
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "query_sigma_tags_handler: flt=%s, options=%s, tags=%s, sigma_group_flts=%s"
         % (flt, options, tags, sigma_group_flts)
     )
@@ -629,7 +629,9 @@ async def query_sigma_files_handler(
     try:
         # download files to tmp
         files_path, files = await muty.uploadfile.to_path_multi(sigma_files)
-        MutyLogger.get_logger().debug("%d files downloaded to %s ..." % (len(files), files_path))
+        MutyLogger.get_instance().debug(
+            "%d files downloaded to %s ..." % (len(files), files_path)
+        )
 
         # create queries and call query_multi
         l = await query_utils.sigma_directory_to_gulpqueryparams(
@@ -806,7 +808,7 @@ async def query_max_min_handler(
             res = await opensearch_api.query_max_min_per_field(
                 opensearch_api.elastic(), index, group_by, flt
             )
-            # MutyLogger.get_logger().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
+            # MutyLogger.get_instance().debug("query_max_min_handler: %s", json.dumps(res, indent=2))
             return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res))
         except ObjectNotFound:
             # return an empty result
@@ -937,7 +939,7 @@ async def query_operations_handler(
         )
         # query
         res = await opensearch_api.query_operations(opensearch_api.elastic(), index)
-        MutyLogger.get_logger().debug(
+        MutyLogger.get_instance().debug(
             "query_operations (before parsing): %s", json.dumps(res, indent=2)
         )
         res = await _parse_operation_aggregation(res)
@@ -1089,7 +1091,7 @@ async def query_external_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
 
     # print the request
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "query_external_handler: token=%s, operation_id=%s, client_id=%s, ws_id=%s, plugin=%s, plugin_params=%s, flt=%s, options=%s, req_id=%s"
         % (
             token,
@@ -1214,7 +1216,7 @@ async def query_external_single_handler(
     req_id = gulp.utils.ensure_req_id(req_id)
 
     # print the request
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "query_external_single_handler: token=%s, plugin=%s, plugin_params=%s, event=%s, req_id=%s"
         % (token, plugin, plugin_params, event, req_id)
     )

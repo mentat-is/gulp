@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Union, TypeVar, override
+from typing import Optional, TypeVar, Union, override
 
 import muty.crypto
 import muty.dict
@@ -77,9 +77,11 @@ T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
 
 class GulpBasicDocument(BaseModel):
-    model_config = ConfigDict(extra="allow",
-                              # solves the issue of not being able to populate fields using field name instead of alias
-                              populate_by_name=True)
+    model_config = ConfigDict(
+        extra="allow",
+        # solves the issue of not being able to populate fields using field name instead of alias
+        populate_by_name=True,
+    )
 
     """
     a stripped down basic version of a Gulp document, used to associate documents with a note/link
@@ -100,8 +102,8 @@ class GulpBasicDocument(BaseModel):
     )
     invalid_timestamp: bool = Field(
         False,
-        description="True if \"@timestamp\" is invalid and set to 1/1/1970 (the document should be checked, probably ...).",
-        alias='gulp.timestamp_invalid',
+        description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
+        alias="gulp.timestamp_invalid",
     )
     operation_id: Optional[str] = Field(
         None,
@@ -119,15 +121,17 @@ class GulpBasicDocument(BaseModel):
         alias="gulp.source",
     )
 
+
 class GulpDocument(GulpBasicDocument):
     """
     represents a Gulp document.
     """
+
     log_file_path: Optional[str] = Field(
         None,
         description='"log.file.path": the original log file name or path.',
         alias="log.file.path",
-    )    
+    )
     agent_type: str = Field(
         None,
         description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
@@ -149,7 +153,8 @@ class GulpDocument(GulpBasicDocument):
         alias="event.code",
     )
     gulp_event_code: Optional[int] = Field(
-        0, description='"gulp.event_code": "event.code" as integer.',
+        0,
+        description='"gulp.event_code": "event.code" as integer.',
         alias="gulp.event_code",
     )
     event_duration: Optional[int] = Field(
@@ -159,7 +164,12 @@ class GulpDocument(GulpBasicDocument):
     )
 
     @staticmethod
-    def ensure_timestamp(timestamp: str, dayfirst: bool=None, yearfirst: bool=None, fuzzy: bool=None) -> tuple[str, int, bool]:
+    def ensure_timestamp(
+        timestamp: str,
+        dayfirst: bool = None,
+        yearfirst: bool = None,
+        fuzzy: bool = None,
+    ) -> tuple[str, int, bool]:
         """
         Ensure the timestamp is in iso8601 format.
 
@@ -169,43 +179,45 @@ class GulpDocument(GulpBasicDocument):
             yearfirst (bool, optional): If set, parse the timestamp with yearfirst=True. Defaults to None (use dateutil.parser default).
             fuzzy (bool, optional): If set, parse the timestamp with fuzzy=True. Defaults to None (use dateutil.parser default).
         Returns:
-            tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid. 
+            tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
-        epoch_start: str='1970-01-01T00:00:00Z'
+        epoch_start: str = "1970-01-01T00:00:00Z"
         if not timestamp:
             return epoch_start, 0, True
-        
-        try:            
+
+        try:
             ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
                 ns = muty.time.number_to_nanos(timestamp)
             else:
-                ns = muty.time.string_to_epoch_nsec(ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy)
+                ns = muty.time.string_to_epoch_nsec(
+                    ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy
+                )
             return ts, ns, False
         except Exception as e:
             # invalid timestamp
-            #MutyLogger.get_logger().error(f"invalid timestamp: {timestamp}, {e}")
+            # MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
-    
+
     @override
     def __init__(
         self,
         plugin_instance,
-        operation_id: str|int,
+        operation_id: str | int,
         context_id: str,
         source_id: str,
         event_original: str,
         event_sequence: int,
-        timestamp: str=None,
+        timestamp: str = None,
         event_code: str = "0",
         event_duration: int = 1,
-        log_file_path: str=None,
-        **kwargs,        
+        log_file_path: str = None,
+        **kwargs,
     ) -> None:
         """
         Initialize a GulpDocument instance.
-        
+
         Args:
             plugin_instance: The calling PluginBase
             operation_id (str): The operation id on gulp collab database.
@@ -223,13 +235,13 @@ class GulpDocument(GulpBasicDocument):
         Returns:
             None
         """
-        
+
         super().__init__()
- 
+
         # replace alias keys in kwargs with their corresponding field names
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
-        mapping: GulpMapping = plugin_instance.selected_mapping()        
-        
+        mapping: GulpMapping = plugin_instance.selected_mapping()
+
         self.operation_id = operation_id
         self.context_id = context_id
         if mapping and mapping.agent_type:
@@ -250,7 +262,11 @@ class GulpDocument(GulpBasicDocument):
         self.log_file_path = log_file_path
 
         # add gulp_event_code (event code as a number)
-        self.gulp_event_code = int(self.event_code) if self.event_code.isnumeric() else muty.crypto.hash_crc24(self.event_code)
+        self.gulp_event_code = (
+            int(self.event_code)
+            if self.event_code.isnumeric()
+            else muty.crypto.hash_crc24(self.event_code)
+        )
 
         # add each kwargs as an attribute as-is
         # @timestamp may have been mapped and already checked for validity in plugin._process_key()
@@ -263,25 +279,36 @@ class GulpDocument(GulpBasicDocument):
             self.timestamp = timestamp
 
         # finally check if it's valid
-        self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(timestamp,
-            dayfirst=mapping.timestamp_dayfirst, yearfirst=mapping.timestamp_yearfirst, fuzzy=mapping.timestamp_fuzzy)
+        self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(
+            timestamp,
+            dayfirst=mapping.timestamp_dayfirst,
+            yearfirst=mapping.timestamp_yearfirst,
+            fuzzy=mapping.timestamp_fuzzy,
+        )
         if invalid:
             # invalid timestamp
-            self.invalid_timestamp=True
-        
+            self.invalid_timestamp = True
+
         # id is a hash of the document
         self.id = muty.crypto.hash_blake2b(
-            f"{self.event_original}{self.event_code}{self.event_sequence}")
-        
+            f"{self.event_original}{self.event_code}{self.event_sequence}"
+        )
+
         # finally check for consistency
         GulpDocument.model_validate(self)
-        #MutyLogger.get_logger().debug(self.model_dump(by_alias=True, exclude='event_original'))
-        
-    #def __repr__(self) -> str:
+        # MutyLogger.get_instance().debug(self.model_dump(by_alias=True, exclude='event_original'))
+
+    # def __repr__(self) -> str:
     #    return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation_id={self.operation_id}, context_id={self.context_id}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, source_id={self.source_id}"
-    
+
     @override
-    def model_dump(self, lite: bool=False, exclude_none: bool=True, exclude_unset: bool=True, **kwargs) -> dict:
+    def model_dump(
+        self,
+        lite: bool = False,
+        exclude_none: bool = True,
+        exclude_unset: bool = True,
+        **kwargs,
+    ) -> dict:
         """
         Convert the model instance to a dictionary.
         Args:
@@ -292,18 +319,22 @@ class GulpDocument(GulpBasicDocument):
         Returns:
             dict: A dictionary representation of the model instance
         """
-        d = super().model_dump(exclude_none=exclude_none, exclude_unset=exclude_unset, **kwargs)
+        d = super().model_dump(
+            exclude_none=exclude_none, exclude_unset=exclude_unset, **kwargs
+        )
         if lite:
             # return just a minimal subset
             for k in list(d.keys()):
                 if k not in QUERY_DEFAULT_FIELDS:
-                    d.pop(k,None)
+                    d.pop(k, None)
         return d
 
-class GulpDocumentFieldAliasHelper():
+
+class GulpDocumentFieldAliasHelper:
     """
     internal helper class to fix alias keys in kwargs with their corresponding field names.
     """
+
     _alias_to_field_cache: dict[str, str] = {}
 
     @staticmethod
@@ -318,8 +349,12 @@ class GulpDocumentFieldAliasHelper():
         """
         if not GulpDocumentFieldAliasHelper._alias_to_field_cache:
             # initialize
-            GulpDocumentFieldAliasHelper._alias_to_field_cache = {field.alias: name for name, field in GulpDocument.model_fields.items() if field.alias}
-        return {GulpDocumentFieldAliasHelper._alias_to_field_cache.get(k, k): v for k, v in kwargs.items()}
-    
-
-
+            GulpDocumentFieldAliasHelper._alias_to_field_cache = {
+                field.alias: name
+                for name, field in GulpDocument.model_fields.items()
+                if field.alias
+            }
+        return {
+            GulpDocumentFieldAliasHelper._alias_to_field_cache.get(k, k): v
+            for k, v in kwargs.items()
+        }

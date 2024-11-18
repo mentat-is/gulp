@@ -1,24 +1,31 @@
 import json
 from typing import Optional, Union, override
 
+from muty.log import MutyLogger
 from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T, GulpUserPermission
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabFilter,
+    GulpCollabType,
+    GulpUserPermission,
+    T,
+)
 from gulp.api.collab_api import GulpCollab
-from muty.log import MutyLogger
 
 
 class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     """
     Represents a context object
-    
+
     in gulp terms, a context is used to group a set of data coming from the same host.
 
     it has always associated an operation, and the tuple composed by the two is unique.
     """
+
     operation: Mapped["GulpOperation"] = relationship(
         "GulpOperation",
         back_populates="contexts",
@@ -26,9 +33,10 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     )
     operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
-        doc="The ID of the operation associated with the context.", primary_key=True
+        doc="The ID of the operation associated with the context.",
+        primary_key=True,
     )
-    
+
     # multiple sources can be associated with a context
     sources: Mapped[Optional[list[GulpSource]]] = relationship(
         "GulpSource",
@@ -56,7 +64,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     def __init__(self, *args, **kwargs):
         # initializes the base class
         super().__init__(*args, type=GulpCollabType.CONTEXT, **kwargs)
-    
+
     @staticmethod
     async def add_source(context_id: str, source_id: str, operation_id: str) -> None:
         """operation
@@ -67,20 +75,34 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             source_id (str): The id of the source.
             operation_id (str): The id of the operation.
         """
-        async with GulpCollab.get_instance().session() as sess:            
-            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
+        async with GulpCollab.get_instance().session() as sess:
+            ctx: GulpContext = await GulpContext.get_one(
+                GulpCollabFilter(id=[context_id], operation_id=[operation_id]),
+                sess=sess,
+                ensure_eager_load=False,
+            )
             if not ctx:
                 raise ValueError(f"context id={context_id}, {operation_id} not found.")
-            src:GulpSource = await GulpSource.get_one(GulpCollabFilter(id=[source_id], context_id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
+            src: GulpSource = await GulpSource.get_one(
+                GulpCollabFilter(
+                    id=[source_id], context_id=[context_id], operation_id=[operation_id]
+                ),
+                sess=sess,
+                ensure_eager_load=False,
+            )
             if not src:
-                raise ValueError(f"source id={source_id}, {context_id}, {operation_id} not found.")
-    
+                raise ValueError(
+                    f"source id={source_id}, {context_id}, {operation_id} not found."
+                )
+
             # link
             await ctx.awaitable_attrs.sources
             ctx.sources.append(src)
             await sess.commit()
-            #print(json.dumps(ctx.to_dict(nested=True), indent=4))
-            MutyLogger.get_logger().info(f"source id={source_id} added to context {context_id}.")
+            # print(json.dumps(ctx.to_dict(nested=True), indent=4))
+            MutyLogger.get_instance().info(
+                f"source id={source_id} added to context {context_id}."
+            )
 
     @staticmethod
     async def remove_source(context_id: str, source_id: str, operation_id: str) -> None:
@@ -93,18 +115,32 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             operation_id (str): The id of the operation.
         """
         async with GulpCollab.get_instance().session() as sess:
-            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
+            ctx: GulpContext = await GulpContext.get_one(
+                GulpCollabFilter(id=[context_id], operation_id=[operation_id]),
+                sess=sess,
+                ensure_eager_load=False,
+            )
             if not ctx:
                 raise ValueError(f"context id={context_id}, {operation_id} not found.")
-            src:GulpSource = await GulpSource.get_one(GulpCollabFilter(id=[source_id], context_id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
+            src: GulpSource = await GulpSource.get_one(
+                GulpCollabFilter(
+                    id=[source_id], context_id=[context_id], operation_id=[operation_id]
+                ),
+                sess=sess,
+                ensure_eager_load=False,
+            )
             if not src:
-                raise ValueError(f"source id={source_id}, {context_id}, {operation_id} not found.")
-                
+                raise ValueError(
+                    f"source id={source_id}, {context_id}, {operation_id} not found."
+                )
+
             # unlink
             await ctx.awaitable_attrs.sources
             ctx.sources.remove(src)
             await sess.commit()
-            MutyLogger.get_logger().info(f"source id={source_id} removed from context {context_id}.")
+            MutyLogger.get_instance().info(
+                f"source id={source_id} removed from context {context_id}."
+            )
 
     @classmethod
     async def create(
@@ -127,15 +163,17 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             title (str, optional): The display name of the context. Defaults to id.
             color (str, optional): The color of the context. Defaults to white.
             glyph_id (str, optional): The id of the glyph associated with the context. Defaults to None.
-            **kwargs: Arbitrary keyword arguments.  
+            **kwargs: Arbitrary keyword arguments.
         Returns:
             T: The created context object
         """
-        args = {"color": color or 'white',
-                "glyph_id": glyph, 
-                "title": title or id,
-                "operation_id": operation_id,
-                **kwargs}
+        args = {
+            "color": color or "white",
+            "glyph_id": glyph,
+            "title": title or id,
+            "operation_id": operation_id,
+            **kwargs,
+        }
         return await super()._create(
             id=id,
             token=token,

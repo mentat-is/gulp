@@ -8,7 +8,6 @@ import re
 from typing import Annotated, Optional, Tuple
 
 import aiofiles
-from fastapi.responses import JSONResponse
 import muty.crypto
 import muty.file
 import muty.jsend
@@ -18,23 +17,21 @@ import muty.os
 import muty.string
 import muty.uploadfile
 from fastapi import APIRouter, Header, Query, Request
-from muty.jsend import JSendResponse
+from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse, JSendResponseStatus
+from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from requests_toolbelt.multipart import decoder
-from gulp.api.collab.stats import GulpIngestionStats
-from gulp.api.rest.server_utils import ServerUtils
 
+import gulp.api.rest.defs as api_defs
+from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.rest.server_utils import GulpChunkedUploadResponse
+from gulp.api.rest.server_utils import GulpChunkedUploadResponse, ServerUtils
 from gulp.api.rest_api import GulpRestServer
 from gulp.config import GulpConfig
-from muty.jsend import JSendException, JSendResponseStatus
-from muty.log import MutyLogger
-
 from gulp.structs import GulpPluginParameters
-import gulp.api.rest.defs as api_defs
 
 
 class GulpIngestPayload(BaseModel):
@@ -129,7 +126,15 @@ once the upload is done, the server will automatically delete the uploaded data 
             # src_file is a list of events
             logger().debug(
                 "ingesting %d raw events with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
-                % (len(src_file), plugin, collab, elastic, type(flt), flt, plugin_params)
+                % (
+                    len(src_file),
+                    plugin,
+                    collab,
+                    elastic,
+                    type(flt),
+                    flt,
+                    plugin_params,
+                )
             )
         else:
             logger().debug(
@@ -178,8 +183,8 @@ once the upload is done, the server will automatically delete the uploaded data 
 
         # unload plugin
         gulp.plugin.unload_plugin(mod)
-        return status    
-    
+        return status
+
     @staticmethod
     async def ingest_file_handler(
         r: Request,
@@ -221,24 +226,31 @@ once the upload is done, the server will automatically delete the uploaded data 
 
         try:
             # check token and get caller user id
-            s = await GulpUserSession.check_token_permission(token, GulpUserPermission.INGEST)
+            s = await GulpUserSession.check_token_permission(
+                token, GulpUserPermission.INGEST
+            )
             user_id = s.user_id
         except Exception as ex:
             raise JSendException(ex=ex, req_id=req_id)
 
         # handle multipart request manually
-        MutyLogger.get_logger().debug("headers=%s" % (r.headers))
-        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(r=r, req_id=req_id)
+        MutyLogger.get_instance().debug("headers=%s" % (r.headers))
+        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
+            r=r, req_id=req_id
+        )
         if not result.done:
             # must continue upload with a new chunk
-            d = JSendResponse.error(req_id=req_id, data=result.model_dump(exclude_none=True))
+            d = JSendResponse.error(
+                req_id=req_id, data=result.model_dump(exclude_none=True)
+            )
             return JSONResponse(d)
 
         # TODO: create context and source if they do not exist
 
         # create stats
-        stats, _ = await GulpIngestionStats.create_or_get(req_id=req_id, operation_id=operation_id,
-                                                       context_id=context_id)
+        stats, _ = await GulpIngestionStats.create_or_get(
+            req_id=req_id, operation_id=operation_id, context_id=context_id
+        )
         # run ingestion in a coroutine in one of the workers
         coro = RestApiIngest._ingest_single_internal(
             req_id=req_id,
@@ -297,7 +309,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     """
 
 #     # get headers and body
-#     MutyLogger.get_logger().debug("request headers: %s" % (r.headers))
+#     MutyLogger.get_instance().debug("request headers: %s" % (r.headers))
 #     continue_offset: int = int(r.headers.get("continue_offset", 0))
 #     total_file_size: int = int(r.headers["size"])
 #     body = await r.body()
@@ -308,8 +320,8 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     file_content: bytes = None
 #     json_payload_part = data.parts[0]
 #     file_part = data.parts[1]
-#     MutyLogger.get_logger().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
-#     MutyLogger.get_logger().debug("file_part.headers=\n%s" % (file_part.headers))
+#     MutyLogger.get_instance().debug("json_payload_part.headers=\n%s" % (json_payload_part.headers))
+#     MutyLogger.get_instance().debug("file_part.headers=\n%s" % (file_part.headers))
 #     fsize: int = 0
 
 #     # ingestion filter
@@ -317,16 +329,16 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     payload_dict = None
 #     try:
 #         payload_dict = json.loads(payload)
-#         MutyLogger.get_logger().debug("ingestion json payload: %s" % (payload_dict))
+#         MutyLogger.get_instance().debug("ingestion json payload: %s" % (payload_dict))
 #         if len(payload_dict) == 0:
-#             MutyLogger.get_logger().warning('empty "payload" part')
+#             MutyLogger.get_instance().warning('empty "payload" part')
 #             payload_dict = None
 #     except:
-#         MutyLogger.get_logger().exception('invalid or None "payload" part: %s' % (payload))
+#         MutyLogger.get_instance().exception('invalid or None "payload" part: %s' % (payload))
 
 #     # download file chunk (also ensure cache dir exists)
 #     content_disposition = file_part.headers[b"Content-Disposition"].decode("utf-8")
-#     MutyLogger.get_logger().debug("Content-Disposition: %s" % (content_disposition))
+#     MutyLogger.get_instance().debug("Content-Disposition: %s" % (content_disposition))
 #     fname_start: int = content_disposition.find("filename=") + len("filename=")
 #     fname_end: int = content_disposition.find(";", fname_start)
 #     filename: str = content_disposition[fname_start:fname_end]
@@ -337,7 +349,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     if filename[-1] in ['"', "'"]:
 #         filename = filename[:-1]
 
-#     MutyLogger.get_logger().debug("filename (extracted from Content-Disposition): %s" % (filename))
+#     MutyLogger.get_instance().debug("filename (extracted from Content-Disposition): %s" % (filename))
 #     cache_dir = GulpConfig.get_instance().upload_tmp_dir()
 #     cache_file_path = muty.file.safe_path_join(
 #         cache_dir, "%s/%s" % (req_id, filename), allow_relative=True
@@ -346,7 +358,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     fsize = await muty.file.get_size(cache_file_path)
 #     if fsize == total_file_size:
 #         # upload is already complete
-#         MutyLogger.get_logger().info("file size matches, upload is already complete!")
+#         MutyLogger.get_instance().info("file size matches, upload is already complete!")
 #         js = {"file_path": cache_file_path, "done": True}
 #         if payload_dict is not None:
 #             # valid payload
@@ -356,7 +368,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     file_content = file_part.content
 #     # LOGGER.debug("filename=%s, file chunk size=%d" % (filename, len(file_content)))
 #     async with aiofiles.open(cache_file_path, "ab+") as f:
-#         MutyLogger.get_logger().debug(
+#         MutyLogger.get_instance().debug(
 #             "writing chunk of size=%d at offset=%d in %s ..."
 #             % (len(file_content), continue_offset, cache_file_path)
 #         )
@@ -366,12 +378,12 @@ once the upload is done, the server will automatically delete the uploaded data 
 
 #     # get written file size
 #     fsize = await muty.file.get_size(cache_file_path)
-#     MutyLogger.get_logger().debug("current size of %s: %d" % (cache_file_path, fsize))
+#     MutyLogger.get_instance().debug("current size of %s: %d" % (cache_file_path, fsize))
 #     if fsize == total_file_size:
-#         MutyLogger.get_logger().info("file size matches, upload complete!")
+#         MutyLogger.get_instance().info("file size matches, upload complete!")
 #         js = {"file_path": cache_file_path, "done": True}
 #     else:
-#         MutyLogger.get_logger().warning(
+#         MutyLogger.get_instance().warning(
 #             "file size mismatch(total=%d, current=%d), upload incomplete!"
 #             % (total_file_size, fsize)
 #         )
@@ -383,7 +395,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     if payload_dict is not None:
 #         # valid payload
 #         js["payload"] = payload_dict
-#     MutyLogger.get_logger().debug("type=%s, payload=%s" % (type(js), js))
+#     MutyLogger.get_instance().debug("type=%s, payload=%s" % (type(js), js))
 #     return js
 
 
@@ -403,7 +415,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     payload = multipart_result.get("payload", None)
 #     if payload is None or len(payload) == 0:
 #         #  no payload
-#         MutyLogger.get_logger().debug("no payload found in multipart")
+#         MutyLogger.get_instance().debug("no payload found in multipart")
 #         return GulpPluginParameters(), GulpIngestionFilter()
 
 #     # parse each part of the payload
@@ -422,7 +434,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     else:
 #         plugin_params = GulpPluginParameters.from_dict(plugin_params)
 
-#     MutyLogger.get_logger().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
+#     MutyLogger.get_instance().debug("plugin_params=%s, flt=%s" % (plugin_params, flt))
 #     return plugin_params, flt
 
 
@@ -709,7 +721,7 @@ once the upload is done, the server will automatically delete the uploaded data 
 #     )
 
 #     # handle multipart request manually
-#     MutyLogger.get_logger().debug("headers=%s" % (r.headers))
+#     MutyLogger.get_instance().debug("headers=%s" % (r.headers))
 #     multipart_result = await _request_handle_multipart(r, req_id)
 #     done: bool = multipart_result["done"]
 #     file_path: str = multipart_result["file_path"]

@@ -1,9 +1,12 @@
+import asyncio
 import json
 import os
 import pkgutil
+from importlib import import_module, resources
 
 import muty.file
 import muty.time
+from muty.log import MutyLogger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -12,12 +15,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy_utils import create_database, database_exists, drop_database
-import asyncio
-from importlib import resources, import_module
 
-from gulp.structs import ObjectNotFound
-from muty.log import MutyLogger
 from gulp.config import GulpConfig
+from gulp.structs import ObjectNotFound
+
 
 class GulpCollab:
     """
@@ -30,11 +31,6 @@ class GulpCollab:
     they should be named "postgres-ca.pem", "postgres.pem", "postgres.key" for the CA, client certificate, and client key respectively.
 
     """
-
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
@@ -101,7 +97,7 @@ class GulpCollab:
             sslmode = "verify-full"
         else:
             sslmode = "prefer"
-        # MutyLogger.get_logger().debug("---> collab: creating AsyncEngine connection, sslmode=%s..." % (sslmode))
+        # MutyLogger.get_instance().debug("---> collab: creating AsyncEngine connection, sslmode=%s..." % (sslmode))
 
         if certs_dir is not None and postgres_ssl:
             # https and certs_dir is set
@@ -112,9 +108,11 @@ class GulpCollab:
             # check if client certificate exists. if so, it will be used
             client_cert = muty.file.safe_path_join(certs_dir, "postgres.pem")
             client_key = muty.file.safe_path_join(certs_dir, "postgres.key")
-            client_key_password = GulpConfig.get_instance().postgres_client_cert_password()
+            client_key_password = (
+                GulpConfig.get_instance().postgres_client_cert_password()
+            )
             if os.path.exists(client_cert) and os.path.exists(client_key):
-                MutyLogger.get_logger().debug(
+                MutyLogger.get_instance().debug(
                     "using client certificate: %s, key=%s, ca=%s"
                     % (client_cert, client_key, ca)
                 )
@@ -127,7 +125,7 @@ class GulpCollab:
                 }
             else:
                 # no client certificate
-                MutyLogger.get_logger().debug(
+                MutyLogger.get_instance().debug(
                     "using server CA certificate only: %s" % (ca)
                 )
                 connect_args = {"sslrootcert": ca, "sslmode": sslmode}
@@ -137,10 +135,13 @@ class GulpCollab:
 
         # create engine
         _engine = create_async_engine(
-            url, echo=GulpConfig.get_instance().debug_collab(), pool_timeout=30, connect_args=connect_args
+            url,
+            echo=GulpConfig.get_instance().debug_collab(),
+            pool_timeout=30,
+            connect_args=connect_args,
         )
 
-        MutyLogger.get_logger().info(
+        MutyLogger.get_instance().info(
             "engine %s created/initialized, url=%s ..." % (_engine, url)
         )
         return _engine
@@ -168,7 +169,7 @@ class GulpCollab:
         Returns:
             None
         """
-        MutyLogger.get_logger().warning(
+        MutyLogger.get_instance().warning(
             "shutting down collab database engine and invalidate existing connections ..."
         )
         await self._engine.dispose()
@@ -188,7 +189,7 @@ class GulpCollab:
             bool: True if the database exists, False otherwise.
         """
         b = await asyncio.to_thread(database_exists, url=url)
-        MutyLogger.get_logger().debug("---> exists: url=%s, result=%r" % (url, b))
+        MutyLogger.get_instance().debug("---> exists: url=%s, result=%r" % (url, b))
         return b
 
     @staticmethod
@@ -209,21 +210,21 @@ class GulpCollab:
             internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
             """
             if database_exists(url):
-                MutyLogger.get_logger().info(
+                MutyLogger.get_instance().info(
                     "--> drop: dropping database %s ..." % (url)
                 )
                 drop_database(url)
-                MutyLogger.get_logger().info(
+                MutyLogger.get_instance().info(
                     "--> drop: database %s dropped ..." % (url)
                 )
             else:
-                MutyLogger.get_logger().warning(
+                MutyLogger.get_instance().warning(
                     "--> drop: database %s does not exist!" % (url)
                 )
                 if raise_if_not_exists:
                     raise ObjectNotFound("database %s does not exist!" % (url))
 
-        MutyLogger.get_logger().debug(
+        MutyLogger.get_instance().debug(
             "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
         )
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
@@ -236,12 +237,12 @@ class GulpCollab:
         Args:
             url (str): The URL of the database to create.
         """
-        MutyLogger.get_logger().debug("---> create: url=%s" % (url))
+        MutyLogger.get_instance().debug("---> create: url=%s" % (url))
         await asyncio.to_thread(create_database, url=url)
 
     async def _setup_collab_expirations(self) -> None:
         # TODO: check issues with pg-cron process dying
-        MutyLogger.get_logger().debug(
+        MutyLogger.get_instance().debug(
             "setting up stats and tokens expiration with pg_cron ..."
         )
 
@@ -307,23 +308,20 @@ class GulpCollab:
         Raises:
             Any exceptions that occur during the execution of the function.
         """
+        from gulp.api.collab.context import GulpContext
+        from gulp.api.collab.glyph import GulpGlyph
+        from gulp.api.collab.operation import GulpOperation
+        from gulp.api.collab.source import GulpSource
         from gulp.api.collab.structs import (
             PERMISSION_MASK_DELETE,
             PERMISSION_MASK_EDIT,
             GulpCollabBase,
             GulpUserPermission,
         )
-
         from gulp.api.collab.user import GulpUser
-        from gulp.api.collab.glyph import GulpGlyph
-        from gulp.api.collab.operation import GulpOperation
-        from gulp.api.collab.context import GulpContext
-        from gulp.api.collab.source import GulpSource
 
         # create database tables and functions
         async with self._engine.begin() as conn:
-            from gulp.api.collab.context import GulpContext
-
             await conn.run_sync(GulpCollabBase.metadata.create_all)
         await self._setup_collab_expirations()
 
@@ -399,9 +397,12 @@ class GulpCollab:
         await GulpContext.add_source(context.id, source_b.id, operation_id=operation.id)
         await GulpOperation.add_context(operation.id, context.id)
         from gulp.api.collab.structs import GulpCollabFilter
-        ctx = await GulpContext.get_one(GulpCollabFilter(id=[context.id], operation_id=[operation.id]))        
+
+        ctx = await GulpContext.get_one(
+            GulpCollabFilter(id=[context.id], operation_id=[operation.id])
+        )
         js = json.dumps(ctx.to_dict(nested=True), indent=4)
-        MutyLogger.get_logger().info(f"test context dump:\n{js}")
+        MutyLogger.get_instance().info(f"test context dump:\n{js}")
 
         # create other users
         guest_user = await GulpUser.create(
@@ -464,7 +465,7 @@ class GulpCollab:
 
         url = GulpConfig.get_instance().postgres_url()
         if force_recreate:
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "force_recreate=True, dropping and recreating collab database ..."
             )
             await _recreate_internal(url, expire_on_commit=expire_on_commit)
@@ -477,14 +478,14 @@ class GulpCollab:
                     )
                     if res.scalar_one_or_none():
                         # tables ok
-                        MutyLogger.get_logger().info(
+                        MutyLogger.get_instance().info(
                             "collab database exists and tables are ok."
                         )
                         self._setup_done = True
                         return
 
                 # recreate tables
-                MutyLogger.get_logger().warning(
+                MutyLogger.get_instance().warning(
                     "collab database exists but tables are missing."
                 )
                 await _recreate_internal(url, expire_on_commit=expire_on_commit)

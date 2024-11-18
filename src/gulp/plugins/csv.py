@@ -6,13 +6,12 @@ import muty.os
 import muty.string
 import muty.xml
 
-from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.structs import GulpPluginParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginAdditionalParameter
+from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
 
 try:
     from aiocsv import AsyncDictReader
@@ -75,7 +74,10 @@ class Plugin(GulpPluginBase):
     def additional_parameters(self) -> list[GulpPluginAdditionalParameter]:
         return [
             GulpPluginAdditionalParameter(
-               name="delimiter", type="str", desc="delimiter for the CSV file", default_value=","
+                name="delimiter",
+                type="str",
+                desc="delimiter for the CSV file",
+                default_value=",",
             )
         ]
 
@@ -88,7 +90,7 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int
     ) -> GulpDocument:
 
-        # MutyLogger.get_logger().debug("record: %s" % record)
+        # MutyLogger.get_instance().debug("record: %s" % record)
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]
@@ -100,7 +102,7 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        timestamp = d.get('@timestamp')
+        timestamp = d.get("@timestamp")
         if not timestamp:
             # not mapped, last resort is to use the timestamp field, if set
             timestamp = record.get(self.selected_mapping().timestamp_field)
@@ -144,8 +146,12 @@ class Plugin(GulpPluginBase):
         )
 
         # initialize stats
-        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-            req_id, operation_id=operation_id, context_id=context_id
+        stats: GulpIngestionStats
+        stats, _ = await GulpIngestionStats.create_or_get(
+            req_id,
+            operation_id=operation_id,
+            source_id=source_id,
+            context_id=context_id,
         )
         try:
             # initialize plugin
@@ -154,18 +160,18 @@ class Plugin(GulpPluginBase):
 
             # initialize plugin
             await self._initialize(plugin_params)
-            
+
             # csv plugin needs a mapping or a timestamp field
             selected_mapping = self.selected_mapping()
             if not selected_mapping.fields and not selected_mapping.timestamp_field:
-                    raise ValueError(
-                        "if no mapping_file or mappings specified, timestamp_field must be set in GulpMapping !"
-                    )
+                raise ValueError(
+                    "if no mapping_file or mappings specified, timestamp_field must be set in GulpMapping !"
+                )
         except Exception as ex:
             await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED
 
-        delimiter = plugin_params.model_extra.get("delimiter", ",")        
+        delimiter = plugin_params.model_extra.get("delimiter", ",")
         doc_idx = 0
         try:
             async with aiofiles.open(
@@ -173,11 +179,15 @@ class Plugin(GulpPluginBase):
             ) as f:
                 async for line_dict in AsyncDictReader(f, delimiter=delimiter):
                     # fix dict (remove BOM from keys, if present)
-                    fixed_dict = {muty.string.remove_unicode_bom(k): v for k, v in line_dict.items() if v}
+                    fixed_dict = {
+                        muty.string.remove_unicode_bom(k): v
+                        for k, v in line_dict.items()
+                        if v
+                    }
                     # rebuild line
                     line = delimiter.join(fixed_dict.values())
                     # add original line as __line__
-                    fixed_dict["__line__"] = line[:-1] 
+                    fixed_dict["__line__"] = line[:-1]
 
                     try:
                         await self.process_record(stats, fixed_dict, doc_idx, flt)

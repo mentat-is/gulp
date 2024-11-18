@@ -6,13 +6,12 @@ import muty.os
 import muty.string
 import muty.xml
 
-from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.structs import GulpPluginParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginAdditionalParameter
+from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
 
 try:
     from aiocsv import AsyncDictReader
@@ -80,11 +79,11 @@ class Plugin(GulpPluginBase):
         self, record: GulpDocument, record_idx: int
     ) -> GulpDocument:
 
-        # MutyLogger.get_logger().debug("record: %s" % record)
+        # MutyLogger.get_instance().debug("record: %s" % record)
         # tweak event duration ...
         record.event_duration = 9999
         return record
-    
+
     async def ingest_file(
         self,
         req_id: str,
@@ -99,7 +98,7 @@ class Plugin(GulpPluginBase):
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
-            req_id= req_id,
+            req_id=req_id,
             ws_id=ws_id,
             user_id=user_id,
             index=index,
@@ -118,19 +117,19 @@ class Plugin(GulpPluginBase):
 
         # set as stacked
         try:
-            lower = await self.setup_stacked_plugin('csv')
+            lower = await self.setup_stacked_plugin("csv")
             return await lower.ingest_file(
-                req_id=req_id, 
-                ws_id=ws_id, 
-                user_id=user_id, 
-                index=index, 
-                operation_id=operation_id, 
-                context_id=context_id, 
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
                 source_id=source_id,
-                log_file_path=log_file_path, 
-                plugin_params=plugin_params, 
-                flt=flt)
+                log_file_path=log_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
         except Exception as ex:
             await self._source_failed(stats, ex)
             return GulpRequestStatus.FAILED
-   

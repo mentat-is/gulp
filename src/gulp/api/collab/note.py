@@ -1,26 +1,28 @@
 from typing import Optional, Union, override
+
 import muty.string
-from sqlalchemy import ForeignKey, Index, String
+from muty.log import MutyLogger
+from sqlalchemy import ForeignKey, Index, String, insert
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
+
 from gulp.api.collab.structs import (
     GulpCollabObject,
     GulpCollabType,
-    T,
     GulpUserPermission,
+    T,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
-from muty.log import MutyLogger
-from gulp.api.collab_api import GulpCollab
-from sqlalchemy import insert
-import muty.string
+
 
 class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     """
     a note in the gulp collaboration system
     """
+
     context_id: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
         doc="The context associated with the note.",
@@ -122,56 +124,62 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
         async with GulpCollab.get_instance().session() as sess:
             color = color or "yellow"
-            
+
             # create a note for each document
             notes = []
             for doc in docs:
                 associated_doc = GulpBasicDocument(
-                    id=doc.get('_id'),
-                    timestamp=doc.get('@timestamp'),
-                    gulp_timestamp=doc.get('gulp.timestamp'),
-                    invalid_timestamp=doc.get('gulp.timestamp_invalid', False),
-                    operation_id=doc.get('gulp.operation_id'),
-                    context_id=doc.get('gulp.context_id'),
-                    source_id=doc.get('gulp.source_id'),
+                    id=doc.get("_id"),
+                    timestamp=doc.get("@timestamp"),
+                    gulp_timestamp=doc.get("gulp.timestamp"),
+                    invalid_timestamp=doc.get("gulp.timestamp_invalid", False),
+                    operation_id=doc.get("gulp.operation_id"),
+                    context_id=doc.get("gulp.context_id"),
+                    source_id=doc.get("gulp.source_id"),
                 )
                 args = {
                     "operation_id": associated_doc.operation_id,
                     "context_id": associated_doc.context_id,
                     "source_id": associated_doc.source_id,
-                    "documents": [associated_doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)],
+                    "documents": [
+                        associated_doc.model_dump(
+                            by_alias=True, exclude_none=True, exclude_defaults=True
+                        )
+                    ],
                     "glyph_id": glyph_id,
                     "color": color,
                     "title": title,
                     "tags": tags,
-                }                
+                }
                 note = GulpNote(id=None, owner_id=user_id, **args)
                 notes.append(note.to_dict(exclude_none=True))
 
             # bulk insert
-            MutyLogger.get_logger().debug("creating %d notes" % len(notes))
+            MutyLogger.get_instance().debug("creating %d notes" % len(notes))
             await sess.execute(insert(GulpNote).values(notes))
             await sess.commit()
 
-            MutyLogger.get_logger().info(
-                "created %d notes" % len(notes)
-            )
+            MutyLogger.get_instance().info("created %d notes" % len(notes))
 
             if ws_id:
                 # send over the websocket
-                MutyLogger.get_logger().debug("sending %d notes on the websocket %s " % (len(notes), ws_id))
-                
+                MutyLogger.get_instance().debug(
+                    "sending %d notes on the websocket %s " % (len(notes), ws_id)
+                )
+
                 # operation is always the same
-                operation = notes[0].get('operation')
+                operation = notes[0].get("operation")
                 await GulpSharedWsQueue.get_instance().put(
                     WsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
                     user_id=user_id,
-                    operation_id = operation,
+                    operation_id=operation,
                     req_id=req_id,
                     data=notes,
                 )
-                MutyLogger.get_logger().debug("sent %d notes on the websocket %s " % (len(notes), ws_id)) 
+                MutyLogger.get_instance().debug(
+                    "sent %d notes on the websocket %s " % (len(notes), ws_id)
+                )
 
             return len(notes)
 

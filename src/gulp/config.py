@@ -1,28 +1,22 @@
-import asyncio
-from copy import deepcopy
 import multiprocessing
 import os
 import pathlib
+from copy import deepcopy
 from importlib import resources as impresources
 
 import aiofiles.ospath
 import json5
 import muty.file
 import muty.os
+from muty.log import MutyLogger
 
 from gulp import mapping_files
-from muty.log import MutyLogger
 
 
 class GulpConfig:
     """
     Gulp configuration singleton class.
     """
-
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
@@ -40,18 +34,18 @@ class GulpConfig:
     def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
-            self._config_file_path: str=None
-            self._config: dict=None
-            
+            self._config_file_path: str = None
+            self._config: dict = None
+
             # read/initialize configuration and directories
             self._read_config()
-    
+
     def config(self) -> dict:
         """
         Returns the configuration dictionary.
         """
         return self._config
-    
+
     def path_config(self) -> str:
         """
         get the configuration file path (default: ~/.config/gulp/gulp_cfg.json)
@@ -90,31 +84,51 @@ class GulpConfig:
         Returns:
             None
         """
+
         async def _copy_if_different(default_path, custom_path, description):
-            if custom_path and pathlib.Path(default_path).resolve() != pathlib.Path(custom_path).resolve():
+            if (
+                custom_path
+                and pathlib.Path(default_path).resolve()
+                != pathlib.Path(custom_path).resolve()
+            ):
                 # we will use custom_path so, copy the whole directory there
                 if not await aiofiles.ospath.exists(custom_path):
-                    MutyLogger.get_logger().info(f"copying {description} to custom directory: {custom_path}")
+                    MutyLogger.get_instance().info(
+                        f"copying {description} to custom directory: {custom_path}"
+                    )
                     await muty.file.copy_dir_async(default_path, custom_path)
                 else:
-                    MutyLogger.get_logger().warning(f"custom {description} directory already exists: {custom_path}")
+                    MutyLogger.get_instance().warning(
+                        f"custom {description} directory already exists: {custom_path}"
+                    )
 
         # defaults
-        default_mapping_files_path = os.path.abspath(impresources.files("gulp.mapping_files"))
+        default_mapping_files_path = os.path.abspath(
+            impresources.files("gulp.mapping_files")
+        )
         default_plugins_path = os.path.abspath(impresources.files("gulp.plugins"))
 
         # custom folders
-        custom_mapping_files_path = os.path.abspath(GulpConfig.get_instance().path_mapping_files() or "")
-        custom_plugins_path = os.path.abspath(GulpConfig.get_instance().path_plugins() or "")
+        custom_mapping_files_path = os.path.abspath(
+            GulpConfig.get_instance().path_mapping_files() or ""
+        )
+        custom_plugins_path = os.path.abspath(
+            GulpConfig.get_instance().path_plugins() or ""
+        )
 
-        MutyLogger.get_logger().debug(f"default_mapping_files_path: {default_mapping_files_path}")
-        MutyLogger.get_logger().debug(f"custom_mapping_files_path: {custom_mapping_files_path}")
-        MutyLogger.get_logger().debug(f"default_plugins_path: {default_plugins_path}")
-        MutyLogger.get_logger().debug(f"custom_plugins_path: {custom_plugins_path}")
+        MutyLogger.get_instance().debug(
+            f"default_mapping_files_path: {default_mapping_files_path}"
+        )
+        MutyLogger.get_instance().debug(
+            f"custom_mapping_files_path: {custom_mapping_files_path}"
+        )
+        MutyLogger.get_instance().debug(f"default_plugins_path: {default_plugins_path}")
+        MutyLogger.get_instance().debug(f"custom_plugins_path: {custom_plugins_path}")
 
-        await _copy_if_different(default_mapping_files_path, custom_mapping_files_path, "mapping files")
+        await _copy_if_different(
+            default_mapping_files_path, custom_mapping_files_path, "mapping files"
+        )
         await _copy_if_different(default_plugins_path, custom_plugins_path, "plugins")
-
 
     def _read_config(self) -> None:
         """
@@ -124,7 +138,7 @@ class GulpConfig:
         """
         config_file_path = self.path_config()
 
-        # MutyLogger.get_logger().info("configuration path: %s" % (config_file_path))
+        # MutyLogger.get_instance().info("configuration path: %s" % (config_file_path))
 
         if not os.path.exists(config_file_path):
             # copy default configuration file
@@ -133,13 +147,13 @@ class GulpConfig:
             )
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "no configuration file found, applying defaults from %s ..." % (src)
             )
 
         cfg_perms = oct(os.stat(config_file_path).st_mode & 0o777)
         if cfg_perms != oct(0o0600):
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "careful, weak configuration file permissions %s != 0600" % cfg_perms
             )
 
@@ -159,14 +173,14 @@ class GulpConfig:
             None
         """
         self._config = config
-    
+
     def get_config_override(self, d: dict) -> dict:
         """
         Returns a new configuration dictionary with the overrides applied.
 
         Args:
             d (dict): the overrides
-        
+
         Returns:
             dict: the new configuration dictionary
         """
@@ -174,7 +188,7 @@ class GulpConfig:
         dd.update(d)
         return dd
 
-    def bind_to(self) -> tuple[str,int]:
+    def bind_to(self) -> tuple[str, int]:
         """
         Returns the server bind address and port.
 
@@ -185,10 +199,10 @@ class GulpConfig:
         if p is None:
             p = self._config.get("bind_to", None)
             if p is None:
-                MutyLogger.get_logger().warning("bind_to not set, using default!")
-                p = '0.0.0.0:8080'
+                MutyLogger.get_instance().warning("bind_to not set, using default!")
+                p = "0.0.0.0:8080"
 
-        MutyLogger.get_logger().debug("bind_to: %s" % (p))
+        MutyLogger.get_instance().debug("bind_to: %s" % (p))
         splitted = p.split(":")
         if len(splitted) != 2:
             raise ValueError("invalid bind_to format: %s" % (p))
@@ -202,9 +216,11 @@ class GulpConfig:
         n = self._config.get("index_template_default_total_fields_limit", None)
         if not n:
             n = 10000
-            MutyLogger.get_logger().warning("using default total fields limit")
+            MutyLogger.get_instance().warning("using default total fields limit")
 
-        MutyLogger.get_logger().debug("index_template_default_total_fields_limit: %d" % (n))
+        MutyLogger.get_instance().debug(
+            "index_template_default_total_fields_limit: %d" % (n)
+        )
         return n
 
     def index_template_default_refresh_interval(self) -> str:
@@ -214,9 +230,13 @@ class GulpConfig:
         n = self._config.get("index_template_default_refresh_interval", None)
         if n:
             n = "5s"
-            MutyLogger.get_logger().warning("using default refresh interval for index template")
+            MutyLogger.get_instance().warning(
+                "using default refresh interval for index template"
+            )
 
-        MutyLogger.get_logger().debug("index_template_default_refresh_interval: %s" % (n))
+        MutyLogger.get_instance().debug(
+            "index_template_default_refresh_interval: %s" % (n)
+        )
         return n
 
     def ingestion_request_timeout(self) -> int:
@@ -225,7 +245,6 @@ class GulpConfig:
         """
         n = self._config.get("ingestion_request_timeout", 60)
         return n
-
 
     def config_dir(self) -> str:
         """
@@ -236,7 +255,6 @@ class GulpConfig:
         """
         p = os.path.dirname(self.path_config())
         return p
-
 
     def upload_tmp_dir(self) -> str:
         """
@@ -249,7 +267,6 @@ class GulpConfig:
         os.makedirs(upload_dir, exist_ok=True)
         return upload_dir
 
-
     def token_ttl(self) -> int:
         """
         Returns the number of seconds a non-admin token is valid for.
@@ -257,12 +274,11 @@ class GulpConfig:
         n = self._config.get("token_ttl", None)
         if not n:
             n = 604800
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "using default number of seconds for token expiration=%d (%f days)"
                 % (n, n / 86400)
             )
         return n
-
 
     def token_admin_ttl(self) -> int:
         """
@@ -271,7 +287,7 @@ class GulpConfig:
         n = self._config.get("token_admin_ttl", None)
         if not n:
             n = 600
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "using default number of seconds for admin token expiration=%d (%f days)"
                 % (n, n / 86400)
             )
@@ -284,9 +300,9 @@ class GulpConfig:
         n = self._config.get("documents_chunk_size", None)
         if not n:
             n = 1000
-            # MutyLogger.get_logger().warning("using default chunk size=%d" % (n))
+            # MutyLogger.get_instance().warning("using default chunk size=%d" % (n))
         return n
-    
+
     def ingestion_evt_failure_threshold(self) -> int:
         """
         Returns the number of events that can fail before the ingestion of the current file is marked as FAILED (0=never abort an ingestion even with multiple failures).
@@ -296,7 +312,6 @@ class GulpConfig:
             return 0
         return n
 
-
     def debug_collab(self) -> bool:
         """
         Returns whether to enable the collaborative API debug mode (prints SQL queries, etc...), default is False.
@@ -305,7 +320,6 @@ class GulpConfig:
         if __debug__:
             n = self._config.get("debug_collab", False)
         return n
-
 
     def debug_no_token_expiration(self) -> bool:
         """
@@ -317,16 +331,17 @@ class GulpConfig:
 
         if __debug__:
             if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-                MutyLogger.get_logger().warning(
+                MutyLogger.get_instance().warning(
                     "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_no_token_expiration disabled!"
                 )
                 return False
 
             n = self._config.get("debug_no_token_expiration", False)
             if n:
-                MutyLogger.get_logger().warning("!!!WARNING!!! debug_no_token_expiration is set to True !")
+                MutyLogger.get_instance().warning(
+                    "!!!WARNING!!! debug_no_token_expiration is set to True !"
+                )
         return n
-
 
     def stats_ttl(self) -> int:
         """
@@ -335,7 +350,7 @@ class GulpConfig:
         n = self._config.get("stats_ttl", None)
         if n is None:
             n = 86400
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "using default number of seconds for stats expiration=%d (%d days)"
                 % (n, n / 86400)
             )
@@ -348,7 +363,6 @@ class GulpConfig:
         n = self._config.get("https_cert_password", None)
         return n
 
-
     def enforce_https(self) -> bool:
         """
         Returns whether to enforce HTTPS.
@@ -356,14 +370,12 @@ class GulpConfig:
         n = self._config.get("https_enforce", False)
         return n
 
-
     def enforce_https_client_certs(self) -> bool:
         """
         Returns whether to enforce HTTPS client certificates.
         """
         n = self._config.get("https_enforce_client_certs", False)
         return n
-
 
     def debug_allow_any_token_as_admin(self) -> bool:
         """
@@ -374,18 +386,17 @@ class GulpConfig:
         n = False
         if __debug__:
             if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-                MutyLogger.get_logger().warning(
+                MutyLogger.get_instance().warning(
                     "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_allow_any_token_as_admin disabled!"
                 )
                 return False
 
             n = self._config.get("debug_allow_any_token_as_admin", False)
             if n:
-                MutyLogger.get_logger().warning(
+                MutyLogger.get_instance().warning(
                     "!!!WARNING!!! debug_allow_any_token_as_admin is set to True !"
                 )
         return n
-
 
     def debug_abort_on_opensearch_ingestion_error(self) -> bool:
         """
@@ -397,9 +408,8 @@ class GulpConfig:
         if __debug__:
             n = self._config.get("debug_abort_on_opensearch_ingestion_error", True)
 
-        # MutyLogger.get_logger().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
+        # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
-
 
     def multiprocessing_batch_size(self) -> int:
         """
@@ -408,11 +418,10 @@ class GulpConfig:
         n = self._config.get("multiprocessing_batch_size", 0)
         if not n:
             n = multiprocessing.cpu_count()
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "using default multiprocessing_batch_size(=number of cores)=%d" % (n)
             )
         return n
-
 
     def concurrency_max_tasks(self) -> int:
         """
@@ -425,9 +434,10 @@ class GulpConfig:
         n = self._config.get("concurrency_max_tasks", 0)
         if not n:
             n = 16
-            MutyLogger.get_logger().warning("using default number of tasks per process=%d" % (n))
+            MutyLogger.get_instance().warning(
+                "using default number of tasks per process=%d" % (n)
+            )
         return n
-
 
     def opensearch_client_cert_password(self) -> str:
         """
@@ -436,14 +446,12 @@ class GulpConfig:
         n = self._config.get("opensearch_client_cert_password", None)
         return n
 
-
     def opensearch_multiple_nodes(self) -> bool:
         """
         Returns whether to use multiple nodes for opensearch.
         """
         n = self._config.get("opensearch_multiple_nodes", False)
         return n
-
 
     def parallel_processes_max(self) -> int:
         """
@@ -453,12 +461,11 @@ class GulpConfig:
         n = self._config.get("parallel_processes_max", 0)
         if not n:
             n = multiprocessing.cpu_count()
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "using default number of processes for ingestion (=number of cores=%d)."
                 % (n)
             )
         return n
-
 
     def parallel_processes_respawn_after_tasks(self) -> int:
         """
@@ -470,7 +477,6 @@ class GulpConfig:
             return 0
         return n
 
-
     def debug_allow_insecure_passwords(self) -> bool:
         """
         Returns whether to disable password validation when creating users.
@@ -479,9 +485,10 @@ class GulpConfig:
         if __debug__:
             n = self._config.get("debug_allow_insecure_passwords", False)
 
-        MutyLogger.get_logger().warning("!!!WARNING!!! debug_allow_insecure_passwords is set to True !")
+        MutyLogger.get_instance().warning(
+            "!!!WARNING!!! debug_allow_insecure_passwords is set to True !"
+        )
         return n
-
 
     def postgres_url(self) -> str:
         """
@@ -500,7 +507,6 @@ class GulpConfig:
 
         return n
 
-
     def postgres_ssl(self) -> bool:
         """
         Returns whether to use SSL for postgres.
@@ -512,7 +518,6 @@ class GulpConfig:
         n = self._config.get("postgres_ssl", False)
         return n
 
-
     def postgres_verify_certs(self) -> bool:
         """
         Returns whether to verify the certificates when connecting to postgres with SSL.
@@ -522,14 +527,12 @@ class GulpConfig:
         n = self._config.get("postgres_verify_certs", False)
         return n
 
-
     def postgres_client_cert_password(self) -> str:
         """
         Returns the password for the postgres client certificate.
         """
         n = self._config.get("postgres_client_cert_password", None)
         return n
-
 
     def opensearch_url(self) -> str:
         """
@@ -564,8 +567,7 @@ class GulpConfig:
         n = self._config.get("opensearch_verify_certs", False)
         return n
 
-
-    def path_plugins(self, extension: bool=False) -> str:
+    def path_plugins(self, extension: bool = False) -> str:
         """
         returns the plugins path
 
@@ -586,7 +588,7 @@ class GulpConfig:
                 p = default_path
 
         pp = os.path.expanduser(p)
-        #MutyLogger.get_logger().debug("plugins path: %s" % (pp))    
+        # MutyLogger.get_instance().debug("plugins path: %s" % (pp))
         if extension:
             return muty.file.safe_path_join(pp, "extension")
         return pp
@@ -596,7 +598,7 @@ class GulpConfig:
         Returns the path of the opensearch index template file.
         """
         p = impresources.files("gulp.api.mapping.index_template")
-        default_path = muty.file.safe_path_join(p,'template.json')
+        default_path = muty.file.safe_path_join(p, "template.json")
 
         # try env
         p = os.getenv("PATH_INDEX_TEMPLATE", None)
@@ -607,7 +609,7 @@ class GulpConfig:
                 p = default_path
 
         pp = os.path.expanduser(p)
-        MutyLogger.get_logger().debug("path_index_template: %s" % (pp))
+        MutyLogger.get_instance().debug("path_index_template: %s" % (pp))
         return p
 
     def path_mapping_files(self) -> str:
@@ -624,9 +626,8 @@ class GulpConfig:
                 p = default_path
 
         pp = os.path.expanduser(p)
-        MutyLogger.get_logger().debug("mapping files path: %s" % (pp))
+        MutyLogger.get_instance().debug("mapping files path: %s" % (pp))
         return p
-
 
     def path_certs(self) -> str:
         """
@@ -642,13 +643,12 @@ class GulpConfig:
             # try configuration
             p = self._config.get("path_certs", None)
             if not p:
-                MutyLogger.get_logger().warning('"path_certs" is not set !')
+                MutyLogger.get_instance().warning('"path_certs" is not set !')
                 return None
-        
-        pp = os.path.expanduser(p)
-        # MutyLogger.get_logger().debug("certs directory: %s" % (pp))
-        return pp
 
+        pp = os.path.expanduser(p)
+        # MutyLogger.get_instance().debug("certs directory: %s" % (pp))
+        return pp
 
     def aggregation_max_buckets(self) -> int:
         """
@@ -663,14 +663,12 @@ class GulpConfig:
 
         return n
 
-
     def ws_rate_limit_delay(self) -> float:
         """
         Returns the delay in seconds to wait before sending a message to a client.
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n
-
 
     def plugin_cache_enabled(self) -> bool:
         """
@@ -679,7 +677,6 @@ class GulpConfig:
         n = self._config.get("plugin_cache_enabled", True)
         return n
 
-
     @staticmethod
     def build_mapping_file_path(filename: str) -> str:
         """
@@ -687,7 +684,6 @@ class GulpConfig:
 
         @return the full path of a file in the mapping_files directory
         """
-
 
         if not filename:
             return None
@@ -700,4 +696,3 @@ class GulpConfig:
             # default, internal mapping_files directory with default mappings
             p = muty.file.safe_path_join(impresources.files(mapping_files), filename)
         return p
-

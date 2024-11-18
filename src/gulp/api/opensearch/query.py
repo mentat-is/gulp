@@ -1,16 +1,17 @@
 import json
-from typing import Any, Optional, Self, Union
+from typing import Any, Optional
 
-import muty.string
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from elasticsearch import AsyncElasticsearch
+from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpIngestionFilter, GulpQueryFilter, GulpSortOrder
+from gulp.api.opensearch.filters import (
+    QUERY_DEFAULT_FIELDS,
+    GulpQueryFilter,
+    GulpSortOrder,
+)
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpDocumentsChunk
-from elasticsearch import AsyncElasticsearch
-from sigma.backends.opensearch import OpensearchLuceneBackend
 from gulp.structs import GulpPluginParameters
 
 
@@ -18,17 +19,22 @@ class GulpConvertedSigma(BaseModel):
     """
     A converted sigma rule
     """
+
     title: str = Field(..., description="the title of the sigma rule.")
     id: str = Field(..., description="the id of the sigma rule.")
     q: Any = Field(..., description="the converted query.")
     tags: list[str] = Field([], description="the tags of the sigma rule.")
     backend: str = Field(..., description="the backend used to convert the sigma rule.")
-    pipeline: str = Field(..., description="the pipeline used to convert the sigma rule.")
+    pipeline: str = Field(
+        ..., description="the pipeline used to convert the sigma rule."
+    )
+
 
 class GulpSigmaQueryParameters(BaseModel):
     """
     represents options for a sigma query.
     """
+
     create_notes: bool = Field(
         True,
         description="if set, create notes on match",
@@ -39,7 +45,7 @@ class GulpSigmaQueryParameters(BaseModel):
     )
     note_tags: list[str] = Field(
         None,
-        description="the tags of the note to create, default=[\"auto\"]",
+        description='the tags of the note to create, default=["auto"]',
     )
     note_color: str = Field(
         None,
@@ -61,6 +67,7 @@ class GulpSigmaQueryParameters(BaseModel):
         None,
         description="the output format to use when converting the sigma rule, default=plugin's default",
     )
+
 
 class GulpQueryExternalParameters(BaseModel):
     """
@@ -99,6 +106,7 @@ class GulpQueryExternalParameters(BaseModel):
         description="if set, this is a sigma query and these are the additional parameters.",
     )
 
+
 class GulpQueryAdditionalParameters(BaseModel):
     """
     additional options for a query.
@@ -114,6 +122,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         - sigma_backend: str, optional: for sigma queries, the backend to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
         - sigma_output_format: str, optional: for sigma queries, the output format to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
     """
+
     model_config = ConfigDict(extra="allow")
 
     sort: Optional[dict[str, GulpSortOrder]] = Field(
@@ -133,7 +142,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         le=10000,
         description="for pagination, the maximum number of documents to return in a chunk, default=1000 (None=return up to 10000 documents).",
     )
-    search_after: Optional[list[int|str]] = Field(
+    search_after: Optional[list[int | str]] = Field(
         None,
         description="to use pagination driven by the client: this is the last value returned as `search_after` from the previous query, to be used as start offset. Ignored if `loop` is set.",
     )
@@ -160,7 +169,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         for k, v in self.sort.items():
             n["sort"].append({k: {"order": v}})
             # NOTE: this was "event.hash" before: i removed it since its values is the same as _id now, so put _id here.
-            # if problems (i.e. issues with sorting on _id), we can add it back just by duplicating _id 
+            # if problems (i.e. issues with sorting on _id), we can add it back just by duplicating _id
             if "_id" not in self.sort:
                 n["sort"].append({"_id": {"order": v}})
             if "event.sequence" not in self.sort:
@@ -186,8 +195,9 @@ class GulpQueryAdditionalParameters(BaseModel):
         else:
             n["search_after"] = None
 
-        # MutyLogger.get_logger().debug("query options: %s" % (json.dumps(n, indent=2)))
+        # MutyLogger.get_instance().debug("query options: %s" % (json.dumps(n, indent=2)))
         return n
+
 
 class GulpQuery:
     """
@@ -242,13 +252,13 @@ class GulpQuery:
         """
         if token is None:
             if not user_id:
-                raise ValueError("if token is not set, user_id must be set")        
+                raise ValueError("if token is not set, user_id must be set")
         else:
             user_id = await GulpQuery._get_requestor_user_id(token)
 
         if not options:
             options = GulpQueryAdditionalParameters()
-        
+
         if flt:
             # merge with filter
             dsl = flt.merge_to_opensearch_dsl(dsl)
@@ -292,8 +302,8 @@ class GulpQuery:
         """
         if not options:
             options = GulpQueryAdditionalParameters()
-        options.sigma_parameters=None
-        
+        options.sigma_parameters = None
+
         dsl = flt.to_opensearch_dsl()
         return await GulpQuery.query_raw(
             token=token,
@@ -331,12 +341,15 @@ class GulpQuery:
         try:
             # convert sigma using the plugin
             from gulp.plugin import GulpPluginBase
+
             p = await GulpPluginBase.load(plugin)
-            converted = p.sigma_convert(sigma, 
-                                        referenced_sigmas=referenced_sigma,
-                                        backend=backend,
-                                        pipeline=pipeline,
-                                        output_format=output_format)
+            converted = p.sigma_convert(
+                sigma,
+                referenced_sigmas=referenced_sigma,
+                backend=backend,
+                pipeline=pipeline,
+                output_format=output_format,
+            )
             return converted
         finally:
             if p:
@@ -378,11 +391,11 @@ class GulpQuery:
         user_id = await GulpQuery._get_requestor_user_id(token)
         if not options:
             options = GulpQueryAdditionalParameters()
-        
+
         if not options.sigma_parameters:
             options.sigma_parameters = GulpSigmaQueryParameters()
 
-        queries:list[GulpConvertedSigma] = GulpQuery.query_sigma_build(
+        queries: list[GulpConvertedSigma] = GulpQuery.query_sigma_build(
             sigma=sigma,
             plugin=plugin,
             referenced_sigma=referenced_sigma,
@@ -390,7 +403,7 @@ class GulpQuery:
             pipeline=options.sigma_parameters.pipeline,
             output_format="dsl_lucene",
         )
-        
+
         for q in queries:
             # perform queries
             options.sigma_parameters.note_title = q.title
@@ -406,7 +419,7 @@ class GulpQuery:
                 options=options,
                 el=el,
             )
-        
+
     @staticmethod
     async def query_stored(
         token: str,
@@ -430,7 +443,7 @@ class GulpQuery:
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
             options(GulpQueryAdditionalParameters, optional): additional options to use
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
-        
+
         Raises:
             MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
@@ -452,7 +465,9 @@ class GulpQuery:
                 options=options,
                 el=el,
             )
-        raise ValueError("query.converted is not set, stored query must be preprocessed first")
+        raise ValueError(
+            "query.converted is not set, stored query must be preprocessed first"
+        )
 
     @staticmethod
     async def query_external(
@@ -461,15 +476,15 @@ class GulpQuery:
         ws_id: str,
         plugin: str,
         query: GulpQueryExternalParameters,
-        ingest_index: str=None,
-        operation_id: str=None,
+        ingest_index: str = None,
+        operation_id: str = None,
         context_id: str = None,
         source: str = None,
         plugin_params: GulpPluginParameters = None,
     ) -> None:
         """
         query an external source for a set of documents, using the external source query language, and optionally ingest the results to a gulp index.
-        
+
         the results are converted to gulp documents and streamed to the websocket.
 
         Args:
@@ -483,19 +498,20 @@ class GulpQuery:
             context_id (str, optional): only used with `ingest_index`, the context to associate with. Defaults to None.
             source (str, optional): only used with `ingest_index`, indicates the log source. Defaults to None.
             plugin_params (GulpPluginParameters, optional): plugin parameters
-        
+
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
         user_id = await GulpQuery._get_requestor_user_id(token)
-                
+
         try:
             # load plugin
             from gulp.plugin import GulpPluginBase
+
             p = await GulpPluginBase.load(plugin)
 
             # query
-            query.sigma_parameters=None
+            query.sigma_parameters = None
             await p.query_external(
                 req_id=req_id,
                 ws_id=ws_id,
@@ -538,14 +554,15 @@ class GulpQuery:
         """
         # check token
         await GulpQuery._get_requestor_user_id(token)
-        
+
         try:
             # load plugin
-            from gulp.plugin import GulpPluginBase        
+            from gulp.plugin import GulpPluginBase
+
             p = await GulpPluginBase.load(plugin)
 
             # query
-            query.sigma_parameters=None
+            query.sigma_parameters = None
             return await p.query_external_single(
                 req_id=req_id,
                 query=query,
@@ -554,7 +571,7 @@ class GulpQuery:
         finally:
             if p:
                 await p.unload()
-    
+
     @staticmethod
     async def query_external_sigma(
         token: str,
@@ -564,11 +581,11 @@ class GulpQuery:
         sigma: str,
         query: GulpQueryExternalParameters,
         referenced_sigma: list[str] = None,
-        ingest_index: str=None,
-        operation_id: str=None,
+        ingest_index: str = None,
+        operation_id: str = None,
         context_id: str = None,
         source: str = None,
-        plugin_params: GulpPluginParameters = None,        
+        plugin_params: GulpPluginParameters = None,
     ) -> None:
         """
         query an external source for a set of documents using a sigma rule, and optionally ingest the results to a gulp index.
@@ -595,7 +612,7 @@ class GulpQuery:
             query.sigma_parameters = GulpSigmaQueryParameters()
 
         # convert sigma
-        queries:list[GulpConvertedSigma] = await GulpQuery.query_sigma_build(
+        queries: list[GulpConvertedSigma] = await GulpQuery.query_sigma_build(
             sigma=sigma,
             plugin=plugin,
             referenced_sigma=referenced_sigma,
@@ -608,10 +625,11 @@ class GulpQuery:
         if not ingest_index:
             # either, no ingestion=no notes
             query.sigma_parameters.create_notes = False
-            
+
         try:
             # load plugin
             from gulp.plugin import GulpPluginBase
+
             p = await GulpPluginBase.load(plugin)
 
             # query

@@ -1,29 +1,33 @@
-from email.message import EmailMessage
 import json
+import os
 import re
 import ssl
+from email.message import EmailMessage
 from typing import Optional, Tuple
+
 import aiofiles
 import aiosmtplib
+import muty.file
 from fastapi import Request
 from muty.log import MutyLogger
-import muty.file
-import os
 from pydantic import BaseModel, Field
 from requests_toolbelt.multipart import decoder
 
 from gulp.config import GulpConfig
 
+
 class GulpChunkedUploadResponse(BaseModel):
     """
     the ingest API may respond with this object to indicate the status of an unfinished upload.
     """
+
     done: bool = Field(..., description="Indicates whether the upload is complete.")
     continue_offset: Optional[int] = Field(
         0, description="The offset of the next chunk to be uploaded, to resume."
     )
 
-class ServerUtils:    
+
+class ServerUtils:
     @staticmethod
     async def send_mail(
         smtp_server: str,
@@ -61,7 +65,7 @@ class ServerUtils:
             cc_list = to[1:]
 
         m = EmailMessage()
-        MutyLogger.get_logger().info(
+        MutyLogger.get_instance().info(
             "sending mail using %s:%d, from %s to %s, cc=%s, subject=%s"
             % (server, port, sender, to_email, cc_list, subject)
         )
@@ -84,9 +88,10 @@ class ServerUtils:
             validate_certs=False,
         )
 
-    
     @staticmethod
-    async def handle_multipart_chunked_upload(r: Request, req_id: str) -> Tuple[str, dict, GulpChunkedUploadResponse]:
+    async def handle_multipart_chunked_upload(
+        r: Request, req_id: str
+    ) -> Tuple[str, dict, GulpChunkedUploadResponse]:
         """
         Handles a chunked upload request with multipart content (file and json), with resume support.
 
@@ -100,13 +105,14 @@ class ServerUtils:
         Args:
             r (Request): The FastAPI request object.
             req_id (str): The request ID, to allow resuming a previously interrupted upload.
-        
+
         Returns:
             Tuple[str, dict, GulpChunkedUploadResponse]: A tuple containing:
                 - the file path
                 - the parsed JSON payload, if any
                 - the upload response object to be returned to the client.
         """
+
         async def _parse_payload(content: bytes) -> dict:
             """Parse JSON payload from multipart content."""
             try:
@@ -115,7 +121,7 @@ class ServerUtils:
                 payload_dict = json.loads(payload)
                 return payload_dict
             except Exception:
-                MutyLogger.get_logger().error(f"invalid payload: {payload}")
+                MutyLogger.get_instance().error(f"invalid payload: {payload}")
                 return None
 
         def _extract_filename(content_disposition: str) -> str:
@@ -168,7 +174,7 @@ class ServerUtils:
         current_size = await muty.file.get_size(cache_file_path)
         if current_size == total_file_size:
             # Upload is already complete !
-            MutyLogger.get_logger().info(
+            MutyLogger.get_instance().info(
                 "file size matches, upload is already complete!"
             )
             return cache_file_path, payload_dict, GulpChunkedUploadResponse(done=True)
@@ -183,9 +189,11 @@ class ServerUtils:
         current_written_size = await muty.file.get_size(cache_file_path)
         is_complete = current_written_size == total_file_size
 
-        return cache_file_path, payload_dict, GulpChunkedUploadResponse(
+        return (
+            cache_file_path,
+            payload_dict,
+            GulpChunkedUploadResponse(
                 done=is_complete,
                 continue_offset=None if is_complete else current_written_size,
+            ),
         )
-
-

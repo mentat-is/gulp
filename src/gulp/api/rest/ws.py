@@ -9,19 +9,20 @@ import muty.string
 import muty.time
 import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from muty.log import MutyLogger
 from starlette.endpoints import WebSocketEndpoint
-
 
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.ws_api import ConnectedSocket, GulpConnectedSockets, WsParameters
-from muty.log import MutyLogger
 from gulp.config import GulpConfig
+
 
 class WsRouter:
     """
     handles rest entrypoint/s for the websocket
     """
+
     @staticmethod
     def create_router() -> APIRouter:
         """
@@ -32,6 +33,7 @@ class WsRouter:
         """
 
         router = APIRouter()
+
         @router.websocket_route("/ws")
         class WebSocketHandler(WebSocketEndpoint):
             """
@@ -41,6 +43,7 @@ class WsRouter:
             2. server checks the token and ws_id, and accepts the connection
             3. server sends messages to the client with the same ws_id (plus broadcasting CollabObj objects to the other connected websockets)
             """
+
             @override
             def __init__(self, scope, receive, send) -> None:
                 self._ws: ConnectedSocket = None
@@ -51,36 +54,48 @@ class WsRouter:
 
             @override
             async def on_connect(self, websocket: WebSocket) -> None:
-                MutyLogger.get_logger().debug("awaiting accept ...")
+                MutyLogger.get_instance().debug("awaiting accept ...")
                 super().on_connect(websocket)
 
                 try:
                     js = await websocket.receive_json()
                     params = WsParameters.model_validate_json(js)
-                    await GulpUserSession.check_token_permission(params.token, GulpUserPermission.READ)
+                    await GulpUserSession.check_token_permission(
+                        params.token, GulpUserPermission.READ
+                    )
                 except Exception as ex:
-                    MutyLogger.get_logger().error("ws rejected: %s" % (ex))
+                    MutyLogger.get_instance().error("ws rejected: %s" % (ex))
                     return
 
                 # connection is ok
-                MutyLogger.get_logger().debug("ws accepted for ws_id=%s!" % (params.ws_id))
-                ws = GulpConnectedSockets().add(websocket, params.ws_id, params.type, params.operation_id)
+                MutyLogger.get_instance().debug(
+                    "ws accepted for ws_id=%s!" % (params.ws_id)
+                )
+                ws = GulpConnectedSockets.get_instance().add(
+                    websocket, params.ws_id, params.type, params.operation_id
+                )
                 self._ws = ws
                 self._cancel_event = asyncio.Event()
 
                 # start the consumer task to send data to the websocket as it arrives in the queue (via calls GulpSharedWsDataQueue.add_data())
                 self._consumer_task = asyncio.create_task(self.send_data_loop())
-                MutyLogger.get_logger().debug("created consumer task for ws_id=%s!" % (params.ws_id))
+                MutyLogger.get_instance().debug(
+                    "created consumer task for ws_id=%s!" % (params.ws_id)
+                )
 
             @override
-            async def on_disconnect(self, websocket: WebSocket, close_code: int) -> None:
-                MutyLogger.get_logger().debug("on_disconnect, close_code=%d" % (close_code))
+            async def on_disconnect(
+                self, websocket: WebSocket, close_code: int
+            ) -> None:
+                MutyLogger.get_instance().debug(
+                    "on_disconnect, close_code=%d" % (close_code)
+                )
                 if self._consumer_task is not None:
-                    MutyLogger.get_logger().debug("canceling consumer task ...")
+                    MutyLogger.get_instance().debug("canceling consumer task ...")
                     self._consumer_task.cancel()
 
                 # remove websocket from active list and close it
-                await GulpConnectedSockets().remove(websocket)
+                await GulpConnectedSockets.get_instance().remove(websocket)
 
             async def _read_items(self, q: asyncio.Queue):
                 """
@@ -90,9 +105,9 @@ class WsRouter:
                     q (asyncio.Queue): The asyncio queue.
 
                 Yields:
-                    Any: The item read from the queue.            
+                    Any: The item read from the queue.
                 """
-                # MutyLogger.get_logger().debug("reading items from queue ...")
+                # MutyLogger.get_instance().debug("reading items from queue ...")
                 while True:
                     item = await q.get()
                     q.task_done()
@@ -105,7 +120,9 @@ class WsRouter:
                 Raises:
                     WebSocketDisconnect: If the websocket disconnects.
                 """
-                MutyLogger.get_logger().debug('starting ws "%s" loop ...' % (self._ws.ws_id))
+                MutyLogger.get_instance().debug(
+                    'starting ws "%s" loop ...' % (self._ws.ws_id)
+                )
                 async for item in self._read_items(self._ws.q):
                     try:
                         # send
@@ -116,13 +133,15 @@ class WsRouter:
                         await asyncio.sleep(ws_delay)
 
                     except WebSocketDisconnect as ex:
-                        MutyLogger.get_logger().exception("ws disconnected: %s" % (ex))
+                        MutyLogger.get_instance().exception(
+                            "ws disconnected: %s" % (ex)
+                        )
                         break
                     except Exception as ex:
-                        MutyLogger.get_logger().exception("ws error: %s" % (ex))
+                        MutyLogger.get_instance().exception("ws error: %s" % (ex))
                         break
                     except asyncio.CancelledError as ex:
-                        MutyLogger.get_logger().exception("ws cancelled: %s" % (ex))
+                        MutyLogger.get_instance().exception("ws cancelled: %s" % (ex))
                         break
-        
+
         return router

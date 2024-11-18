@@ -1,29 +1,34 @@
 import inspect
 from typing import Optional, Tuple, override
+
 import muty.log
 import muty.time
-from sqlalchemy import BIGINT, ForeignKey, Index, Integer, String, ARRAY
+from muty.log import MutyLogger
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
-from gulp.config import GulpConfig
+
 from gulp.api.collab.structs import (
+    GulpCollabBase,
     GulpCollabType,
     GulpRequestStatus,
-    GulpCollabBase,
-    T,
     GulpUserPermission,
+    T,
 )
-from muty.log import MutyLogger
 from gulp.api.collab_api import GulpCollab
 from gulp.config import GulpConfig
+
 
 class RequestCanceledError(Exception):
     """
     Raised when a request is aborted (by API or in case of too many failures).
     """
+
     pass
+
+
 class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     """
     Represents the base class for statistics
@@ -80,15 +85,15 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         throw_if_not_found: bool = True,
         **kwargs,
     ) -> T:
-        
+
         # Check if the caller is 'cancel_by_id'
         stack = inspect.stack()
         callers = [frame.function for frame in stack]
-        if 'cancel_by_id' not in callers:
+        if "cancel_by_id" not in callers:
             raise NotImplementedError(
                 "update_by_id @classmethod can only be called from 'cancel_by_id'"
-            )        
-        
+            )
+
         return await super().update_by_id(
             token=token,
             id=id,
@@ -119,13 +124,13 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     @classmethod
     async def _create(
         cls,
-        token: str=None,
+        token: str = None,
         id: str = None,
         required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         ws_id: str = None,
         req_id: str = None,
         sess: AsyncSession = None,
-        ensure_eager_load: bool=False,
+        ensure_eager_load: bool = False,
         **kwargs,
     ) -> T:
         """
@@ -145,8 +150,12 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         Returns:
             T: The created instance.
         """
-        MutyLogger.get_logger().debug(
-            f"--->_create: id={id}, ws_id={ws_id}, ensure_eager_load={ensure_eager_load}, kwargs={kwargs}"
+        MutyLogger.get_instance().debug(
+            "--->_create: id=%s, ws_id=%s, ensure_eager_load=%s, kwargs=%s",
+            id,
+            ws_id,
+            ensure_eager_load,
+            kwargs,
         )
         operation_id: str = kwargs.get("operation_id", None)
         context_id: str = kwargs.get("context_id", None)
@@ -157,7 +166,9 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         if time_expire > 0:
             now = muty.time.now_msec()
             time_expire = muty.time.now_msec() + time_expire
-            MutyLogger.get_logger().debug(f"now={now}, setting stats \"{id}\".time_expire to {time_expire}")
+            MutyLogger.get_instance().debug(
+                'now=%s, setting stats "%s".time_expire to %s', now, id, time_expire
+            )
 
         args = {
             "operation_id": operation_id,
@@ -183,13 +194,11 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         context_id: str = None,
         source_id: str = None,
         sess: AsyncSession = None,
-        ensure_eager_load: bool=True,
+        ensure_eager_load: bool = True,
         **kwargs,
     ) -> Tuple[T, bool]:
-        MutyLogger.get_logger().debug(
-            f"--->_create_or_get: id={id}, operation_id={operation_id}, context_id={context_id}, 
-                source_id={source_id}, sess={sess}, ensure_eager_load={ensure_eager_load},
-                kwargs={kwargs}"    
+        MutyLogger.get_instance().debug(
+            f"--->_create_or_get: id={id}, operation_id={operation_id}, context_id={context_id},source_id={source_id}, sess={sess}, ensure_eager_load={ensure_eager_load},kwargs={kwargs}"
         )
         existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
         if existing:
@@ -214,9 +223,10 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
 
     errors: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
-        default_factory=list, doc="The errors that occurred during processing."
-    )    
-    
+        default_factory=list,
+        doc="The errors that occurred during processing.",
+    )
+
     source_processed: Mapped[Optional[int]] = mapped_column(
         Integer, default=0, doc="The number of sources processed."
     )
@@ -272,8 +282,12 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
         Returns:
             a tuple (GulpIngestionStats, bool): The created or retrieved instance and a boolean indicating if the instance was created.
         """
-        MutyLogger.get_logger().debug(
-            f"---> create_or_get: id={id}, operation_id={operation_id}, context_id={context_id}, source_total={source_total}, kwargs={kwargs}"
+        MutyLogger.get_instance().debug(
+            "---> create_or_get: id=%s, operation_id=%s, context_id=%s, kwargs=%s",
+            id,
+            operation_id,
+            context_id,
+            kwargs,
         )
         async with GulpCollab.get_instance().session() as sess:
             s: GulpIngestionStats
@@ -289,13 +303,13 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
             if not created and s.source_id != source_id:
                 # already exists but source is different: source total must be updated
                 sess.add(s)
-                await sess.refresh(s)                
-                s.source_id = 'multiple' # refers to a multi-source ingestion
-                s.source_total +=1
+                await sess.refresh(s)
+                s.source_id = "multiple"  # refers to a multi-source ingestion
+                s.source_total += 1
                 s.status = GulpRequestStatus.PENDING
-                s.time_finished=0
+                s.time_finished = 0
                 await sess.commit()
-        
+
         return s, created
 
     @classmethod
@@ -308,7 +322,9 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
             req_id (str): The request ID.
             ws_id (str, optional): The websocket ID. Defaults to None.
         """
-        MutyLogger.get_logger().debug(f"---> cancel_by_id: id={req_id}, ws_id={ws_id}")
+        MutyLogger.get_instance().debug(
+            "---> cancel_by_id: id=%s, ws_id=%s", req_id, ws_id
+        )
         await cls.update_by_id(
             token=token,
             id=req_id,
@@ -322,8 +338,12 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
     @override
     async def update(
         self,
-        d: dict=None,
+        token: str = None,
+        d: dict = None,
+        permission: list[GulpUserPermission] = None,
         ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         error: str | Exception | list[str] = None,
         status: GulpRequestStatus = None,
@@ -355,11 +375,21 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
         Raises:
             RequestAbortError: If the request is aborted.
         """
+        if self.status in [
+            GulpRequestStatus.CANCELED,
+            GulpRequestStatus.FAILED,
+        ]:
+            # already processed, nothing to do
+            MutyLogger.get_instance().warning(
+                "request already set to %s, nothing to do" % (self.status)
+            )
+            return self
+
         msg = f"---> update: ws_id={ws_id}, throw_if_not_found={throw_if_not_found}, error={error}, status={status}, source_processed={source_processed}, source_failed={source_failed}, records_failed={records_failed}, records_skipped={records_skipped}, records_processed={records_processed}, records_ingested={records_ingested}, kwargs={kwargs}"
         if error:
-            MutyLogger.get_logger().error(msg)
+            MutyLogger.get_instance().error(msg)
         else:
-            MutyLogger.get_logger().debug(msg)
+            MutyLogger.get_instance().debug(msg)
 
         sess = GulpCollab.get_instance().session()
         async with sess:
@@ -374,49 +404,54 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
             self.records_skipped += records_skipped
             self.records_processed += records_processed
             self.records_ingested += records_ingested
-            if error:                
+            if error:
                 if not self.errors:
                     self.errors = []
                 if isinstance(error, Exception):
-                    #MutyLogger.get_logger().error(f"PRE-COMMIT: ex error={error}")
+                    # MutyLogger.get_instance().error(f"PRE-COMMIT: ex error={error}")
                     error = str(error)
                     if error not in self.errors:
                         self.errors.append(error)
                 elif isinstance(error, str):
-                    #MutyLogger.get_logger().error(f"PRE-COMMIT: str error={error}")
+                    # MutyLogger.get_instance().error(f"PRE-COMMIT: str error={error}")
                     if error not in self.errors:
                         self.errors.append(error)
                 elif isinstance(error, list[str]):
-                    #MutyLogger.get_logger().error(f"PRE-COMMIT: list error={error}")
+                    # MutyLogger.get_instance().error(f"PRE-COMMIT: list error={error}")
                     for e in error:
                         if e not in self.errors:
                             self.errors.append(e)
 
-            #MutyLogger.get_logger().debug(f"PRE-COMMIT: source_processed={self.source_processed}, source_failed={self.source_failed}, records_failed={self.records_failed}, records_skipped={self.records_skipped}, records_processed={self.records_processed}, records_ingested={self.records_ingested}, errors={self.errors}")
+            # MutyLogger.get_instance().debug(f"PRE-COMMIT: source_processed={self.source_processed}, source_failed={self.source_failed}, records_failed={self.records_failed}, records_skipped={self.records_skipped}, records_processed={self.records_processed}, records_ingested={self.records_ingested}, errors={self.errors}")
             if status:
                 self.status = status
 
             if self.source_processed == self.source_total:
-                MutyLogger.get_logger().debug(
-                    "source_processed == source_total, setting request \"%s\" to DONE" % (self.id)
+                MutyLogger.get_instance().debug(
+                    'source_processed == source_total, setting request "%s" to DONE'
+                    % (self.id)
                 )
                 self.status = GulpRequestStatus.DONE
-            
+
             if self.source_failed == self.source_total:
-                MutyLogger.get_logger().error(
-                    "source_failed == source_total, setting request \"%s\" to FAILED" % (self.id)
+                MutyLogger.get_instance().error(
+                    'source_failed == source_total, setting request "%s" to FAILED'
+                    % (self.id)
                 )
                 self.status = GulpRequestStatus.FAILED
 
             # check threshold
-            failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
+            failure_threshold = (
+                GulpConfig.get_instance().ingestion_evt_failure_threshold()
+            )
             if (
                 failure_threshold > 0
                 and self.type == GulpCollabType.INGESTION_STATS
-                and self.source_failed >= failure_threshold
+                and self.records_failed >= failure_threshold
+                or self.records_skipped >= failure_threshold
             ):
                 # too many failures, abort
-                MutyLogger.get_logger().error(
+                MutyLogger.get_instance().error(
                     "TOO MANY FAILURES req_id=%s (failed=%d, threshold=%d), aborting ingestion!"
                     % (self.id, self.source_failed, failure_threshold)
                 )
@@ -428,11 +463,13 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
                 GulpRequestStatus.DONE,
             ]:
                 self.time_finished = muty.time.now_msec()
-                MutyLogger.get_logger().debug("request \"%s\" COMPLETED with status=%s" % (self.id, self.status))
-            
+                MutyLogger.get_instance().debug(
+                    'request "%s" COMPLETED with status=%s' % (self.id, self.status)
+                )
+
             # update the instance
             await super().update(
-                token=None, # no token needed
+                token=None,  # no token needed
                 d=self.to_dict(),
                 ws_id=ws_id,
                 req_id=self.id,
@@ -446,6 +483,9 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
                 # TODO: update ws
                 pass
 
-            if status == GulpRequestStatus.CANCELED:
-                MutyLogger.get_logger().error("request \"%s\" set to CANCELED" % (self.id))
+            if self.status == GulpRequestStatus.CANCELED:
+                MutyLogger.get_instance().error(
+                    'request "%s" set to CANCELED' % (self.id)
+                )
                 raise RequestCanceledError()
+        return self

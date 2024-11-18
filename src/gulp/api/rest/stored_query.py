@@ -15,20 +15,19 @@ import muty.uploadfile
 from fastapi import APIRouter, Body, File, Header, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
 import gulp.api.rest_api as rest_api
-import gulp.structs
 import gulp.plugin
-import gulp.utils
 import gulp.process as process
-from gulp.api.collab.base import GulpCollabFilter, GulpCollabType
-from gulp.api.collab.base import GulpCollabObject
+import gulp.structs
+import gulp.utils
+from gulp.api.collab.base import GulpCollabFilter, GulpCollabObject, GulpCollabType
 from gulp.api.elastic import query_utils
 from gulp.api.opensearch.structs import GulpQueryParameter, GulpQueryType
 from gulp.structs import API_DESC_PYSYGMA_PLUGIN, InvalidArgument
-from muty.log import MutyLogger
 
 _app: APIRouter = APIRouter()
 
@@ -266,7 +265,7 @@ async def stored_query_create_from_sigma_zip_handler(
     try:
         # decompress
         files_path = await muty.uploadfile.unzip(z)
-        MutyLogger.get_logger().debug("zipfile unzipped to %s" % (files_path))
+        MutyLogger.get_instance().debug("zipfile unzipped to %s" % (files_path))
         try:
             # use multiprocessing to gather the rules
             s = await process.gather_sigma_directories_to_stored_queries(

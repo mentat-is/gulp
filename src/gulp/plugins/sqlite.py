@@ -6,18 +6,19 @@ import muty.dict
 import muty.os
 import muty.string
 import muty.xml
-from gulp.api.opensearch.filters import GulpIngestionFilter
 from muty.log import MutyLogger
+
 import gulp.api.mapping.helpers as mappings_helper
 import gulp.config as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingOptions
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMappingField, GulpMapping, GulpMappingOptions
-from gulp.structs import InvalidArgument
-from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
 from gulp.config import GulpConfig
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
+from gulp.structs import InvalidArgument
 
 try:
     import aiosqlite
@@ -77,7 +78,9 @@ class Plugin(GulpPluginBase):
             GulpPluginSpecificParam(
                 "encryption_key", "str", "DB encryption key", default_value=None
             ),
-            GulpPluginSpecificParam("key_type", "str", "DB encryption key type", default_value=None),
+            GulpPluginSpecificParam(
+                "key_type", "str", "DB encryption key type", default_value=None
+            ),
             GulpPluginSpecificParam(
                 "queries", "dict", "query to run for each table", default_value={}
             ),
@@ -99,7 +102,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
 
-        # MutyLogger.get_logger().debug(custom_mapping"record: %s" % record)
+        # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
         event: dict = record
         extra = kwargs.get("extra", {})
         original_id = kwargs.get("original_id", record_idx)
@@ -131,7 +134,7 @@ class Plugin(GulpPluginBase):
             for f in e:
                 fme.append(f)
 
-        # MutyLogger.get_logger().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
+        # MutyLogger.get_instance().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
         event_code = str(
             muty.crypto.hash_crc24(
                 f"{extra["gulp.sqlite.db.name"]}.{extra["gulp.sqlite.db.table.name"]}"
@@ -241,7 +244,7 @@ class Plugin(GulpPluginBase):
                 index, source, req_id, client_id, ws_id, fs=fs, flt=flt
             )
 
-        MutyLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
+        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
 
         try:
             custom_mappings: list[GulpMapping] = (
@@ -259,8 +262,8 @@ class Plugin(GulpPluginBase):
         for mapping in custom_mappings:
             tables_to_map.append(mapping.to_dict()["options"]["mapping_id"])
 
-        MutyLogger.get_logger().debug(plugin_params)
-        MutyLogger.get_logger().debug(plugin_params.extra)
+        MutyLogger.get_instance().debug(plugin_params)
+        MutyLogger.get_instance().debug(plugin_params.extra)
 
         encryption_key = plugin_params.extra.get("encryption_key", None)
         key_type = plugin_params.extra.get("key_type", "key")
@@ -268,7 +271,7 @@ class Plugin(GulpPluginBase):
 
         # check if key_type is supported
         if key_type.lower() not in ["key", "textkey", "hexkey"]:
-            MutyLogger.get_logger().warning(
+            MutyLogger.get_instance().warning(
                 "unsupported key type %s, defaulting to 'key'" % (key_type,)
             )
             key_type = "key"
@@ -287,15 +290,19 @@ class Plugin(GulpPluginBase):
                             mapping_file, mapping_id
                         )
                     )
-                    MutyLogger.get_logger().info("custom mapping for table %s found" % (table,))
+                    MutyLogger.get_instance().info(
+                        "custom mapping for table %s found" % (table,)
+                    )
                 except ValueError:
-                    MutyLogger.get_logger().error("custom mapping for table %s NOT found" % (table,))
+                    MutyLogger.get_instance().error(
+                        "custom mapping for table %s NOT found" % (table,)
+                    )
 
         if custom_mapping.options.agent_type is None:
             plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
-            MutyLogger.get_logger().warning("using plugin name=%s" % (plugin))
+            MutyLogger.get_instance().warning("using plugin name=%s" % (plugin))
 
         ev_idx = 0
         try:
@@ -306,7 +313,7 @@ class Plugin(GulpPluginBase):
                     async with db.execute(
                         "PRAGMA ?='?'", (key_type, encryption_key)
                     ) as cur:
-                        MutyLogger.get_logger().info(
+                        MutyLogger.get_instance().info(
                             "attempting database decryption with provided key: %s"
                             % (await cur.fetchall())
                         )
@@ -368,7 +375,7 @@ class Plugin(GulpPluginBase):
                                         original_id = v
                                         break
 
-                            # MutyLogger.get_logger().debug("Mapping: %s" % mapping)
+                            # MutyLogger.get_instance().debug("Mapping: %s" % mapping)
                             try:
                                 fs, must_break = await self.process_record(
                                     index,

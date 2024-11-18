@@ -1,30 +1,30 @@
 #!/usr/bin/env python
 import asyncio
-import sys
 import os
+import sys
+from typing import Optional, TypeVar
 
+import muty.json
 import pytest
 import pytest_asyncio
+from muty.log import MutyLogger, configure_logger
+from pydantic import BaseModel, Field
+from sqlalchemy import BIGINT, ForeignKey, String
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_column
+from sqlalchemy_mixins.serialize import SerializeMixin
 
 # from gulp.api.collab import context as collab_context
 from gulp.api import collab_api
-import muty.json
-from gulp.config import GulpConfig
-from typing import Optional, TypeVar
-from gulp.api.collab.structs import GulpCollabType
-from muty.log import MutyLogger, configure_logger
-from pydantic import BaseModel, Field
-from sqlalchemy_mixins.serialize import SerializeMixin
-from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import BIGINT, ForeignKey, String
-from sqlalchemy.ext.asyncio import AsyncAttrs
 from gulp.api.collab.context import GulpContext
-from gulp.api.collab.db import setup, session
+from gulp.api.collab.db import session, setup
+from gulp.api.collab.structs import GulpCollabType
+from gulp.config import GulpConfig
 
 
 async def _init():
     configure_logger()
-    MutyLogger.get_logger().debug("---> init")
+    MutyLogger.get_instance().debug("---> init")
     config.init()
     await setup(force_recreate=True)
 

@@ -1,59 +1,47 @@
 #!/usr/bin/env python
 import asyncio
-import json
-import sys
 import os
 import timeit
-from sqlalchemy.sql.base import _NoArg
+from typing import Optional, TypeVar
 
 # from gulp.api.collab import context as collab_context
-import muty.json
-from gulp.config import GulpConfig
-from typing import Optional, Type, TypeVar
-from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpIngestionStats
-from gulp.api.collab.structs import GulpCollabType
-from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api import opensearch_api
-from gulp.api.mapping.models import GulpMapping
-from gulp.structs import GulpPluginParameters
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy_mixins.serialize import SerializeMixin
-from sqlalchemy.orm import MappedAsDataclass, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import BIGINT, ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, GulpCollabBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_column
+from sqlalchemy_mixins.serialize import SerializeMixin
+
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.collab.user_data import GulpUserData
-from dotwiz import DotWiz
-from opensearchpy import AsyncOpenSearch
-from sqlalchemy.ext.asyncio import AsyncEngine
-from gulp.plugin import GulpPluginBase
 from gulp.api.collab_api import GulpCollab
+from gulp.api.mapping.models import GulpMapping
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch_api import GulpOpenSearch
-import yaml
+from gulp.config import GulpConfig
+from gulp.plugin import GulpPluginBase
+from gulp.structs import GulpPluginParameters
 
-_opt_samples_dir= os.environ.get('GULP_SAMPLES_DIR', '~/repos/gulp/samples')
+_opt_samples_dir = os.environ.get("GULP_SAMPLES_DIR", "~/repos/gulp/samples")
 _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
-_opt_reset = os.environ.get('GULP_RESET', False)
-_opt_index = os.environ.get('GULP_INDEX', 'testidx')
-_opt_gulp_integration_test = os.environ.get('GULP_INTEGRATION_TEST', False)
-_operation_id='test_operation'
-_context_id='test_context'
-_source_id='test_source'
-_test_req_id='test_req_id'
-_test_ws_id='test_ws_id'
-_guest_user='guest'
-_admin_user='admin'
+_opt_reset = os.environ.get("GULP_RESET", False)
+_opt_index = os.environ.get("GULP_INDEX", "testidx")
+_opt_gulp_integration_test = os.environ.get("GULP_INTEGRATION_TEST", False)
+_operation_id = "test_operation"
+_context_id = "test_context"
+_source_id = "test_source_1"
+_test_req_id = "test_req_id"
+_test_ws_id = "test_ws_id"
+_guest_user = "guest"
+_admin_user = "admin"
 
 
-print('opt_samples_dir:', _opt_samples_dir)
-print('opt_reset:', _opt_reset)
-print('opt_index:', _opt_index)
-print('opt_gulp_integration_test:', _opt_gulp_integration_test)
+print("opt_samples_dir:", _opt_samples_dir)
+print("opt_reset:", _opt_reset)
+print("opt_index:", _opt_index)
+print("opt_gulp_integration_test:", _opt_gulp_integration_test)
 
 sigma_main_yaml = """
 title: Filter Out Administrator accounts
@@ -69,8 +57,8 @@ filter:
     User|contains: "adm_"
   condition: not selection
 """
-#sigma_main_yaml = yaml.dump(yaml.safe_load(sigma_main_yaml))
-sigma_filter_1 = """ 
+# sigma_main_yaml = yaml.dump(yaml.safe_load(sigma_main_yaml))
+sigma_filter_1 = """
 title: New Service Creation Using Sc.EXE
 name: proc_creation_win_sc_create_service
 id: 85ff530b-261d-48c6-a441-facaa2e81e48
@@ -108,7 +96,7 @@ filter:
     User|startswith: "aaavalerino_"
   condition: not selection
 """
-#sigma_filter_1 = yaml.dump(yaml.safe_load(sigma_filter_1))
+# sigma_filter_1 = yaml.dump(yaml.safe_load(sigma_filter_1))
 sigma_filter_2 = """
 title: New Service Creation Using Sc.EXE
 name: proc_creation_win_custom
@@ -141,7 +129,8 @@ falsepositives:
     - Software installation
 level: low
 """
-#sigma_filter_2 = yaml.dump(yaml.safe_load(sigma_filter_2))
+# sigma_filter_2 = yaml.dump(yaml.safe_load(sigma_filter_2))
+
 
 async def testbed():
     class MyModel(BaseModel):
@@ -152,23 +141,23 @@ async def testbed():
         @staticmethod
         def test():
             m = MyModel(field1="123456")
-            print('not set model_extra:', m.model_extra)
+            print("not set model_extra:", m.model_extra)
             mm = m.model_dump(exclude_none=True)
-            mm['extra_shit'] = 'aaaa'
+            mm["extra_shit"] = "aaaa"
             m = MyModel.model_validate(mm)
-            mm=m.model_dump(exclude_none=True)
-            print('dumped model after setting model_extra', m)
+            mm = m.model_dump(exclude_none=True)
+            print("dumped model after setting model_extra", m)
 
     class TestPydanticClass(BaseModel):
         model_config = ConfigDict(extra="allow")
         field_required: dict = Field(..., description="required field", min_length=1)
         field2: str = Field("default", description="test field1")
         field1: int = Field("default", description="test field2")
-        
+
         def __init__(self, **data):
             super().__init__(**data)
             self.field2 = "changed"
-            
+
     class TestPydanticDerivedClass(TestPydanticClass):
         field3: str = Field(None, description="test field3")
 
@@ -176,7 +165,8 @@ async def testbed():
         """
         base for everything on the collab database
         """
-        def __init_subclass__(cls, type: str, **kwargs) -> None:                
+
+        def __init_subclass__(cls, type: str, **kwargs) -> None:
             cls.__tablename__ = type
             cls.__mapper_args__ = {
                 "polymorphic_identity": type,
@@ -184,7 +174,7 @@ async def testbed():
             }
             print(cls.__name__, cls.__tablename__, cls.__mapper_args__)
             super().__init_subclass__(cls, **kwargs)
-        
+
         T = TypeVar("T", bound="TestOrm")
 
         id: Mapped[str] = mapped_column(
@@ -200,8 +190,9 @@ async def testbed():
             "polymorphic_identity": "testorm_base",
             "polymorphic_on": "type",
         }
-    class TestOrm(TestOrmBase, type='testorm'):        
-        #__tablename__ = "testorm"
+
+    class TestOrm(TestOrmBase, type="testorm"):
+        # __tablename__ = "testorm"
         id: Mapped[int] = mapped_column(ForeignKey("testorm_base.id"), primary_key=True)
         time_updated: Mapped[Optional[int]] = mapped_column(
             BIGINT,
@@ -218,15 +209,15 @@ async def testbed():
 
     d = {"field1": 1, "field2": "aaa", "field_required": {"a": 1}}
     d.pop("field2")
-    d.pop("eeee",None)
+    d.pop("eeee", None)
     print(d)
     return
 
-    flt=GulpIngestionFilter(storage_ignore_filter=True)
+    flt = GulpIngestionFilter(storage_ignore_filter=True)
     flt.time_range = {"start": 0, "end": 1}
-    #for i in range(10):
+    # for i in range(10):
     test_fun(flt)
-    print('original', flt)
+    print("original", flt)
     return
 
     p = TestPydanticClass(field1=1, another_field="aaa", field_required={"a": 1})
@@ -234,8 +225,8 @@ async def testbed():
     return
     d = p.model_dump()
     print(d)
-    d={}
-    print('validating...')
+    d = {}
+    print("validating...")
     pp = TestPydanticClass.model_validate(d)
     print(pp)
     return
@@ -253,142 +244,188 @@ async def testbed():
     print("field1" in tt.model_fields)
     print("field4" in tt.model_fields)
 
+
 async def test_init():
 
-    #await testbed()
-    #return
-    MutyLogger.get_logger().debug("---> init")
+    # await testbed()
+    # return
+    MutyLogger.get_instance("testbed").debug("---> test_init")
     GulpConfig.get_instance()
     os = GulpOpenSearch.get_instance()
     collab = GulpCollab.get_instance()
     await collab.get_instance().init()
     if _opt_reset:
-        MutyLogger.get_logger().debug("resetting...")
+        MutyLogger.get_instance().debug("resetting...")
         await os.datastream_create(_opt_index)
     await collab.init(force_recreate=_opt_reset)
-    
+
+
 async def test_login_logout():
-    MutyLogger.get_logger().debug("---> test_login_logout")
+    MutyLogger.get_instance().debug("---> test_login_logout")
     session: GulpUserSession = await GulpUser.login(_guest_user, "guest")
     await GulpUser.logout(session.id)
     return
 
+
 async def test_ingest_windows():
-    MutyLogger.get_logger().debug("---> test_ingest_windows")
-    
+    MutyLogger.get_instance().debug("---> test_ingest_windows")
+
     # load plugin
     start_time = timeit.default_timer()
-    file = os.path.join(_opt_samples_dir,'win_evtx/security_big_sample.evtx')
+    file = os.path.join(_opt_samples_dir, "win_evtx/security_big_sample.evtx")
     plugin = await GulpPluginBase.load("win_evtx")
-    
+
     # create stats upfront
     # 62031 ingested, 62031 processed, 0 failed
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-        _test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
-    
+    await GulpIngestionStats.create_or_get(
+        _test_req_id,
+        operation_id=_operation_id,
+        source_id=_source_id,
+        context_id=_context_id,
+    )
+
     params = None
-    await plugin.ingest_file(_test_req_id, 
-                             _test_ws_id, 
-                             _guest_user, 
-                             _opt_index, 
-                             _operation_id, 
-                             _context_id, 
-                             _source_id,
-                             file, plugin_params=params)
+    await plugin.ingest_file(
+        _test_req_id,
+        _test_ws_id,
+        _guest_user,
+        _opt_index,
+        _operation_id,
+        _context_id,
+        _source_id,
+        file,
+        plugin_params=params,
+    )
 
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
+
 
 async def test_ingest_csv():
-    MutyLogger.get_logger().debug("---> test_ingest_csv")
-    
+    MutyLogger.get_instance().debug("---> test_ingest_csv")
+
     # load plugin
     start_time = timeit.default_timer()
-    file = os.path.join(_opt_samples_dir,'mftecmd/sample_j.csv')
+    file = os.path.join(_opt_samples_dir, "mftecmd/sample_j.csv")
     plugin = await GulpPluginBase.load("csv")
-    
+
     # create stats upfront
     # 75 ingested, 75 processed, 0 failed
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
-    
+    await GulpIngestionStats.create_or_get(
+        _test_req_id,
+        operation_id=_operation_id,
+        source_id=_source_id,
+        context_id=_context_id,
+    )
+
     generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp")
-    params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, 
-                             _test_ws_id, 
-                             _guest_user, 
-                             _opt_index, 
-                             _operation_id, 
-                             _context_id, 
-                             _source_id,
-                             file, plugin_params=params)
-    
+    params: GulpPluginParameters = GulpPluginParameters(
+        mappings={"generic": generic_mapping}, model_extra={"delimiter": ","}
+    )
+    await plugin.ingest_file(
+        _test_req_id,
+        _test_ws_id,
+        _guest_user,
+        _opt_index,
+        _operation_id,
+        _context_id,
+        _source_id,
+        file,
+        plugin_params=params,
+    )
+
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
+
 
 async def test_ingest_csv_with_mappings():
-    MutyLogger.get_logger().debug("---> test_ingest_csv")
-    
+    MutyLogger.get_instance().debug("---> test_ingest_csv")
+
     # load plugin
     start_time = timeit.default_timer()
-    file = os.path.join(_opt_samples_dir,'mftecmd/sample_record.csv')
+    file = os.path.join(_opt_samples_dir, "mftecmd/sample_record.csv")
     plugin = await GulpPluginBase.load("csv")
-    
+
     # create stats upfront
     # 10 processed, 44 ingested, 0 failed
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
+    await GulpIngestionStats.create_or_get(
+        _test_req_id,
+        operation_id=_operation_id,
+        source_id=_source_id,
+        context_id=_context_id,
+    )
 
-    params: GulpPluginParameters = GulpPluginParameters(mapping_file="mftecmd_csv.json", mapping_id="record")
-    await plugin.ingest_file(_test_req_id, 
-                             _test_ws_id, 
-                             _guest_user, 
-                             _opt_index, 
-                             _operation_id, 
-                             _context_id, 
-                             _source_id,
-                             file, plugin_params=params)
+    params: GulpPluginParameters = GulpPluginParameters(
+        mapping_file="mftecmd_csv.json", mapping_id="record"
+    )
+    await plugin.ingest_file(
+        _test_req_id,
+        _test_ws_id,
+        _guest_user,
+        _opt_index,
+        _operation_id,
+        _context_id,
+        _source_id,
+        file,
+        plugin_params=params,
+    )
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
+
 async def test_ingest_csv_stacked():
-    MutyLogger.get_logger().debug("---> test_ingest_csv_stacked")
+    MutyLogger.get_instance().debug("---> test_ingest_csv_stacked")
 
     # load plugin
     start_time = timeit.default_timer()
-    file = os.path.join(_opt_samples_dir,'mftecmd/sample_j.csv')
+    file = os.path.join(_opt_samples_dir, "mftecmd/sample_j.csv")
     plugin = await GulpPluginBase.load("stacked_example")
-    
+
     # create stats upfront
     # 75 ingested, 75 processed, 0 failed, every document duration set to 9999
-    stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(_test_req_id, operation_id=_operation_id, context_id=_context_id, source_total=1)
+    await GulpIngestionStats.create_or_get(
+        _test_req_id,
+        operation_id=_operation_id,
+        source_id=_source_id,
+        context_id=_context_id,
+    )
 
-    generic_mapping = GulpMapping(timestamp_field="UpdateTimestamp", agent_type="mftecmd", event_code="j")
-    params: GulpPluginParameters = GulpPluginParameters(mappings={"generic": generic_mapping}, model_extra={"delimiter": ","})  
-    await plugin.ingest_file(_test_req_id, 
-                             _test_ws_id, 
-                             _guest_user, 
-                             _opt_index, 
-                             _operation_id, 
-                             _context_id, 
-                             _source_id,
-                             file, plugin_params=params)
-    
+    generic_mapping = GulpMapping(
+        timestamp_field="UpdateTimestamp", agent_type="mftecmd", event_code="j"
+    )
+    params: GulpPluginParameters = GulpPluginParameters(
+        mappings={"generic": generic_mapping}, model_extra={"delimiter": ","}
+    )
+    await plugin.ingest_file(
+        _test_req_id,
+        _test_ws_id,
+        _guest_user,
+        _opt_index,
+        _operation_id,
+        _context_id,
+        _source_id,
+        file,
+        plugin_params=params,
+    )
+
     end_time = timeit.default_timer()
     execution_time = end_time - start_time
-    MutyLogger.get_logger().debug(
+    MutyLogger.get_instance().debug(
         "execution time for ingesting file %s: %f sec." % (file, execution_time)
     )
 
+
 async def test_bulk_insert():
-    docs=[
+    docs = [
         {
             "_id": "1",
             "@timestamp": "2016-11-17T16:54:58.794249+00:00",
@@ -432,34 +469,45 @@ async def test_bulk_insert():
             "file.directory": ".",
             "file.name": "$MFT",
             "file.size": 683933696,
-        }
+        },
     ]
-    await GulpNote.bulk_create_from_documents(docs, 
-                                              ws_id=None,req_id='123', user_id='admin', title="test match", tags=['tag1','tag2'])
+    await GulpNote.bulk_create_from_documents(
+        docs,
+        ws_id=None,
+        req_id="123",
+        user_id="admin",
+        title="test match",
+        tags=["tag1", "tag2"],
+    )
+
 
 async def test_sigma_convert():
-    MutyLogger.get_logger().debug("---> test_sigma_convert")
-    
+    MutyLogger.get_instance().debug("---> test_sigma_convert")
+
     # load plugin
     plugin = await GulpPluginBase.load("win_evtx")
-    
-    rules = plugin.sigma_convert(sigma_main_yaml, referenced_sigmas=[sigma_filter_1, sigma_filter_2])
+
+    rules = plugin.sigma_convert(
+        sigma_main_yaml, referenced_sigmas=[sigma_filter_1, sigma_filter_2]
+    )
     print(rules)
 
+
 async def main():
-    try:       
+    try:
         await test_init()
 
-        await test_ingest_windows()
+        #await test_ingest_windows()
         #await test_ingest_csv()
-        #await test_ingest_csv_with_mappings()
-        #await test_ingest_csv_stacked()
-        #await test_bulk_insert()
-        #await GulpOperation.add_context(_operation, _context)
-        #await test_sigma_convert()
+        await test_ingest_csv_with_mappings()
+        # await test_ingest_csv_stacked()
+        # await test_bulk_insert()
+        # await GulpOperation.add_context(_operation, _context)
+        # await test_sigma_convert()
 
     finally:
         await GulpOpenSearch.get_instance().shutdown()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

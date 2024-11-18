@@ -15,21 +15,21 @@ import muty.uploadfile
 from fastapi import APIRouter, Body, Header, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
 
 import gulp.api.collab_api as collab_api
 import gulp.api.rest.collab_utility as collab_utility
-import gulp.structs
 import gulp.plugin
+import gulp.structs
 import gulp.utils
 from gulp.api.collab.base import (
     GulpAssociatedEvent,
     GulpCollabFilter,
     GulpCollabLevel,
+    GulpCollabObject,
     GulpCollabType,
 )
-from gulp.api.collab.base import GulpCollabObject
 from gulp.structs import InvalidArgument
-from muty.log import MutyLogger
 
 _app: APIRouter = APIRouter()
 
@@ -270,7 +270,7 @@ async def note_create_handler(
         if events is not None and time_pin is not None:
             raise InvalidArgument("events and time_pin cannot be both set.")
 
-        # MutyLogger.get_logger().debug('events=%s' % (events))
+        # MutyLogger.get_instance().debug('events=%s' % (events))
         o = await GulpCollabObject.create(
             await collab_api.session(),
             token,

@@ -8,16 +8,15 @@ import muty.json
 import muty.os
 import muty.string
 import muty.time
+from muty.log import MutyLogger
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
-from muty.log import MutyLogger
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
 
 
 class Plugin(GulpPluginBase):
@@ -161,13 +160,13 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        MutyLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
+        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
 
         if custom_mapping.options.agent_type is None:
             plugin = self.display_name()
         else:
             plugin = custom_mapping.options.agent_type
-            MutyLogger.get_logger().warning("using plugin name=%s" % (plugin))
+            MutyLogger.get_instance().warning("using plugin name=%s" % (plugin))
 
         # get options
         # attempt_decode = plugin_params.extra.get("decode", True)

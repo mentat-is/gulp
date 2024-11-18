@@ -1,23 +1,31 @@
 from typing import Optional, Union, override
 
-from sqlalchemy import ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T, GulpUserPermission
-from gulp.api.collab_api import GulpCollab
-from gulp.api.collab.context import GulpContext
 from muty.log import MutyLogger
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from gulp.api.collab.context import GulpContext
+from gulp.api.collab.source import GulpSource
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabFilter,
+    GulpCollabType,
+    GulpUserPermission,
+    T,
+)
+from gulp.api.collab_api import GulpCollab
 
 
 class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     """
     Represents an operation in the gulp system.
     """
+
     title: Mapped[Optional[str]] = mapped_column(
         String, doc="The title of the operation."
     )
-    
+
     index: Mapped[Optional[str]] = mapped_column(
         String,
         doc="The gulp opensearch index to associate the operation with.",
@@ -65,15 +73,21 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             op = await sess.get(GulpOperation, operation_id)
             if not op:
                 raise ValueError(f"operation id={operation_id} not found.")
-            ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
+            ctx: GulpContext = await GulpContext.get_one(
+                GulpCollabFilter(id=[context_id], operation_id=[operation_id]),
+                sess=sess,
+                ensure_eager_load=False,
+            )
             if not ctx:
                 raise ValueError(f"context id={context_id}, {operation_id} not found.")
-            
+
             # link
             await op.awaitable_attrs.contexts
             op.contexts.append(ctx)
             await sess.commit()
-            MutyLogger.get_logger().info(f"context {context_id} added to operation {operation_id}.")
+            MutyLogger.get_instance().info(
+                f"context {context_id} added to operation {operation_id}."
+            )
 
     @staticmethod
     async def remove_context(operation_id: str, context_id: str) -> None:
@@ -89,15 +103,23 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 op = await sess.get(GulpOperation, operation_id)
                 if not op:
                     raise ValueError(f"operation id={operation_id} not found.")
-                ctx:GulpContext = await GulpContext.get_one(GulpCollabFilter(id=[context_id], operation_id=[operation_id]), sess=sess, ensure_eager_load=False)
+                ctx: GulpContext = await GulpContext.get_one(
+                    GulpCollabFilter(id=[context_id], operation_id=[operation_id]),
+                    sess=sess,
+                    ensure_eager_load=False,
+                )
                 if not ctx:
-                    raise ValueError(f"context id={context_id}, {operation_id} not found.")
-            
+                    raise ValueError(
+                        f"context id={context_id}, {operation_id} not found."
+                    )
+
                 # unlink
-                await op.awaitable_attrs.contexts        
+                await op.awaitable_attrs.contexts
                 op.contexts.remove(ctx)
                 await sess.commit()
-                MutyLogger.get_logger().info(f"context id={context_id} removed from operation {operation_id}.")                
+                MutyLogger.get_instance().info(
+                    f"context id={context_id} removed from operation {operation_id}."
+                )
 
     @override
     @classmethod

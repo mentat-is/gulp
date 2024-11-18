@@ -1,8 +1,9 @@
-from typing import Optional, override
-from sqlalchemy import String
+from typing import override
+
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import GulpCollabType, GulpCollabObject, T
+
+from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from gulp.api.opensearch.structs import GulpBasicDocument
 
 
@@ -14,10 +15,11 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
     documents: Mapped[list[GulpBasicDocument]] = mapped_column(
         JSONB, doc="One or more events associated with the story."
     )
+
     @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
-        super().__init__(*args,  type=GulpCollabType.STORY, **kwargs)
+        super().__init__(*args, type=GulpCollabType.STORY, **kwargs)
 
     @classmethod
     async def create(
@@ -50,9 +52,9 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
             private(bool, Optional): whether the story is private (default: False)
             ws_id(str, Optional): the websocket id
             req_id(str, Optional): the request id
-        
+
         Returns:
-            the created story object    
+            the created story object
         """
         args = {
             "operation": operation_id,

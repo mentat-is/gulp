@@ -1,34 +1,18 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-import json
 import os
-from queue import Queue
 import sys
-import timeit
-from multiprocessing import Lock, Queue, Value
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Lock, Manager, Queue, Value
 
-import json5
-import muty.file
-import muty.list
-import muty.log
-import muty.string
-import muty.time
-import muty.uploadfile
-from sqlalchemy.ext.asyncio import AsyncEngine
-
-from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.collab.stats import GulpIngestionStats
-from gulp.structs import GulpPluginParameters, ObjectNotFound
-from gulp.plugin import GulpPluginBase, GulpPluginType
+from aiomultiprocess import Pool as AioProcessPool
+from asyncio_pool import AioPool as AioCoroPool
 from muty.log import MutyLogger
-from gulp.config import GulpConfig
+
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpSharedWsQueue
-from asyncio_pool import AioPool as AioCoroPool
-from aiomultiprocess import Pool as AioProcessPool
-from multiprocessing import Manager
+from gulp.config import GulpConfig
+
 
 class GulpProcess:
     """
@@ -40,10 +24,10 @@ class GulpProcess:
 
     - the main GulpProcess is initialized at application startup and is responsible for creating the worker processes pool and the shared websocket queue
     which is used by workers to fill the websocket with data to be sent to the clients.
-    
+
     - each worker GulpProcess is initialized when a worker process is spawned and is responsible for initializing the worker process.
 
-    - each GulpProcess, main and worker, have its own executors and clients to communicate with other parts of gulp. 
+    - each GulpProcess, main and worker, have its own executors and clients to communicate with other parts of gulp.
         specifically, they are implemented as singletons to guarantee only one instance per-process is created.
             - GulpProcess.get_instance().process_pool: process pool executor (only the main process, to spawn worker)
             - GulpProcess.get_instance().thread_pool: thread pool executor
@@ -52,11 +36,6 @@ class GulpProcess:
             - GulpOpenSearch.get_instance(): the opensearch client
             - GulpSharedWsQueue.get_instance(): the shared websocket queue
     """
-
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
@@ -69,10 +48,10 @@ class GulpProcess:
             # allow main/worker processes to spawn threads
             self.thread_pool: ThreadPoolExecutor = None
             # allow main/worker processes to spawn coroutines
-            self.coro_pool:AioCoroPool = None
+            self.coro_pool: AioCoroPool = None
             # allow the main process to spawn worker processes
-            self.process_pool:AioProcessPool = None
-            
+            self.process_pool: AioProcessPool = None
+
             self._main_process = True
 
     @classmethod
@@ -90,7 +69,7 @@ class GulpProcess:
         """
         for debugging purposes only, to catch exception eaten by the aiomultiprocess pool (they're critical exceptions, the process dies) ...
         """
-        MutyLogger.get_logger().exception("WORKER EXCEPTION: %s" % (ex))
+        MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
 
     @staticmethod
     def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, log_level: int = None, logger_file_path: str = None):  # type: ignore
@@ -107,17 +86,21 @@ class GulpProcess:
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
         """
         p = GulpProcess.get_instance()
-        asyncio.run(p.init_gulp_process(log_level=log_level, logger_file_path=logger_file_path, q=q))
+        asyncio.run(
+            p.init_gulp_process(
+                log_level=log_level, logger_file_path=logger_file_path, q=q
+            )
+        )
 
         # done
         lock.acquire()
         spawned_processes.value += 1
         lock.release()
-        MutyLogger.get_logger().warning(
+        MutyLogger.get_instance().warning(
             "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s"
             % (
                 sys.path,
-                MutyLogger.get_logger().level,
+                MutyLogger.get_instance().level,
                 logger_file_path,
                 spawned_processes.value,
                 q,
@@ -129,12 +112,12 @@ class GulpProcess:
         closes the coroutine pool
         """
         if self.coro_pool:
-            MutyLogger.get_logger().debug("closing coro pool...")
+            MutyLogger.get_instance().debug("closing coro pool...")
             await self.coro_pool.cancel()
             await self.coro_pool.join()
-            MutyLogger.get_logger().debug("coro pool closed!")
-    
-    async def close_thread_pool(self, wait: bool=True):
+            MutyLogger.get_instance().debug("coro pool closed!")
+
+    async def close_thread_pool(self, wait: bool = True):
         """
         closes the thread pool
 
@@ -142,19 +125,19 @@ class GulpProcess:
             wait (bool, optional): whether to wait for all threads to finish. Defaults
         """
         if self.thread_pool:
-            MutyLogger.get_logger().debug("closing thread pool...")
+            MutyLogger.get_instance().debug("closing thread pool...")
             self.thread_pool.shutdown(wait=wait)
-            MutyLogger.get_logger().debug("thread pool closed!")
+            MutyLogger.get_instance().debug("thread pool closed!")
 
     async def close_process_pool(self):
         """
         closes the worker process pool
         """
         if self.process_pool:
-            MutyLogger.get_logger().debug("closing mp pool...")
+            MutyLogger.get_instance().debug("closing mp pool...")
             self.process_pool.close()
             await self.process_pool.join()
-            MutyLogger.get_logger().debug("mp pool closed!")
+            MutyLogger.get_instance().debug("mp pool closed!")
 
     async def recreate_process_pool_and_shared_queue(self):
         """
@@ -165,7 +148,7 @@ class GulpProcess:
         """
         if not self._main_process:
             raise RuntimeError("only the main process can recreate the process pool")
-        
+
         if self.process_pool:
             # close the worker process pool gracefully if it is already running
             self.close_process_pool()
@@ -188,22 +171,24 @@ class GulpProcess:
                 spawned_processes,
                 lock,
                 q,
-                MutyLogger.get_logger().level,
+                MutyLogger.get_instance().level,
                 MutyLogger.get_instance().logger_file_path,
             ),
         )
 
         # wait for all processes are spawned
-        MutyLogger.get_logger().debug("waiting for all processes to be spawned ...")
+        MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
         while spawned_processes.value < num_workers:
-            # MutyLogger.get_logger().debug('waiting for all processes to be spawned ...')
+            # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
             await asyncio.sleep(0.1)
 
-        MutyLogger.get_logger().debug(
+        MutyLogger.get_instance().debug(
             "all %d processes spawned!" % (spawned_processes.value)
-        )        
+        )
 
-    async def init_gulp_process(self, log_level: int=None, logger_file_path: str=None, q: Queue=None) -> None:
+    async def init_gulp_process(
+        self, log_level: int = None, logger_file_path: str = None, q: Queue = None
+    ) -> None:
         """
         initializes main or worker gulp process
 
@@ -212,20 +197,27 @@ class GulpProcess:
             logger_file_path (str, optional): the log file path for the logger. Defaults to None.
             q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
-        """        
+        """
 
         # only in a worker process we're passed the queue by the process pool initializer
-        self._main_process = (q is None)
+        self._main_process = q is None
         if self._main_process:
-            MutyLogger.get_logger().info("initializing main process...")
+            MutyLogger.get_instance().info("initializing main process...")
         else:
-            MutyLogger.get_instance().reconfigure(name="gulp-worker-%d" % (os.getpid()), logger_file_path=logger_file_path, level=log_level)    
-            MutyLogger.get_logger().info("initializing worker process...")
-        
+            MutyLogger.get_instance().reconfigure(
+                name="gulp-worker-%d" % (os.getpid()),
+                logger_file_path=logger_file_path,
+                level=log_level,
+            )
+            MutyLogger.get_instance().info("initializing worker process...")
+
         # sys.path fix is needed to load plugins from the plugins directories correctly
         plugins_path = GulpConfig.get_instance().path_plugins()
         ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
-        MutyLogger.get_logger().debug('plugins_path=%s, extension plugins_path=%s' % (plugins_path, ext_plugins_path))
+        MutyLogger.get_instance().debug(
+            "plugins_path=%s, extension plugins_path=%s"
+            % (plugins_path, ext_plugins_path)
+        )
         if plugins_path not in sys.path:
             sys.path.append(plugins_path)
         if ext_plugins_path not in sys.path:
@@ -249,15 +241,15 @@ class GulpProcess:
         else:
             # worker process, set the queue
             GulpSharedWsQueue.get_instance().set_queue(q)
-            
-        
+
     def is_main_process(self) -> bool:
         """
         returns whether this is the main gulp process.
         either, it is a worker process.
         """
         return GulpProcess.get_instance()._main_process
-    
+
+
 # async def _print_debug_ingestion_stats(collab: AsyncEngine, req_id: str):
 #     """
 #     get the stats for an ingestion request and print the time elapsed
@@ -275,7 +267,7 @@ class GulpProcess:
 #         started_at = muty.time.unix_millis_to_datetime(cs.time_created).isoformat()
 
 #         # we use error just to print the exception in any case, even when most of the debug messages are skipped
-#         MutyLogger.get_logger().error(
+#         MutyLogger.get_instance().error(
 #             "(NOT AN ERROR) req_id=%s, started_at=%s, took seconds=%f, (minutes=%f, hours=%f)\n"
 #             "final stats req_id=%s: processed=%d, failed=%d, skipped=%d, num (UNIQUE) ingest_errors=%d, QueuePool status=%s"
 #             % (
@@ -339,12 +331,12 @@ class GulpProcess:
 #     mod = None
 #     if plugin == "raw":
 #         # src_file is a list of events
-#         MutyLogger.get_logger().debug(
+#         MutyLogger.get_instance().debug(
 #             "ingesting %d raw events with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
 #             % (len(src_file), plugin, collab, elastic, type(flt), flt, plugin_params)
 #         )
 #     else:
-#         MutyLogger.get_logger().debug(
+#         MutyLogger.get_instance().debug(
 #             "ingesting file=%s with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
 #             % (src_file, plugin, collab, elastic, type(flt), flt, plugin_params)
 #         )
@@ -384,7 +376,7 @@ class GulpProcess:
 #     )
 #     end_time = timeit.default_timer()
 #     execution_time = end_time - start_time
-#     MutyLogger.get_logger().debug(
+#     MutyLogger.get_instance().debug(
 #         "execution time for ingesting file %s: %f sec." % (src_file, execution_time)
 #     )
 
@@ -437,7 +429,7 @@ class GulpProcess:
 
 #     # ingestion started for this request
 #     files = await muty.file.list_directory_async(directory)
-#     MutyLogger.get_logger().info("ingesting directory %s with files=%s ..." % (directory, files))
+#     MutyLogger.get_instance().info("ingesting directory %s with files=%s ..." % (directory, files))
 #     if len(files) == 0:
 #         ex = ObjectNotFound("directory %s empty or not found!" % (directory))
 #         await GulpStats.create(
@@ -622,21 +614,21 @@ class GulpProcess:
 #     user_id = kwargs.get("user_id", None)
 #     files_path = None
 
-#     MutyLogger.get_logger().debug("ingesting zip file %s ..." % (f))
+#     MutyLogger.get_instance().debug("ingesting zip file %s ..." % (f))
 
 #     try:
 #         # decompress
 #         files_path = await muty.file.unzip(f)
-#         MutyLogger.get_logger().debug("zipfile unzipped to %s" % (files_path))
+#         MutyLogger.get_instance().debug("zipfile unzipped to %s" % (files_path))
 
 #         # read metadata file
 #         metadata_path = muty.file.safe_path_join(files_path, "metadata.json")
 #         metadata = json5.loads(await muty.file.read_file_async(metadata_path))
-#         MutyLogger.get_logger().debug(
+#         MutyLogger.get_instance().debug(
 #             "metadata.json content:\n %s" % (json5.dumps(metadata, indent=2))
 #         )
 #     except Exception as ex:
-#         MutyLogger.get_logger().exception(ex)
+#         MutyLogger.get_instance().exception(ex)
 #         await GulpStats.create(
 #             collab,
 #             GulpCollabType.STATS_INGESTION,
@@ -766,7 +758,7 @@ class GulpProcess:
 #         )
 #     except Exception as ex:
 #         # can't rebase, delete the datastream
-#         MutyLogger.get_logger().exception(ex)
+#         MutyLogger.get_instance().exception(ex)
 #         ws_api.shared_queue_add_data(
 #             gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
 #             req_id,
@@ -786,7 +778,7 @@ class GulpProcess:
 #         if template_file is not None:
 #             await muty.file.delete_file_or_dir_async(template_file)
 #     # done
-#     MutyLogger.get_logger().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
+#     MutyLogger.get_instance().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
 #     ws_api.shared_queue_add_data(
 #         gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
 #         req_id,
@@ -877,7 +869,7 @@ class GulpProcess:
 #         )
 #     except Exception as ex:
 #         # can't load plugin ...
-#         MutyLogger.get_logger().exception(ex)
+#         MutyLogger.get_instance().exception(ex)
 #         await GulpStats.update(
 #             collab,
 #             req_id,
@@ -915,12 +907,12 @@ class GulpProcess:
 
 #         end_time = timeit.default_timer()
 #         execution_time = end_time - start_time
-#         MutyLogger.get_logger().debug(
+#         MutyLogger.get_instance().debug(
 #             "execution time for querying plugin %s: %f sec." % (plugin, execution_time)
 #         )
 #     except Exception as ex:
 #         # can't query external source ...
-#         MutyLogger.get_logger().exception(ex)
+#         MutyLogger.get_instance().exception(ex)
 #         await GulpStats.update(
 #             collab,
 #             req_id,
@@ -1035,7 +1027,7 @@ class GulpProcess:
 #         None
 #     """
 
-#     # MutyLogger.get_logger().debug("query_multi_task: %s" % (kwargs))
+#     # MutyLogger.get_instance().debug("query_multi_task: %s" % (kwargs))
 #     index = kwargs["index"]
 #     user_id = kwargs["user_id"]
 #     username = kwargs["username"]
@@ -1059,7 +1051,7 @@ class GulpProcess:
 #     qres_list: list[QueryResult] = []
 #     batch_size = GulpConfig.get_instance().multiprocessing_batch_size()
 #     status: GulpRequestStatus = GulpRequestStatus.ONGOING
-#     # MutyLogger.get_logger().debug("sigma_group_filters=%s" % (sigma_group_flts))
+#     # MutyLogger.get_instance().debug("sigma_group_filters=%s" % (sigma_group_flts))
 
 #     # run tasks in batch_size chunks
 #     for i in range(0, len(q), batch_size):
@@ -1095,7 +1087,7 @@ class GulpProcess:
 #             )
 
 #         # run a batch of tasks
-#         MutyLogger.get_logger().debug("running %d query tasks ..." % (len(tasks)))
+#         MutyLogger.get_instance().debug("running %d query tasks ..." % (len(tasks)))
 #         ql: list[QueryResult] = await asyncio.gather(*tasks, return_exceptions=True)
 #         qres_list.extend(ql)
 
@@ -1113,7 +1105,7 @@ class GulpProcess:
 #             force=True,
 #         )
 #         if status in [GulpRequestStatus.FAILED, GulpRequestStatus.CANCELED]:
-#             MutyLogger.get_logger().error(
+#             MutyLogger.get_instance().error(
 #                 "query_multi_task: request failed or canceled, stopping further queries!"
 #             )
 #             break
@@ -1142,13 +1134,13 @@ class GulpProcess:
 #             if isinstance(r, QueryResult):
 #                 if len(r.events) > 0:
 #                     qr.append(r)
-#         MutyLogger.get_logger().debug("applying sigma group filters on %d results ..." % (len(qr)))
+#         MutyLogger.get_instance().debug("applying sigma group filters on %d results ..." % (len(qr)))
 #         sgr = await query_utils.apply_sigma_group_filters(
 #             sigma_group_flts,
 #             [x.to_dict() for x in qr],
 #         )
 #         if sgr is not None and len(sgr) > 0:
-#             MutyLogger.get_logger().debug("sigma group filter %s matched!" % (len(qr)))
+#             MutyLogger.get_instance().debug("sigma group filter %s matched!" % (len(qr)))
 #             # send sigma group result over websocket
 #             ws_api.shared_queue_add_data(
 #                 WsQueueDataType.SIGMA_GROUP_RESULT,
@@ -1196,11 +1188,11 @@ class GulpProcess:
 #     if len(files) == 0:
 #         raise ObjectNotFound("no sigma files found in directory %s" % (files_path))
 
-#     MutyLogger.get_logger().debug("sigma files in directory %s: %s" % (files_path, files))
+#     MutyLogger.get_instance().debug("sigma files in directory %s: %s" % (files_path, files))
 
 #     # parallelize queries through multiple worker processes, each one running asyncio tasks
 #     tasks = []
-#     MutyLogger.get_logger().debug(
+#     MutyLogger.get_instance().debug(
 #         "gathering results for %d sigma files to be converted ..." % (len(files))
 #     )
 #     for f in files:

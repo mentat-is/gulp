@@ -3,26 +3,27 @@ from typing import override
 import muty.dict
 import muty.file
 import muty.log
+import muty.os
 import muty.string
 import muty.time
 import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
-import muty.os
+
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.structs import GulpPluginParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginSigmaSupport
+from gulp.structs import GulpPluginParameters, GulpPluginSigmaSupport
 
 # needs the following backends for sigma support (add others if needed)
 muty.os.check_and_install_package("pysigma-backend-elasticsearch", "1.1.3")
 muty.os.check_and_install_package("pysigma-backend-opensearch", "1.0.3")
 
-from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
 from sigma.backends.opensearch import OpensearchLuceneBackend
+from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
+
 
 class Plugin(GulpPluginBase):
     """
@@ -104,24 +105,24 @@ class Plugin(GulpPluginBase):
         d = {}
         for e in e_tree.iter():
             e.tag = muty.xml.strip_namespace(e.tag)
-            # MutyLogger.get_logger().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
+            # MutyLogger.get_instance().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
 
             # map attrs and values
             if len(e.attrib) == 0:
                 # no attribs, i.e. <Opcode>0</Opcode>
                 if not e.text or not e.text.strip():
                     # none/empty text
-                    # MutyLogger.get_logger().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
+                    # MutyLogger.get_instance().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
                     continue
 
-                # MutyLogger.get_logger().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
+                # MutyLogger.get_instance().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
                 mapped = self._process_key(e.tag, e.text)
                 d.update(mapped)
             else:
                 # attribs, i.e. <TimeCreated SystemTime="2019-11-08T23:20:54.670500400Z" />
                 for attr_k, attr_v in e.attrib.items():
                     if not attr_v or not attr_v.strip():
-                        # MutyLogger.get_logger().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
+                        # MutyLogger.get_instance().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
                         continue
                     if attr_k == "Name":
                         if e.text:
@@ -131,18 +132,18 @@ class Plugin(GulpPluginBase):
                         else:
                             k = e.tag
                             v = attr_v
-                        # MutyLogger.get_logger().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # MutyLogger.get_instance().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
                         k = "%s.%s" % (e.tag, attr_k)
                         v = attr_v
-                        # MutyLogger.get_logger().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
+                        # MutyLogger.get_instance().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     mapped = self._process_key(k, v)
                     d.update(mapped)
 
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-        #MutyLogger.get_logger().debug("timestampmapped=%s" % d)
+        # MutyLogger.get_instance().debug("timestampmapped=%s" % d)
         return GulpDocument(
             self,
             timestamp=timestamp,
@@ -183,8 +184,12 @@ class Plugin(GulpPluginBase):
         )
 
         # initialize stats
-        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-            req_id, oeration=operation_id, context_id=context_id
+        stats: GulpIngestionStats
+        stats, _ = await GulpIngestionStats.create_or_get(
+            id=req_id,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
         )
         try:
             # initialize plugin
@@ -204,9 +209,8 @@ class Plugin(GulpPluginBase):
                 doc_idx += 1
                 try:
                     await self.process_record(stats, rr, doc_idx, flt)
-                except RequestCanceledError as ex:
+                except RequestCanceledError:
                     break
-
         except Exception as ex:
             await self._source_failed(stats, ex)
         finally:
@@ -220,8 +224,10 @@ class Plugin(GulpPluginBase):
             GulpPluginSigmaSupport(
                 backend=["opensearch"],
                 pipelines=["ecs_windows", "ecs_windows_old"],
-                output=["dsl_lucene"]),
+                output=["dsl_lucene"],
+            ),
         ]
+
     @override
     def sigma_convert(
         self,
@@ -229,12 +235,14 @@ class Plugin(GulpPluginBase):
         referenced_sigmas: list[str] = None,
         backend: str = None,
         pipeline: str = None,
-        output_format: str = None  
+        output_format: str = None,
     ) -> list[any]:
-        
-        # select pipeline, backend and output format to use        
-        backend, pipeline, output_format = self._check_sigma_support(backend, pipeline, output_format)
-        if pipeline == 'ecs_windows':
+
+        # select pipeline, backend and output format to use
+        backend, pipeline, output_format = self._check_sigma_support(
+            backend, pipeline, output_format
+        )
+        if pipeline == "ecs_windows":
             pipeline = ecs_windows()
         else:
             pipeline = ecs_windows_old()
@@ -243,6 +251,10 @@ class Plugin(GulpPluginBase):
         else:
             raise ValueError("unsupported backend: %s" % backend)
 
-        # convert        
+        # convert
         return self._sigma_convert_internal(
-            sigma, backend, referenced_sigmas=referenced_sigmas, output_format=output_format)
+            sigma,
+            backend,
+            referenced_sigmas=referenced_sigmas,
+            output_format=output_format,
+        )

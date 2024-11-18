@@ -12,9 +12,9 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from muty.log import MutyLogger
 
 try:
     from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
@@ -26,11 +26,11 @@ except Exception:
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.structs import GulpLogLevel
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
+from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
+from gulp.structs import GulpLogLevel
 
 
 class Plugin(GulpPluginBase):
@@ -83,18 +83,18 @@ class Plugin(GulpPluginBase):
             # get field names and map attributes
             field_names = [field.name for field in p.getlayer(layer_name).fields_desc]
 
-            # MutyLogger.get_logger().debug(f"Dissecting layer: {layer_name}")
-            # MutyLogger.get_logger().debug(f"Field names: {field_names}")
+            # MutyLogger.get_instance().debug(f"Dissecting layer: {layer_name}")
+            # MutyLogger.get_instance().debug(f"Field names: {field_names}")
 
             fields = {}
             for field_name in field_names:
                 try:
                     fields[field_name] = getattr(p.getlayer(layer_name), field_name)
-                    # MutyLogger.get_logger().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
+                    # MutyLogger.get_instance().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
                 except Exception as ex:
                     # skip fields that cannot be accessed
-                    # MutyLogger.get_logger().exception(ex)
-                    # MutyLogger.get_logger().debug(f"Fields: {field_name} failed to access ({ex})")
+                    # MutyLogger.get_instance().exception(ex)
+                    # MutyLogger.get_instance().debug(f"Fields: {field_name} failed to access ({ex})")
                     pass
 
             # make sure we have a valid json serializable dict
@@ -138,10 +138,10 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> list[GulpDocument]:
         # process record
-        # MutyLogger.get_logger().debug(record)
+        # MutyLogger.get_instance().debug(record)
         evt_json = self._pkt_to_dict(record)
         # evt_str: str = record.show2(dump=True)
-        # MutyLogger.get_logger().debug(evt_str)
+        # MutyLogger.get_instance().debug(evt_str)
 
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
 
@@ -260,15 +260,21 @@ class Plugin(GulpPluginBase):
             # fallback to pcap
             file_format = "pcap"
 
-        MutyLogger.get_logger().debug("detected file format: %s for file %s" % (file_format, source))
+        MutyLogger.get_instance().debug(
+            "detected file format: %s for file %s" % (file_format, source)
+        )
 
         try:
-            MutyLogger.get_logger().debug("parsing file: %s" % source)
+            MutyLogger.get_instance().debug("parsing file: %s" % source)
             if file_format == "pcapng":
-                MutyLogger.get_logger().debug("using PcapNgReader reader on file: %s" % (source))
+                MutyLogger.get_instance().debug(
+                    "using PcapNgReader reader on file: %s" % (source)
+                )
                 parser = PcapNgReader(source)
             else:
-                MutyLogger.get_logger().debug("using PcapReader reader on file: %s" % (source))
+                MutyLogger.get_instance().debug(
+                    "using PcapReader reader on file: %s" % (source)
+                )
                 parser = PcapReader(source)
             # TODO: support other scapy file readers like ERF?
         except Exception as ex:

@@ -6,17 +6,16 @@ import muty.dict
 import muty.json
 import muty.os
 import muty.time
+from muty.log import MutyLogger
 from typing_extensions import Match
 
 from gulp.api.collab.base import GulpRequestStatus
 from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginSpecificParam, GulpPluginParameters
-from muty.log import MutyLogger
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
 
 
 class Plugin(GulpPluginBase):
@@ -32,9 +31,14 @@ class Plugin(GulpPluginBase):
     def additional_parameters(self) -> list[GulpPluginSpecificParam]:
         return [
             GulpPluginSpecificParam(
-                "regex", "str", "regex to apply - must use named groups", default_value=None
+                "regex",
+                "str",
+                "regex to apply - must use named groups",
+                default_value=None,
             ),
-            GulpPluginSpecificParam("flags", "int", "flags to apply to regex", default_value=0),
+            GulpPluginSpecificParam(
+                "flags", "int", "flags to apply to regex", default_value=0
+            ),
         ]
 
     async def _record_to_gulp_document(
@@ -119,7 +123,7 @@ class Plugin(GulpPluginBase):
             index, source, plugin_params=plugin_params
         )
 
-        MutyLogger.get_logger().debug("custom_mapping=%s" % (custom_mapping))
+        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
 
         # get options
         regex = plugin_params.extra.get("regex", None)
@@ -130,7 +134,9 @@ class Plugin(GulpPluginBase):
 
             # make sure we have at least 1 named group
             if regex.groups == 0:
-                MutyLogger.get_logger().error("no named groups provided, invalid regex")
+                MutyLogger.get_instance().error(
+                    "no named groups provided, invalid regex"
+                )
                 fs = self._source_failed(fs, source, "no named groups provided")
                 return await self._finish_ingestion(
                     index, source, req_id, client_id, ws_id, fs=fs, flt=flt
@@ -143,7 +149,9 @@ class Plugin(GulpPluginBase):
                     valid = True
 
             if not valid:
-                MutyLogger.get_logger().error("no timestamp named group provided, invalid regex")
+                MutyLogger.get_instance().error(
+                    "no timestamp named group provided, invalid regex"
+                )
                 fs = self._source_failed(
                     fs, source, "no timestamp named group provided"
                 )

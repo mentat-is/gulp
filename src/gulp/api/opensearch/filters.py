@@ -1,9 +1,7 @@
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, ConfigDict, Field
-
-
 from typing import Optional, override
 
+from pydantic import BaseModel, ConfigDict, Field
 
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = [
@@ -12,24 +10,26 @@ QUERY_DEFAULT_FIELDS = [
     "event.duration",
     "event.code",
     "gulp.timestamp",
-    'gulp.timestamp_invalid',
+    "gulp.timestamp_invalid",
     "gulp.operation_id",
     "gulp.context_id",
     "gulp.source_id",
     "gulp.event_code",
 ]
 
+
 class GulpBaseDocumentFilter(BaseModel):
     """
     base class for Gulp filters acting on documents.
     """
+
     model_config = ConfigDict(extra="allow")
 
-    time_range: Optional[tuple[int|str, int|str, bool]] = Field(
+    time_range: Optional[tuple[int | str, int | str, bool]] = Field(
         None,
         description="include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.<br>"
-            "if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).<br><br>"
-            "**for ingestion filtering, `gulp.timestamp` is always used and the third element is ignored**.",
+        "if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).<br><br>"
+        "**for ingestion filtering, `gulp.timestamp` is always used and the third element is ignored**.",
     )
 
     query_string_parameters: Optional[dict] = Field(
@@ -90,7 +90,7 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         Returns:
             GulpEventFilterResult: The result of the filter check.
         """
-        # MutyLogger.get_logger().error(flt)
+        # MutyLogger.get_instance().error(flt)
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
@@ -150,7 +150,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         None,
         description="include documents matching the given `event.code`/s.",
     )
-    event_original: Optional[tuple[str,bool]] = Field(
+    event_original: Optional[tuple[str, bool]] = Field(
         (None, False),
         description="include documents matching the given `event.original`/s.<br><br>"
         "if the second element is True, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.<br>"
@@ -203,7 +203,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             qs = f"NOT _exists_: {field}"
         return qs
 
-    def to_opensearch_dsl(self, flt: "GulpQueryFilter"=None) -> dict:
+    def to_opensearch_dsl(self, flt: "GulpQueryFilter" = None) -> dict:
         """
         convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
 
@@ -223,16 +223,31 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             }
             ```
         """
+
         def _build_clauses():
             clauses = []
             if self.agent_type:
-                clauses.append(self._query_string_build_or_clauses("agent.type", self.agent_type))
+                clauses.append(
+                    self._query_string_build_or_clauses("agent.type", self.agent_type)
+                )
             if self.operation_id:
-                clauses.append(self._query_string_build_or_clauses("gulp.operation_id", self.operation_id))
+                clauses.append(
+                    self._query_string_build_or_clauses(
+                        "gulp.operation_id", self.operation_id
+                    )
+                )
             if self.context_id:
-                clauses.append(self._query_string_build_or_clauses("gulp.context_id", self.context_id))
+                clauses.append(
+                    self._query_string_build_or_clauses(
+                        "gulp.context_id", self.context_id
+                    )
+                )
             if self.source_id:
-                clauses.append(self._query_string_build_or_clauses("gulp.source_id", self.source_id))
+                clauses.append(
+                    self._query_string_build_or_clauses(
+                        "gulp.source_id", self.source_id
+                    )
+                )
             if self.id:
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
@@ -240,16 +255,30 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                 event_original = self.event_original[0]
                 fts = event_original[1] or False
                 field = "event.original.text" if fts else "event.original"
-                clauses.append(self._query_string_build_eq_clause(field, event_original))
+                clauses.append(
+                    self._query_string_build_eq_clause(field, event_original)
+                )
             if self.event_code:
-                clauses.append(self._query_string_build_or_clauses("event.code", self.event_code))
+                clauses.append(
+                    self._query_string_build_or_clauses("event.code", self.event_code)
+                )
             if self.time_range:
                 # use string or numeric field depending on the third element (default to numeric)
-                timestamp_field = "@timestamp" if self.time_range[2] else "gulp.timestamp"
+                timestamp_field = (
+                    "@timestamp" if self.time_range[2] else "gulp.timestamp"
+                )
                 if self.time_range[0]:
-                    clauses.append(self._query_string_build_gte_clause(timestamp_field, self.time_range[0]))
+                    clauses.append(
+                        self._query_string_build_gte_clause(
+                            timestamp_field, self.time_range[0]
+                        )
+                    )
                 if self.time_range[1]:
-                    clauses.append(self._query_string_build_lte_clause(timestamp_field, self.time_range[1]))
+                    clauses.append(
+                        self._query_string_build_lte_clause(
+                            timestamp_field, self.time_range[1]
+                        )
+                    )
             if self.model_extra:
                 # extra fields
                 for k, v in self.model_extra.items():
@@ -281,15 +310,14 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                 "query": {
                     "bool": {
                         "filter": [
-                            flt.to_opensearch_dsl()['query'],
+                            flt.to_opensearch_dsl()["query"],
                             query_dict["query"],
                         ]
                     }
                 }
             }
 
-
-        # MutyLogger.get_logger().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
+        # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
 
     def merge_to_opensearch_dsl(self, dsl: dict) -> dict:
@@ -319,16 +347,19 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         Returns:
             bool: True if the filter is empty, False otherwise.
         """
-        return not any([self.agent_type,
-                        self.id,
-                        self.operation_id,
-                        self.context_id,
-                        self.source_id,
-                        self.event_code,
-                        self.event_original,
-                        self.time_range,
-                        self.model_extra
-                        ])
+        return not any(
+            [
+                self.agent_type,
+                self.id,
+                self.operation_id,
+                self.context_id,
+                self.source_id,
+                self.event_code,
+                self.event_original,
+                self.time_range,
+                self.model_extra,
+            ]
+        )
 
 
 class GulpSortOrder(StrEnum):
@@ -338,7 +369,3 @@ class GulpSortOrder(StrEnum):
 
     ASC = "asc"
     DESC = "desc"
-
-
-
-

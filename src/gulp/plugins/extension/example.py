@@ -10,21 +10,20 @@ import muty.string
 import muty.uploadfile
 from fastapi import Header, Query
 from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
-from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.process import GulpProcess
-
 from gulp.api.rest.defs import (
     API_DESC_OPERATION,
     API_DESC_REQ_ID,
     API_DESC_TOKEN,
     API_DESC_WS_ID,
 )
-from muty.log import MutyLogger
+from gulp.api.rest_api import GulpRestServer
+from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.process import GulpProcess
 
 """
 # extension plugins
@@ -52,18 +51,20 @@ class Plugin(GulpPluginBase):
 
         # extensions must support pickling
         super().__init__(path, pickled, **kwargs)
-        MutyLogger.get_logger().debug("path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs))
+        MutyLogger.get_instance().debug(
+            "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)
+        )
 
         # add api routes for this plugin
         if not self._pickled:
             # in the first init, add api routes (we are in the MAIN process here)
             self._add_api_routes()
-            MutyLogger.get_logger().debug(
+            MutyLogger.get_instance().debug(
                 "%s extension plugin initialized" % (self.display_name)
             )
         else:
             # in the re-init, we are in the worker process here
-            MutyLogger.get_logger().debug(
+            MutyLogger.get_instance().debug(
                 "%s extension plugin re-initialized" % self.display_name()
             )
 
@@ -75,13 +76,19 @@ class Plugin(GulpPluginBase):
         req_id: str,
         **kwargs,
     ) -> dict:
-        MutyLogger.get_logger().error(
+        MutyLogger.get_instance().error(
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        GulpSharedWsQueue.get_instance().put(WsQueueDataType.COLLAB_UPDATE, req_id=req_id, ws_id=ws_id, user_id="dummy", data={"hello": "world"}, ) 
-        return {'done': True}
-    
+        GulpSharedWsQueue.get_instance().put(
+            WsQueueDataType.COLLAB_UPDATE,
+            req_id=req_id,
+            ws_id=ws_id,
+            user_id="dummy",
+            data={"hello": "world"},
+        )
+        return {"done": True}
+
     async def _example_task(
         self,
         user_id: str,
@@ -90,7 +97,7 @@ class Plugin(GulpPluginBase):
         req_id: str,
         **kwargs,
     ):
-        MutyLogger.get_logger().error(
+        MutyLogger.get_instance().error(
             "IN MAIN PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
@@ -102,23 +109,23 @@ class Plugin(GulpPluginBase):
 
         # spawn coro in worker process
         tasks = []
-        MutyLogger.get_logger().debug(
+        MutyLogger.get_instance().debug(
             "spawning process for extension example for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
         try:
             tasks.append(
-                GulpProcess.get_instance().process_pool.apply(self._run_in_worker,
-                                                              (user_id, operation_id, ws_id, req_id)
+                GulpProcess.get_instance().process_pool.apply(
+                    self._run_in_worker, (user_id, operation_id, ws_id, req_id)
                 )
             )
 
             # and async wait for it to finish
             res = await asyncio.gather(*tasks, return_exceptions=True)
-            MutyLogger.get_logger().error("extension example done: %s" % res)
+            MutyLogger.get_instance().error("extension example done: %s" % res)
 
         except Exception as ex:
-            MutyLogger.get_logger().exception(ex)
+            MutyLogger.get_instance().exception(ex)
             raise JSendException(req_id=req_id, ex=ex) from ex
 
     def _add_api_routes(self):
@@ -158,7 +165,7 @@ class Plugin(GulpPluginBase):
 
         try:
             session = await GulpUserSession.check_token_permission(token)
-        
+
             # spawn coroutine in the main process, will run asap
             coro = self._example_task(session.user_id, operation_id, ws_id, req_id)
             await GulpProcess.get_instance().coro_pool.spawn(coro)
