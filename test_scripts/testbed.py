@@ -13,7 +13,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, mapped_co
 from sqlalchemy_mixins.serialize import SerializeMixin
 
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpIngestionStats
+from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -493,13 +495,25 @@ async def test_sigma_convert():
     print(rules)
 
 
+async def test_source():
+    sess = GulpCollab.get_instance().session()
+    async with sess:
+        s: GulpSource = await GulpSource.get_one(
+            GulpCollabFilter(title=["test source 2"]), sess=sess, eager_load_depth=3
+        )
+        # ss=await s.eager_load(depth=3)
+        print(s)
+        print(s.id)
+
+
 async def main():
     try:
         await test_init()
 
-        #await test_ingest_windows()
-        #await test_ingest_csv()
-        await test_ingest_csv_with_mappings()
+        # await test_ingest_windows()
+        # await test_ingest_csv()
+        # await test_ingest_csv_with_mappings()
+        await test_source()
         # await test_ingest_csv_stacked()
         # await test_bulk_insert()
         # await GulpOperation.add_context(_operation, _context)

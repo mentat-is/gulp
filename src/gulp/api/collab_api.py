@@ -395,7 +395,7 @@ class GulpCollab:
         # add sources to context and context to operation
         await GulpContext.add_source(context.id, source_a.id, operation_id=operation.id)
         await GulpContext.add_source(context.id, source_b.id, operation_id=operation.id)
-        await GulpOperation.add_context(operation.id, context.id)
+        await GulpOperation.add_context_to_id(operation.id, context.id)
         from gulp.api.collab.structs import GulpCollabFilter
 
         ctx = await GulpContext.get_one(

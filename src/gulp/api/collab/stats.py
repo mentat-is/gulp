@@ -131,6 +131,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         req_id: str = None,
         sess: AsyncSession = None,
         ensure_eager_load: bool = False,
+        eager_load_depth: int = 3,
         **kwargs,
     ) -> T:
         """
@@ -143,6 +144,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             req_id (str, optional): The request ID. Defaults to None (unused)
             sess (AsyncSession, optional): The asynchronous session. Defaults to None.
             ensure_eager_load (bool, optional): Whether to ensure eager loading of the instance. Defaults to True.
+            eager_load_depth (int, optional): The depth of eager loading. Defaults to 3.
             **kwargs: Additional keyword arguments.
         Keyword Args:
             operation (str, optional): The operation. Defaults to None.
@@ -183,6 +185,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             req_id=id,
             sess=sess,
             ensure_eager_load=ensure_eager_load,
+            eager_load_depth=eager_load_depth,
             **args,
         )
 
@@ -195,6 +198,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         source_id: str = None,
         sess: AsyncSession = None,
         ensure_eager_load: bool = True,
+        eager_load_depth: int = 3,
         **kwargs,
     ) -> Tuple[T, bool]:
         MutyLogger.get_instance().debug(
@@ -211,6 +215,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             context_id=context_id,
             source_id=source_id,
             ensure_eager_load=ensure_eager_load,
+            eager_load_depth=eager_load_depth
             **kwargs,
         )
         return stats, True

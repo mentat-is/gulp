@@ -405,6 +405,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         req_id: str = None,
         sess: AsyncSession = None,
         ensure_eager_load: bool = False,
+        eager_load_depth: int = 3,
         **kwargs,
     ) -> T:
         """
@@ -420,6 +421,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 If None, a new session is created and committed in a transaction.<br>
                 either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             ensure_eager_load (bool, optional): If True, eagerly load the instance with all related attributes. Defaults to False.
+            eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
             **kwargs: Additional keyword arguments to set as attributes on the instance.
                 - "owner_id" is a special keyword argument that can be used to set the owner of the instance to the specified ID.
         Returns:
@@ -436,6 +438,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             req_id: str,
             sess: AsyncSession,
             ensure_eager_load: bool,
+            eager_load_depth: int,
             **kwargs,
         ) -> T:
             if token:
@@ -466,7 +469,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             )
             if ensure_eager_load:
                 # eagerly load the instance with all related attributes
-                instance = await instance.eager_load(sess)
+                instance = await instance.eager_load(sess, depth=eager_load_depth)
 
             if ws_id and isinstance(instance, GulpCollabObject):
                 # notify the websocket of the collab object creation
@@ -509,6 +512,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     req_id=req_id,
                     sess=sess,
                     ensure_eager_load=ensure_eager_load,
+                    eager_load_depth=eager_load_depth,
                     **kwargs,
                 )
         return await _create_internal(
@@ -519,38 +523,41 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             req_id=req_id,
             sess=sess,
             ensure_eager_load=ensure_eager_load,
+            eager_load_depth=eager_load_depth,
             **kwargs,
         )
 
-    async def eager_load(self, sess: AsyncSession = None) -> T:
+    async def eager_load(self, depth: int=3, sess: AsyncSession = None) -> T:
         """
         Asynchronously retrieves the current object with all related attributes eagerly loaded.
 
         Args:
+            depth (int, optional): The depth of the relationships to load. Defaults to 3.
             sess (AsyncSession, optional): The session to use for the query. Defaults to None.
         Returns:
             T: The current object with all related attributes eagerly loaded.
         """
 
-        async def _load_with_relationships(sess: AsyncSession):
+        async def _load_with_relationships(depth: int, sess: AsyncSession):
             # recursively build loading options for all relationships
-            def _get_load_options(cls, depth=2):
+            def _get_load_options(cls, depth=depth):
                 if depth == 0:
                     return []
 
                 load_options = []
                 for rel in inspect(cls).relationships:
                     attr = getattr(cls, rel.key)
-                    if rel.uselist:
-                        loader = selectinload(attr)
-                    else:
-                        loader = joinedload(attr)
+                    loader = selectinload(attr)
 
-                    # recursively load nested relationships
-                    nested_options = _get_load_options(rel.mapper.class_, depth - 1)
-                    if nested_options:
-                        loader = loader.options(*nested_options)
-                    load_options.append(loader)
+                    if depth == 1:
+                        id_attr = getattr(rel.mapper.class_, 'id')
+                        load_options.append(loader.load_only(id_attr))
+                    else:
+                        # recursively load nested relationships
+                        nested_options = _get_load_options(rel.mapper.class_, depth - 1)
+                        if nested_options:
+                            loader = loader.options(*nested_options)
+                        load_options.append(loader)
                 return load_options
 
             # get all load options starting from the current class
@@ -575,29 +582,30 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
-                return await _load_with_relationships(sess)
-        return await _load_with_relationships(sess)
+                return await _load_with_relationships(depth=depth, sess=sess)
+        return await _load_with_relationships(depth=depth, sess=sess)
 
     @classmethod
-    async def eager_load_by_id(cls, id: str, sess: AsyncSession = None) -> T:
+    async def eager_load_by_id(cls, id: str, depth: int=3, sess: AsyncSession = None) -> T:
         """
         Asynchronously retrieves an object by its ID with all related attributes eagerly loaded.
 
         Args:
             id (str): The ID of the object to retrieve.
+            depth (int, optional): The depth of the relationships to load. Defaults to 2.
             sess (AsyncSession, optional): The session to use for the query. Defaults to None.
 
         Returns:
             T: The object with the specified ID, eagerly loaded with all related attributes.
         """
 
-        async def _eager_load_by_id_internal(sess: AsyncSession):
+        async def _eager_load_by_id_internal(sess: AsyncSession, depth: int):
             # retrieve the instance by ID
             q = select(cls).filter_by(id=id)
             res = await sess.execute(q)
             instance = res.scalar_one()
 
-            return await instance.eager_load(sess)
+            return await instance.eager_load(depth=depth, sess=sess)
 
         MutyLogger.get_instance().debug(
             "---> get: eager_load_by_id: %s, sess=%s" % (id, sess)
@@ -605,9 +613,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
-                return await _eager_load_by_id_internal(sess)
+                return await _eager_load_by_id_internal(depth=depth, sess=sess)
 
-        return await _eager_load_by_id_internal(sess)
+        return await _eager_load_by_id_internal(depth=depth, sess=sess)
 
     async def delete(
         self,
@@ -878,6 +886,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
+        eager_load_depth: int=3
     ) -> T:
         """
         Asynchronously retrieves an object of the specified type by its ID.
@@ -888,6 +897,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
+            eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
         Returns:
             T: The object with the specified ID or None if not found.
         Raises:
@@ -901,6 +911,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess,
             throw_if_not_found=throw_if_not_found,
             ensure_eager_load=ensure_eager_load,
+            eager_load_depth=eager_load_depth
         )
         return o
 
@@ -913,6 +924,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
+        eager_load_depth: int=3
     ) -> T:
         """
         shortcut to get one (the first found) object using get()
@@ -923,6 +935,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess (AsyncSession, optional): The database session to use. If None, a new session is created. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
+            eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
         Returns:
             T: The object that matches the filter criteria or None if not found.
         Raises:
@@ -931,7 +944,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         # MutyLogger.get_instance().debug("---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))
         c = await cls.get(
-            flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load
+            flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
         )
         if c:
             return c[0]
@@ -946,6 +959,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
+        eager_load_depth: int=3
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -956,6 +970,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess(AsyncSession, optional): The database session to use. If None, a new session is created and used as a transaction. Defaults to None.
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
+            eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -967,6 +982,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess: AsyncSession,
             throw_if_not_found: bool,
             ensure_eager_load: bool,
+            eager_load_depth: int
         ):
             flt = flt or GulpCollabFilter()
             q = flt.to_select_query(cls)
@@ -982,7 +998,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 # eagerly load all related attributes
                 for i, cc in enumerate(c):
                     ccb: GulpCollabBase = cc
-                    c[i] = await ccb.eager_load(sess=sess)
+                    c[i] = await ccb.eager_load(sess=sess, depth=eager_load_depth)
 
             MutyLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
 
@@ -994,10 +1010,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess = GulpCollab.get_instance().session()
             async with sess:
                 return await _get_internal(
-                    flt, sess, throw_if_not_found, ensure_eager_load
+                    flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
                 )
 
-        return await _get_internal(flt, sess, throw_if_not_found, ensure_eager_load)
+        return await _get_internal(flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth)
 
     @classmethod
     def get_all_results_or_throw(

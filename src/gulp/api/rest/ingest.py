@@ -23,6 +23,8 @@ from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from requests_toolbelt.multipart import decoder
 
+from gulp.api.collab.context import GulpContext
+from gulp.api.collab.operation import GulpOperation
 import gulp.api.rest.defs as api_defs
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpUserPermission
@@ -245,7 +247,9 @@ once the upload is done, the server will automatically delete the uploaded data 
             )
             return JSONResponse(d)
 
-        # TODO: create context and source if they do not exist
+        # create context and source if they do not exist
+        await GulpOperation.add_context_to_id(operation_id, context_id)
+        await GulpContext.add_source_to_id(operation_id, context_id, file_path)
 
         # create stats
         stats, _ = await GulpIngestionStats.create_or_get(
