@@ -117,7 +117,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "glyph": glyph_id,
             "extra": extra,
             # force owner to the user itself
-            "owner_id": id,
+            "user_id": id,
         }
 
         if "init" in kwargs:

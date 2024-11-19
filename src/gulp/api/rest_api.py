@@ -40,6 +40,7 @@ class GulpRestServer:
     """
     manages the gULP REST server.
     """
+
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
 
@@ -139,15 +140,13 @@ class GulpRestServer:
             MutyLogger.get_instance().warning("_shutdown set!")
         return self._shutdown
 
-    async def _bad_request_exception_handler(r: Request, ex: any) -> JSendResponse:
+    async def _bad_request_exception_handler(
+        self, r: Request, ex: any
+    ) -> JSendResponse:
         """
         set error code 400 to generic bad requests
         """
         status_code = 500
-        MutyLogger.get_instance().debug(
-            "in request-validation exception handler, status_code=%d" % (status_code)
-        )
-        req = await r.body()
         req_id = None
         if isinstance(ex, JSendException):
             req_id = ex.req_id
@@ -167,7 +166,25 @@ class GulpRestServer:
         ):
             status_code = 401
 
-        js = JSendResponse.error(req_id=req_id, ex=ex, data={"request": req})
+        try:
+            body = await r.json()
+        except:
+            # take the first 64 bytes of the body
+            body = str(await r.body())[:1024]
+
+        js = JSendResponse.error(
+            req_id=req_id,
+            ex=ex,
+            data={
+                "request": {
+                    "path": r.url.path,
+                    "method": r.method,
+                    "query": str(r.query_params),
+                    "headers": dict(r.headers),
+                    "body": body + "...",
+                }
+            },
+        )
         return JSONResponse(js, status_code=status_code)
 
     def _add_routers(self):
@@ -334,10 +351,10 @@ class GulpRestServer:
 
     async def _lifespan_handler(self, app: FastAPI):
         """
-        fastaapi lifespan handler
+        fastapi lifespan handler
         """
-        MutyLogger.get_instance().reconfigure(
-            name="gulp", logger_file_path=self._logger_file_path, level=self._log_level
+        MutyLogger.get_instance(
+            "gulp", logger_file_path=self._logger_file_path, level=self._log_level
         )
         MutyLogger.get_instance().info("gULP main server process is starting!")
         main_process = GulpProcess.get_instance()
@@ -349,21 +366,13 @@ class GulpRestServer:
         first_run: bool = False
         if self._check_first_run():
             # first run, create index
-            self._reset_index = "gulpidx"
+            self._reset_index = "test_idx"
             self._reset_collab = True
             first_run = True
             MutyLogger.get_instance().warning(
-                "first run, creating collab database and data index '%s' ..."
+                "FIRST RUN, creating collab database and data index '%s' ..."
                 % (self._reset_index)
             )
-
-        else:
-            MutyLogger.get_instance().info("not first run")
-
-        # init the main process
-        await main_process.init_gulp_process(
-            log_level=self._log_level, logger_file_path=self._logger_file_path
-        )
 
         # check for reset flags
         try:
@@ -384,6 +393,11 @@ class GulpRestServer:
                 # allow restart on first run
                 self._delete_first_run_file()
             raise ex
+
+        # init the main process
+        await main_process.init_gulp_process(
+            log_level=self._log_level, logger_file_path=self._logger_file_path
+        )
 
         # load extension plugins
         await self._load_extension_plugins()
@@ -410,7 +424,7 @@ class GulpRestServer:
 
         MutyLogger.get_instance().debug("everything shut down, we can gracefully exit.")
 
-    def _delete_first_run_file() -> None:
+    def _delete_first_run_file(self) -> None:
         """
         deletes the ".first_run_done" file in the config directory.
         """
@@ -433,13 +447,13 @@ class GulpRestServer:
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(
-                "first run file exists: %s" % (check_first_run_file)
+                "NOT FIRST RUN, first run file exists: %s" % (check_first_run_file)
             )
             return False
 
         # create firstrun file
         MutyLogger.get_instance().warning(
-            "first run file does not exist: %s" % (check_first_run_file)
+            "FIRST RUN! first run file does not exist: %s" % (check_first_run_file)
         )
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
+from sqlalchemy_dlock.asyncio import create_async_sadlock
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
@@ -18,6 +19,7 @@ from gulp.api.collab.structs import (
     T,
 )
 from gulp.api.collab_api import GulpCollab
+from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.config import GulpConfig
 
 
@@ -103,6 +105,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             req_id=req_id,
             sess=sess,
             throw_if_not_found=throw_if_not_found,
+            ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
             **kwargs,
         )
 
@@ -186,6 +189,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             sess=sess,
             ensure_eager_load=ensure_eager_load,
             eager_load_depth=eager_load_depth,
+            ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
             **args,
         )
 
@@ -215,7 +219,7 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
             context_id=context_id,
             source_id=source_id,
             ensure_eager_load=ensure_eager_load,
-            eager_load_depth=eager_load_depth
+            eager_load_depth=eager_load_depth,
             **kwargs,
         )
         return stats, True
@@ -294,28 +298,33 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
             context_id,
             kwargs,
         )
+
+        lock_key=id
         async with GulpCollab.get_instance().session() as sess:
-            s: GulpIngestionStats
-            s, created = await cls._create_or_get(
-                id=id,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                sess=sess,
-                source_total=1,
-                **kwargs,
-            )
+            async with create_async_sadlock(sess, lock_key) as lock:
+                assert lock.locked
+                s: GulpIngestionStats
+                s, created = await cls._create_or_get(
+                    id=id,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_id=source_id,
+                    sess=sess,
+                    source_total=1,
+                    **kwargs,
+                )
+            assert not lock.locked
+            
             if not created and s.source_id != source_id:
                 # already exists but source is different: source total must be updated
                 sess.add(s)
                 await sess.refresh(s)
-                s.source_id = "multiple"  # refers to a multi-source ingestion
                 s.source_total += 1
                 s.status = GulpRequestStatus.PENDING
                 s.time_finished = 0
                 await sess.commit()
 
-        return s, created
+            return s, created
 
     @classmethod
     async def cancel_by_id(cls, token: str, req_id: str, ws_id: str = None) -> None:
@@ -472,7 +481,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
                     'request "%s" COMPLETED with status=%s' % (self.id, self.status)
                 )
 
-            # update the instance
+            # update the instance (will update websocket too)
             await super().update(
                 token=None,  # no token needed
                 d=self.to_dict(),
@@ -480,13 +489,10 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
                 req_id=self.id,
                 sess=sess,
                 throw_if_not_found=throw_if_not_found,
+                ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
                 **kwargs,
             )
             await sess.commit()
-
-            if ws_id:
-                # TODO: update ws
-                pass
 
             if self.status == GulpRequestStatus.CANCELED:
                 MutyLogger.get_instance().error(

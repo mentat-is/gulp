@@ -16,15 +16,16 @@ class WsQueueDataType(StrEnum):
     The type of data into the websocket queue.
     """
 
+    # a GulpIngestionStas object, created or updated
     STATS_UPDATE = "stats_update"
-    # an array with one or more GulpCollabObject (note, story, highlight, link) created or updated    COLLAB_DELETE = "collab_delete" # an array of GulpCollabObject (note, story, highlight, link)
-    # created objects have "created" set
+    # an array with one or more GulpCollabObject (note, story, highlight, link), created or updated
     COLLAB_UPDATE = "collab_update"
-    # an array with one or more GulpCollabObject (note, story, highlight, link) deleted objects
+    # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
+    DOCUMENTS_CHUNK = "docs_chunk"
+    # an array with one or more deleted GulpCollabObject (note, story, highlight, link)
     COLLAB_DELETE = "collab_delete"
     QUERY_DONE = "query_done"
     REBASE_DONE = "rebase_done"
-    DOCUMENTS_CHUNK = "docs_chunk"  # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
 
 
 class WsParameters(BaseModel):
@@ -329,6 +330,7 @@ class GulpSharedWsQueue:
         if GulpProcess.get_instance().is_main_process():
             raise RuntimeError("set_queue() must be called in a worker process")
 
+        MutyLogger.get_instance().debug("setting shared ws queue in worker process: q=%s" % (q))
         self._shared_q = q
 
     def init_queue(self, mgr: SyncManager) -> Queue:
@@ -431,6 +433,9 @@ class GulpSharedWsQueue:
             data (any, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.
         """
+        MutyLogger.get_instance().debug(
+            "adding entry type=%s to ws_id=%s queue..." % (type, ws_id)
+        )
         wsd = WsData(
             timestamp=muty.time.now_msec(),
             type=type,
@@ -440,9 +445,6 @@ class GulpSharedWsQueue:
             req_id=req_id,
             private=private,
             data=data,
-        )
-        MutyLogger.get_instance().debug(
-            "adding entry type=%s to ws_id=%s queue..." % (wsd.type, wsd.ws_id)
         )
         # TODO: try and see if it works without serializing...
         if self._shared_q and ws_id:

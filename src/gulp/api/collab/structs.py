@@ -141,7 +141,7 @@ class GulpCollabFilter(BaseModel):
     source_id: Optional[list[str]] = Field(
         None, description="filter by the given source path/s or name/s."
     )
-    owner_id: Optional[list[str]] = Field(
+    user_id: Optional[list[str]] = Field(
         None, description="filter by the given owner user id/s."
     )
     tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
@@ -221,9 +221,9 @@ class GulpCollabFilter(BaseModel):
             q = q.filter(
                 self._case_insensitive_or_ilike(type.source_id, self.source_id)
             )
-        if self.owner_id and "owner_id" in type.columns:
+        if self.user_id and "user_id" in type.columns:
             q = q = q.filter(
-                self._case_insensitive_or_ilike(type.owner_id, self.owner_id)
+                self._case_insensitive_or_ilike(type.user_id, self.user_id)
             )
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
@@ -302,7 +302,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     type: Mapped[GulpCollabType] = mapped_column(
         SqlEnum(GulpCollabType), doc="The type of the object."
     )
-    owner_id: Mapped[str] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The id of the user who created(=owns) the object.",
     )
@@ -423,7 +423,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             ensure_eager_load (bool, optional): If True, eagerly load the instance with all related attributes. Defaults to False.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
             **kwargs: Additional keyword arguments to set as attributes on the instance.
-                - "owner_id" is a special keyword argument that can be used to set the owner of the instance to the specified ID.
+                - "user_id" is a special keyword argument that can be used to set the owner of the instance to the specified ID.
+                - "ws_queue_datatype" is a special keyword argument that can be used to specify the type of the websocket queue data (used for stats)
         Returns:
             T: The created instance of the class.
         Raises:
@@ -453,30 +454,31 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 # no token, use default owner
                 owner = "admin"
 
-            if "owner_id" in kwargs:
+            if "user_id" in kwargs:
                 # force owner to id
-                owner = kwargs.pop("owner_id")
+                owner = kwargs.pop("user_id")
 
             # create instance initializing the base class object (time created, time updated will be set by __init__)
-            instance = cls(id=id, owner_id=owner, **kwargs)
+            instance = cls(id=id, user_id=owner, **kwargs)
 
             # and put on db
             sess.add(instance)
             await sess.commit()
 
             MutyLogger.get_instance().debug(
-                f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, owner_id={owner}"
+                f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, user_id={owner}"
             )
             if ensure_eager_load:
                 # eagerly load the instance with all related attributes
-                instance = await instance.eager_load(sess, depth=eager_load_depth)
+                instance = await instance.eager_load(depth=eager_load_depth, sess=sess)
 
-            if ws_id and isinstance(instance, GulpCollabObject):
+            ws_queue_datatype = kwargs.get('ws_queue_datatype', None)
+            if ws_id and (isinstance(instance, GulpCollabObject) or ws_queue_datatype):
                 # notify the websocket of the collab object creation
                 data = instance.to_dict(exclude_none=True)
                 data["created"] = True
-                await GulpSharedWsQueue.get_instance().put(
-                    WsQueueDataType.COLLAB_UPDATE,
+                GulpSharedWsQueue.get_instance().put(
+                    WsQueueDataType.COLLAB_UPDATE if not ws_queue_datatype else ws_queue_datatype,
                     ws_id=ws_id,
                     user_id=owner,
                     operation_id=data.get("operation", None),
@@ -527,7 +529,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             **kwargs,
         )
 
-    async def eager_load(self, depth: int=3, sess: AsyncSession = None) -> T:
+    async def eager_load(self, depth: int = 3, sess: AsyncSession = None) -> T:
         """
         Asynchronously retrieves the current object with all related attributes eagerly loaded.
 
@@ -538,30 +540,31 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             T: The current object with all related attributes eagerly loaded.
         """
 
+        def _get_load_options(_cls, depth):
+            if depth == 0:
+                return []
+
+            load_options = []
+            for rel in inspect(_cls).relationships:
+                attr = getattr(_cls, rel.key)
+                loader = selectinload(attr)
+
+                if depth == 1:
+                    id_attr = getattr(rel.mapper.class_, "id")
+                    load_options.append(loader.load_only(id_attr))
+                else:
+                    # recursively load nested relationships
+                    nested_options = _get_load_options(rel.mapper.class_, depth - 1)
+                    if nested_options:
+                        loader = loader.options(*nested_options)
+                    load_options.append(loader)
+            return load_options
+
         async def _load_with_relationships(depth: int, sess: AsyncSession):
             # recursively build loading options for all relationships
-            def _get_load_options(cls, depth=depth):
-                if depth == 0:
-                    return []
-
-                load_options = []
-                for rel in inspect(cls).relationships:
-                    attr = getattr(cls, rel.key)
-                    loader = selectinload(attr)
-
-                    if depth == 1:
-                        id_attr = getattr(rel.mapper.class_, 'id')
-                        load_options.append(loader.load_only(id_attr))
-                    else:
-                        # recursively load nested relationships
-                        nested_options = _get_load_options(rel.mapper.class_, depth - 1)
-                        if nested_options:
-                            loader = loader.options(*nested_options)
-                        load_options.append(loader)
-                return load_options
 
             # get all load options starting from the current class
-            load_options = _get_load_options(self.__class__)
+            load_options = _get_load_options(self.__class__, depth=depth)
 
             # build and execute the query with all load options
             stmt = select(self.__class__).options(*load_options).filter_by(id=self.id)
@@ -586,7 +589,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return await _load_with_relationships(depth=depth, sess=sess)
 
     @classmethod
-    async def eager_load_by_id(cls, id: str, depth: int=3, sess: AsyncSession = None) -> T:
+    async def eager_load_by_id(
+        cls, id: str, depth: int = 3, sess: AsyncSession = None
+    ) -> T:
         """
         Asynchronously retrieves an object by its ID with all related attributes eagerly loaded.
 
@@ -656,11 +661,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if ws_id and isinstance(self, GulpCollabObject):
                 # notify the websocket of the collab object creation
                 data = self.to_dict(exclude_none=True)
-                await GulpSharedWsQueue.get_instance().put(
+                GulpSharedWsQueue.get_instance().put(
                     WsQueueDataType.COLLAB_DELETE,
                     ws_id=ws_id,
                     # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
-                    user_id=user_id or self.owner_id,
+                    user_id=user_id or self.user_id,
                     operation_id=data.get("operation", None),
                     req_id=req_id,
                     private=data.get("private", False),
@@ -817,6 +822,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             permission: list[GulpUserPermission],
             throw_if_not_found: bool,
         ) -> T:
+            user_id = None
+
             if not permission:
                 # default
                 permission = [GulpUserPermission.EDIT]
@@ -836,7 +843,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 raise ObjectNotFound(
                     f"{self.__class__.__name__} with id={self.id} not found"
                 )
-
             # update from d
             for k, v in d.items():
                 # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
@@ -848,17 +854,18 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             await sess.commit()
 
             # ensure the object is eager loaded before returning
-            obj = await self_in_session.eager_load(sess)
+            obj = await self_in_session.eager_load(sess=sess)
             MutyLogger.get_instance().debug("---> updated: %s" % (obj))
 
-            if ws_id and isinstance(obj, GulpCollabObject):
+            ws_queue_datatype = kwargs.get('ws_queue_datatype', None)
+            if ws_id and (isinstance(obj, GulpCollabObject) or ws_queue_datatype):
                 # notify the websocket of the collab object update
                 data = obj.to_dict(exclude_none=True)
-                await GulpSharedWsQueue.get_instance().put(
-                    WsQueueDataType.COLLAB_UPDATE,
+                GulpSharedWsQueue.get_instance().put(
+                    WsQueueDataType.COLLAB_UPDATE if not ws_queue_datatype else ws_queue_datatype,
                     ws_id=ws_id,
                     # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
-                    user_id=user_id or self_in_session.owner_id,
+                    user_id=user_id or self_in_session.user_id,
                     operation_id=data.get("operation", None),
                     req_id=req_id,
                     private=data.get("private", False),
@@ -886,7 +893,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
-        eager_load_depth: int=3
+        eager_load_depth: int = 3,
     ) -> T:
         """
         Asynchronously retrieves an object of the specified type by its ID.
@@ -911,7 +918,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess,
             throw_if_not_found=throw_if_not_found,
             ensure_eager_load=ensure_eager_load,
-            eager_load_depth=eager_load_depth
+            eager_load_depth=eager_load_depth,
         )
         return o
 
@@ -924,7 +931,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
-        eager_load_depth: int=3
+        eager_load_depth: int = 3,
     ) -> T:
         """
         shortcut to get one (the first found) object using get()
@@ -944,7 +951,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         # MutyLogger.get_instance().debug("---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))
         c = await cls.get(
-            flt, ws_id, req_id, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
+            flt,
+            ws_id,
+            req_id,
+            sess,
+            throw_if_not_found,
+            ensure_eager_load,
+            eager_load_depth,
         )
         if c:
             return c[0]
@@ -959,7 +972,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession = None,
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
-        eager_load_depth: int=3
+        eager_load_depth: int = 3,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -982,11 +995,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess: AsyncSession,
             throw_if_not_found: bool,
             ensure_eager_load: bool,
-            eager_load_depth: int
+            eager_load_depth: int,
         ):
             flt = flt or GulpCollabFilter()
             q = flt.to_select_query(cls)
-            MutyLogger.get_instance().debug("---> get: query=\n%s\n" % (q))
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(
                 res, throw_if_not_found=throw_if_not_found, detail=flt
@@ -998,7 +1010,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 # eagerly load all related attributes
                 for i, cc in enumerate(c):
                     ccb: GulpCollabBase = cc
-                    c[i] = await ccb.eager_load(sess=sess, depth=eager_load_depth)
+                    c[i] = await ccb.eager_load(depth=eager_load_depth, sess=sess)
 
             MutyLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
 
@@ -1013,7 +1025,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
                 )
 
-        return await _get_internal(flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth)
+        return await _get_internal(
+            flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
+        )
 
     @classmethod
     def get_all_results_or_throw(
@@ -1103,7 +1117,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             return user_session.user_id
 
         # check if the user is the owner of the object
-        if self.owner_id == user_session.user_id and allow_owner:
+        if self.user_id == user_session.user_id and allow_owner:
             return user_session.user_id
 
         # user do not own the object, check permissions
@@ -1192,7 +1206,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         self,
         id: str,
         type: GulpCollabType,
-        owner_id: str,
+        user_id: str,
         operation_id: str = None,
         glyph_id: str = None,
         color: str = None,
@@ -1207,7 +1221,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         Args:
             id (str): The unique identifier for the collaboration object.
             type (GulpCollabType): The type of the collaboration object.
-            owner_id (str): The user ID of the owner of the collaboration object.
+            user_id (str): The user ID of the owner of the collaboration object.
             operation_id (str, optional): The operation performed on the collaboration object. Defaults to None.
             glyph_id (str, optional): The glyph associated with the collaboration object. Defaults to None (uses default).
             color (str, optional): The color associated with the collaboration object. Defaults to None (uses default).
@@ -1221,7 +1235,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             raise NotImplementedError(
                 "GulpCollabObject is an abstract class and cannot be instantiated directly."
             )
-        super().__init__(id=id, type=type, owner_id=owner_id, **kwargs)
+        super().__init__(id=id, type=type, user_id=user_id, **kwargs)
         self.operation_id = operation_id
         self.glyph_id = glyph_id
         self.tags = tags
@@ -1234,7 +1248,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             % (
                 id,
                 type,
-                owner_id,
+                user_id,
                 operation_id,
                 glyph_id,
                 color,

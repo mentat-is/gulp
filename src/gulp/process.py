@@ -96,7 +96,7 @@ class GulpProcess:
         lock.acquire()
         spawned_processes.value += 1
         lock.release()
-        MutyLogger.get_instance().warning(
+        MutyLogger.get_instance().debug(
             "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s"
             % (
                 sys.path,
@@ -171,8 +171,8 @@ class GulpProcess:
                 spawned_processes,
                 lock,
                 q,
-                MutyLogger.get_instance().level,
-                MutyLogger.get_instance().logger_file_path,
+                MutyLogger.log_level,
+                MutyLogger.logger_file_path,
             ),
         )
 
@@ -204,12 +204,8 @@ class GulpProcess:
         if self._main_process:
             MutyLogger.get_instance().info("initializing main process...")
         else:
-            MutyLogger.get_instance().reconfigure(
-                name="gulp-worker-%d" % (os.getpid()),
-                logger_file_path=logger_file_path,
-                level=log_level,
-            )
-            MutyLogger.get_instance().info("initializing worker process...")
+            MutyLogger.get_instance("gulp-worker-%d" % (os.getpid()), logger_file_path=logger_file_path, level=log_level)
+            MutyLogger.get_instance().info("initializing worker process, q=%s ..." % (q))
 
         # sys.path fix is needed to load plugins from the plugins directories correctly
         plugins_path = GulpConfig.get_instance().path_plugins()

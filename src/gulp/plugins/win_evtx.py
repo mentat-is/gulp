@@ -134,7 +134,7 @@ class Plugin(GulpPluginBase):
                             v = attr_v
                         # MutyLogger.get_instance().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     else:
-                        k = "%s.%s" % (e.tag, attr_k)
+                        k = "%s_%s" % (e.tag, attr_k)
                         v = attr_v
                         # MutyLogger.get_instance().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
                     mapped = self._process_key(k, v)

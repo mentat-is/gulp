@@ -179,9 +179,10 @@ class ServerUtils:
             )
             return cache_file_path, payload_dict, GulpChunkedUploadResponse(done=True)
 
-        # Write file chunk
+        # Write file chunk at the specified offset
         async with aiofiles.open(cache_file_path, "ab+") as f:
             await f.seek(continue_offset, os.SEEK_SET)
+            await f.truncate()
             await f.write(file_part.content)
             await f.flush()
 

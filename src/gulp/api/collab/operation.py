@@ -1,3 +1,4 @@
+import json
 from typing import Optional, Union, override
 
 from muty.log import MutyLogger
@@ -63,135 +64,70 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     async def add_context(
         self,
         context_id: str,
-        create_if_not_exist: bool = True,
         sess: AsyncSession = None,
-    ) -> bool:
+    ) -> GulpContext:
         """
-        Add a context to the operation.
+        Add a context to the operation, or return the context if already added.
 
         Args:
             context_id (str): The id of the context.
-            create_if_not_exist (bool, optional): Whether to create the context if not found. Defaults to True.
             sess (AsyncSession, optional): The session to use. Defaults to None.
         Returns:
-            bool: True if the context was added, False otherwise.
+            GulpContext: the context added (or already existing), eager loaded
         """
         if not sess:
             sess = GulpCollab.get_instance().session()
+
+        sess.add(self)
         async with sess:
             # check if context exists
             ctx: GulpContext = await GulpContext.get_one(
                 GulpCollabFilter(id=[context_id], operation_id=[self.id]),
+                throw_if_not_found=False,
                 sess=sess,
                 ensure_eager_load=False,
             )
-            if not ctx:
-                # create context if not found
-                if not create_if_not_exist:
-                    raise ValueError(
-                        f"context id={context_id}, {self.id} not found."
-                    )
-                ctx = await GulpContext.create(
-                    token=None, id=None, operation_id=self.id
-                )
-                sess.add(ctx)
-                await sess.commit()
-
-            # check if context is already added
-            await self.awaitable_attrs.contexts
-            if ctx not in self.contexts:
-                self.contexts.append(ctx)
-                sess.add(self)
-                await sess.commit()
+            if ctx:
                 MutyLogger.get_instance().info(
-                    f"context {context_id} added to operation {self.id}."
+                    f"context {context_id} already added to operation {self.id}."
                 )
-                return True
-            MutyLogger.get_instance().warning(
-                f"context {context_id} already added to operation {self.id}."
+                return ctx
+
+            # create new context and link it to operation
+            # we are calling this internally only, so we can use token=None to skip
+            # token check.
+            ctx = await GulpContext.create(
+                token=None, id=context_id, operation_id=self.id
             )
-            return False
+            sess.add(ctx)
+            await sess.commit()
+            await sess.refresh(ctx)
+            MutyLogger.get_instance().info(
+                f"context {context_id} added to operation {self.id}."
+            )
+            return ctx
 
     @staticmethod
     async def add_context_to_id(
-        operation_id: str, context_id: str, create_if_not_exist: bool = True
-    ) -> bool:
+        operation_id: str, context_id: str
+    ) -> GulpContext:
         """
         Add a context to an operation.
 
         Args:
             operation_id (str): The id of the operation.
             context_id (str): The id of the context.
-            create_if_not_exist (bool, optional): Whether to create the context if not found. Defaults to True.
 
         Returns:
-            bool: True if the context was added, False otherwise
+            GulContext: The context added (or already existing), eager loaded.
         """
         async with GulpCollab.get_instance().session() as sess:
             op = await sess.get(GulpOperation, operation_id)
             if not op:
                 raise ValueError(f"operation id={operation_id} not found.")
             return await op.add_context(
-                context_id=context_id,
-                create_if_not_exist=create_if_not_exist,
-                sess=sess,
+                context_id=context_id, sess=sess
             )
-
-    async def remove_context(self, context_id: str, sess: AsyncSession=None) -> bool:
-        """
-        Remove a context from the operation.
-
-        Args:
-            context_id (str): The id of the context.
-            sess (AsyncSession, optional): The session to use. Defaults to None.
-
-        Returns:
-            bool: True if the context was removed, False otherwise.
-        """
-        if not sess:
-            sess = GulpCollab.get_instance().session()
-        async with sess:
-            ctx: GulpContext = await GulpContext.get_one(
-                GulpCollabFilter(id=[context_id], operation_id=[self.id]),
-                sess=sess,
-                ensure_eager_load=False,
-            )
-            if not ctx:
-                raise ValueError(f"context id={context_id}, {self.id} not found.")
-
-            # unlink
-            await self.awaitable_attrs.contexts
-            if ctx in self.contexts:
-                self.contexts.remove(ctx)
-                sess.add(self)
-                await sess.commit()
-                MutyLogger.get_instance().info(
-                    f"context id={context_id} removed from operation {self.id}."
-                )
-                return True
-
-            MutyLogger.get_instance().warning(
-                f"context id={context_id} not found in operation {self.id}."
-            )
-            return False
-
-    @staticmethod
-    async def remove_context_from_id(operation_id: str, context_id: str) -> bool:
-        """
-        Remove a context from an operation.
-
-        Args:
-            operation (str): The id of the operation.
-            context (str): The id of the context.
-
-        Returns:
-            bool: True if the context was removed, False otherwise.
-        """
-        async with GulpCollab.get_instance().session() as sess:
-            op = await sess.get(GulpOperation, operation_id)
-            if not op:
-                raise ValueError(f"operation id={operation_id} not found.")
-            return await op.remove_context(context_id=context_id, sess=sess)
 
     @override
     @classmethod

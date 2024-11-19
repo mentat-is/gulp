@@ -363,46 +363,23 @@ class GulpCollab:
         )
 
         # create default operation
-        operation = await GulpOperation.create(
+        operation: GulpOperation = await GulpOperation.create(
             token=admin_session.id,
             id="test_operation",
             index="testidx",
             glyph_id=operation_glyph.id,
         )
 
-        # create default context
-        context = await GulpContext.create(
-            token=admin_session.id,
-            id="test_context",
-            operation_id=operation.id,
-        )
-        # create sources
-        source_a = await GulpSource.create(
-            token=admin_session.id,
-            id="test_source_1",
-            context_id=context.id,
-            title="test source 1",
-            operation_id=operation.id,
-        )
-        source_b = await GulpSource.create(
-            token=admin_session.id,
-            id="test_source_2",
-            title="test source 2",
-            context_id=context.id,
-            operation_id=operation.id,
-        )
-
         # add sources to context and context to operation
-        await GulpContext.add_source(context.id, source_a.id, operation_id=operation.id)
-        await GulpContext.add_source(context.id, source_b.id, operation_id=operation.id)
-        await GulpOperation.add_context_to_id(operation.id, context.id)
+        ctx = await operation.add_context("test_context")
+        await ctx.add_source("test source 1")
+        await ctx.add_source("test source 2")
         from gulp.api.collab.structs import GulpCollabFilter
-
-        ctx = await GulpContext.get_one(
-            GulpCollabFilter(id=[context.id], operation_id=[operation.id])
-        )
-        js = json.dumps(ctx.to_dict(nested=True), indent=4)
-        MutyLogger.get_instance().info(f"test context dump:\n{js}")
+        """
+        operations: list[GulpOperation] = await GulpOperation.get()
+        for op in operations:
+            print(op.to_dict(nested=True))
+        """
 
         # create other users
         guest_user = await GulpUser.create(

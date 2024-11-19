@@ -3,12 +3,8 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 import json
-import os
-import re
-from typing import Annotated, Optional, Tuple
+from typing import Annotated, Optional
 
-import aiofiles
-import muty.crypto
 import muty.file
 import muty.jsend
 import muty.list
@@ -18,21 +14,21 @@ import muty.string
 import muty.uploadfile
 from fastapi import APIRouter, Header, Query, Request
 from fastapi.responses import JSONResponse
-from muty.jsend import JSendException, JSendResponse, JSendResponseStatus
+from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
-from pydantic import BaseModel, ConfigDict, Field
-from requests_toolbelt.multipart import decoder
+from pydantic import BaseModel, Field
 
+import gulp.api.rest.defs as api_defs
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
-import gulp.api.rest.defs as api_defs
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.rest.server_utils import GulpChunkedUploadResponse, ServerUtils
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest_api import GulpRestServer
-from gulp.config import GulpConfig
+from gulp.plugin import GulpPluginBase
+from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
 
 
@@ -41,10 +37,10 @@ class GulpIngestPayload(BaseModel):
     payload for an ingestion request
     """
 
-    flt: GulpIngestionFilter = Field(
+    flt: Optional[GulpIngestionFilter] = Field(
         GulpIngestionFilter(), description="The ingestion filter."
     )
-    plugin_params: GulpPluginParameters = Field(
+    plugin_params: Optional[GulpPluginParameters] = Field(
         GulpPluginParameters(), description="The plugin parameters."
     )
 
@@ -108,84 +104,55 @@ once the upload is done, the server will automatically delete the uploaded data 
         )
         return RestApiIngest._app
 
+    @staticmethod
     async def _ingest_single_internal(
         req_id: str,
         ws_id: str,
         user_id: str,
         operation_id: str,
         context_id: str,
+        source_id: str,
         index: str,
         plugin: str,
+        file_path: str,
         flt: GulpIngestionFilter,
         plugin_params: GulpPluginParameters,
     ) -> None:
+        MutyLogger.get_instance().debug("---> ingest_single_internal")
+        # create stats
+        stats: GulpIngestionStats
+        stats, _ = await GulpIngestionStats.create_or_get(
+            id=req_id,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+        )
 
-        collab = await collab_api.collab()
-        elastic = elastic_api.elastic()
-
-        mod = None
-        if plugin == "raw":
-            # src_file is a list of events
-            logger().debug(
-                "ingesting %d raw events with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
-                % (
-                    len(src_file),
-                    plugin,
-                    collab,
-                    elastic,
-                    type(flt),
-                    flt,
-                    plugin_params,
-                )
-            )
-        else:
-            logger().debug(
-                "ingesting file=%s with plugin=%s, collab=%s, elastic=%s, flt(%s)=%s, plugin_params=%s ..."
-                % (src_file, plugin, collab, elastic, type(flt), flt, plugin_params)
-            )
-
-        # load plugin
+        mod: GulpPluginBase = None
         try:
-            mod: PluginBase = gulp.plugin.load_plugin(plugin)
-        except Exception as ex:
-            # can't load plugin ...
-            t = TmpIngestStats(src_file).update(ingest_errors=[ex])
-            status, _ = await GulpStats.update(
-                collab,
-                req_id,
-                ws_id,
-                fs=t,
-                file_done=True,
-                new_status=GulpRequestStatus.FAILED,
+            # run plugin
+            mod = await GulpPluginBase.load(plugin)
+            await mod.ingest_file(
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                log_file_path=file_path,
+                plugin_params=plugin_params,
+                flt=flt,
             )
-            return status
-
-        # ingest
-        start_time = timeit.default_timer()
-        if flt is None:
-            flt = GulpIngestionFilter()
-
-        status = await mod.ingest(
-            index,
-            req_id,
-            client_id,
-            operation_id,
-            context,
-            src_file,
-            ws_id,
-            plugin_params=plugin_params,
-            flt=flt,
-            user_id=user_id,
-        )
-        end_time = timeit.default_timer()
-        execution_time = end_time - start_time
-        logger().debug(
-            "execution time for ingesting file %s: %f sec." % (src_file, execution_time)
-        )
-
-        # unload plugin
-        gulp.plugin.unload_plugin(mod)
-        return status
+        except Exception as ex:
+            await stats.update(
+                ws_id=ws_id,
+                source_failed=1,
+                error=ex,
+            )
+        finally:
+            if mod:
+                await mod.unload()
 
     @staticmethod
     async def ingest_file_handler(
@@ -224,6 +191,8 @@ once the upload is done, the server will automatically delete the uploaded data 
         # plugin_params: Annotated[GulpPluginParameters, Body()] = None,
         req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID)] = None,
     ) -> JSONResponse:
+        MutyLogger.get_instance().debug("---> ingest_file_handler")
+        # ensure a req_id exists
         req_id = GulpRestServer.ensure_req_id(req_id)
 
         try:
@@ -232,62 +201,57 @@ once the upload is done, the server will automatically delete the uploaded data 
                 token, GulpUserPermission.INGEST
             )
             user_id = s.user_id
+
+            # handle multipart request manually
+            MutyLogger.get_instance().debug("headers=%s" % (r.headers))
+            file_path, payload, result = (
+                await ServerUtils.handle_multipart_chunked_upload(r=r, req_id=req_id)
+            )
+            MutyLogger.get_instance().debug(
+                "file_path=%s,\npayload=%s,\nresult=%s"
+                % (file_path, json.dumps(payload, indent=2), result)
+            )
+            payload = GulpIngestPayload.model_validate(payload)
+
+            if not result.done:
+                # must continue upload with a new chunk
+                d = JSendResponse.error(
+                    req_id=req_id, data=result.model_dump(exclude_none=True)
+                )
+                return JSONResponse(d)
+
+            # create (and associate) context and source on the collab db, if they do not exist
+            await GulpOperation.add_context_to_id(operation_id, context_id)
+            source = await GulpContext.add_source_to_id(
+                operation_id, context_id, file_path
+            )
+
+            # run ingestion in a coroutine in one of the workers
+            MutyLogger.get_instance().debug("spawning ingestion task ...")
+            kwds = dict(
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source.id,
+                index=index,
+                plugin=plugin,
+                file_path=file_path,
+                flt=payload.flt,
+                plugin_params=payload.plugin_params,
+            )
+            print(json.dumps(kwds, indent=2))
+            await GulpProcess.get_instance().process_pool.apply(
+                RestApiIngest._ingest_single_internal, kwds=kwds
+            )
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
+
         except Exception as ex:
             raise JSendException(ex=ex, req_id=req_id)
 
-        # handle multipart request manually
-        MutyLogger.get_instance().debug("headers=%s" % (r.headers))
-        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, req_id=req_id
-        )
-        if not result.done:
-            # must continue upload with a new chunk
-            d = JSendResponse.error(
-                req_id=req_id, data=result.model_dump(exclude_none=True)
-            )
-            return JSONResponse(d)
-
-        # create context and source if they do not exist
-        await GulpOperation.add_context_to_id(operation_id, context_id)
-        await GulpContext.add_source_to_id(operation_id, context_id, file_path)
-
-        # create stats
-        stats, _ = await GulpIngestionStats.create_or_get(
-            req_id=req_id, operation_id=operation_id, context_id=context_id
-        )
-        # run ingestion in a coroutine in one of the workers
-        coro = RestApiIngest._ingest_single_internal(
-            req_id=req_id,
-            ws_id=ws_id,
-            user_id=user_id,
-            operation_id=operation_id,
-            context_id=context_id,
-            index=index,
-            plugin=plugin,
-            flt=payload.flt,
-            plugin_params=payload.plugin_params,
-        )
-
-        # TODO: spawn coro
-        # process in background (may need to wait for pool space)
-        coro = process.ingest_single_file_or_events_task(
-            index=index,
-            req_id=req_id,
-            f=file_path,
-            plugin=plugin,
-            client=client_id,
-            operation=operation_id,
-            ws_id=ws_id,
-            context=context,
-            token=token,
-            plugin_params=plugin_params,
-            flt=flt,
-            user_id=u.id,
-        )
-        await rest_api.aiopool().spawn(coro)
-
-        # and return pending
-        return muty.jsend.pending_jsend(req_id=req_id)
         """
 
 

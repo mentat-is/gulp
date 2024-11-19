@@ -151,7 +151,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                     "title": title,
                     "tags": tags,
                 }
-                note = GulpNote(id=None, owner_id=user_id, **args)
+                note = GulpNote(id=None, user_id=user_id, **args)
                 notes.append(note.to_dict(exclude_none=True))
 
             # bulk insert
@@ -169,7 +169,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
                 # operation is always the same
                 operation = notes[0].get("operation")
-                await GulpSharedWsQueue.get_instance().put(
+                GulpSharedWsQueue.get_instance().put(
                     WsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
                     user_id=user_id,
