@@ -849,8 +849,6 @@ class GulpPluginBase(ABC):
             None
         """
         ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
-
-        self._chunk_records_processed += 1
         self._extra_docs = []
 
         # process this record and generate one or more gulpdocument dictionaries
@@ -861,6 +859,8 @@ class GulpPluginBase(ABC):
             self._records_failed += 1
             MutyLogger.get_instance().exception(ex)
             return
+
+        self._chunk_records_processed += 1
 
         # ingest record
         for d in docs:
@@ -888,8 +888,9 @@ class GulpPluginBase(ABC):
                 # reset buffer
                 self._docs_buffer = []
                 self._chunk_records_processed = 0
-                self._chunk_records_ingested = 0
-                self._chunk_records_skipped = 0
+        #self._chunk_records_processed = 0
+        #self._chunk_records_ingested = 0
+        #self._chunk_records_skipped = 0
 
     async def _initialize(
         self,

@@ -4,7 +4,7 @@ from typing import Optional, Tuple, override
 import muty.log
 import muty.time
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -26,6 +26,7 @@ class RequestCanceledError(Exception):
     """
     Raised when a request is aborted (by API or in case of too many failures).
     """
+
     pass
 
 
@@ -33,6 +34,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
     """
     Represents the statistics for an ingestion operation.
     """
+
     operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
         nullable=True,
@@ -201,8 +203,11 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
         async with GulpCollab.get_instance().session() as sess:
             s: GulpIngestionStats
-            s = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False, with_for_update=True)
+            s = await cls.get_one_by_id(
+                id, sess=sess, throw_if_not_found=False, with_for_update=True
+            )
             if s:
+                """
                 if s.source_id != source_id:
                     # already exists but source is different: source total must be updated
                     sess.add(s)
@@ -211,9 +216,14 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
                     s.status = GulpRequestStatus.PENDING
                     s.time_finished = 0
                     await sess.commit()
+                """
                 return s, False
 
-            # not exist, create
+            # not exist, create using a lock
+            lock_id = hash(id) % 2147483647
+            await sess.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+            )
             s: GulpIngestionStats
             s = await cls._create(
                 id=id,
@@ -278,7 +288,6 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         throw_if_not_found: bool = True,
     ) -> None:
         raise NotImplementedError("delete_by_id @classmethod not implemented")
-
 
     @classmethod
     async def cancel_by_id(cls, token: str, req_id: str, ws_id: str = None) -> None:
