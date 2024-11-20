@@ -145,14 +145,8 @@ class Plugin(GulpPluginBase):
             flt=flt,
         )
 
-        # initialize stats
-        stats: GulpIngestionStats
-        stats, _ = await GulpIngestionStats.create_or_get(
-            req_id,
-            operation_id=operation_id,
-            source_id=source_id,
-            context_id=context_id,
-        )
+        # stats must be created by the caller, get it
+        stats: GulpIngestionStats = await GulpIngestionStats.get_one_by_id(id=req_id)
         try:
             # initialize plugin
             if plugin_params is None:
@@ -195,7 +189,6 @@ class Plugin(GulpPluginBase):
                         break
         except Exception as ex:
             await self._source_failed(stats, ex)
-
         finally:
             await self._source_done(stats, flt)
 

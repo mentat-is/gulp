@@ -115,17 +115,18 @@ once the upload is done, the server will automatically delete the uploaded data 
         index: str,
         plugin: str,
         file_path: str,
+        file_total: int,
         flt: GulpIngestionFilter,
         plugin_params: GulpPluginParameters,
     ) -> None:
-        MutyLogger.get_instance().debug("---> ingest_single_internal")
+        # MutyLogger.get_instance().debug("---> ingest_single_internal")
         # create stats
         stats: GulpIngestionStats
         stats, _ = await GulpIngestionStats.create_or_get(
             id=req_id,
             operation_id=operation_id,
             context_id=context_id,
-            source_id=source_id,
+            source_total=file_total,
         )
 
         mod: GulpPluginBase = None
@@ -187,6 +188,12 @@ once the upload is done, the server will automatically delete the uploaded data 
             ),
         ],
         ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
+        file_total: Annotated[
+            int,
+            Query(
+                description="set to the total number of files if this call is part of a multi-file upload, default=1."
+            ),
+        ] = 1,
         # flt: Annotated[GulpIngestionFilter, Body()] = None,
         # plugin_params: Annotated[GulpPluginParameters, Body()] = None,
         req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID)] = None,
@@ -238,13 +245,18 @@ once the upload is done, the server will automatically delete the uploaded data 
                 index=index,
                 plugin=plugin,
                 file_path=file_path,
+                file_total=file_total,
                 flt=payload.flt,
                 plugin_params=payload.plugin_params,
             )
-            print(json.dumps(kwds, indent=2))
-            await GulpProcess.get_instance().process_pool.apply(
-                RestApiIngest._ingest_single_internal, kwds=kwds
-            )
+            # print(json.dumps(kwds, indent=2))
+
+            # spawn a task which runs the ingestion in a worker process
+            async def worker_coro(kwds: dict):
+                await GulpProcess.get_instance().process_pool.apply(
+                    RestApiIngest._ingest_single_internal, kwds=kwds
+                )
+            await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))

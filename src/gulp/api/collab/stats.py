@@ -3,8 +3,9 @@ from typing import Optional, Tuple, override
 
 import muty.log
 import muty.time
+import xxhash
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, text
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -46,12 +47,6 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         nullable=True,
         default=None,
         doc="The context associated with the stats.",
-    )
-    source_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("source.id", ondelete="CASCADE"),
-        nullable=True,
-        default=None,
-        doc="The source associated with the stats.",
     )
     status: Mapped[GulpRequestStatus] = mapped_column(
         SQLEnum(GulpRequestStatus),
@@ -171,23 +166,20 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         id: str,
         operation_id: str,
         context_id: str,
-        source_id: str,
         sess: AsyncSession = None,
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
+        source_total: int = 1,
         **kwargs,
     ) -> Tuple[T, bool]:
         """
         Create new or get an existing GulpIngestionStats object on the collab database.
 
-        if the stats already exists (id matches) but source_id is different, stats refers to a multi-source
-        ingestion and source_total (and other relevant fields) are updated.
-
         Args:
             id (str): The unique identifier of the stats (= "req_id" of the request)
             operation_id (str): The operation associated with the stats
             context_id (str): The context associated with the stats
-            source_id (str): The source associated with the stats
+            source_total (int, optional): The total number of sources to be processed by the request to which this stats belong. Defaults to 1.
             kwargs: Additional keyword arguments.
 
         Returns:
@@ -202,40 +194,38 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         )
 
         async with GulpCollab.get_instance().session() as sess:
+            # acquire an advisory lock
+            lock_id = xxhash.xxh64(id).intdigest() & 0x7FFFFFFFFFFFFFFF
+            await sess.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+            )
+
+            # check if the stats already exist
             s: GulpIngestionStats
             s = await cls.get_one_by_id(
                 id, sess=sess, throw_if_not_found=False, with_for_update=True
             )
             if s:
-                """
-                if s.source_id != source_id:
-                    # already exists but source is different: source total must be updated
-                    sess.add(s)
-                    await sess.refresh(s)
-                    s.source_total += 1
-                    s.status = GulpRequestStatus.PENDING
-                    s.time_finished = 0
-                    await sess.commit()
-                """
                 return s, False
 
-            # not exist, create using a lock
-            lock_id = hash(id) % 2147483647
-            await sess.execute(
-                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-            )
-            s: GulpIngestionStats
-            s = await cls._create(
-                id=id,
-                sess=sess,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                ensure_eager_load=ensure_eager_load,
-                eager_load_depth=eager_load_depth,
-                source_total=1,
-                **kwargs,
-            )
+            try:
+                # not exist, create
+                s: GulpIngestionStats
+                s = await cls._create(
+                    id=id,
+                    sess=sess,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    ensure_eager_load=ensure_eager_load,
+                    eager_load_depth=eager_load_depth,
+                    source_total=source_total,
+                    **kwargs,
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().error(
+                    "create_or_get: error creating stats: %s" % ex
+                )
+                raise ex
 
             return s, True
 
@@ -371,52 +361,51 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
         sess = GulpCollab.get_instance().session()
         async with sess:
-            # be sure to read the latest version from db
-            sess.add(self)
-            await sess.refresh(self)
+            # get stats from db first
+            stats = await sess.get(GulpIngestionStats, self.id, with_for_update=True)
 
-            # add buffered values to the instance
-            self.source_processed += source_processed
-            self.source_failed += source_failed
-            self.records_failed += records_failed
-            self.records_skipped += records_skipped
-            self.records_processed += records_processed
-            self.records_ingested += records_ingested
+            # update
+            stats.source_processed += source_processed
+            stats.source_failed += source_failed
+            stats.records_failed += records_failed
+            stats.records_skipped += records_skipped
+            stats.records_processed += records_processed
+            stats.records_ingested += records_ingested
             if error:
-                if not self.errors:
-                    self.errors = []
+                if not stats.errors:
+                    stats.errors = []
                 if isinstance(error, Exception):
                     # MutyLogger.get_instance().error(f"PRE-COMMIT: ex error={error}")
                     error = str(error)
-                    if error not in self.errors:
-                        self.errors.append(error)
+                    if error not in stats.errors:
+                        stats.errors.append(error)
                 elif isinstance(error, str):
                     # MutyLogger.get_instance().error(f"PRE-COMMIT: str error={error}")
-                    if error not in self.errors:
-                        self.errors.append(error)
+                    if error not in stats.errors:
+                        stats.errors.append(error)
                 elif isinstance(error, list[str]):
                     # MutyLogger.get_instance().error(f"PRE-COMMIT: list error={error}")
                     for e in error:
-                        if e not in self.errors:
-                            self.errors.append(e)
+                        if e not in stats.errors:
+                            stats.errors.append(e)
 
             # MutyLogger.get_instance().debug(f"PRE-COMMIT: source_processed={self.source_processed}, source_failed={self.source_failed}, records_failed={self.records_failed}, records_skipped={self.records_skipped}, records_processed={self.records_processed}, records_ingested={self.records_ingested}, errors={self.errors}")
             if status:
-                self.status = status
+                stats.status = status
 
-            if self.source_processed == self.source_total:
+            if stats.source_processed == stats.source_total:
                 MutyLogger.get_instance().debug(
                     'source_processed == source_total, setting request "%s" to DONE'
-                    % (self.id)
+                    % (stats.id)
                 )
-                self.status = GulpRequestStatus.DONE
+                stats.status = GulpRequestStatus.DONE
 
-            if self.source_failed == self.source_total:
+            if stats.source_failed == stats.source_total:
                 MutyLogger.get_instance().error(
                     'source_failed == source_total, setting request "%s" to FAILED'
-                    % (self.id)
+                    % (stats.id)
                 )
-                self.status = GulpRequestStatus.FAILED
+                stats.status = GulpRequestStatus.FAILED
 
             # check threshold
             failure_threshold = (
@@ -424,43 +413,49 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             )
             if (
                 failure_threshold > 0
-                and self.type == GulpCollabType.INGESTION_STATS
-                and self.records_failed >= failure_threshold
-                or self.records_skipped >= failure_threshold
+                and stats.type == GulpCollabType.INGESTION_STATS
+                and stats.records_failed >= failure_threshold
+                or stats.records_skipped >= failure_threshold
             ):
                 # too many failures, abort
                 MutyLogger.get_instance().error(
                     "TOO MANY FAILURES req_id=%s (failed=%d, threshold=%d), aborting ingestion!"
-                    % (self.id, self.source_failed, failure_threshold)
+                    % (stats.id, stats.source_failed, failure_threshold)
                 )
-                self.status = GulpRequestStatus.CANCELED
+                stats.status = GulpRequestStatus.CANCELED
 
-            if self.status in [
+            if stats.status in [
                 GulpRequestStatus.CANCELED,
                 GulpRequestStatus.FAILED,
                 GulpRequestStatus.DONE,
             ]:
-                self.time_finished = muty.time.now_msec()
+                stats.time_finished = muty.time.now_msec()
                 MutyLogger.get_instance().debug(
                     'request "%s" COMPLETED with status=%s' % (self.id, self.status)
+                )
+                # print the time it took to complete the request, in seconds
+                MutyLogger.get_instance().debug(
+                    "*** TOTAL TIME TOOK by request %s: %s seconds ***"
+                    % (self.id, (stats.time_finished - stats.time_created) / 1000)
                 )
 
             # update the instance (will update websocket too)
             await super().update(
                 token=None,  # no token needed
-                d=self.to_dict(),
+                d=None,  # we pass the already updated stats in updated_instance
                 ws_id=ws_id,
                 req_id=self.id,
                 sess=sess,
                 throw_if_not_found=throw_if_not_found,
                 ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
+                updated_instance=stats,
                 **kwargs,
             )
             await sess.commit()
 
-            if self.status == GulpRequestStatus.CANCELED:
+            if stats.status == GulpRequestStatus.CANCELED:
                 MutyLogger.get_instance().error(
                     'request "%s" set to CANCELED' % (self.id)
                 )
                 raise RequestCanceledError()
-        return self
+        return stats

@@ -131,10 +131,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             MissingPermission: If the user does not have the required permissions.
         """
         # get session
-        MutyLogger.get_instance().debug(
-            "---> check_token_permission: token=%s, permission=%s, sess=%s ..."
-            % (token, permission, sess)
-        )
+        #MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
         user_session: GulpUserSession = await GulpUserSession.get_by_token(
             token, sess=sess
         )
@@ -146,10 +143,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
 
         u: GulpUser = user_session.user
         if u.has_permission(permission):
-            MutyLogger.get_instance().debug(
-                "OK! User %s has the required permissions %s to perform this operation."
-                % (user_session.user_id, permission)
-            )
+            # MutyLogger.get_instance().debug("OK! User %s has the required permissions %s to perform this operation." % (user_session.user_id, permission))
             return user_session
 
         if throw_on_no_permission:

@@ -286,7 +286,7 @@ class GulpCollabFilter(BaseModel):
 
         if with_for_update:
             q = q.with_for_update()
-        MutyLogger.get_instance().debug(f"to_select_query: {q}")
+        # MutyLogger.get_instance().debug(f"to_select_query: {q}")
         return q
 
 
@@ -462,14 +462,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             # create instance initializing the base class object (time created, time updated will be set by __init__)
             instance = cls(id=id, user_id=owner, **kwargs)
-            
+
             # and put on db
             sess.add(instance)
             await sess.commit()
 
-            MutyLogger.get_instance().debug(
-                f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, user_id={owner}"
-            )
+            #MutyLogger.get_instance().debug(f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, user_id={owner}")
             if ensure_eager_load:
                 # eagerly load the instance with all related attributes
                 instance = await instance.eager_load(depth=eager_load_depth, sess=sess)
@@ -585,9 +583,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.expunge(instance)
             return instance
 
-        MutyLogger.get_instance().debug(
-            "---> eager_load: %s, sess=%s" % (self.id, sess)
-        )
+        #MutyLogger.get_instance().debug("---> eager_load: %s, sess=%s" % (self.id, sess))
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
@@ -806,7 +802,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Asynchronously updates the object with the specified fields and values.
         Args:
             token (str): The token of the user making the request.
-            d (dict): A dictionary containing the fields to update and their new values.
+            d (dict): A dictionary containing the fields to update and their new values, ignored if updated_instance is provided in kwargs.
             permission (list[GulpUserPermission], optional): The required permission to update the object. Defaults to [GulpUserPermission.EDIT].
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             req_id (str, optional): The ID of the request. Defaults to None.
@@ -814,7 +810,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 If None, a new session is created and committed in a transaction.<br>
                 either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
-            **kwargs (dict, optional): Additional keyword arguments, these will be sent over the websocket only. Defaults to None.
+            **kwargs (dict, optional): Additional keyword arguments
+                - "updated_instance" is a special keyword argument that can be used to pass the already updated instance to avoid reloading it from the database.
         Returns:
             T: The updated object.
         Raises:
@@ -840,19 +837,27 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     token, permission, sess=sess
                 )
 
-            # ensure d has no 'id' (cannot be updated)
-            d.pop("id", None)
-
-            # load the instance from the session
-            self_in_session = await sess.get(self.__class__, self.id, with_for_update=True)
+            # load the instance from the session, for update
+            # try to get the already updated instance from kwargs
+            self_in_session = kwargs.get("updated_instance", None)
+            already_updated = False
+            if self_in_session:
+                already_updated = True
+            else:
+                # load
+                self_in_session = await sess.get(self.__class__, self.id, with_for_update=True)
             if not self_in_session:
                 raise ObjectNotFound(
                     f"{self.__class__.__name__} with id={self.id} not found"
                 )
-            # update from d
-            for k, v in d.items():
-                # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
-                setattr(self_in_session, k, v)
+
+            if not already_updated:
+                # update from d
+                # ensure d has no 'id' (cannot be updated)
+                d.pop("id", None)
+                for k, v in d.items():
+                    # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
+                    setattr(self_in_session, k, v)
 
             # sess update time
             self_in_session.time_updated = muty.time.now_msec()
@@ -1031,7 +1036,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     ccb: GulpCollabBase = cc
                     c[i] = await ccb.eager_load(depth=eager_load_depth, sess=sess)
 
-            MutyLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
+            # MutyLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
 
             # TODO: handle websocket ?
             return c

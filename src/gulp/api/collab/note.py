@@ -65,6 +65,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 req_id=req_id,
                 sess=sess,
                 throw_if_not_found=throw_if_not_found,
+                with_for_update=True,
             )
 
             # save old text
@@ -73,13 +74,14 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             # update note, websocket will also receive the old text
             obj = await note.update(
                 token=token,
-                d=d,
+                d=None,  # we pass the updated_instance instead to avoid the reload
                 permission=permission,
                 ws_id=ws_id,
                 req_id=req_id,
                 sess=sess,
                 throw_if_not_found=throw_if_not_found,
                 old_text=old_text,
+                updated_instance=note,
                 **kwargs,
             )
 

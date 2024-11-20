@@ -41,7 +41,7 @@ def get_file_size(file_path):
     return os.path.getsize(file_path)
 
 
-def create_curl_command(file_path, args):
+def create_curl_command(file_path: str, file_total: int, args):
     file_size = get_file_size(file_path)
     payload = json.dumps(
         {
@@ -56,7 +56,7 @@ def create_curl_command(file_path, args):
         "-v",
         "-X",
         "PUT",
-        f"http://{args.host}/ingest_file?operation_id={args.operation}&context_id={args.context}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}",
+        f"http://{args.host}/ingest_file?operation_id={args.operation}&context_id={args.context}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}",
         "-H",
         f"token: {args.token or "null"}",
         "-H",
@@ -76,8 +76,8 @@ def create_curl_command(file_path, args):
     return command
 
 
-def run_curl(file_path, args):
-    command = create_curl_command(file_path, args)
+def run_curl(file_path: str, file_total: int, args):
+    command = create_curl_command(file_path, file_total, args)
     # print curl command line
     cmdline = " ".join(command)
     MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug(
@@ -98,8 +98,9 @@ def main():
     MutyLogger.get_instance().info(f"files to ingest: {files}")
 
     start = timeit.default_timer()
+    num_files = len(files)
     with Pool() as pool:
-        l = pool.starmap(run_curl, [(file, args) for file in files])
+        l = pool.starmap(run_curl, [(file, num_files, args) for file in files])
         # wait for all processes to finish
         pool.close()
         pool.join()

@@ -228,10 +228,8 @@ class GulpPluginBase(ABC):
         self._extra_docs: list[dict]
 
         # to keep track of processed/failed records
-        self._chunk_records_processed: int = 0
+        self._records_processed: int = 0
         self._records_failed: int = 0
-        self._chunk_records_ingested: int = 0
-        self._chunk_records_skipped: int = 0
         self._is_source_failed: bool = False
         self._source_error: str = None
 
@@ -569,9 +567,6 @@ class GulpPluginBase(ABC):
             # use full chunk as ingested docs
             ingested_docs = data
 
-        self._chunk_records_ingested = len(ingested_docs)
-        self._chunk_records_skipped = skipped
-
         # send ingested docs to websocket
         if flt:
             # copy filter to avoid changing the original, if any,
@@ -860,7 +855,7 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().exception(ex)
             return
 
-        self._chunk_records_processed += 1
+        self._records_processed += 1
 
         # ingest record
         for d in docs:
@@ -873,7 +868,7 @@ class GulpPluginBase(ABC):
                 # update stats
                 MutyLogger.get_instance().debug(
                     "updating stats, processed=%d, ingested=%d, skipped=%d"
-                    % (self._chunk_records_processed, ingested, skipped)
+                    % (self._records_processed, ingested, skipped)
                 )
                 if self._stats_enabled:
                     # update stats
@@ -881,16 +876,14 @@ class GulpPluginBase(ABC):
                         ws_id=self._ws_id,
                         records_skipped=skipped,
                         records_ingested=ingested,
-                        records_processed=self._chunk_records_processed,
+                        records_processed=self._records_processed,
                         records_failed=self._records_failed,
                     )
 
-                # reset buffer
+                # reset buffer and counters
                 self._docs_buffer = []
-                self._chunk_records_processed = 0
-        #self._chunk_records_processed = 0
-        #self._chunk_records_ingested = 0
-        #self._chunk_records_skipped = 0
+                self._records_processed = 0
+                self._records_failed = 0
 
     async def _initialize(
         self,
@@ -1123,10 +1116,10 @@ class GulpPluginBase(ABC):
                 error=self._source_error,
                 source_failed=1 if self._is_source_failed else 0,
                 source_processed=1,
-                records_failed=self._records_failed,
                 records_ingested=ingested,
-                records_processed=self._chunk_records_processed,
                 records_skipped=skipped,
+                records_failed=self._records_failed,
+                records_processed=self._records_processed,
             )
         return GulpIngestionStats()
 
