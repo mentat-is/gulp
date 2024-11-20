@@ -193,7 +193,7 @@ class GulpCollabFilter(BaseModel):
         conditions = [column.ilike(f"%{value}%") for value in values]
         return or_(*conditions)
 
-    def to_select_query(self, type: T) -> Select[Tuple]:
+    def to_select_query(self, type: T, with_for_update: bool = False) -> Select[Tuple]:
         """
         convert the filter to a select query
 
@@ -284,6 +284,8 @@ class GulpCollabFilter(BaseModel):
         if self.private:
             q = q.where(GulpCollabObject.private is True)
 
+        if with_for_update:
+            q = q.with_for_update()
         MutyLogger.get_instance().debug(f"to_select_query: {q}")
         return q
 
@@ -460,7 +462,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
             # create instance initializing the base class object (time created, time updated will be set by __init__)
             instance = cls(id=id, user_id=owner, **kwargs)
-
+            
             # and put on db
             sess.add(instance)
             await sess.commit()
@@ -472,13 +474,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 # eagerly load the instance with all related attributes
                 instance = await instance.eager_load(depth=eager_load_depth, sess=sess)
 
-            ws_queue_datatype = kwargs.get('ws_queue_datatype', None)
+            ws_queue_datatype = kwargs.get("ws_queue_datatype", None)
             if ws_id and (isinstance(instance, GulpCollabObject) or ws_queue_datatype):
                 # notify the websocket of the collab object creation
                 data = instance.to_dict(exclude_none=True)
                 data["created"] = True
                 GulpSharedWsQueue.get_instance().put(
-                    WsQueueDataType.COLLAB_UPDATE if not ws_queue_datatype else ws_queue_datatype,
+                    (
+                        WsQueueDataType.COLLAB_UPDATE
+                        if not ws_queue_datatype
+                        else ws_queue_datatype
+                    ),
                     ws_id=ws_id,
                     user_id=owner,
                     operation_id=data.get("operation", None),
@@ -838,7 +844,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             d.pop("id", None)
 
             # load the instance from the session
-            self_in_session = await sess.get(self.__class__, self.id)
+            self_in_session = await sess.get(self.__class__, self.id, with_for_update=True)
             if not self_in_session:
                 raise ObjectNotFound(
                     f"{self.__class__.__name__} with id={self.id} not found"
@@ -857,12 +863,16 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             obj = await self_in_session.eager_load(sess=sess)
             MutyLogger.get_instance().debug("---> updated: %s" % (obj))
 
-            ws_queue_datatype = kwargs.get('ws_queue_datatype', None)
+            ws_queue_datatype = kwargs.get("ws_queue_datatype", None)
             if ws_id and (isinstance(obj, GulpCollabObject) or ws_queue_datatype):
                 # notify the websocket of the collab object update
                 data = obj.to_dict(exclude_none=True)
                 GulpSharedWsQueue.get_instance().put(
-                    WsQueueDataType.COLLAB_UPDATE if not ws_queue_datatype else ws_queue_datatype,
+                    (
+                        WsQueueDataType.COLLAB_UPDATE
+                        if not ws_queue_datatype
+                        else ws_queue_datatype
+                    ),
                     ws_id=ws_id,
                     # user_id is always set unless debug options like debug_allow_any_token_as_admin is set
                     user_id=user_id or self_in_session.user_id,
@@ -894,6 +904,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
+        with_for_update: bool = False,
     ) -> T:
         """
         Asynchronously retrieves an object of the specified type by its ID.
@@ -905,6 +916,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
+            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
         Returns:
             T: The object with the specified ID or None if not found.
         Raises:
@@ -919,6 +931,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_if_not_found=throw_if_not_found,
             ensure_eager_load=ensure_eager_load,
             eager_load_depth=eager_load_depth,
+            with_for_update=with_for_update,
         )
         return o
 
@@ -932,6 +945,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
+        with_for_update: bool = False,
     ) -> T:
         """
         shortcut to get one (the first found) object using get()
@@ -943,6 +957,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
+            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
         Returns:
             T: The object that matches the filter criteria or None if not found.
         Raises:
@@ -951,13 +966,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         # MutyLogger.get_instance().debug("---> get_one: type=%s, filter=%s, sess=%s" % (cls.__name__, flt, sess))
         c = await cls.get(
-            flt,
-            ws_id,
-            req_id,
-            sess,
-            throw_if_not_found,
-            ensure_eager_load,
-            eager_load_depth,
+            flt=flt,
+            ws_id=ws_id,
+            req_id=req_id,
+            sess=sess,
+            throw_if_not_found=throw_if_not_found,
+            ensure_eager_load=ensure_eager_load,
+            eager_load_depth=eager_load_depth,
+            with_for_update=with_for_update,
         )
         if c:
             return c[0]
@@ -973,6 +989,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         throw_if_not_found: bool = True,
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
+        with_for_update: bool = False,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -984,6 +1001,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
+            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -996,9 +1014,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_if_not_found: bool,
             ensure_eager_load: bool,
             eager_load_depth: int,
+            with_for_update: bool
         ):
             flt = flt or GulpCollabFilter()
-            q = flt.to_select_query(cls)
+            q = flt.to_select_query(cls, with_for_update=with_for_update)
             res = await sess.execute(q)
             c = cls.get_all_results_or_throw(
                 res, throw_if_not_found=throw_if_not_found, detail=flt
@@ -1022,11 +1041,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess = GulpCollab.get_instance().session()
             async with sess:
                 return await _get_internal(
-                    flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
+                    flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth, with_for_update
                 )
 
         return await _get_internal(
-            flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth
+            flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth, with_for_update
         )
 
     @classmethod

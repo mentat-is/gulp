@@ -93,6 +93,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 ),
                 throw_if_not_found=False,
                 sess=sess,
+                with_for_update=True,
             )
             if src:
                 MutyLogger.get_instance().info(

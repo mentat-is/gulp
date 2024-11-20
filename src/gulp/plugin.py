@@ -232,7 +232,8 @@ class GulpPluginBase(ABC):
         self._records_failed: int = 0
         self._chunk_records_ingested: int = 0
         self._chunk_records_skipped: int = 0
-        self._whole_source_failed: bool = False
+        self._is_source_failed: bool = False
+        self._source_error: str = None
 
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
@@ -1110,11 +1111,6 @@ class GulpPluginBase(ABC):
         Returns:
             GulpIngestionStats: The updated ingestion statistics.
         """
-        if self._whole_source_failed:
-            MutyLogger.get_instance().warning(
-                "source failed, skipping flush/update in _source_done"
-            )
-            return stats
         MutyLogger.get_instance().debug(
             "INGESTION SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d"
             % (self._log_file_path, len(self._docs_buffer))
@@ -1123,11 +1119,13 @@ class GulpPluginBase(ABC):
         if self._stats_enabled:
             return await stats.update(
                 ws_id=self._ws_id,
+                error=self._source_error,
+                source_failed=1 if self._is_source_failed else 0,
                 source_processed=1,
-                records_ingested=ingested,
-                records_skipped=skipped,
-                records_processed=self._chunk_records_processed,
                 records_failed=self._records_failed,
+                records_ingested=ingested,
+                records_processed=self._chunk_records_processed,
+                records_skipped=skipped,
             )
         return GulpIngestionStats()
 
@@ -1135,15 +1133,13 @@ class GulpPluginBase(ABC):
         self,
         stats: GulpIngestionStats,
         err: str | Exception,
-    ) -> GulpIngestionStats:
+    ) -> None:
         """
         Handles the failure of a source during ingestion.
         Logs the error and updates the ingestion statistics with the failure details.
         Args:
             stats (GulpIngestionStats): The current ingestion statistics.
             err (str | Exception): The error that caused the source to fail.
-        Returns:
-            GulpIngestionStats: The updated ingestion statistics.
         """
         if not isinstance(err, str):
             # err = muty.log.exception_to_string_lite(err)
@@ -1151,23 +1147,9 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._log_file_path, err)
         )
-
-        # avoid reprocessing in _source_done in the end
-        self._whole_source_failed = True
-
-        if self._stats_enabled:
-            # update and force-flush stats
-            err = "source=%s, %s" % (self._log_file_path or "-", err)
-            return await stats.update(
-                ws_id=self._ws_id,
-                source_failed=1,
-                records_failed=self._records_failed,
-                records_processed=self._chunk_records_processed,
-                records_ingested=self._chunk_records_ingested,
-                records_skipped=self._chunk_records_skipped,
-                error=err,
-            )
-        return GulpIngestionStats()
+        self._is_source_failed = True
+        err = "source=%s, %s" % (self._log_file_path or "-", err)
+        self._source_error = err
 
     @staticmethod
     async def path_by_name(name: str, extension: bool = False) -> str:

@@ -86,6 +86,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 throw_if_not_found=False,
                 sess=sess,
                 ensure_eager_load=False,
+                with_for_update=True
             )
             if ctx:
                 MutyLogger.get_instance().info(

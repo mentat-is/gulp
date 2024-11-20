@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
-from sqlalchemy_dlock.asyncio import create_async_sadlock
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
@@ -19,7 +18,7 @@ from gulp.api.collab.structs import (
     T,
 )
 from gulp.api.collab_api import GulpCollab
-from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
+from gulp.api.ws_api import WsQueueDataType
 from gulp.config import GulpConfig
 
 
@@ -27,16 +26,13 @@ class RequestCanceledError(Exception):
     """
     Raised when a request is aborted (by API or in case of too many failures).
     """
-
     pass
 
 
-class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
+class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
     """
-    Represents the base class for statistics
-    the id of the stats corresponds to the request "req_id" (unique per request).
+    Represents the statistics for an ingestion operation.
     """
-
     operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
         nullable=True,
@@ -67,11 +63,171 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
         BIGINT, default=0, doc="The timestamp when the stats were completed."
     )
 
+    errors: Mapped[Optional[list[str]]] = mapped_column(
+        MutableList.as_mutable(ARRAY(String)),
+        default_factory=list,
+        doc="The errors that occurred during processing.",
+    )
+
+    source_processed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of sources processed."
+    )
+    source_total: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The total number of sources to be processed."
+    )
+    source_failed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of sources that failed."
+    )
+    records_failed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that failed."
+    )
+    records_skipped: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that were skipped."
+    )
+    records_processed: Mapped[Optional[int]] = mapped_column(
+        Integer, default=0, doc="The number of records that were processed."
+    )
+    records_ingested: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        default=0,
+        doc="The number of records that were ingested (may be more than records_processed: a single record may originate more than one record to be ingested).",
+    )
+    __table_args__ = (Index("idx_stats_operation", "operation_id"),)
+
+    @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
-        if type(self) is GulpStatsBase:
-            raise TypeError("GulpStatsBase cannot be instantiated directly")
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, type=GulpCollabType.INGESTION_STATS, **kwargs)
+
+    @override
+    @classmethod
+    async def _create(
+        cls,
+        token: str = None,
+        id: str = None,
+        required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        ws_id: str = None,
+        req_id: str = None,
+        sess: AsyncSession = None,
+        ensure_eager_load: bool = False,
+        eager_load_depth: int = 3,
+        **kwargs,
+    ) -> T:
+        """
+        Asynchronously creates a new GulpIngestionStats subclass instance
+
+        Args:
+            token (str, optional): The authentication token. Defaults to None (unused)
+            id (str): The unique identifier for the stats (req_id)
+            required_permission (list[GulpUserPermission], optional): The required permission. Defaults to [GulpUserPermission.READ] (unused)
+            ws_id (str, optional): The websocket ID. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None (unused)
+            sess (AsyncSession, optional): The asynchronous session. Defaults to None.
+            ensure_eager_load (bool, optional): Whether to ensure eager loading of the instance. Defaults to True.
+            eager_load_depth (int, optional): The depth of eager loading. Defaults to 3.
+            **kwargs: Additional keyword arguments.
+        Keyword Args:
+            operation (str, optional): The operation. Defaults to None.
+            context (str, optional): The context of the operation. Defaults to None.
+        Returns:
+            T: The created instance.
+        """
+        MutyLogger.get_instance().debug(
+            "--->_create: id=%s, ws_id=%s, ensure_eager_load=%s, kwargs=%s",
+            id,
+            ws_id,
+            ensure_eager_load,
+            kwargs,
+        )
+        # configure expiration
+        time_expire = GulpConfig.get_instance().stats_ttl() * 1000
+        if time_expire > 0:
+            now = muty.time.now_msec()
+            time_expire = muty.time.now_msec() + time_expire
+            MutyLogger.get_instance().debug(
+                'now=%s, setting stats "%s".time_expire to %s', now, id, time_expire
+            )
+
+        args = {
+            "time_expire": time_expire,
+            **kwargs,
+        }
+        return await super()._create(
+            id=id,
+            ws_id=ws_id,
+            req_id=id,
+            sess=sess,
+            ensure_eager_load=ensure_eager_load,
+            eager_load_depth=eager_load_depth,
+            ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
+            **args,
+        )
+
+    @classmethod
+    async def create_or_get(
+        cls,
+        id: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        sess: AsyncSession = None,
+        ensure_eager_load: bool = True,
+        eager_load_depth: int = 3,
+        **kwargs,
+    ) -> Tuple[T, bool]:
+        """
+        Create new or get an existing GulpIngestionStats object on the collab database.
+
+        if the stats already exists (id matches) but source_id is different, stats refers to a multi-source
+        ingestion and source_total (and other relevant fields) are updated.
+
+        Args:
+            id (str): The unique identifier of the stats (= "req_id" of the request)
+            operation_id (str): The operation associated with the stats
+            context_id (str): The context associated with the stats
+            source_id (str): The source associated with the stats
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            a tuple (GulpIngestionStats, bool): The created or retrieved instance and a boolean indicating if the instance was created.
+        """
+        MutyLogger.get_instance().debug(
+            "---> create_or_get: id=%s, operation_id=%s, context_id=%s, kwargs=%s",
+            id,
+            operation_id,
+            context_id,
+            kwargs,
+        )
+
+        async with GulpCollab.get_instance().session() as sess:
+            s: GulpIngestionStats
+            s = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False, with_for_update=True)
+            if s:
+                if s.source_id != source_id:
+                    # already exists but source is different: source total must be updated
+                    sess.add(s)
+                    await sess.refresh(s)
+                    s.source_total += 1
+                    s.status = GulpRequestStatus.PENDING
+                    s.time_finished = 0
+                    await sess.commit()
+                return s, False
+
+            # not exist, create
+            s: GulpIngestionStats
+            s = await cls._create(
+                id=id,
+                sess=sess,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                ensure_eager_load=ensure_eager_load,
+                eager_load_depth=eager_load_depth,
+                source_total=1,
+                **kwargs,
+            )
+
+            return s, True
 
     @override
     @classmethod
@@ -123,208 +279,6 @@ class GulpStatsBase(GulpCollabBase, type="stats_base", abstract=True):
     ) -> None:
         raise NotImplementedError("delete_by_id @classmethod not implemented")
 
-    @override
-    @classmethod
-    async def _create(
-        cls,
-        token: str = None,
-        id: str = None,
-        required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
-        ws_id: str = None,
-        req_id: str = None,
-        sess: AsyncSession = None,
-        ensure_eager_load: bool = False,
-        eager_load_depth: int = 3,
-        **kwargs,
-    ) -> T:
-        """
-        Asynchronously creates a new GulpStats subclass instance
-        Args:
-            token (str, optional): The authentication token. Defaults to None (unused)
-            id (str): The unique identifier for the stats (req_id)
-            required_permission (list[GulpUserPermission], optional): The required permission. Defaults to [GulpUserPermission.READ] (unused)
-            ws_id (str, optional): The websocket ID. Defaults to None.
-            req_id (str, optional): The request ID. Defaults to None (unused)
-            sess (AsyncSession, optional): The asynchronous session. Defaults to None.
-            ensure_eager_load (bool, optional): Whether to ensure eager loading of the instance. Defaults to True.
-            eager_load_depth (int, optional): The depth of eager loading. Defaults to 3.
-            **kwargs: Additional keyword arguments.
-        Keyword Args:
-            operation (str, optional): The operation. Defaults to None.
-            context (str, optional): The context of the operation. Defaults to None.
-        Returns:
-            T: The created instance.
-        """
-        MutyLogger.get_instance().debug(
-            "--->_create: id=%s, ws_id=%s, ensure_eager_load=%s, kwargs=%s",
-            id,
-            ws_id,
-            ensure_eager_load,
-            kwargs,
-        )
-        operation_id: str = kwargs.get("operation_id", None)
-        context_id: str = kwargs.get("context_id", None)
-        source_id: str = kwargs.get("source_id", None)
-
-        # configure expiration
-        time_expire = GulpConfig.get_instance().stats_ttl() * 1000
-        if time_expire > 0:
-            now = muty.time.now_msec()
-            time_expire = muty.time.now_msec() + time_expire
-            MutyLogger.get_instance().debug(
-                'now=%s, setting stats "%s".time_expire to %s', now, id, time_expire
-            )
-
-        args = {
-            "operation_id": operation_id,
-            "context_id": context_id,
-            "source_id": source_id,
-            "time_expire": time_expire,
-            **kwargs,
-        }
-        return await super()._create(
-            id=id,
-            ws_id=ws_id,
-            req_id=id,
-            sess=sess,
-            ensure_eager_load=ensure_eager_load,
-            eager_load_depth=eager_load_depth,
-            ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
-            **args,
-        )
-
-    @classmethod
-    async def _create_or_get(
-        cls,
-        id: str,
-        operation_id: str = None,
-        context_id: str = None,
-        source_id: str = None,
-        sess: AsyncSession = None,
-        ensure_eager_load: bool = True,
-        eager_load_depth: int = 3,
-        **kwargs,
-    ) -> Tuple[T, bool]:
-        MutyLogger.get_instance().debug(
-            f"--->_create_or_get: id={id}, operation_id={operation_id}, context_id={context_id},source_id={source_id}, sess={sess}, ensure_eager_load={ensure_eager_load},kwargs={kwargs}"
-        )
-        existing = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
-        if existing:
-            return existing, False
-
-        # create new
-        stats = await cls._create(
-            id=id,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            ensure_eager_load=ensure_eager_load,
-            eager_load_depth=eager_load_depth,
-            **kwargs,
-        )
-        return stats, True
-
-
-class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
-    """
-    Represents the statistics for an ingestion operation.
-    """
-
-    errors: Mapped[Optional[list[str]]] = mapped_column(
-        MutableList.as_mutable(ARRAY(String)),
-        default_factory=list,
-        doc="The errors that occurred during processing.",
-    )
-
-    source_processed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of sources processed."
-    )
-    source_total: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The total number of sources to be processed."
-    )
-    source_failed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of sources that failed."
-    )
-    records_failed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of records that failed."
-    )
-    records_skipped: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of records that were skipped."
-    )
-    records_processed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of records that were processed."
-    )
-    records_ingested: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        default=0,
-        doc="The number of records that were ingested (may be more than records_processed: a single record may originate more than one record to be ingested).",
-    )
-    __table_args__ = (Index("idx_stats_operation", "operation_id"),)
-
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        super().__init__(*args, type=GulpCollabType.INGESTION_STATS, **kwargs)
-
-    @classmethod
-    async def create_or_get(
-        cls,
-        id: str,
-        operation_id: str,
-        context_id: str,
-        source_id: str,
-        **kwargs,
-    ) -> Tuple[T, bool]:
-        """
-        Create new or get an existing GulpIngestionStats object on the collab database.
-
-        if the stats already exists (id matches) but source_id is different, stats refers to a multi-source
-        ingestion and source_total (and other relevant fields) are updated.
-
-        Args:
-            id (str): The unique identifier of the stats (= "req_id" of the request)
-            operation_id (str): The operation associated with the stats
-            context_id (str): The context associated with the stats
-            source_id (str): The source associated with the stats
-            kwargs: Additional keyword arguments.
-
-        Returns:
-            a tuple (GulpIngestionStats, bool): The created or retrieved instance and a boolean indicating if the instance was created.
-        """
-        MutyLogger.get_instance().debug(
-            "---> create_or_get: id=%s, operation_id=%s, context_id=%s, kwargs=%s",
-            id,
-            operation_id,
-            context_id,
-            kwargs,
-        )
-
-        lock_key=id
-        async with GulpCollab.get_instance().session() as sess:
-            async with create_async_sadlock(sess, lock_key) as lock:
-                assert lock.locked
-                s: GulpIngestionStats
-                s, created = await cls._create_or_get(
-                    id=id,
-                    operation_id=operation_id,
-                    context_id=context_id,
-                    source_id=source_id,
-                    sess=sess,
-                    source_total=1,
-                    **kwargs,
-                )
-            assert not lock.locked
-            
-            if not created and s.source_id != source_id:
-                # already exists but source is different: source total must be updated
-                sess.add(s)
-                await sess.refresh(s)
-                s.source_total += 1
-                s.status = GulpRequestStatus.PENDING
-                s.time_finished = 0
-                await sess.commit()
-
-            return s, created
 
     @classmethod
     async def cancel_by_id(cls, token: str, req_id: str, ws_id: str = None) -> None:
@@ -389,6 +343,7 @@ class GulpIngestionStats(GulpStatsBase, type=GulpCollabType.INGESTION_STATS):
         Raises:
             RequestAbortError: If the request is aborted.
         """
+
         if self.status in [
             GulpRequestStatus.CANCELED,
             GulpRequestStatus.FAILED,
