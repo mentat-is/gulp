@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-script to test gulp ingestion api
+script to test gulp ingestion api, simulates multiple client processes ingesting files in parallel
+
+curl is used to send the files to the gulp ingestion api, to be as much close as possible to a real client.
 """
 
 import argparse
@@ -28,7 +30,9 @@ from muty.log import MutyLogger
 # raw with mapping
 ./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
 """
-def parse_args():
+
+
+def _parse_args():
     parser = argparse.ArgumentParser(
         description="Spawn n curl processes in parallel for file ingestion."
     )
@@ -90,12 +94,7 @@ def parse_args():
     )
     return parser.parse_args()
 
-
-def get_file_size(file_path):
-    return os.path.getsize(file_path)
-
-
-def create_curl_command(file_path: str, file_total: int, raw: dict, args):
+def _create_curl_command(file_path: str, file_total: int, raw: dict, args):
     d = {
         "flt": json.loads(args.flt) if args.flt else None,
         "plugin_params": (
@@ -104,6 +103,9 @@ def create_curl_command(file_path: str, file_total: int, raw: dict, args):
     }
     if raw:
         d["chunk"] = raw
+    else:
+        d["original_file_path"] = file_path
+
     payload = json.dumps(d)
 
     command = [
@@ -125,7 +127,7 @@ def create_curl_command(file_path: str, file_total: int, raw: dict, args):
         )
     else:
         # request is multipart/form-data
-        file_size = get_file_size(file_path)
+        file_size = os.path.getsize(file_path)
         command.extend(
             [
                 f"http://{args.host}/ingest_file?operation_id={args.operation}&context_id={args.context}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}",
@@ -146,8 +148,8 @@ def create_curl_command(file_path: str, file_total: int, raw: dict, args):
     return command
 
 
-def run_curl(file_path: str, file_total: int, raw: dict, args):
-    command = create_curl_command(file_path, file_total, raw, args)
+def _run_curl(file_path: str, file_total: int, raw: dict, args):
+    command = _create_curl_command(file_path, file_total, raw, args)
     # print curl command line
     cmdline = " ".join(command)
     MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug(
@@ -158,7 +160,7 @@ def run_curl(file_path: str, file_total: int, raw: dict, args):
 
 def main():
     MutyLogger.get_instance("test_ingest", level=logging.DEBUG)
-    args = parse_args()
+    args = _parse_args()
 
     if args.path and args.raw:
         MutyLogger.get_instance().error("only one of --path or --raw can be set")
@@ -180,23 +182,23 @@ def main():
         with open(args.raw) as f:
             raw = json.loads(f.read())
         files = None
-        MutyLogger.get_instance().info(f"raw data loaded.")
+        MutyLogger.get_instance().info("raw data loaded.")
 
-    start = timeit.default_timer()
+    # spawn curl processes
     with Pool() as pool:
         if raw:
-            l = pool.starmap(run_curl, [(None, 1, raw, args)])
+            l = pool.starmap(_run_curl, [(None, 1, raw, args)])
         else:
             l = pool.starmap(
-                run_curl, [(file, len(files), None, args) for file in files]
+                _run_curl, [(file, len(files), None, args) for file in files]
             )
 
         # wait for all processes to finish
         pool.close()
         pool.join()
-    end = timeit.default_timer()
 
-    MutyLogger.get_instance().info(f"ingestion took {end-start:.2f} seconds")
+    # done
+    MutyLogger.get_instance().info("DONE!")
 
 
 if __name__ == "__main__":

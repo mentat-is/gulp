@@ -197,8 +197,10 @@ class GulpPluginBase(ABC):
         self._operation_id: str = None
         # current gulp context
         self._context_id: str = None
-        # current log file path
-        self._log_file_path: str = None
+        # current file being ingested
+        self._file_path: str = None
+        # original file path, if any
+        self._original_file_path: str = None
         # current source id
         self._source_id: str = None
         # opensearch index to operate on
@@ -463,7 +465,7 @@ class GulpPluginBase(ABC):
         self._req_id = req_id
         self._user_id = user_id
         self._operation_id = operation_id
-        self._log_file_path = source
+        self._file_path = source
 
         # setup internal state to be able to call process_record as during ingestion
         self._stats_enabled = False
@@ -670,7 +672,8 @@ class GulpPluginBase(ABC):
         operation_id: str,
         context_id: str,
         source_id: str,
-        log_file_path: str,
+        file_path: str,
+        original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
@@ -685,9 +688,10 @@ class GulpPluginBase(ABC):
             operation_id (str): id of the operation on collab database.
             context_id (str): id of the context on collab database.
             source_id (str): id of the source on collab database.
-            log_file_path (str): The path to the log file currently being ingested.
-            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
+            file_path (str): path to the file being ingested.
+            original_file_path (str, optional): the original file path. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
             GulpRequestStatus: The status of the ingestion.
@@ -702,10 +706,11 @@ class GulpPluginBase(ABC):
         self._operation_id = operation_id
         self._context_id = context_id
         self._index = index
-        self._log_file_path = log_file_path
+        self._file_path = file_path
+        self._original_file_path = original_file_path
         self._source_id = source_id
         MutyLogger.get_instance().debug(
-            f"ingesting file source_id={source_id}, log_file_path={log_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
         return GulpRequestStatus.ONGOING
 
@@ -1154,7 +1159,7 @@ class GulpPluginBase(ABC):
         """
         MutyLogger.get_instance().debug(
             "INGESTION SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d"
-            % (self._log_file_path, len(self._docs_buffer))
+            % (self._file_path, len(self._docs_buffer))
         )
         ingested, skipped = await self._flush_buffer(flt, wait_for_refresh=True)
         if self._stats_enabled:
@@ -1186,10 +1191,10 @@ class GulpPluginBase(ABC):
             # err = muty.log.exception_to_string_lite(err)
             err = muty.log.exception_to_string(err)  # , with_full_traceback=True)
         MutyLogger.get_instance().error(
-            "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._log_file_path, err)
+            "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._file_path, err)
         )
         self._is_source_failed = True
-        err = "source=%s, %s" % (self._log_file_path or "-", err)
+        err = "source=%s, %s" % (self._file_path or "-", err)
         self._source_error = err
 
     @staticmethod

@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 
 import aiofiles
 import aiosmtplib
+import muty.crypto
 import muty.file
 from fastapi import Request
 from muty.log import MutyLogger
@@ -16,7 +17,7 @@ from requests_toolbelt.multipart import decoder
 from gulp.config import GulpConfig
 
 
-class GulpChunkedUploadResponse(BaseModel):
+class GulpUploadResponse(BaseModel):
     """
     the ingest API may respond with this object to indicate the status of an unfinished upload.
     """
@@ -90,24 +91,26 @@ class ServerUtils:
 
     @staticmethod
     async def handle_multipart_chunked_upload(
-        r: Request, req_id: str
-    ) -> Tuple[str, dict, GulpChunkedUploadResponse]:
+        r: Request, operation_id: str, context_id: str, req_id: str
+    ) -> Tuple[str, dict, GulpUploadResponse]:
         """
         Handles a chunked upload request with multipart content (file and json), with resume support.
 
         1. Parse the request headers to get the "continue_offset" and "total_file_size", used to check the upload status.
         2. Decode the multipart data and parses the JSON payload, if any.
         3. Extract the "filename" from the Content-Disposition header.
-        4. Writes the file chunk to the cache directory, using "req_id" as base (to allow resume later using the same "req_id").
+        4. Writes the file chunk to the cache directory using operation_id, context_id, req_id and the original filename to build a unique filename.
         5. Verify the upload status.
         6. Return the cache file path and the upload response object.
 
         Args:
             r (Request): The FastAPI request object.
+            operation_id (str): The operation ID.
+            context_id (str): The context ID.
             req_id (str): The request ID, to allow resuming a previously interrupted upload.
 
         Returns:
-            Tuple[str, dict, GulpChunkedUploadResponse]: A tuple containing:
+            Tuple[str, dict, GulpUploadResponse]: A tuple containing:
                 - the file path
                 - the parsed JSON payload, if any
                 - the upload response object to be returned to the client.
@@ -125,14 +128,14 @@ class ServerUtils:
                 return None
 
         def _extract_filename(content_disposition: str) -> str:
-            """Extract filename from Content-Disposition header."""
+            """extract filename from Content-Disposition header."""
             if not content_disposition:
                 raise ValueError("Empty Content-Disposition header")
 
-            # Normalize to lowercase and remove extra whitespace
+            # normalize to lowercase and remove extra whitespace
             content_disposition = content_disposition.lower().strip()
 
-            # Find filename parameter
+            # find filename parameter
             filename_match = re.search(r"filename\s*=\s*([^;\s]+)", content_disposition)
             if not filename_match:
                 raise ValueError('No "filename" found in Content-Disposition header')
@@ -163,12 +166,11 @@ class ServerUtils:
             file_part.headers[b"Content-Disposition"].decode("utf-8")
         )
         cache_dir = GulpConfig.get_instance().upload_tmp_dir()
-        cache_file_path = muty.file.safe_path_join(
-            cache_dir, f"{req_id}/{filename}", allow_relative=True
-        )
 
-        # Ensure upload directory exists
-        await aiofiles.os.makedirs(os.path.dirname(cache_file_path), exist_ok=True)
+        # build a unique filename based on the operation_id, context_id, req_id and the original filename
+        h = "%s-%s" % (muty.crypto.hash_xxh128(f"{operation_id}-{context_id}-{req_id}"), filename)
+        cache_file_path = muty.file.safe_path_join(
+            cache_dir, h)
 
         # Check if file is already complete
         current_size = await muty.file.get_size(cache_file_path)
@@ -177,7 +179,7 @@ class ServerUtils:
             MutyLogger.get_instance().info(
                 "file size matches, upload is already complete!"
             )
-            return cache_file_path, payload_dict, GulpChunkedUploadResponse(done=True)
+            return cache_file_path, payload_dict, GulpUploadResponse(done=True)
 
         # Write file chunk at the specified offset
         async with aiofiles.open(cache_file_path, "ab+") as f:
@@ -193,7 +195,7 @@ class ServerUtils:
         return (
             cache_file_path,
             payload_dict,
-            GulpChunkedUploadResponse(
+            GulpUploadResponse(
                 done=is_complete,
                 continue_offset=None if is_complete else current_written_size,
             ),

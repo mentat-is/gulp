@@ -1,0 +1,52 @@
+[
+    {
+        "plugin": "win_evtx",
+        "files": [
+            "win_evtx/2-system-Microsoft-Windows-LiveId%4Operational.evtx",
+            "win_evtx/2-system-Security-dirty.evtx",
+            "win_evtx/2-vss_0-Microsoft-Windows-RemoteDesktopServices-RdpCoreTS%4Operational.evtx",
+            "win_evtx/2-vss_0-Microsoft-Windows-TerminalServices-RemoteConnectionManager%4Operational.evtx",
+            "win_evtx/2-vss_7-System.evtx",
+            "win_evtx/Application.evtx",
+            "win_evtx/Application_no_crc32.evtx",
+            "win_evtx/Archive-ForwardedEvents-test.evtx",
+            "win_evtx/E_ShadowCopy6_windows_system32_winevt_logs_Microsoft-Windows-CAPI2%4Operational.evtx",
+            "win_evtx/E_Windows_system32_winevt_logs_Microsoft-Windows-CAPI2%4Operational.evtx",
+            "win_evtx/E_Windows_system32_winevt_logs_Microsoft-Windows-Shell-Core%4Operational.evtx",
+            "win_evtx/MSExchange_Management_wec.evtx",
+            "win_evtx/Microsoft-Windows-HelloForBusiness%4Operational.evtx",
+            "win_evtx/Microsoft-Windows-LanguagePackSetup%4Operational.evtx",
+            "win_evtx/Security_short_selected.evtx",
+            "win_evtx/issue_201.evtx",
+            "win_evtx/new-user-security.evtx",
+            "win_evtx/post-Security.evtx",
+            "win_evtx/sample-with-irregular-bool-values.evtx",
+            "win_evtx/sample_with_a_bad_chunk_magic.evtx",
+            "win_evtx/security.evtx",
+            "win_evtx/security_big_sample.evtx",
+            "win_evtx/sysmon.evtx",
+            "win_evtx/system.evtx"
+        ],
+        "plugin_params": {}
+    },
+    {
+        "plugin": "csv",
+        "files": [
+            "mftecmd/sample_record.csv"
+        ],
+        "plugin_params": {
+            "mapping_file": "mftecmd_csv.json",
+            "mapping_id": "record"
+        }
+    },
+    {
+        "plugin": "csv",
+        "files": [
+            "mftecmd/sample_j.csv"
+        ],
+        "plugin_params": {
+            "mapping_file": "mftecmd_json.json",
+            "mapping_id": "j"
+        }
+    }
+]

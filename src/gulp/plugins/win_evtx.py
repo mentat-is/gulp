@@ -9,7 +9,7 @@ import muty.time
 import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
-
+import os
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
@@ -151,7 +151,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._log_file_path,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -165,7 +165,8 @@ class Plugin(GulpPluginBase):
         operation_id: str,
         context_id: str,
         source_id: str,
-        log_file_path: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
@@ -177,7 +178,8 @@ class Plugin(GulpPluginBase):
             operation_id=operation_id,
             context_id=context_id,
             source_id=source_id,
-            log_file_path=log_file_path,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
         )
@@ -190,7 +192,7 @@ class Plugin(GulpPluginBase):
             await self._initialize(plugin_params)
 
             # init parser
-            parser = PyEvtxParser(log_file_path)
+            parser = PyEvtxParser(file_path)
         except Exception as ex:
             await self._source_failed(stats, ex)
             await self._source_done(stats, flt)

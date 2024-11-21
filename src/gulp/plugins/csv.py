@@ -1,3 +1,4 @@
+import os
 from typing import override
 
 import aiofiles
@@ -115,7 +116,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._log_file_path,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -128,7 +129,8 @@ class Plugin(GulpPluginBase):
         operation_id: str,
         context_id: str,
         source_id: str,
-        log_file_path: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
@@ -140,7 +142,8 @@ class Plugin(GulpPluginBase):
             operation_id=operation_id,
             context_id=context_id,
             source_id=source_id,
-            log_file_path=log_file_path,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
         )
@@ -169,7 +172,7 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         try:
             async with aiofiles.open(
-                log_file_path, mode="r", encoding="utf-8", newline=""
+                file_path, mode="r", encoding="utf-8", newline=""
             ) as f:
                 async for line_dict in AsyncDictReader(f, delimiter=delimiter):
                     # fix dict (remove BOM from keys, if present)
