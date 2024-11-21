@@ -2,7 +2,9 @@
 definitions for the REST api
 """
 
-API_DESC_REQ_ID = "request id, will be replicated in the response. leave empty to autogenerate."
+API_DESC_REQ_ID = (
+    "request id, will be replicated in the response. leave empty to autogenerate."
+)
 API_DESC_WS_ID = "websocket id to send the response/s to."
 API_DESC_PRIVATE = "if set, the object will be private (only the owner can see it)."
 API_DESC_COLLAB_LEVEL = "if set, one of the GulpCollabLevel levels to indicate the importance of the collab object (DEFAULT, WARNING, ERROR)."
@@ -23,15 +25,16 @@ API_DESC_DELETE_TOKEN = "an authentication token with DELETE (or ADMIN) permissi
 API_DESC_EDIT_TOKEN = "an authentication token with EDIT permission."
 API_DESC_INGEST_TOKEN = "an authentication token with INGEST (or ADMIN) permission."
 API_DESC_INGEST_PLUGIN = "plugin to be used for ingestion."
-API_DESC_OPERATION = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation_id.id".'
-API_DESC_CONTEXT = 'id of a context,'
+API_DESC_OPERATION_ID = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation_id.id".'
+API_DESC_CONTEXT_ID = "id of a context to assign to the operation."
+API_DESC_SOURCE_ID = "id of a source to assign to the context."
 API_DESC_INGEST_IGNORE_ERRORS = (
     "ignore errors instead of stopping (current file) ingestion at first error."
 )
 API_DESC_INGESTION_PLUGIN_PARAMS = "additional parameters for the ingestion plugin."
 API_DESC_PYSYGMA_PLUGIN = "fallback pysigma plugin `filename with or without .py/.py`. Defaults to None (use 'logsource.product' from sigma rule if present)."
 API_DESC_SIGMA_PLUGIN_PARAMS = "additional parameters for the sigma plugin."
-API_DESC_OPERATION = (
+API_DESC_OPERATION_ID = (
     "the id of an operation registered via operation_create() on the collab DB."
 )
 API_DESC_GLYPH = "the id of a glyph registered via glyph_create() on the collab DB."
@@ -40,10 +43,12 @@ API_DESC_WORKFLOW_ID = (
     "optional id of a workflow (in the shared-data table) to assign to the operation."
 )
 API_DESC_CUSTOM_MAPPINGS_FILE = 'an optional JSON filename (i.e. "custom_mapping.json") in the "mapping_files" directory, containing specific mappings. if not present, default for the plugin will be used.'
-EXAMPLE_INDEX = "test_idx"
 
+EXAMPLE_INDEX = "test_idx"
 EXAMPLE_OPERATION_ID = "test_operation"
-EXAMPLE_CONTEXT = "test_context"
+EXAMPLE_CONTEXT_ID = "test_context"
+EXAMPLE_SOURCE_ID = "test_source"
+
 EXAMPLE_INDEX_TEMPLATE = {
     "example": {
         "value": {

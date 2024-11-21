@@ -15,7 +15,7 @@ from muty.log import MutyLogger
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.rest.defs import (
-    API_DESC_OPERATION,
+    API_DESC_OPERATION_ID,
     API_DESC_REQ_ID,
     API_DESC_TOKEN,
     API_DESC_WS_ID,
@@ -157,7 +157,7 @@ class Plugin(GulpPluginBase):
     async def example_extension_handler(
         self,
         token: Annotated[str, Header(description=API_DESC_TOKEN)],
-        operation_id: Annotated[str, Query(description=API_DESC_OPERATION)],
+        operation_id: Annotated[str, Query(description=API_DESC_OPERATION_ID)],
         ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
         req_id: Annotated[str, Query(description=API_DESC_REQ_ID)] = None,
     ) -> JSendResponse:

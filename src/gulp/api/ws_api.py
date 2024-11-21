@@ -83,8 +83,12 @@ class WsData(BaseModel):
     """
     data carried by the websocket
     """
-
-    timestamp: int = Field(..., description="The timestamp of the data.")
+    model_config = ConfigDict(
+        # solves the issue of not being able to populate fields using field name instead of alias
+        populate_by_name=True,
+    )
+    timestamp: int = Field(..., description="The timestamp of the data.",
+                           alias="@timestamp")
     type: WsQueueDataType = Field(
         ..., description="The type of data carried by the websocket."
     )
@@ -92,7 +96,8 @@ class WsData(BaseModel):
     user_id: str = Field(..., description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
-        None, description="The operation this data belongs to."
+        None, description="The operation this data belongs to.",
+        alias="gulp.operation_id"
     )
     private: Optional[bool] = Field(
         False,
@@ -276,7 +281,7 @@ class GulpConnectedSockets:
 
             if cws.ws_id == d.ws_id:
                 # always relay to the ws async queue for the target websocket
-                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True))
+                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True, by_alias=True))
             else:
                 # not the target websocket
                 if d.private:
@@ -291,7 +296,7 @@ class GulpConnectedSockets:
                 if d.type not in [WsQueueDataType.COLLAB_UPDATE]:
                     continue
 
-                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True))
+                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True, by_alias=True))
 
 
 class GulpSharedWsQueue:

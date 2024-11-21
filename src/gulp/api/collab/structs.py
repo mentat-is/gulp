@@ -485,7 +485,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                     ),
                     ws_id=ws_id,
                     user_id=owner,
-                    operation_id=data.get("operation", None),
+                    operation_id=data.get("gulp.operation_id", None),
                     req_id=req_id,
                     private=data.get("private", False),
                     data=[data],
@@ -800,6 +800,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     ) -> T:
         """
         Asynchronously updates the object with the specified fields and values.
+
         Args:
             token (str): The token of the user making the request.
             d (dict): A dictionary containing the fields to update and their new values, ignored if updated_instance is provided in kwargs.
@@ -810,8 +811,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 If None, a new session is created and committed in a transaction.<br>
                 either the caller must handle the transaction and commit itself. Defaults to None (create and commit).
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
-            **kwargs (dict, optional): Additional keyword arguments
-                - "updated_instance" is a special keyword argument that can be used to pass the already updated instance to avoid reloading it from the database.
+
+        Additional keyword arguments:
+            - "updated_instance" is a special keyword argument that can be used to pass the already updated instance to avoid reloading it from the database.
+            - "ws_queue_datatype" is a special keyword argument that can be used to specify the type of the websocket queue data (used for stats).
+
         Returns:
             T: The updated object.
         Raises:
@@ -868,6 +872,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             obj = await self_in_session.eager_load(sess=sess)
             MutyLogger.get_instance().debug("---> updated: %s" % (obj))
 
+            # we notify the weboscket if it is a collab object or if ws_queue_datatype is set
             ws_queue_datatype = kwargs.get("ws_queue_datatype", None)
             if ws_id and (isinstance(obj, GulpCollabObject) or ws_queue_datatype):
                 # notify the websocket of the collab object update

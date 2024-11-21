@@ -117,8 +117,8 @@ class GulpBasicDocument(BaseModel):
     )
     source_id: Optional[str] = Field(
         None,
-        description='"gulp.source": the source the document is associated with.',
-        alias="gulp.source",
+        description='"gulp.source_id": the source the document is associated with.',
+        alias="gulp.source_id",
     )
 
 

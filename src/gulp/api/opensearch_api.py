@@ -194,17 +194,17 @@ class GulpOpenSearch:
         return _parse_mappings_internal(properties)
 
     async def datastream_get_mapping_by_src(
-        self, name: str, context_id: str, src_file: str
+        self, name: str, context_id: str, source_id: str
     ) -> dict:
         """
-        Get and parse mappings for the given index/datastream, considering only "gulp.context_id"=context_id and "gulp.source_id"=src_file.
+        Get and parse mappings for the given index/datastream, considering only "gulp.context_id"=context_id and "gulp.source_id"=source_id.
 
         The return type is the same as index_get_mapping with return_raw_result=False.
 
         Args:
             name (str): The index/datastream name.
             context_id (str): The context ID.
-            src_file (str): The source file.
+            source_id (str): The source ID.
 
         Returns:
             dict: The mapping dict.
@@ -215,8 +215,8 @@ class GulpOpenSearch:
         options.fields_filter = ["*"]
         q = {
             "query_string": {
-                "query": 'gulp.context_id: "%s" AND gulp.source.file: "%s"'
-                % (context_id, src_file)
+                "query": 'gulp.context_id: "%s" AND gulp.source_id: "%s"'
+                % (context_id, source_id)
             }
         }
 
@@ -248,7 +248,7 @@ class GulpOpenSearch:
                 break
 
         if not filtered_mapping:
-            raise ObjectNotFound("no documents found for src_file=%s" % (src_file))
+            raise ObjectNotFound("no documents found for src_file=%s" % (source_id))
 
         # sort the keys
         filtered_mapping = dict(sorted(filtered_mapping.items()))

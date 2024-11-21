@@ -190,6 +190,5 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(stats, ex)
         finally:
-            await self._source_done(stats, flt)
-
-        return stats.status
+            stats = await self._source_done(stats, flt)
+            return stats.status

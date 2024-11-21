@@ -4,108 +4,153 @@
 
 
 import json
+from typing import override
 
 import muty.crypto
 import muty.time
 import muty.xml
 from muty.log import MutyLogger
 
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters
+from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
     """
     ingests raw events
+
+    this plugin is used to ingest raw events, without any transformation.
+
+    the input for this plugin is a list of dictionaries, each with the following structure:
+
+    {
+        "metadata": {
+            # mandatory, with a format supported by gulp
+            "timestamp": "2021-01-01T00:00:00Z"
+            # mandatory, the raw event as string
+            "event_original": "raw event content",
+            # optional, will be set to 0 if missing
+            "event_code": "something"
+        },
+        "doc" {
+            # the document as key/value pairs, will be ingested according to plugin_params.ignore_mapping:
+            # if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is.
+            # (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')
+            "something": "value",
+            "something_else": "value",
+            "another_thing": 123,
+        }
+    }
     """
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
-    def desc(self) -> str:
-        return "Raw events ingestion plugin."
-
     def display_name(self) -> str:
         return "raw"
 
-    def version(self) -> str:
-        return "1.0"
+    @override
+    def desc(self) -> str:
+        return "Raw events ingestion plugin"
 
-    async def ingest_file(
+    @override
+    def additional_parameters(self) -> list[GulpPluginAdditionalParameter]:
+        return [
+            GulpPluginAdditionalParameter(
+                name="ignore_mapping",
+                type="bool",
+                default_value=False,
+                desc="if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
+            )
+        ]
+
+    @override
+    async def _record_to_gulp_document(
+        self, record: any, record_idx: int
+    ) -> GulpDocument:
+        # get mandatory fields from metadata (metadata and the doc dictionary itself)
+        metadata: dict = record["metadata"]
+        doc: dict= record["doc"]
+        ts: str = metadata["@timestamp"]
+        original: str = metadata["event.original"]
+        event_code: str = metadata.get("event.code", "0")
+
+        mapping = self.selected_mapping()
+        if mapping.model_extra.get("ignore_mapping", False):
+            # ignore mapping
+            d = doc
+        else:
+            d={}
+            for k, v in doc.items():
+                mapped = self._process_key(k, v)
+                d.update(mapped)
+
+        # create a gulp document
+        return GulpDocument(
+            self,
+            timestamp=ts,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=str(original),
+            event_sequence=record_idx,
+            event_code=event_code,
+            **d,
+        )
+
+    @override
+    async def ingest_raw(
         self,
-        index: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context_id: str,
-        source: str | list[dict],
         ws_id: str,
-        plugin_params: GulpPluginParameters = None,
+        user_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        chunk: list[dict],
         flt: GulpIngestionFilter = None,
-        **kwargs,
+        plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
-
-        await super().ingest_file(
-            index=index,
+        await super().ingest_raw(
             req_id=req_id,
-            client_id=client_id,
+            ws_id=ws_id,
+            user_id=user_id,
+            index=index,
             operation_id=operation_id,
             context_id=context_id,
-            source=source,
-            ws_id=ws_id,
+            source_id=source_id,
+            chunk=chunk,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )
+        # stats must be created by the caller, get it
+        stats: GulpIngestionStats = await GulpIngestionStats.get_one_by_id(id=req_id)
+        try:
+            # initialize plugin
+            if not plugin_params:
+                plugin_params = GulpPluginParameters()
+            await self._initialize(plugin_params)
+        except Exception as ex:
+            await self._source_failed(stats, ex)
+            await self._source_done(stats, flt)
+            return GulpRequestStatus.FAILED
 
-        fs = TmpIngestStats("raw")
-        await self._initialize()(index, source, skip_mapping=True)
+        doc_idx = 0
+        try:
+            for rr in chunk:
+                doc_idx += 1
 
-        events: list[dict] = source
-        for evt in events:
-            # MutyLogger.get_instance().debug("processing event: %s" % json.dumps(evt, indent=2))
-            # ensure these are set
-            if "@timestamp" not in evt:
-                # MutyLogger.get_instance().warning("no @timestamp, skipping: %s" % json.dumps(evt, indent=2))
-                fs = self._record_failed(fs, evt, source, "no @timestamp, skipping")
-                continue
-
-            # operation_id, client_id, context should already be set inside the event.
-            # only if not, we set them here.
-
-            if "event.original" not in evt:
-                ori = str(evt)
-                evt["event.original"] = ori
-            if "gulp.operation_id.id" not in evt:
-                evt["gulp.operation_id.id"] = operation_id
-            if "agent.id" not in evt:
-                evt["agent.id"] = client_id
-            if "gulp.context_id" not in evt:
-                evt["gulp.context_id"] = context_id
-            if "agent.type" not in evt:
-                evt["agent.type"] = self.display_name()
-            if "event.hash" not in evt:
-                # set event hash in the end
-                evt["event.hash"] = muty.crypto.hash_xxh64(str(evt))
-
-            fs = fs.update(processed=1)
-            try:
-                # bufferize, we will flush in the end
-                fs = await self._ingest_record(
-                    index,
-                    evt,
-                    fs,
-                    ws_id,
-                    req_id,
-                    flt,
-                )
-            except Exception as ex:
-                fs = self._record_failed(fs, evt, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
+                try:
+                    await self.process_record(stats, rr, doc_idx, flt)
+                except RequestCanceledError:
+                    break
+        except Exception as ex:
+            await self._source_failed(stats, ex)
+        finally:
+            stats = await self._source_done(stats, flt)
+            return stats.status

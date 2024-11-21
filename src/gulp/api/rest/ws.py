@@ -33,7 +33,7 @@ class GulpAPIWebsocket:
         """
 
         router = APIRouter()
-
+        
         @router.websocket_route("/ws")
         class WebSocketHandler(WebSocketEndpoint):
             """

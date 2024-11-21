@@ -185,7 +185,7 @@ class Plugin(GulpPluginBase):
         stats: GulpIngestionStats = await GulpIngestionStats.get_one_by_id(id=req_id)
         try:
             # initialize plugin
-            if plugin_params is None:
+            if not plugin_params:
                 plugin_params = GulpPluginParameters(mapping_file="windows.json")
             await self._initialize(plugin_params)
 
@@ -207,9 +207,8 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(stats, ex)
         finally:
-            await self._source_done(stats, flt)
-
-        return stats.status
+            stats = await self._source_done(stats, flt)
+            return stats.status
 
     @override
     def sigma_support(self) -> list[GulpPluginSigmaSupport]:

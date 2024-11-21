@@ -181,7 +181,7 @@ class GulpRestServer:
                     "method": r.method,
                     "query": str(r.query_params),
                     "headers": dict(r.headers),
-                    "body": body + "...",
+                    "body": body,
                 }
             },
         )

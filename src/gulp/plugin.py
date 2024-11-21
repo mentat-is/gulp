@@ -457,7 +457,7 @@ class GulpPluginBase(ABC):
         # TODO in plugins:
         # 1. query the external source in chunk of 1000 documents, with loop set
         # 2. run the same process_record loop as in ingest_file then
-        # 3. consider to implement ingest_raw to ingest the results
+        # 3. use the raw plugin to ingest ~~consider to implement ingest_raw to ingest the results~~
 
         self._ws_id = ws_id
         self._req_id = req_id
@@ -573,7 +573,7 @@ class GulpPluginBase(ABC):
             flt = copy(flt)
             # ensure data on ws is filtered
             flt.storage_ignore_filter = False
-        
+
         ws_docs = [
             # use only a minimal fields set to avoid sending too much data to the ws
             {field: doc[field] for field in QUERY_DEFAULT_FIELDS if field in doc}
@@ -613,6 +613,53 @@ class GulpPluginBase(ABC):
                 )
 
         return len(ingested_docs), skipped
+
+    async def ingest_raw(
+        self,
+        req_id: str,
+        ws_id: str,
+        user_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        chunk: list[dict],
+        flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
+    ) -> GulpRequestStatus:
+        """
+        ingest a chunk of GulpDocument dictionaries.
+
+        Args:
+            req_id (str): The request ID.
+            ws_id (str): The websocket ID to stream on
+            user_id (str): The user performing the ingestion (id on collab database)
+            index (str): The name of the target opensearch/elasticsearch index or datastream.
+            operation_id (str): id of the operation on collab database.
+            context_id (str): id of the context on collab database.
+            source_id (str): id of the source on collab database.
+            chunk (list[dict]): The chunk of documents to ingest.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
+            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+
+        Returns:
+            GulpRequestStatus: The status of the ingestion.
+
+        Notes:
+            - implementers must call super().ingest_raw first, then _initialize().<br>
+            - this function *MUST NOT* raise exceptions.
+        """
+        self._ws_id = ws_id
+        self._req_id = req_id
+        self._user_id = user_id
+        self._operation_id = operation_id
+        self._context_id = context_id
+        self._index = index
+        self._source_id = source_id
+        MutyLogger.get_instance().debug(
+            f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+        )
+        return GulpRequestStatus.ONGOING
 
     async def ingest_file(
         self,

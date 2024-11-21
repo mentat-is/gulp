@@ -111,7 +111,6 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             # create new source, id=None to augogenerate
             # we are calling this internally only, so we can use token=None to skip
             # token check.
-
             src = await GulpSource.create(
                 token=None,
                 id=None,

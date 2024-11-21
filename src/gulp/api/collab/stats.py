@@ -98,6 +98,18 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         super().__init__(*args, type=GulpCollabType.INGESTION_STATS, **kwargs)
 
     @override
+    def to_dict(
+        self, nested=False, hybrid_attributes=False, exclude=None, exclude_none=False
+    ):
+        # override to have 'gulpesque' keys
+        d = super().to_dict(nested, hybrid_attributes, exclude, exclude_none)
+        if "operation_id" in d:
+            d["gulp.operation_id"] = d.pop("operation_id")
+        if "context_id" in d:
+            d["gulp.context_id"] = d.pop("context_id")
+        return d
+
+    @override
     @classmethod
     async def _create(
         cls,
@@ -203,9 +215,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
             # check if the stats already exist
             s: GulpIngestionStats
-            s = await cls.get_one_by_id(
-                id, sess=sess, throw_if_not_found=False
-            )
+            s = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
             if s:
                 return s, False
 
@@ -425,6 +435,11 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
                 )
                 stats.status = GulpRequestStatus.CANCELED
 
+            if stats.status == GulpRequestStatus.DONE:
+                # if no records were processed and some failed, set to FAILED
+                if stats.records_processed == 0 and stats.records_failed > 0:
+                    stats.status = GulpRequestStatus.FAILED
+
             if stats.status in [
                 GulpRequestStatus.CANCELED,
                 GulpRequestStatus.FAILED,
@@ -432,7 +447,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             ]:
                 stats.time_finished = muty.time.now_msec()
                 MutyLogger.get_instance().debug(
-                    'request "%s" COMPLETED with status=%s' % (self.id, self.status)
+                    'request "%s" COMPLETED with status=%s' % (stats.id, stats.status)
                 )
                 # print the time it took to complete the request, in seconds
                 MutyLogger.get_instance().debug(
