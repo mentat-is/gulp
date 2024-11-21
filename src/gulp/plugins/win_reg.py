@@ -146,10 +146,10 @@ class Plugin(GulpPluginBase):
         time_str = event.timestamp
         time_nanosec = muty.time.string_to_epoch_nsec(time_str)
         time_msec = muty.time.nanos_to_millis(time_nanosec)
-        event_code = str(muty.crypto.hash_crc24(str(regkey["path"])))
+        event_code = str(muty.crypto.hash_xxh64_int(str(regkey["path"])))
 
         # self.MutyLogger.get_instance().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
-        # event_code = custom_mapping.options.event_code if custom_mapping.options.event_code is not None else str(muty.crypto.hash_crc24(d["type"]))
+        # event_code = custom_mapping.options.event_code if custom_mapping.options.event_code is not None else str(muty.crypto.hash_xxh64_int(d["type"]))
 
         docs = self._build_gulpdocuments(
             fme,

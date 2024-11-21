@@ -157,7 +157,7 @@ class Plugin(GulpPluginBase):
             last_layer  # TODO: this sometimes is a Packet_metadata class instead of layer
         )
 
-        event_code = str(muty.crypto.hash_crc24(last_layer))
+        event_code = str(muty.crypto.hash_xxh64_int(last_layer))
 
         flattened = muty.json.flatten_json(evt_json)
         fme: list[GulpMappingField] = []

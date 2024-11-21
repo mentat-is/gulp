@@ -24,6 +24,8 @@ class WsQueueDataType(StrEnum):
     DOCUMENTS_CHUNK = "docs_chunk"
     # an array with one or more deleted GulpCollabObject (note, story, highlight, link)
     COLLAB_DELETE = "collab_delete"
+    # signal an ingest source operation is done
+    INGEST_SOURCE_DONE = "ingest_source_done"
     QUERY_DONE = "query_done"
     REBASE_DONE = "rebase_done"
 
@@ -274,7 +276,7 @@ class GulpConnectedSockets:
 
             if cws.ws_id == d.ws_id:
                 # always relay to the ws async queue for the target websocket
-                await cws.q.put(d)
+                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True))
             else:
                 # not the target websocket
                 if d.private:
@@ -289,7 +291,7 @@ class GulpConnectedSockets:
                 if d.type not in [WsQueueDataType.COLLAB_UPDATE]:
                     continue
 
-                await cws.q.put(d)
+                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True))
 
 
 class GulpSharedWsQueue:
@@ -330,7 +332,9 @@ class GulpSharedWsQueue:
         if GulpProcess.get_instance().is_main_process():
             raise RuntimeError("set_queue() must be called in a worker process")
 
-        MutyLogger.get_instance().debug("setting shared ws queue in worker process: q=%s" % (q))
+        MutyLogger.get_instance().debug(
+            "setting shared ws queue in worker process: q=%s" % (q)
+        )
         self._shared_q = q
 
     def init_queue(self, mgr: SyncManager) -> Queue:
@@ -351,6 +355,8 @@ class GulpSharedWsQueue:
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
         self._shared_q = mgr.Queue()
+        asyncio.create_task(self._fill_ws_queues_from_shared_queue())
+
         return self._shared_q
 
     async def _fill_ws_queues_from_shared_queue(self):
@@ -368,15 +374,13 @@ class GulpSharedWsQueue:
                 if GulpRestServer.get_instance().is_shutdown():
                     # server is shutting down, break the loop
                     break
-
                 # MutyLogger.get_instance().debug("running ws_q.get in executor ...")
                 try:
                     # get a WsData entry from the shared multiprocessing queue
-                    d: dict = await loop.run_in_executor(
+                    entry = await loop.run_in_executor(
                         pool, self._shared_q.get, True, 1
                     )
                     self._shared_q.task_done()
-                    entry = WsData.model_validate(d)
 
                     # find the websocket associated with this entry
                     cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
@@ -433,9 +437,6 @@ class GulpSharedWsQueue:
             data (any, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.
         """
-        MutyLogger.get_instance().debug(
-            "adding entry type=%s to ws_id=%s queue..." % (type, ws_id)
-        )
         wsd = WsData(
             timestamp=muty.time.now_msec(),
             type=type,
@@ -446,6 +447,8 @@ class GulpSharedWsQueue:
             private=private,
             data=data,
         )
-        # TODO: try and see if it works without serializing...
         if self._shared_q and ws_id:
-            self._shared_q.put(wsd.model_dump(exclude_none=True))
+            MutyLogger.get_instance().debug(
+                "adding entry type=%s to ws_id=%s queue..." % (type, ws_id)
+            )
+            self._shared_q.put(wsd)

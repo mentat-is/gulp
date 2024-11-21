@@ -22,11 +22,12 @@ import gulp.api.rest.defs as api_defs
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpIngestionStats
-from gulp.api.collab.structs import GulpUserPermission
+from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest_api import GulpRestServer
+from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -45,12 +46,21 @@ class GulpIngestPayload(BaseModel):
     )
 
 
-class RestApiIngest:
+class GulpIngestSourceDonePacket(BaseModel):
     """
-    This class contains the REST API for gULP (gui Universal Log Processor).
+    to signal on the websocket that a source ingestion is done
     """
 
-    _app: APIRouter = APIRouter()
+    source_id: str = Field(..., description="The source ID.")
+    context_id: str = Field(..., description="The context ID.")
+    req_id: str = Field(..., description="The request ID.")
+    status: GulpRequestStatus = Field(..., description="The request status.")
+
+
+class GulpAPIIngest:
+    """
+    handles rest entrypoint/s for ingestion
+    """
 
     @staticmethod
     def router() -> APIRouter:
@@ -60,9 +70,10 @@ class RestApiIngest:
         Returns:
             APIRouter: The APIRouter instance
         """
-        RestApiIngest._app.add_api_route(
+        router = APIRouter()
+        router.add_api_route(
             "/ingest_file",
-            RestApiIngest.ingest_file_handler,
+            GulpAPIIngest.ingest_file_handler,
             methods=["PUT"],
             tags=["ingest"],
             response_model=JSendResponse,
@@ -102,7 +113,7 @@ once the upload is done, the server will automatically delete the uploaded data 
             """,
             summary="ingest file using the specified plugin.",
         )
-        return RestApiIngest._app
+        return router
 
     @staticmethod
     async def _ingest_single_internal(
@@ -130,10 +141,11 @@ once the upload is done, the server will automatically delete the uploaded data 
         )
 
         mod: GulpPluginBase = None
+        status = GulpRequestStatus.DONE
         try:
             # run plugin
             mod = await GulpPluginBase.load(plugin)
-            await mod.ingest_file(
+            status = await mod.ingest_file(
                 req_id=req_id,
                 ws_id=ws_id,
                 user_id=user_id,
@@ -146,12 +158,28 @@ once the upload is done, the server will automatically delete the uploaded data 
                 flt=flt,
             )
         except Exception as ex:
+            status = GulpRequestStatus.FAILED
             await stats.update(
                 ws_id=ws_id,
                 source_failed=1,
                 error=ex,
             )
         finally:
+            # send done packet on the websocket
+            GulpSharedWsQueue.get_instance().put(
+                type=WsQueueDataType.INGEST_SOURCE_DONE,
+                ws_id=ws_id,
+                user_id=user_id,
+                operation_id=operation_id,
+                data=GulpIngestSourceDonePacket(
+                    source_id=source_id,
+                    context_id=context_id,
+                    req_id=req_id,
+                    status=status,
+                ),
+            )
+
+            # done
             if mod:
                 await mod.unload()
 
@@ -254,8 +282,9 @@ once the upload is done, the server will automatically delete the uploaded data 
             # spawn a task which runs the ingestion in a worker process
             async def worker_coro(kwds: dict):
                 await GulpProcess.get_instance().process_pool.apply(
-                    RestApiIngest._ingest_single_internal, kwds=kwds
+                    GulpAPIIngest._ingest_single_internal, kwds=kwds
                 )
+
             await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
 
             # and return pending

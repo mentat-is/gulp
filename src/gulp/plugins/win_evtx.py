@@ -143,7 +143,6 @@ class Plugin(GulpPluginBase):
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-        # MutyLogger.get_instance().debug("timestampmapped=%s" % d)
         return GulpDocument(
             self,
             timestamp=timestamp,

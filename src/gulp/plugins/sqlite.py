@@ -7,7 +7,7 @@ import muty.os
 import muty.string
 import muty.xml
 from muty.log import MutyLogger
-
+import muty.crypto
 import gulp.api.mapping.helpers as mappings_helper
 import gulp.config as gulp_utils
 from gulp.api.collab.base import GulpRequestStatus
@@ -136,7 +136,7 @@ class Plugin(GulpPluginBase):
 
         # MutyLogger.get_instance().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
         event_code = str(
-            muty.crypto.hash_crc24(
+            muty.crypto.hash_xxh64_int(
                 f"{extra["gulp.sqlite.db.name"]}.{extra["gulp.sqlite.db.table.name"]}"
             )
         )

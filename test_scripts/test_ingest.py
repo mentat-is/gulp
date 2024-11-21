@@ -11,6 +11,10 @@ from multiprocessing import Pool
 import muty.file
 from muty.log import MutyLogger
 
+"""
+./test_scripts/test_ingest.py --path ./samples/win_evtx
+./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
+"""
 
 def parse_args():
     parser = argparse.ArgumentParser(

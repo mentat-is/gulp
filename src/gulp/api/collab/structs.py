@@ -832,7 +832,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 permission = [GulpUserPermission.EDIT]
 
             if token:
-                # chcek token permission here
+                # check token permission here
                 user_id = await self.check_token_against_object(
                     token, permission, sess=sess
                 )

@@ -1,8 +1,9 @@
 import json
 from typing import Optional, Union, override
 
+import muty.crypto
 from muty.log import MutyLogger
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,6 +79,12 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         if not sess:
             sess = GulpCollab.get_instance().session()
 
+        # acquire lock first
+        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{context_id}")
+        await sess.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
+
         sess.add(self)
         async with sess:
             # check if context exists
@@ -86,7 +93,6 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 throw_if_not_found=False,
                 sess=sess,
                 ensure_eager_load=False,
-                with_for_update=True
             )
             if ctx:
                 MutyLogger.get_instance().info(
@@ -109,9 +115,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             return ctx
 
     @staticmethod
-    async def add_context_to_id(
-        operation_id: str, context_id: str
-    ) -> GulpContext:
+    async def add_context_to_id(operation_id: str, context_id: str) -> GulpContext:
         """
         Add a context to an operation.
 
@@ -126,9 +130,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             op = await sess.get(GulpOperation, operation_id)
             if not op:
                 raise ValueError(f"operation id={operation_id} not found.")
-            return await op.add_context(
-                context_id=context_id, sess=sess
-            )
+            return await op.add_context(context_id=context_id, sess=sess)
 
     @override
     @classmethod

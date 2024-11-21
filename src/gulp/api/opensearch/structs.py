@@ -261,14 +261,7 @@ class GulpDocument(GulpBasicDocument):
         self.source_id = source_id
         self.log_file_path = log_file_path
 
-        # add gulp_event_code (event code as a number)
-        self.gulp_event_code = (
-            int(self.event_code)
-            if self.event_code.isnumeric()
-            else muty.crypto.hash_crc24(self.event_code)
-        )
-
-        # add each kwargs as an attribute as-is
+        # add each kwargs as an attribute as-is (may contain event.code, @timestamp, and other fields previously set above, they will be overwritten)
         # @timestamp may have been mapped and already checked for validity in plugin._process_key()
         # if so, we will find it in the kwargs
         for k, v in kwargs.items():
@@ -289,8 +282,15 @@ class GulpDocument(GulpBasicDocument):
             # invalid timestamp
             self.invalid_timestamp = True
 
+        # add gulp_event_code (event code as a number)
+        self.gulp_event_code = (
+            int(self.event_code)
+            if self.event_code.isnumeric()
+            else muty.crypto.hash_xxh64_int(self.event_code)
+        )
+
         # id is a hash of the document
-        self.id = muty.crypto.hash_blake2b(
+        self.id = muty.crypto.hash_xxh128(
             f"{self.event_original}{self.event_code}{self.event_sequence}"
         )
 

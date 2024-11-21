@@ -131,7 +131,7 @@ class Plugin(GulpPluginBase):
             plugin=plugin,
             client_id=client_id,
             raw_event=str(event),
-            event_code=str(muty.crypto.hash_crc24(event["From"])),
+            event_code=str(muty.crypto.hash_xxh64_int(event["From"])),
             original_id=event["Message-Id"],
             src_file=os.path.basename(source),
             timestamp=timestamp,

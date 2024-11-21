@@ -18,13 +18,13 @@ from gulp.api.ws_api import ConnectedSocket, GulpConnectedSockets, WsParameters
 from gulp.config import GulpConfig
 
 
-class WsRouter:
+class GulpAPIWebsocket:
     """
-    handles rest entrypoint/s for the websocket
+    handles gulp websocket connections
     """
 
     @staticmethod
-    def create_router() -> APIRouter:
+    def router() -> APIRouter:
         """
         Returns this module api-router, to add it to the main router
 
@@ -55,11 +55,11 @@ class WsRouter:
             @override
             async def on_connect(self, websocket: WebSocket) -> None:
                 MutyLogger.get_instance().debug("awaiting accept ...")
-                super().on_connect(websocket)
+                await super().on_connect(websocket)
 
                 try:
                     js = await websocket.receive_json()
-                    params = WsParameters.model_validate_json(js)
+                    params = WsParameters.model_validate(js)
                     await GulpUserSession.check_token_permission(
                         params.token, GulpUserPermission.READ
                     )

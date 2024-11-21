@@ -89,7 +89,7 @@ class Plugin(GulpPluginBase):
                 evt["agent.type"] = self.display_name()
             if "event.hash" not in evt:
                 # set event hash in the end
-                evt["event.hash"] = muty.crypto.hash_blake2b(str(evt))
+                evt["event.hash"] = muty.crypto.hash_xxh64(str(evt))
 
             fs = fs.update(processed=1)
             try:

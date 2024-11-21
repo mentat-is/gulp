@@ -573,7 +573,7 @@ class GulpPluginBase(ABC):
             flt = copy(flt)
             # ensure data on ws is filtered
             flt.storage_ignore_filter = False
-
+        
         ws_docs = [
             # use only a minimal fields set to avoid sending too much data to the ws
             {field: doc[field] for field in QUERY_DEFAULT_FIELDS if field in doc}

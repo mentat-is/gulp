@@ -1,6 +1,7 @@
 import inspect
 from typing import Optional, Tuple, override
 
+import muty.crypto
 import muty.log
 import muty.time
 import xxhash
@@ -195,7 +196,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
         async with GulpCollab.get_instance().session() as sess:
             # acquire an advisory lock
-            lock_id = xxhash.xxh64(id).intdigest() & 0x7FFFFFFFFFFFFFFF
+            lock_id = muty.crypto.hash_xxh64_int(id)
             await sess.execute(
                 text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
             )
@@ -203,7 +204,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             # check if the stats already exist
             s: GulpIngestionStats
             s = await cls.get_one_by_id(
-                id, sess=sess, throw_if_not_found=False, with_for_update=True
+                id, sess=sess, throw_if_not_found=False
             )
             if s:
                 return s, False

@@ -1,7 +1,8 @@
 from typing import Optional, override
 
+import muty.crypto
 from muty.log import MutyLogger
-from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
+from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -82,7 +83,13 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         if sess is None:
             sess = GulpCollab.get_instance().session()
 
+        # acquire lock first
+        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{title}")
+        await sess.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
         sess.add(self)
+
         async with sess:
             # check if source exists
             src: GulpSource = await GulpSource.get_one(
@@ -92,8 +99,8 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                     context_id=[self.id],
                 ),
                 throw_if_not_found=False,
+                ensure_eager_load=False,
                 sess=sess,
-                with_for_update=True,
             )
             if src:
                 MutyLogger.get_instance().info(
@@ -104,6 +111,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             # create new source, id=None to augogenerate
             # we are calling this internally only, so we can use token=None to skip
             # token check.
+
             src = await GulpSource.create(
                 token=None,
                 id=None,
