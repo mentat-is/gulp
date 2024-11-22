@@ -80,17 +80,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         Returns:
             GulpSource: the source added (or already existing), eager loaded
         """
-        if sess is None:
-            sess = GulpCollab.get_instance().session()
-
-        # acquire lock first
-        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{title}")
-        await sess.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-        )
-        sess.add(self)
-
-        async with sess:
+        async def _add_source_internal():
             # check if source exists
             src: GulpSource = await GulpSource.get_one(
                 GulpCollabFilter(
@@ -126,6 +116,24 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 f"source {src.id}, title={title} added to context {self.id}."
             )
             return src
+
+        created=False
+        if sess is None:
+            created = True
+            sess = GulpCollab.get_instance().session()
+
+        # acquire lock first
+        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{title}")
+        await sess.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
+        sess.add(self)
+
+        if created:
+            async with sess:
+                return await _add_source_internal()
+        else:
+            return await _add_source_internal()
 
     @staticmethod
     async def add_source_to_id(

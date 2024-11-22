@@ -29,6 +29,7 @@ from sqlalchemy.orm import (
     MappedAsDataclass,
     joinedload,
     mapped_column,
+    relationship,
     selectinload,
 )
 from sqlalchemy.types import Enum as SqlEnum
@@ -114,6 +115,7 @@ class GulpCollabType(StrEnum):
     GLYPH = "glyph"
     OPERATION = "operation"
     SOURCE = "source"
+    USER_GROUP = "user_group"
 
 
 T = TypeVar("T", bound="GulpCollabBase")
@@ -308,6 +310,14 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ForeignKey("user.id", ondelete="CASCADE"),
         doc="The id of the user who created(=owns) the object.",
     )
+    granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String),
+        doc="The ids of the users who have been granted access to the object.",
+    )
+    granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String),
+        doc="The ids of the user groups who have been granted access to the object.",
+    )
     time_created: Mapped[Optional[int]] = mapped_column(
         BIGINT,
         doc="The time the object was created, in milliseconds from unix epoch.",
@@ -378,6 +388,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         # set the time_created and time_updated attributes
         self.time_created = muty.time.now_msec()
         self.time_updated = self.time_created
+        self.granted_user_group_ids = []
+        self.granted_user_ids = []
 
         # call the base class constructor
         # MutyLogger.get_instance().debug("---> GulpCollabBase self in __init__=%s" % self)
@@ -467,7 +479,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.add(instance)
             await sess.commit()
 
-            #MutyLogger.get_instance().debug(f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, user_id={owner}")
+            # MutyLogger.get_instance().debug(f"---> _create_internal: object created: {instance.id}, type={cls.__gulp_collab_type__}, user_id={owner}")
             if ensure_eager_load:
                 # eagerly load the instance with all related attributes
                 instance = await instance.eager_load(depth=eager_load_depth, sess=sess)
@@ -533,6 +545,190 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             **kwargs,
         )
 
+    @classmethod
+    async def grant_group_to_id(cls, id: str, group_id: str, sess: AsyncSession) -> T:
+        """
+        Asynchronously grants a user group to an object by ID.
+
+        Args:
+            id (str): The ID of the object to grant the user group to.
+            group_id (str): The ID of the user group to grant.
+            sess (AsyncSession): The database session to use.
+        Returns:
+            T: The object with the user group granted.
+        Raises:
+            ObjectNotFound: If the object with the specified ID is not found.
+        """
+        obj = await cls.get_one_by_id(id, sess=sess)
+        await obj.grant_group(group_id)
+        return obj
+
+    async def grant_group(self, group_id: str, sess: AsyncSession = None) -> None:
+        """
+        Asynchronously adds a user group to the object.
+
+        Args:
+            group_id (str): The ID of the user group to add.
+            sess (AsyncSession, optional): The session to use for the query. Defaults to None.
+        Returns:
+            None
+        """
+
+        async def _grant_group_internal():
+            sess.add(self)
+            if group_id not in self.granted_user_group_ids:
+                self.granted_user_group_ids.append(group_id)
+            await sess.commit()
+
+        created = False
+        if not sess:
+            created = True
+            sess = GulpCollab.get_instance().session()
+
+        if created:
+            async with sess:
+                await _grant_group_internal()
+        else:
+            await _grant_group_internal()
+
+    async def remove_group(self, group_id: str, sess: AsyncSession = None) -> None:
+        """
+        Asynchronously removes a user group from the object.
+
+        Args:
+            group_id (str): The ID of the user group to remove.
+            sess (AsyncSession, optional): The session to use for the query. Defaults to None.
+        Returns:
+            None
+        """
+
+        async def _remove_group_internal():
+            sess.add(self)
+            if group_id in self.granted_user_group_ids:
+                self.granted_user_group_ids.remove(group_id)
+            await sess.commit()
+
+        created = False
+        if not sess:
+            created = True
+            sess = GulpCollab.get_instance().session()
+
+        if created:
+            async with sess:
+                await _remove_group_internal()
+        else:
+            await _remove_group_internal()
+
+    async def remove_group_from_id(
+        cls, id: str, group_id: str, sess: AsyncSession
+    ) -> T:
+        """
+        Asynchronously removes a user group from an object by ID.
+
+        Args:
+            id (str): The ID of the object to remove the user group from.
+            group_id (str): The ID of the user group to remove.
+            sess (AsyncSession): The database session to use.
+        Returns:
+            T: The object with the user group removed.
+        Raises:
+            ObjectNotFound: If the object with the specified ID is not found.
+        """
+        obj = await cls.get_one_by_id(id, sess=sess)
+        await obj.remove_group(group_id)
+        return obj
+
+    @classmethod
+    async def grant_user_to_id(cls, id: str, user_id: str, sess: AsyncSession) -> T:
+        """
+        Asynchronously grants a user to an object by ID.
+
+        Args:
+            id (str): The ID of the object to grant the user to.
+            user_id (str): The ID of the user to grant.
+            sess (AsyncSession): The database session to use.
+        Returns:
+            T: The object with the user granted.
+        Raises:
+            ObjectNotFound: If the object with the specified ID is not found.
+        """
+        obj = await cls.get_one_by_id(id, sess=sess)
+        await obj.grant_user(user_id)
+        return obj
+
+    async def grant_user(self, user_id: str, sess: AsyncSession = None) -> None:
+        """
+        Asynchronously adds a user to the object.
+
+        Args:
+            user_id (str): The ID of the user to add.
+            sess (AsyncSession, optional): The session to use for the query. Defaults to None.
+        Returns:
+            None
+        """
+
+        async def _grant_user_internal():
+            sess.add(self)
+            if user_id not in self.granted_user_ids:
+                self.granted_user_ids.append(user_id)
+            await sess.commit()
+
+        created = False
+        if not sess:
+            created = True
+            sess = GulpCollab.get_instance().session()
+
+        if created:
+            async with sess:
+                await _grant_user_internal()
+        else:
+            await _grant_user_internal()
+
+    async def remove_user_from_id(cls, id: str, user_id: str, sess: AsyncSession) -> T:
+        """
+        Asynchronously removes a user from an object by ID.
+
+        Args:
+            id (str): The ID of the object to remove the user from.
+            user_id (str): The ID of the user to remove.
+            sess (AsyncSession): The database session to use.
+        Returns:
+            T: The object with the user removed.
+        Raises:
+            ObjectNotFound: If the object with the specified ID is not found.
+        """
+        obj = await cls.get_one_by_id(id, sess=sess)
+        await obj.remove_user(user_id)
+        return obj
+
+    async def remove_user(self, user_id: str, sess: AsyncSession = None) -> None:
+        """
+        Asynchronously removes a user from the object.
+
+        Args:
+            user_id (str): The ID of the user to remove.
+            sess (AsyncSession, optional): The session to use for the query. Defaults to None.
+        Returns:
+            None
+        """
+
+        async def _remove_user_internal():
+            sess.add(self)
+            if user_id in self.granted_user_ids:
+                self.granted_user_ids.remove(user_id)
+            await sess.commit()
+
+        created = False
+        if not sess:
+            created = True
+            sess = GulpCollab.get_instance().session()
+
+        if created:
+            async with sess:
+                await _remove_user_internal()
+        else:
+            await _remove_user_internal()
+
     async def eager_load(self, depth: int = 3, sess: AsyncSession = None) -> T:
         """
         Asynchronously retrieves the current object with all related attributes eagerly loaded.
@@ -583,7 +779,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             sess.expunge(instance)
             return instance
 
-        #MutyLogger.get_instance().debug("---> eager_load: %s, sess=%s" % (self.id, sess))
+        # MutyLogger.get_instance().debug("---> eager_load: %s, sess=%s" % (self.id, sess))
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
@@ -849,7 +1045,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 already_updated = True
             else:
                 # load
-                self_in_session = await sess.get(self.__class__, self.id, with_for_update=True)
+                self_in_session = await sess.get(
+                    self.__class__, self.id, with_for_update=True
+                )
             if not self_in_session:
                 raise ObjectNotFound(
                     f"{self.__class__.__name__} with id={self.id} not found"
@@ -915,6 +1113,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
         with_for_update: bool = False,
+        token: str = None,
     ) -> T:
         """
         Asynchronously retrieves an object of the specified type by its ID.
@@ -927,6 +1126,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            token (str, optional): The token of the user making the request. Defaults to None.
         Returns:
             T: The object with the specified ID or None if not found.
         Raises:
@@ -942,6 +1142,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             ensure_eager_load=ensure_eager_load,
             eager_load_depth=eager_load_depth,
             with_for_update=with_for_update,
+            token=token,
         )
         return o
 
@@ -956,6 +1157,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
         with_for_update: bool = False,
+        token: str = None,
     ) -> T:
         """
         shortcut to get one (the first found) object using get()
@@ -968,6 +1170,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            token (str, optional): The token of the user making the request. Defaults to None.
         Returns:
             T: The object that matches the filter criteria or None if not found.
         Raises:
@@ -984,6 +1187,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             ensure_eager_load=ensure_eager_load,
             eager_load_depth=eager_load_depth,
             with_for_update=with_for_update,
+            token=token,
         )
         if c:
             return c[0]
@@ -1000,6 +1204,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         ensure_eager_load: bool = True,
         eager_load_depth: int = 3,
         with_for_update: bool = False,
+        token: str = None,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -1012,6 +1217,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             ensure_eager_load (bool, optional): If True, eagerly loads all related attributes. Defaults to True.
             eager_load_depth (int, optional): The depth of the relationships to load. Defaults to 3.
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            token (str, optional): The token of the user making the request. Defaults to None.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -1024,8 +1230,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             throw_if_not_found: bool,
             ensure_eager_load: bool,
             eager_load_depth: int,
-            with_for_update: bool
+            with_for_update: bool,
+            token: str,
         ):
+            # get user (if token is provided)
+            user_session = None
+            if token:
+                from gulp.api.collab.user_session import GulpUserSession
+                user_session: GulpUserSession = await GulpUserSession.get_one_by_id(
+                    id=token, sess=sess
+                )
+
             flt = flt or GulpCollabFilter()
             q = flt.to_select_query(cls, with_for_update=with_for_update)
             res = await sess.execute(q)
@@ -1035,27 +1250,48 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if not c:
                 return []
 
+            from gulp.api.collab.user import GulpUser
+            objs=[]
+
             if ensure_eager_load:
                 # eagerly load all related attributes
                 for i, cc in enumerate(c):
                     ccb: GulpCollabBase = cc
-                    c[i] = await ccb.eager_load(depth=eager_load_depth, sess=sess)
+                    obj = await ccb.eager_load(depth=eager_load_depth, sess=sess)
+                    if user_session:
+                        # check if the user has the required permissions
+                        u: GulpUser = user_session.user
+                        if u.check_against_object(obj, throw_on_no_permission=False):
+                            objs.append(obj)
+                    else:
+                        # no token, no permission check
+                        objs.append(obj)
 
             # MutyLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
-
-            # TODO: handle websocket ?
-            return c
+            return objs
 
         # MutyLogger.get_instance().debug("---> get: type=%s, filter=%s, sess=%s, ensure_eager_load=%r"% (cls.__name__, flt, sess, ensure_eager_load))
         if not sess:
             sess = GulpCollab.get_instance().session()
             async with sess:
                 return await _get_internal(
-                    flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth, with_for_update
+                    flt,
+                    sess,
+                    throw_if_not_found,
+                    ensure_eager_load,
+                    eager_load_depth,
+                    with_for_update,
+                    token,
                 )
 
         return await _get_internal(
-            flt, sess, throw_if_not_found, ensure_eager_load, eager_load_depth, with_for_update
+            flt,
+            sess,
+            throw_if_not_found,
+            ensure_eager_load,
+            eager_load_depth,
+            with_for_update,
+            token,
         )
 
     @classmethod
@@ -1141,22 +1377,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         user_session: GulpUserSession = await GulpUserSession.get_by_token(
             token, sess=sess
         )
-        if user_session.user.is_admin():
-            # admin is always granted
-            return user_session.user_id
 
-        # check if the user is the owner of the object
-        if self.user_id == user_session.user_id and allow_owner:
+        if user_session.user.check_against_object(
+            self, permission, throw_on_no_permission, allow_owner
+        ):
             return user_session.user_id
-
-        # user do not own the object, check permissions
-        if user_session.user.has_permission(permission):
-            return user_session.user_id
-
-        if throw_on_no_permission:
-            raise MissingPermission(
-                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
-            )
         return None
 
     @staticmethod

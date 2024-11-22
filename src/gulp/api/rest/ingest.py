@@ -105,20 +105,25 @@ curl -v -X PUT "http://localhost:8080/ingest_file?index=testidx&token=&plugin=wi
     -F "f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx;type=application/octet-stream"
 ```
 
-response's `data` is a `ChunkedUploadResponse`:
+the payload is a a `GulpIngestPayload`, which may contain the following fields:
 
-```json
-{
-    "done": false,          # indicates whether the upload is complete
-    "continue_offset": 0    # the offset of the next chunk to be uploaded, if done is false
-}
-```
+* `flt` (GulpIngestionFilter): the ingestion filter, to restrict ingestion to a subset of the data specifying a `time_range`
+* `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
+* `original_file_path` (str): the original file path, to indicate the original full path of the file being ingested on the machine where it was acquired from
+
+response's `data` is a `ChunkedUploadResponse`, which contains the following fields:
+
+* `done` (bool): indicates whether the upload is complete
+* `continue_offset` (int): the offset of the next chunk to be uploaded, if `done` is `False`
 
 once the file is fully uploaded, this function returns a `pending` response and `STATS_UPDATE`, `DOCUMENTS_CHUNK` are streamed to the `ws_id` websocket until done.
 
-if the upload is interrupted, this allows to resume the upload `by sending a request with the same req_id`:
-if this API responds with an `error` status and `continue_offset` is set, nothing has been written: it just requests you to upload another chunk starting at the requested offset.
-once the upload is done, the server will automatically delete the uploaded data corresponding to the `req_id` once processed.
+if the upload is interrupted, this API allows the upload resume `by sending a request with the same req_id`:
+
+1. the server will check the `continue_offset` and `total_file_size` headers to verify the upload status
+2. if the file is fully uploaded, the server will continue with the ingestion, processing the file.
+3. if the file is not fully uploaded, the server will respond with an `error` status and `continue_offset` set to the next chunk to be uploaded.
+4. once the upload is done, the server will automatically delete the uploaded file once processed.
             """,
             summary="ingest file using the specified plugin.",
         )
@@ -173,32 +178,17 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 ```json
 [
     {
+        // plugin to handle the ingestion with
         "plugin": "win_evtx",
+        // the original path where these files were found
+        "original_path": "c:\\some\\path",
+        // the files to ingest, relative path in the zip file
         "files": [
-            "2-system-Microsoft-Windows-LiveId%4Operational.evtx",
-            "2-system-Security-dirty.evtx",
+            "win_evtx/2-system-Microsoft-Windows-LiveId%4Operational.evtx",
+            "win_evtx/2-system-Security-dirty.evtx",
         ],
     },
-    {
-        "plugin": "csv",
-        "files": [
-            "sample_record.csv"
-        ],
-        "plugin_params": {
-            "mapping_file": "mftecmd_csv.json",
-            "mapping_id": "record"
-        }
-    },
-    {
-        "plugin": "csv",
-        "files": [
-            "sample_j.csv"
-        ],
-        "plugin_params": {
-            "mapping_file": "mftecmd_json.json",
-            "mapping_id": "j"
-        }
-    }
+    ...
 ]
 ```
             """,
@@ -624,37 +614,49 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                 )
                 return JSONResponse(d)
 
-            # create (and associate) context and source on the collab db, if they do not exist
-            await GulpOperation.add_context_to_id(operation_id, context_id)
-            source = await GulpContext.add_source_to_id(
-                operation_id, context_id, file_path
-            )
+            # unzip in a temporary directory
+            unzipped = await muty.file.unzip(file_path)
 
-            # run ingestion in a coroutine in one of the workers
-            MutyLogger.get_instance().debug("spawning ingestion task ...")
-            kwds = dict(
-                req_id=req_id,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source.id,
-                index=index,
-                plugin=plugin,
-                file_path=file_path,
-                file_total=file_total,
-                flt=payload.flt,
-                plugin_params=payload.plugin_params,
-            )
-            # print(json.dumps(kwds, indent=2))
+            # read metadata json
+            js = await muty.file.read_file_async(os.path.join(unzipped, "metadata.json"))
+            metadata = json.loads(js)
 
-            # spawn a task which runs the ingestion in a worker process
-            async def worker_coro(kwds: dict):
-                await GulpProcess.get_instance().process_pool.apply(
-                    GulpAPIIngest._ingest_single_internal, kwds=kwds
+            # metadata.json doesn't count
+            files -=1
+
+            # spawn ingestion tasks for each file
+            for f in files:
+                # create (and associate) context and source on the collab db, if they do not exist
+                await GulpOperation.add_context_to_id(operation_id, context_id)
+                source = await GulpContext.add_source_to_id(
+                    operation_id, context_id, f
                 )
 
-            await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+                # run ingestion in a coroutine in one of the workers
+                MutyLogger.get_instance().debug("spawning ingestion task ...")
+                kwds = dict(
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_id=source.id,
+                    index=index,
+                    plugin=plugin,
+                    file_path=file_path,
+                    file_total=file_total,
+                    flt=payload.flt,
+                    plugin_params=payload.plugin_params,
+                )
+                # print(json.dumps(kwds, indent=2))
+
+                # spawn a task which runs the ingestion in a worker process
+                async def worker_coro(kwds: dict):
+                    await GulpProcess.get_instance().process_pool.apply(
+                        GulpAPIIngest._ingest_single_internal, kwds=kwds
+                    )
+
+                await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))

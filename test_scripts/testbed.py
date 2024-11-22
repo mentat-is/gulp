@@ -25,7 +25,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
-
+import muty.file
 _opt_samples_dir = os.environ.get("GULP_SAMPLES_DIR", "~/repos/gulp/samples")
 _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
 _opt_reset = os.environ.get("GULP_RESET", False)
@@ -513,7 +513,7 @@ async def main():
         # await test_ingest_windows()
         # await test_ingest_csv()
         # await test_ingest_csv_with_mappings()
-        await test_source()
+        # await test_source()
         # await test_ingest_csv_stacked()
         # await test_bulk_insert()
         # await GulpOperation.add_context(_operation, _context)
@@ -521,6 +521,7 @@ async def main():
 
     finally:
         await GulpOpenSearch.get_instance().shutdown()
+        pass
 
 
 if __name__ == "__main__":

@@ -76,17 +76,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         Returns:
             GulpContext: the context added (or already existing), eager loaded
         """
-        if not sess:
-            sess = GulpCollab.get_instance().session()
-
-        # acquire lock first
-        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{context_id}")
-        await sess.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-        )
-
-        sess.add(self)
-        async with sess:
+        async def _add_context_internal():
             # check if context exists
             ctx: GulpContext = await GulpContext.get_one(
                 GulpCollabFilter(id=[context_id], operation_id=[self.id]),
@@ -113,6 +103,24 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 f"context {context_id} added to operation {self.id}."
             )
             return ctx
+
+        created = False
+        if not sess:
+            sess = GulpCollab.get_instance().session()
+            created = True
+
+        # acquire lock first
+        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{context_id}")
+        await sess.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
+        sess.add(self)
+
+        if created:
+            async with sess:
+                return await _add_context_internal()
+        else:
+            return await _add_context_internal()
 
     @staticmethod
     async def add_context_to_id(operation_id: str, context_id: str) -> GulpContext:

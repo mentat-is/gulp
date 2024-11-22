@@ -362,6 +362,17 @@ class GulpCollab:
             d={"glyph_id": user_glyph.id},
         )
 
+        # create user groups
+        from gulp.api.collab.group import GulpUserGroup
+
+        group: GulpUserGroup = await GulpUserGroup.create(
+            token=admin_session.id,
+            name="test_group",
+            permission=[GulpUserPermission.ADMIN],
+        )
+        # add admin to group
+        await group.add_user(admin_user.id)
+
         # create default operation
         operation: GulpOperation = await GulpOperation.create(
             token=admin_session.id,
@@ -375,6 +386,7 @@ class GulpCollab:
         await ctx.add_source("test source 1")
         await ctx.add_source("test source 2")
         from gulp.api.collab.structs import GulpCollabFilter
+
         """
         operations: list[GulpOperation] = await GulpOperation.get()
         for op in operations:

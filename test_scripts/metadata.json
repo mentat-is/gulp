@@ -1,6 +1,7 @@
 [
     {
         "plugin": "win_evtx",
+        "original_path": "c:\\windows\\system32\\winevt\\logs",
         "files": [
             "win_evtx/2-system-Microsoft-Windows-LiveId%4Operational.evtx",
             "win_evtx/2-system-Security-dirty.evtx",
@@ -31,6 +32,7 @@
     },
     {
         "plugin": "csv",
+        "original_path": "c:\\some\\path",
         "files": [
             "mftecmd/sample_record.csv"
         ],
@@ -41,6 +43,7 @@
     },
     {
         "plugin": "csv",
+        "original_path": "c:\\some\\path",
         "files": [
             "mftecmd/sample_j.csv"
         ],

@@ -15,6 +15,7 @@ from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabType,
     GulpUserPermission,
+    MissingPermission,
     T,
     WrongUsernameOrPassword,
 )
@@ -29,6 +30,18 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     pwd_hash: Mapped[str] = mapped_column(
         String, doc="The hashed password of the user."
+    )
+    group_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("user_group.id", ondelete="SET NULL"),
+        default=None,
+        doc="The group id of the user.",
+    )
+    group: Mapped[Optional["GulpUserGroup"]] = relationship(
+        "GulpUserGroup",
+        default=None,
+        back_populates="users",
+        foreign_keys="[GulpUser.group_id]",
+        doc="The group associated with the user.",
     )
     permission: Mapped[Optional[list[GulpUserPermission]]] = mapped_column(
         MutableList.as_mutable(ARRAY(SQLEnum(GulpUserPermission))),
@@ -225,7 +238,13 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Returns:
             bool: True if the user has admin permission, False otherwise.
         """
-        return GulpUserPermission.ADMIN in self.permission
+        admin = GulpUserPermission.ADMIN in self.permission
+        if not admin:
+            # check groups
+            if self.group:
+                admin = self.group.is_admin()
+
+        return admin
 
     def logged_in(self) -> bool:
         """
@@ -332,4 +351,56 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             return True
 
         # check if all permissions are present
-        return all([p in self.permission for p in permission])
+        granted = all([p in self.permission for p in permission])
+        if not granted:
+            # check groups
+            if self.group:
+                granted = self.group.has_permission(permission)
+
+        return granted
+
+    def check_against_object(
+        self,
+        obj: GulpCollabBase,
+        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        throw_on_no_permission: bool = False,
+        allow_owner: bool = True,
+    ) -> bool:
+        """
+        Check if the user has permission to access the specified object.
+        Args:
+            obj (GulpCollabBase): The object to check against.
+            permission (list[GulpUserPermission], optional): The permission to check. Defaults to [GulpUserPermission.READ].
+            throw_on_no_permission (bool, optional): Whether to throw an exception if the user does not have permission. Defaults to False.
+        Returns:
+            bool: True if the user has permission to access the object, False otherwise.
+        """
+        if self.is_admin():
+            # admin is always granted
+            #MutyLogger.get_instance().debug("allowing access to admin")
+            return True
+
+        # check if the user is the owner of the object
+        if obj.user_id == self.id and allow_owner:
+            #MutyLogger.get_instance().debug("allowing access to object owner")
+            return True
+
+        # check if the user has the required permissions
+        if obj.granted_user_ids or obj.granted_user_group_ids:
+            # check if the user is in the granted users or groups
+            if obj.granted_user_ids and self.id in obj.granted_user_ids:
+                #MutyLogger.get_instance().debug("allowing access to granted user")
+                return True
+            if obj.granted_user_group_ids and self.group_id in obj.granted_group_ids:
+                #MutyLogger.get_instance().debug("allowing access to granted group")
+                return True
+        elif self.has_permission(permission):
+            # just check the permission
+            #MutyLogger.get_instance().debug("allowing access to permission")
+            return True
+
+        if throw_on_no_permission:
+            raise MissingPermission(
+                f"User {self.id} does not have the required permissions to perform this operation: requested permission={permission}, obj={obj}"
+            )
+        return False
