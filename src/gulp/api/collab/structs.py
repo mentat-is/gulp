@@ -1,7 +1,6 @@
 import re
 from enum import StrEnum
 from typing import List, Optional, TypeVar, override
-
 import muty.string
 import muty.time
 from muty.log import MutyLogger
@@ -13,13 +12,13 @@ from sqlalchemy import (
     ColumnElement,
     ForeignKey,
     Result,
-    Select,
     String,
     Tuple,
     func,
     inspect,
     or_,
     select,
+    Select,
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
@@ -27,9 +26,7 @@ from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     MappedAsDataclass,
-    joinedload,
     mapped_column,
-    relationship,
     selectinload,
 )
 from sqlalchemy.types import Enum as SqlEnum
@@ -39,7 +36,6 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
 from gulp.structs import ObjectNotFound
-
 
 class SessionExpired(Exception):
     """if the user session has expired"""
@@ -205,7 +201,7 @@ class GulpCollabFilter(BaseModel):
         Returns:
             Select[Tuple]: the select query
         """
-        q = select(type)
+        q: Select = select(type)
         if self.id:
             q = q.filter(self._case_insensitive_or_ilike(type.id, self.id))
         if self.type:
@@ -1258,16 +1254,19 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 for i, cc in enumerate(c):
                     ccb: GulpCollabBase = cc
                     obj = await ccb.eager_load(depth=eager_load_depth, sess=sess)
-                    if user_session:
-                        # check if the user has the required permissions
-                        u: GulpUser = user_session.user
-                        if u.check_against_object(obj, throw_on_no_permission=False):
-                            objs.append(obj)
-                    else:
-                        # no token, no permission check
-                        objs.append(obj)
+                    c[i] = obj
 
             # MutyLogger.get_instance().debug("---> get: found %d objects" % (len(c)))
+            if user_session:
+                # purge objects that the user does not have permission to access
+                for obj in c:
+                    u: GulpUser = user_session.user
+                    if u.check_against_object(obj, throw_on_no_permission=False):
+                        objs.append(obj)
+            else:
+                # no token, no permission check
+                objs = c
+
             return objs
 
         # MutyLogger.get_instance().debug("---> get: type=%s, filter=%s, sess=%s, ensure_eager_load=%r"% (cls.__name__, flt, sess, ensure_eager_load))

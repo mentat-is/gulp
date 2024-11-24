@@ -3,32 +3,30 @@ from typing import Optional, override
 from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabType,
+    GulpUserPermission,
+    T,
+)
 
 
 class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
     """
     Represents a source of data being processed by the gulp system.
-    
+
     it has always associated a context and an operation, and the tuple composed by the three is unique.
     """
-    operation: Mapped["GulpOperation"] = relationship(
-        "GulpOperation",
-        back_populates="sources",
-        doc="The operation associated with the source.",
-    )
+
     operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
-        doc="The ID of the operation associated with the context.", primary_key=True
-    )
-    context: Mapped["GulpContext"] = relationship(
-        "GulpContext",
-        back_populates="sources",
-        doc="The context associated with the source.",
+        doc="The ID of the operation associated with the context.",
+        primary_key=True,
     )
     context_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
-        doc="The ID of the context associated with this source.", primary_key=True
+        doc="The ID of the context associated with this source.",
+        primary_key=True,
     )
     title: Mapped[Optional[str]] = mapped_column(
         String, doc="The title of the source (i.e. log file name/path)."
@@ -41,11 +39,9 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
         default=None,
         doc="The glyph associated with the context.",
     )
-    
+
     # composite primary key and contraints for operation_id and context_id (a source is unique for each operation and context)
-    __table_args__ = (
-        PrimaryKeyConstraint("operation_id", "context_id", "id"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("operation_id", "context_id", "id"),)
 
     @override
     def __init__(self, *args, **kwargs):
@@ -75,16 +71,17 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
             title (str, optional): The display name of the source (i.e. log file name/path). defaults to id.
             color (str, optional): The color of the context. Defaults to purple.
             glyph (str, optional): The id of the glyph associated with the context. Defaults to None.
-            **kwargs: Arbitrary keyword arguments.  
+            **kwargs: Arbitrary keyword arguments.
         Returns:
             T: The created context object
         """
-        args = {"color": color or 'purple',
-                "glyph_id": glyph_id, 
-                "operation_id": operation_id,
-                "context_id": context_id,
-                "title": title or id
-                **kwargs}
+        args = {
+            "color": color or "purple",
+            "glyph_id": glyph_id,
+            "operation_id": operation_id,
+            "context_id": context_id,
+            "title": title or id**kwargs,
+        }
         return await super()._create(
             id=id,
             token=token,

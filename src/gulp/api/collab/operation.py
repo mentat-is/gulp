@@ -36,18 +36,9 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         String, doc="The description of the operation."
     )
 
-    # multiple sources can be associated with an operation
-    sources: Mapped[Optional[list[GulpSource]]] = relationship(
-        "GulpSource",
-        back_populates="operation",
-        cascade="all, delete-orphan",
-        doc="The source/s associated with the operation.",
-    )
-
     # multiple contexts can be associated with an operation
     contexts: Mapped[Optional[list[GulpContext]]] = relationship(
         "GulpContext",
-        back_populates="operation",
         cascade="all, delete-orphan",
         doc="The context/s associated with the operation.",
     )

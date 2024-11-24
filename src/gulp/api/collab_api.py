@@ -363,7 +363,7 @@ class GulpCollab:
         )
 
         # create user groups
-        from gulp.api.collab.group import GulpUserGroup
+        from gulp.api.collab.user_group import GulpUserGroup
 
         group: GulpUserGroup = await GulpUserGroup.create(
             token=admin_session.id,

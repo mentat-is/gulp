@@ -1,4 +1,4 @@
-from typing import Optional, override
+from typing import Optional, override, TYPE_CHECKING
 
 import muty.crypto
 import muty.string
@@ -22,12 +22,15 @@ from gulp.api.collab.structs import (
 from gulp.api.collab_api import GulpCollab
 from gulp.config import GulpConfig
 
+if TYPE_CHECKING:
+    from gulp.api.collab.user_group import GulpUserGroup
+    from gulp.api.collab.user_session import GulpUserSession
+    from gulp.api.collab.user_data import GulpUserData
 
 class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     """
     Represents a user in the system.
     """
-
     pwd_hash: Mapped[str] = mapped_column(
         String, doc="The hashed password of the user."
     )
@@ -39,7 +42,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     group: Mapped[Optional["GulpUserGroup"]] = relationship(
         "GulpUserGroup",
         default=None,
-        back_populates="users",
         foreign_keys="[GulpUser.group_id]",
         doc="The group associated with the user.",
     )
@@ -54,7 +56,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         doc="The glyph associated with the user.",
     )
     email: Mapped[Optional[str]] = mapped_column(
-        String, default=None, doc="The email of the user."
+        String, default=None, doc="The email of the user.", unique=True
     )
     time_last_login: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -339,7 +341,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """
-        Check if the user has the specified permission.
+        Check if the user has the specified permission (also check group permission if any)
 
         Args:
             permission (list[GulpUserPermission] | list[str]): The permission(s) to check.
@@ -353,7 +355,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         # check if all permissions are present
         granted = all([p in self.permission for p in permission])
         if not granted:
-            # check groups
+            # check user group
             if self.group:
                 granted = self.group.has_permission(permission)
 
@@ -385,16 +387,17 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             #MutyLogger.get_instance().debug("allowing access to object owner")
             return True
 
-        # check if the user has the required permissions
-        if obj.granted_user_ids or obj.granted_user_group_ids:
-            # check if the user is in the granted users or groups
-            if obj.granted_user_ids and self.id in obj.granted_user_ids:
-                #MutyLogger.get_instance().debug("allowing access to granted user")
-                return True
-            if obj.granted_user_group_ids and self.group_id in obj.granted_group_ids:
-                #MutyLogger.get_instance().debug("allowing access to granted group")
-                return True
-        elif self.has_permission(permission):
+        # check if the user is in the granted users or groups
+        if obj.granted_user_group_ids and self.group_id in obj.granted_group_ids:
+            #MutyLogger.get_instance().debug("allowing access to granted group")
+            return True
+
+        # check if the user is in the granted users
+        if obj.granted_user_ids and self.id in obj.granted_user_ids:
+            #MutyLogger.get_instance().debug("allowing access to granted user")
+            return True
+
+        if self.has_permission(permission):
             # just check the permission
             #MutyLogger.get_instance().debug("allowing access to permission")
             return True

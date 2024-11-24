@@ -33,11 +33,8 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
 
     user: Mapped["GulpUser"] = relationship(
         "GulpUser",
-        back_populates="session",
         foreign_keys=[user_id],
-        single_parent=True,
         uselist=False,
-        innerjoin=True,
     )
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -114,6 +111,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         sess: AsyncSession = None,
         throw_on_no_permission: bool = True,
+        obj: Optional[GulpCollabBase] = None,
     ) -> "GulpUserSession":
         """
         Check if the user represented by token is logged in and has the required permissions.
@@ -131,7 +129,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             MissingPermission: If the user does not have the required permissions.
         """
         # get session
-        #MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
+        # MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
         user_session: GulpUserSession = await GulpUserSession.get_by_token(
             token, sess=sess
         )
@@ -140,11 +138,16 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         )
 
         from gulp.api.collab.user import GulpUser
-
         u: GulpUser = user_session.user
-        if u.has_permission(permission):
-            # MutyLogger.get_instance().debug("OK! User %s has the required permissions %s to perform this operation." % (user_session.user_id, permission))
-            return user_session
+        if not obj:
+            # check only the user permissions
+            if u.has_permission(permission):
+                # MutyLogger.get_instance().debug("OK! User %s has the required permissions %s to perform this operation." % (user_session.user_id, permission))
+                return user_session
+        else:
+            # check the user permissions against the object
+            if u.check_against_object(obj, permission):
+                return user_session
 
         if throw_on_no_permission:
             raise MissingPermission(
