@@ -1,24 +1,24 @@
-from typing import Optional, Union, override
+from typing import Optional
 
-import muty.crypto
 import muty.string
 import muty.time
 from muty.log import MutyLogger
 from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import TYPE_CHECKING
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
-    GulpCollabFilter,
     GulpCollabType,
     GulpUserPermission,
     MissingPermission,
     T,
-    WrongUsernameOrPassword,
 )
 from gulp.config import GulpConfig
 
+if TYPE_CHECKING:
+    from gulp.api.collab.user import GulpUser
 
 class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
     """
@@ -42,15 +42,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         doc="The time when the session expires, in milliseconds from unix epoch.",
     )
 
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        MutyLogger.get_instance().debug(
-            "---> GulpUserSession.__init__: args=%s, kwargs=%s ..." % (args, kwargs)
-        )
-        super().__init__(*args, type=GulpCollabType.USER_SESSION, **kwargs)
-
-    @classmethod
+    @staticmethod
     async def create(
         cls,
         *args,
@@ -62,64 +54,53 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         raise NotImplementedError("use GulpUser.login() to create a session.")
 
     @staticmethod
-    async def get_by_token(token: str, sess: AsyncSession = None) -> "GulpUserSession":
+    async def _get_admin_session(sess: AsyncSession = None) -> "GulpUserSession":
         """
-        Asynchronously retrieves a logged user session by token.
-        Args:
-            token (str): The token of the user session to retrieve.
-            sess (AsyncSession, optional): An optional asynchronous session object. Defaults to None.
-        Returns:
-            T: the user session object.
-        Raises:
-            ObjectNotFound: if the user session is not found.
+        Get the admin session.
         """
-        # MutyLogger.get_instance().debug("---> get_by_token: token=%s, sess=%s ..." % (token, sess))
-        if GulpConfig.get_instance().debug_allow_any_token_as_admin():
-            # return an admin session
-            from gulp.api.collab.user import GulpUser
+        from gulp.api.collab.user import GulpUser
 
-            # the "admin" user always exists
-            admin_user: GulpUser = await GulpUser.get_one_by_id(
-                id="admin", sess=sess, throw_if_not_found=False
+        # the "admin" user always exists
+        admin_user: GulpUser = await GulpUser.get_by_id(
+            sess, id="admin"
+        )
+        if admin_user.session:
+            # already exists
+            return admin_user.session
+        else:
+            # create a new admin session
+            admin_session: GulpUserSession = await GulpUserSession._create(
+                sess,
+                id=admin_user.id,
             )
-            if admin_user.session:
-                # already exists
-                # MutyLogger.get_instance().debug("debug_allow_any_token_as_admin, reusing existing admin session: %s" % (admin_user.session))
-                return admin_user.session
-            else:
-                # create a new admin session
-                admin_session: GulpUserSession = await GulpUserSession._create(
-                    id=admin_user.id,
-                    user_id=admin_user.id,
-                    user=admin_user,
-                    ensure_eager_load=True,
-                )
-                admin_user.session = admin_session
-                MutyLogger.get_instance().debug(
-                    "debug_allow_any_token_as_admin, created new admin session: %s"
-                    % (admin_session)
-                )
-                return await admin_session
-
-        # default, get a session if exists
-        s: GulpUserSession = await GulpUserSession.get_one_by_id(id=token, sess=sess)
-        return s
+            MutyLogger.get_instance().warning(
+                "created new admin session: %s"
+                % (admin_session)
+            )
+            return await admin_session
 
     @staticmethod
-    async def check_token_permission(
+    async def check_token(
+        sess: AsyncSession,
         token: str,
-        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
-        sess: AsyncSession = None,
-        throw_on_no_permission: bool = True,
+        permission: list[GulpUserPermission] = None,
         obj: Optional[GulpCollabBase] = None,
+        always_allow_owner: bool = True,
+        throw_on_no_permission: bool = True,
     ) -> "GulpUserSession":
         """
         Check if the user represented by token is logged in and has the required permissions.
 
+        - if both permission and obj are None, the function will return the user session without checking permissions.
+        - if obj is provided, the function will check the user permissions against the object to access it.
+        - if permission is provided, the function will check if the user has the required permissions.
+
         Args:
-            token (str): The token representing the user's session.
-            permission (list[GulpUserPermission], optional): A list of required permissions. Defaults to [GulpUserPermission.READ].
             sess (AsyncSession, optional): The database session to use. Defaults to None.
+            token (str): The token representing the user's session.
+            permission (list[GulpUserPermission], optional): A list of required permissions. Defaults to None.
+            obj (Optional[GulpCollabBase], optional): The object to check the permissions against, for access. Defaults to None.
+            always_allow_owner (bool, optional): If True, the owner of the object is always allowed to access it. Defaults to True.
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
 
         Returns:
@@ -128,26 +109,35 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         Raises:
             MissingPermission: If the user does not have the required permissions.
         """
-        # get session
         # MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
-        user_session: GulpUserSession = await GulpUserSession.get_by_token(
-            token, sess=sess
-        )
-        MutyLogger.get_instance().debug(
-            "---> check_token_permission: user_session=%s ..." % (user_session)
-        )
+        if GulpConfig.get_instance().debug_allow_any_token_as_admin():
+            return await GulpUserSession._get_admin_session(sess)
+
+        # get session
+        user_session: GulpUserSession = await GulpUserSession.get_by_id(sess, token, id=token, permission=permission)
 
         from gulp.api.collab.user import GulpUser
-        u: GulpUser = user_session.user
-        if not obj:
-            # check only the user permissions
-            if u.has_permission(permission):
-                # MutyLogger.get_instance().debug("OK! User %s has the required permissions %s to perform this operation." % (user_session.user_id, permission))
-                return user_session
-        else:
+        if not obj and not permission:
+            # no permission or object provided, just return the session
+            return user_session
+
+        if user_session.user.is_admin():
+            # admin user has all permissions
+            return user_session
+
+        granted = False
+
+        if obj:
             # check the user permissions against the object
-            if u.check_against_object(obj, permission):
-                return user_session
+            if user_session.user.check_object_access(obj, always_allow_owner=always_allow_owner, throw_on_no_permission=throw_on_no_permission):
+                granted = True
+
+        # check if the user has permission
+        if user_session.user.has_permission(permission):
+            granted = True
+
+        if granted:
+            return user_session
 
         if throw_on_no_permission:
             raise MissingPermission(

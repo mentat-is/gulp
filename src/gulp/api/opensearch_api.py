@@ -17,7 +17,7 @@ from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
     GulpQueryFilter,
 )
-from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
+from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -1009,12 +1009,12 @@ class GulpOpenSearch:
             options = GulpQueryAdditionalParameters()
 
         sigma_create_notes = options.model_extra.get("sigma_create_notes", True)
-        note_title = options.model_extra.get("note_title", None)
+        note_name = options.model_extra.get("note_name", None)
         note_color = options.model_extra.get("note_color", None)
         note_tags = options.model_extra.get("note_tags", None)
         note_glyph = options.model_extra.get("note_glyph", None)
-        if sigma_create_notes and not note_title:
-            raise ValueError("note_title is required for a sigma query")
+        if sigma_create_notes and not note_name:
+            raise ValueError("note_name is required for a sigma query")
 
         use_elasticsearch_api = False
         if el:
@@ -1099,7 +1099,7 @@ class GulpOpenSearch:
                 search_after=search_after,
             )
             GulpSharedWsQueue.get_instance().put(
-                type=WsQueueDataType.DOCUMENTS_CHUNK,
+                type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=ws_id,
                 user_id=user_id,
                 req_id=req_id,
@@ -1113,7 +1113,7 @@ class GulpOpenSearch:
                     ws_id=ws_id,
                     user_id=user_id,
                     docs=docs,
-                    title=note_title,
+                    name=note_name,
                     tags=note_tags,
                     color=note_color,
                     glyph_id=note_glyph,

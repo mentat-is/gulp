@@ -72,9 +72,9 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: any, record_idx: int
     ) -> GulpDocument:
-        # get mandatory fields from metadata (metadata and the doc dictionary itself)
+        # get mandatory fields from metadata (metadata and the doc dictionary itself)
         metadata: dict = record["metadata"]
-        doc: dict= record["doc"]
+        doc: dict = record["doc"]
         ts: str = metadata["@timestamp"]
         original: str = metadata["event.original"]
         event_code: str = metadata.get("event.code", "0")
@@ -84,7 +84,7 @@ class Plugin(GulpPluginBase):
             # ignore mapping
             d = doc
         else:
-            d={}
+            d = {}
             for k, v in doc.items():
                 mapped = self._process_key(k, v)
                 d.update(mapped)
@@ -129,7 +129,7 @@ class Plugin(GulpPluginBase):
             flt=flt,
         )
         # stats must be created by the caller, get it
-        stats: GulpIngestionStats = await GulpIngestionStats.get_one_by_id(id=req_id)
+        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(id=req_id)
         try:
             # initialize plugin
             if not plugin_params:

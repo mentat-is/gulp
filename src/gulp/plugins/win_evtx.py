@@ -1,3 +1,4 @@
+import os
 from typing import override
 
 import muty.dict
@@ -9,7 +10,7 @@ import muty.time
 import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
-import os
+
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
@@ -184,7 +185,7 @@ class Plugin(GulpPluginBase):
             flt=flt,
         )
         # stats must be created by the caller, get it
-        stats: GulpIngestionStats = await GulpIngestionStats.get_one_by_id(id=req_id)
+        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(id=req_id)
         try:
             # initialize plugin
             if not plugin_params:

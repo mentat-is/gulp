@@ -33,7 +33,7 @@ class GulpAPIWebsocket:
         """
 
         router = APIRouter()
-        
+
         @router.websocket_route("/ws")
         class WebSocketHandler(WebSocketEndpoint):
             """
@@ -60,7 +60,7 @@ class GulpAPIWebsocket:
                 try:
                     js = await websocket.receive_json()
                     params = WsParameters.model_validate(js)
-                    await GulpUserSession.check_token_permission(
+                    await GulpUserSession.check_token(
                         params.token, GulpUserPermission.READ
                     )
                 except Exception as ex:

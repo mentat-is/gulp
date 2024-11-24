@@ -10,19 +10,37 @@ from fastapi import WebSocket
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 
+class GulpUserLoginLogoutPacket(BaseModel):
+    """
+    Represents a user login or logout event.
+    """
 
-class WsQueueDataType(StrEnum):
+    user_id: str = Field(..., description="The user ID.")
+    login: bool = Field(..., description="If the event is a login event, either it is a logout.")
+
+class GulpDeleteCollabPacket(BaseModel):
+    """
+    Represents a delete collab event.
+    """
+
+    id: str = Field(..., description="The collab ID.")
+
+class GulpWsQueueDataType(StrEnum):
     """
     The type of data into the websocket queue.
     """
 
     # a GulpIngestionStas object, created or updated
     STATS_UPDATE = "stats_update"
-    # an array with one or more GulpCollabObject (note, story, highlight, link), created or updated
+    # a GulpCollabObject (note, story, highlight, link), created or updated
     COLLAB_UPDATE = "collab_update"
+    # GulpUserLoginLogoutPacket
+    USER_LOGIN = "user_login",
+    # GulpUserLoginLogoutPacket
+    USER_LOGOUT = "user_logout",
     # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
     DOCUMENTS_CHUNK = "docs_chunk"
-    # an array with one or more deleted GulpCollabObject (note, story, highlight, link)
+    # GulpDeleteCollabPacket
     COLLAB_DELETE = "collab_delete"
     # signal an ingest source operation is done
     INGEST_SOURCE_DONE = "ingest_source_done"
@@ -41,7 +59,7 @@ class WsParameters(BaseModel):
         None,
         description="The operation/s this websocket is registered to receive data for, defaults to None(=all).",
     )
-    type: Optional[list[WsQueueDataType]] = Field(
+    type: Optional[list[GulpWsQueueDataType]] = Field(
         None,
         description="The WsData.type this websocket is registered to receive, defaults to None(=all).",
     )
@@ -89,7 +107,7 @@ class WsData(BaseModel):
     )
     timestamp: int = Field(..., description="The timestamp of the data.",
                            alias="@timestamp")
-    type: WsQueueDataType = Field(
+    type: GulpWsQueueDataType = Field(
         ..., description="The type of data carried by the websocket."
     )
     ws_id: str = Field(..., description="The WebSocket ID.")
@@ -115,7 +133,7 @@ class ConnectedSocket:
         self,
         ws: WebSocket,
         ws_id: str,
-        type: list[WsQueueDataType] = None,
+        type: list[GulpWsQueueDataType] = None,
         operation_id: list[str] = None,
     ):
         """
@@ -124,7 +142,7 @@ class ConnectedSocket:
         Args:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
-            type (list[WsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
+            type (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
             operation (list[str], optional): The operations this websocket is interested in. Defaults to None (all).
         """
         self.ws = ws
@@ -167,7 +185,7 @@ class GulpConnectedSockets:
         self,
         ws: WebSocket,
         ws_id: str,
-        type: list[WsQueueDataType] = None,
+        type: list[GulpWsQueueDataType] = None,
         operation_id: list[str] = None,
     ) -> ConnectedSocket:
         """
@@ -176,7 +194,7 @@ class GulpConnectedSockets:
         Args:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
-            type (list[WsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
+            type (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
             operation_id (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
 
         Returns:
@@ -293,7 +311,7 @@ class GulpConnectedSockets:
                     continue
 
                 # only relay collab updates to other ws
-                if d.type not in [WsQueueDataType.COLLAB_UPDATE]:
+                if d.type not in [GulpWsQueueDataType.COLLAB_UPDATE]:
                     continue
 
                 await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True, by_alias=True))
@@ -422,7 +440,7 @@ class GulpSharedWsQueue:
 
     def put(
         self,
-        type: WsQueueDataType,
+        type: GulpWsQueueDataType,
         ws_id: str,
         user_id: str,
         operation_id: str = None,
@@ -434,7 +452,7 @@ class GulpSharedWsQueue:
         Adds data to the shared queue.
 
         Args:
-            type (WsQueueDataType): The type of data.
+            type (GulpWsQueueDataType): The type of data.
             user (str): The user.
             ws_id (str): The WebSocket ID.
             operation (str, optional): The operation.

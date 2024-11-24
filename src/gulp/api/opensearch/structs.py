@@ -10,71 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 
-EXAMPLE_QUERY_OPTIONS = {
-    "example": {
-        "disable_notes_on_match": False,
-        "include_query_in_result": False,
-        "sort": {"@timestamp": "asc"},
-    }
-}
-
-EXAMPLE_QUERY_FILTER = {
-    "example": {
-        "event.code": ["5152"],
-        "gulp.log.level": [5, 3],
-        "start_msec": 1475730263242,
-        "end_msec": 1475830263242,
-        "gulp.operation_id.id": [1],
-        "gulp.context_id": ["testcontext"],
-    }
-}
-
-EXAMPLE_SIGMA_RULE_YML = {
-    "example": {
-        "pysigma_plugin": "windows",
-        "name": "test",
-        "tags": ["windows", "security"],
-        "type": 1,
-        "rule": """title: Test
-id: 2dcca7b4-4b3a-4db6-9364-a019d54904bf
-status: test
-description: This is a test to match all events having gulp.context_id=*context
-references:
-  - ref1
-  - ref2
-tags:
-  - attack.execution
-  - attack.test
-author: me
-date: 2020-07-12
-logsource:
-  category: process_creation
-  product: windows
-detection:
-  selection:
-    gulp.context_id|endswith: context
-  condition: selection
-fields:
-  - gulp.context_id
-falsepositives:
-  - Everything
-level: medium
-""",
-    }
-}
-
-EXAMPLE_INGESTION_FILTER = {
-    "example": {
-        "event.code": ["5152"],
-        "log.level": [5, 3],
-        "start_msec": 1609459200000,
-        "end_msec": 1609545600000,
-        "extra": {"winlog.event_data.SubjectUserName": "test"},
-    }
-}
 
 T = TypeVar("T", bound="GulpBaseDocumentFilter")
-
 
 class GulpBasicDocument(BaseModel):
     model_config = ConfigDict(

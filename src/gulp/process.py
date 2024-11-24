@@ -756,7 +756,7 @@ class GulpProcess:
 #         # can't rebase, delete the datastream
 #         MutyLogger.get_instance().exception(ex)
 #         ws_api.shared_queue_add_data(
-#             gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
+#             gulp.api.ws_api.GulpWsQueueDataType.REBASE_DONE,
 #             req_id,
 #             data={
 #                 "status": GulpRequestStatus.FAILED,
@@ -776,7 +776,7 @@ class GulpProcess:
 #     # done
 #     MutyLogger.get_instance().debug("rebase result: %s" % (json.dumps(rebase_result, indent=2)))
 #     ws_api.shared_queue_add_data(
-#         gulp.api.ws_api.WsQueueDataType.REBASE_DONE,
+#         gulp.api.ws_api.GulpWsQueueDataType.REBASE_DONE,
 #         req_id,
 #         data={
 #             "status": GulpRequestStatus.DONE,
@@ -992,7 +992,7 @@ class GulpProcess:
 #         new_status=status,
 #     )
 #     ws_api.shared_queue_add_data(
-#         gulp.api.ws_api.WsQueueDataType.QUERY_DONE,
+#         gulp.api.ws_api.GulpWsQueueDataType.QUERY_DONE,
 #         req_id,
 #         {
 #             "status": status,
@@ -1037,7 +1037,7 @@ class GulpProcess:
 #     if flt is None:
 #         flt = GulpQueryFilter()
 
-#     from gulp.api.ws_api import WsQueueDataType
+#     from gulp.api.ws_api import GulpWsQueueDataType
 
 #     collab = await collab_api.session()
 #     executor = rest_api.process_executor()
@@ -1112,7 +1112,7 @@ class GulpProcess:
 #         if isinstance(r, QueryResult):
 #             combined_total_hits += r.total_hits
 #     ws_api.shared_queue_add_data(
-#         WsQueueDataType.QUERY_DONE,
+#         GulpWsQueueDataType.QUERY_DONE,
 #         req_id,
 #         {
 #             "status": status,
@@ -1139,7 +1139,7 @@ class GulpProcess:
 #             MutyLogger.get_instance().debug("sigma group filter %s matched!" % (len(qr)))
 #             # send sigma group result over websocket
 #             ws_api.shared_queue_add_data(
-#                 WsQueueDataType.SIGMA_GROUP_RESULT,
+#                 GulpWsQueueDataType.SIGMA_GROUP_RESULT,
 #                 req_id,
 #                 {
 #                     "sigma_group_results": sgr,

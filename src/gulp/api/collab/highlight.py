@@ -1,7 +1,9 @@
 from typing import Optional, override
+
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column,relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 
 
@@ -15,9 +17,9 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         doc="The time range of the highlight, in nanoseconds from unix epoch.",
     )
     source_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("source.id", ondelete="CASCADE"),
-        doc="The associated GulpSource id."
+        ForeignKey("source.id", ondelete="CASCADE"), doc="The associated GulpSource id."
     )
+
     @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
@@ -33,12 +35,12 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         glyph_id: str = None,
         color: str = None,
         tags: list[str] = None,
-        title: str = None,
+        name: str = None,
         description: str = None,
         private: bool = False,
         ws_id: str = None,
         req_id: str = None,
-        **kwargs,        
+        **kwargs,
     ) -> T:
         """
         Create a new highlight object on the collab database.
@@ -51,7 +53,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             glyph_id(str, optional): the id of the glyph associated with the highlight
             color(str, optional): the color associated with the highlight (default: green)
             tags(list[str], optional): the tags associated with the highlight
-            title(str, optional): the title of the highlight
+            name(str, optional): the name of the highlight
             description(str, optional): the description of the highlight
             private(bool, optional): whether the highlight is private
             ws_id(str, optional): the websocket id
@@ -68,14 +70,14 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
             "glyph_id": glyph_id,
             "color": color or "green",
             "tags": tags,
-            "title": title,
+            "name": name,
             "description": description,
             "private": private,
             **kwargs,
         }
         # id is automatically generated
         return await super()._create(
-            token=token,            
+            token=token,
             ws_id=ws_id,
             req_id=req_id,
             **args,

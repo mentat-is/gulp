@@ -21,7 +21,7 @@ from gulp.api.rest.defs import (
     API_DESC_WS_ID,
 )
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
+from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -81,7 +81,7 @@ class Plugin(GulpPluginBase):
             % (user_id, operation_id, ws_id, req_id)
         )
         GulpSharedWsQueue.get_instance().put(
-            WsQueueDataType.COLLAB_UPDATE,
+            GulpWsQueueDataType.COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,
             user_id="dummy",
@@ -164,7 +164,7 @@ class Plugin(GulpPluginBase):
         req_id = GulpRestServer.ensure_req_id()
 
         try:
-            session = await GulpUserSession.check_token_permission(token)
+            session = await GulpUserSession.check_token(token)
 
             # spawn coroutine in the main process, will run asap
             coro = self._example_task(session.user_id, operation_id, ws_id, req_id)

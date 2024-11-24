@@ -15,7 +15,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
-from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
+from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 
 
 class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
@@ -59,7 +59,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         sess = GulpCollab.get_instance().session()
         async with sess:
             # get note first
-            note: GulpNote = await cls.get_one_by_id(
+            note: GulpNote = await cls.get_by_id(
                 id,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -95,7 +95,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         ws_id: str,
         user_id: str,
         docs: list[dict],
-        title: str,
+        name: str,
         tags: list[str] = None,
         color: str = None,
         glyph_id: str = None,
@@ -108,7 +108,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             ws_id(str): the websocket id
             user_id(str): the requestor user id
             docs(list[dict]): the list of GulpDocument dictionaries to be added to the note
-            title(str): the title of the note
+            name(str): the name of the note
             tags(list[str], optional): the tags of the note: if not set, ["auto"] is automatically set here.
             color(str, optional): the color of the note
             glyph_id(str, optional): the id of the glyph of the note
@@ -150,10 +150,10 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                     ],
                     "glyph_id": glyph_id,
                     "color": color,
-                    "title": title,
+                    "name": name,
                     "tags": tags,
                 }
-                note = GulpNote(id=None, user_id=user_id, **args)
+                note = GulpNote(id=None, owner_user_id=user_id, **args)
                 notes.append(note.to_dict(exclude_none=True))
 
             # bulk insert
@@ -172,7 +172,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 # operation is always the same
                 operation = notes[0].get("operation")
                 GulpSharedWsQueue.get_instance().put(
-                    WsQueueDataType.COLLAB_UPDATE,
+                    GulpWsQueueDataType.COLLAB_UPDATE,
                     ws_id=ws_id,
                     user_id=user_id,
                     operation_id=operation,
@@ -189,7 +189,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     async def create(
         cls,
         token: str,
-        title: str,
+        name: str,
         operation_id: str,
         context_id: str,
         source_id: str,
@@ -209,7 +209,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
         Args:
             token(str): the token of the user creating the object, for access check
-            title(str): the title of the note
+            name(str): the name of the note
             operation_id(str): the id of the operation associated with the note
             context_id(str): the id of the context associated with the note
             source_id(str): the log file path (or source) associated with the note
@@ -233,7 +233,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             "glyph_id": glyph_id,
             "color": color or "yellow",
             "tags": tags,
-            "title": title,
+            "name": name,
             "text": text,
             "description": description,
             "private": private,

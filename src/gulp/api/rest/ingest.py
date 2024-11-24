@@ -29,7 +29,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.server_utils import GulpUploadResponse, ServerUtils
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpSharedWsQueue, WsQueueDataType
+from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -278,7 +278,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         finally:
             # send done packet on the websocket
             GulpSharedWsQueue.get_instance().put(
-                type=WsQueueDataType.INGEST_SOURCE_DONE,
+                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
                 operation_id=operation_id,
@@ -346,9 +346,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 
         try:
             # check token and get caller user id
-            s = await GulpUserSession.check_token_permission(
-                token, GulpUserPermission.INGEST
-            )
+            s = await GulpUserSession.check_token(token, GulpUserPermission.INGEST)
             user_id = s.user_id
 
             # handle multipart request manually
@@ -366,7 +364,9 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
             # create (and associate) context and source on the collab db, if they do not exist
             await GulpOperation.add_context_to_id(operation_id, context_id)
             source = await GulpContext.add_source_to_id(
-                operation_id, context_id, payload.original_file_path or os.path.basename(file_path)
+                operation_id,
+                context_id,
+                payload.original_file_path or os.path.basename(file_path),
             )
 
             # run ingestion in a coroutine in one of the workers
@@ -450,7 +450,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         finally:
             # send done packet on the websocket
             GulpSharedWsQueue.get_instance().put(
-                type=WsQueueDataType.INGEST_SOURCE_DONE,
+                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
                 operation_id=operation_id,
@@ -520,9 +520,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 
         try:
             # check token and get caller user id
-            s = await GulpUserSession.check_token_permission(
-                token, GulpUserPermission.INGEST
-            )
+            s = await GulpUserSession.check_token(token, GulpUserPermission.INGEST)
             user_id = s.user_id
 
             # create (and associate) context and source on the collab db, if they do not exist
@@ -597,9 +595,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 
         try:
             # check token and get caller user id
-            s = await GulpUserSession.check_token_permission(
-                token, GulpUserPermission.INGEST
-            )
+            s = await GulpUserSession.check_token(token, GulpUserPermission.INGEST)
             user_id = s.user_id
 
             # handle multipart request manually
@@ -618,19 +614,19 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
             unzipped = await muty.file.unzip(file_path)
 
             # read metadata json
-            js = await muty.file.read_file_async(os.path.join(unzipped, "metadata.json"))
+            js = await muty.file.read_file_async(
+                os.path.join(unzipped, "metadata.json")
+            )
             metadata = json.loads(js)
 
             # metadata.json doesn't count
-            files -=1
+            files -= 1
 
             # spawn ingestion tasks for each file
             for f in files:
                 # create (and associate) context and source on the collab db, if they do not exist
                 await GulpOperation.add_context_to_id(operation_id, context_id)
-                source = await GulpContext.add_source_to_id(
-                    operation_id, context_id, f
-                )
+                source = await GulpContext.add_source_to_id(operation_id, context_id, f)
 
                 # run ingestion in a coroutine in one of the workers
                 MutyLogger.get_instance().debug("spawning ingestion task ...")

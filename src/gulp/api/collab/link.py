@@ -1,11 +1,13 @@
 from typing import Union, override
+
+from muty.log import MutyLogger
 from sqlalchemy import Index, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column
+
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
-from muty.log import MutyLogger
 
 
 class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
@@ -35,7 +37,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         glyph_id: str = None,
         color: str = None,
         tags: list[str] = None,
-        title: str = None,
+        name: str = None,
         description: str = None,
         private: bool = False,
         ws_id: str = None,
@@ -53,7 +55,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             glyph_id(str, optional): the id of the glyph associated with the link
             color(str, optional): the color associated with the link (default: red)
             tags(list[str], optional): the tags associated with the link
-            title(str, optional): the title of the link
+            name(str, optional): the name of the link
             description(str, optional): the description of the link
             private(bool, optional): whether the link is private
             ws_id(str, optional): the websocket id
@@ -69,7 +71,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             "glyph_id": glyph_id,
             "color": color or "red",
             "tags": tags,
-            "title": title,
+            "name": name,
             "description": description,
             "private": private,
             **kwargs,

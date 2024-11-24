@@ -20,7 +20,7 @@ class GulpConvertedSigma(BaseModel):
     A converted sigma rule
     """
 
-    title: str = Field(..., description="the title of the sigma rule.")
+    name: str = Field(..., description="the name/title of the sigma rule.")
     id: str = Field(..., description="the id of the sigma rule.")
     q: Any = Field(..., description="the converted query.")
     tags: list[str] = Field([], description="the tags of the sigma rule.")
@@ -39,9 +39,9 @@ class GulpSigmaQueryParameters(BaseModel):
         True,
         description="if set, create notes on match",
     )
-    note_title: str = Field(
+    note_name: str = Field(
         None,
-        description="the title of the note to create on match, defaults=sigma rule title",
+        description="the name of the note to create on match, default=use sigma rule title",
     )
     note_tags: list[str] = Field(
         None,
@@ -85,14 +85,11 @@ class GulpQueryExternalParameters(BaseModel):
         description="the query to perform, format is specific to the external system and will be handled by the plugin implementing `query_external`.",
     )
 
-    username: str = Field(
+    credentials: tuple[str,str] = Field(
         None,
-        description="the username to use to query the external system.",
+        description="a tuple with the username and password to use to query the external system, may be None if set in the uri.",
     )
-    password: str = Field(
-        None,
-        description="the password to use to query the external system.",
-    )
+    
     options: Optional[Any] = Field(
         None,
         description="further options to pass to the external system, format is specific to the external system and will be handled by the plugin implementing `query_external`.",
@@ -114,7 +111,7 @@ class GulpQueryAdditionalParameters(BaseModel):
     may include the following extra fields in `model_extra`:
         - sigma_parameters: GulpSigmaQueryParameter
         - sigma_create_notes: bool: if set, this is a sigma query and indicates to create notes on match
-        - note_title: str: for sigma queries, the title of the note to create on match, mandatory if sigma is set.
+        - note_name: str: for sigma queries, the name of the note to create on match, mandatory if sigma is set.
         - note_tags: list[str], optional: for sigma queries, the tags of the note to create
         - note_color: str, optional: for sigma queries, the color of the note to create
         - note_glyph: str, optional: for sigma queries, id of the glyph of the note to create.
@@ -218,7 +215,7 @@ class GulpQuery:
         Raises:
             MissingPermission: if the token is invalid or the user has no permission
         """
-        sess: GulpUserSession = await GulpUserSession.check_token_permission(token)
+        sess: GulpUserSession = await GulpUserSession.check_token(token)
         return sess.user_id
 
     @staticmethod
@@ -406,7 +403,7 @@ class GulpQuery:
 
         for q in queries:
             # perform queries
-            options.sigma_parameters.note_title = q.title
+            options.sigma_parameters.note_name = q.name
             options.sigma_parameters.note_tags = q.tags
             return await GulpQuery.query_raw(
                 token=None,
@@ -449,7 +446,7 @@ class GulpQuery:
             ObjectNotFound: if no document is found
         """
         # get stored query by id
-        q: GulpStoredQuery = await GulpStoredQuery.get_one_by_id(id)
+        q: GulpStoredQuery = await GulpStoredQuery.get_by_id(id)
         if not options:
             options = GulpQueryAdditionalParameters()
         options.sigma_parameters = None
@@ -635,7 +632,7 @@ class GulpQuery:
             # query
             for q in queries:
                 # perform queries
-                query.sigma_parameters.note_title = q.title
+                query.sigma_parameters.note_name = q.name
                 query.sigma_parameters.note_tags = q.tags
                 query.query = q.q
                 await p.query_external(

@@ -34,7 +34,7 @@ from gulp.api.opensearch.filters import (
 from gulp.api.opensearch.query import GulpConvertedSigma, GulpQueryExternalParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, WsQueueDataType
+from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.config import GulpConfig
 from gulp.structs import (
     GulpPluginAdditionalParameter,
@@ -242,7 +242,7 @@ class GulpPluginBase(ABC):
         self._ingestion_enabled: bool = True
         self._stats_enabled: bool = True
         self._query_create_notes: bool = False
-        self._note_title: str = None
+        self._note_name: str = None
         self._note_color: str = None
         self._note_tags: list[str] = None
         self._note_glyph: str = None
@@ -385,7 +385,7 @@ class GulpPluginBase(ABC):
             q = backend.convert_rule(r, output_format=output_format)
             for qq in q:
                 converted = GulpConvertedSigma(
-                    title=r.title,
+                    name=r.name,
                     q=qq,
                     tags=[str(t) for t in r.tags] if r.tags else [],
                     id=r.id,
@@ -476,7 +476,7 @@ class GulpPluginBase(ABC):
             self._query_create_notes = query.sigma_parameters.create_notes
             if self._query_create_notes:
                 # this is a sigma query
-                self._note_title = query.sigma_parameters.note_title
+                self._note_name = query.sigma_parameters.note_name
                 self._note_color = query.sigma_parameters.note_color
                 self._note_tags = query.sigma_parameters.note_glyph
                 self._note_glyph = query.sigma_parameters.note_tags
@@ -593,7 +593,7 @@ class GulpPluginBase(ABC):
             )
             data = chunk.model_dump(exclude_none=True)
             GulpSharedWsQueue.get_instance().put(
-                type=WsQueueDataType.DOCUMENTS_CHUNK,
+                type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 req_id=self._ws_id,
@@ -608,7 +608,7 @@ class GulpPluginBase(ABC):
                     ws_id=self._ws_id,
                     user_id=self._user_id,
                     docs=data,
-                    title=self._note_title,
+                    name=self._note_name,
                     tags=self._note_tags,
                     color=self._note_color,
                     glyph_id=self._note_glyph,

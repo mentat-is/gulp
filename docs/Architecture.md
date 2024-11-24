@@ -164,7 +164,7 @@ Response from the websocket is a [WsData](./src/gulp/api/rest/ws.py) object like
 
 ```json
 {
-  // type can be one of the defined WsQueueDataType in gulp/api/rest/ws.py
+  // type can be one of the defined GulpWsQueueDataType in gulp/api/rest/ws.py
   // it will be checked agains websocket parameter "types", to send to the websocket only the types it is interested in (empty "types"=send all)
   "type": 2,
   // data contains the object (GulpStats or CollabObject) itself

@@ -478,7 +478,7 @@ class Plugin(GulpPluginBase):
 
                 # send QueryResult over websocket
                 ws_api.shared_queue_add_data(
-                    gulp.api.ws_api.WsQueueDataType.QUERY_RESULT,
+                    gulp.api.ws_api.GulpWsQueueDataType.QUERY_RESULT,
                     req_id,
                     query_res.to_dict(),
                     client_id=client_id,

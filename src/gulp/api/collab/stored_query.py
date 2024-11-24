@@ -1,35 +1,49 @@
 from typing import Optional, override
+
+from sigma.rule import SigmaRule
 from sqlalchemy import ARRAY, Boolean, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
-from sigma.rule import SigmaRule
+
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabType,
+    GulpUserPermission,
+    T,
+)
+
 
 class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     """
     a stored query in the gulp collaboration system
     """
-    title: Mapped[str] = mapped_column(
-        String, doc="The query display name.",
+
+    name: Mapped[str] = mapped_column(
+        String,
+        doc="The query display name.",
     )
     text: Mapped[str] = mapped_column(
-        String, doc="The query in its original format, as string.",
+        String,
+        doc="The query in its original format, as string.",
     )
     tags: Mapped[Optional[list[str]]] = mapped_column(
         ARRAY(String),
         doc="The tags associated with the query.",
     )
     description: Mapped[Optional[str]] = mapped_column(
-        String, doc="The description of the query.",
+        String,
+        doc="The description of the query.",
     )
     glyph_id: Mapped[Optional[str]] = mapped_column(
-        String, doc="ID of a glyph to associate with the query.",
+        String,
+        doc="ID of a glyph to associate with the query.",
     )
     converted: Mapped[Optional[str]] = mapped_column(
-        String, doc="If present, the query converted in the native format, as string.",
+        String,
+        doc="If present, the query converted in the native format, as string.",
         default=None,
     )
-    
+
     @override
     def __init__(self, *args, **kwargs):
         # initializes the base class
@@ -39,7 +53,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     async def create(
         cls,
         token: str,
-        title: str,
+        name: str,
         text: str,
         converted: any = None,
         tags: list[str] = None,
@@ -52,7 +66,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
 
         Args:
             token(str): the token of the user creating the object, for access check (needs EDIT permission)
-            title(str, optional): the title of the query. Defaults to None.
+            name(str, optional): the name of the query. Defaults to None.
             text(str): the text of the query in the original format, stringified. Defaults to None.
             converted(any, optional): the converted query, if any. Defaults to None.
             tags(list[str], optional): the tags associated with the query. Defaults to None.
@@ -65,7 +79,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
             the created stored query object
         """
         args = {
-            "title": title,
+            "name": name,
             "text": text,
             "converted": converted,
             "tags": tags,
@@ -79,11 +93,11 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
             id = r.id
         else:
             # autogenerate
-            id = None  
+            id = None
 
         return await super()._create(
             token=token,
-            id = id,
+            id=id,
             required_permission=[GulpUserPermission.EDIT],
             **args,
         )

@@ -20,7 +20,7 @@ from gulp.api.collab.structs import (
     T,
 )
 from gulp.api.collab_api import GulpCollab
-from gulp.api.ws_api import WsQueueDataType
+from gulp.api.ws_api import GulpWsQueueDataType
 from gulp.config import GulpConfig
 
 
@@ -169,7 +169,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             sess=sess,
             ensure_eager_load=ensure_eager_load,
             eager_load_depth=eager_load_depth,
-            ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
+            ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
             **args,
         )
 
@@ -215,7 +215,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
             # check if the stats already exist
             s: GulpIngestionStats
-            s = await cls.get_one_by_id(id, sess=sess, throw_if_not_found=False)
+            s = await cls.get_by_id(id, sess=sess, throw_if_not_found=False)
             if s:
                 return s, False
 
@@ -272,7 +272,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             req_id=req_id,
             sess=sess,
             throw_if_not_found=throw_if_not_found,
-            ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
+            ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
             **kwargs,
         )
 
@@ -463,7 +463,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
                 req_id=self.id,
                 sess=sess,
                 throw_if_not_found=throw_if_not_found,
-                ws_queue_datatype=WsQueueDataType.STATS_UPDATE,
+                ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
                 updated_instance=stats,
                 **kwargs,
             )

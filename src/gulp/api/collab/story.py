@@ -26,7 +26,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         cls,
         token: str,
         operation_id: str,
-        title: str,
+        name: str,
         documents: list[GulpBasicDocument],
         color: str = None,
         description: str = None,
@@ -43,7 +43,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         Args:
             token(str): the token of the user creating the object, for access check
             operation_id(str): the id of the operation associated with the story
-            title(str): the title of the story
+            name(str): the name of the story
             documents(list[GulpBasicDocument]): the documents associated with the story
             color(str, Optional): the color associated with the story (default: blue)
             description(str, Optional): the description of the story
@@ -62,7 +62,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
             "glyph_id": glyph_id,
             "color": color or "blue",
             "tags": tags,
-            "title": title,
+            "name": name,
             "description": description,
             "private": private,
         }

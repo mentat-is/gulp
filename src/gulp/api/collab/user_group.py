@@ -1,7 +1,8 @@
 from typing import Optional, override
 
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, ForeignKey, String
+from sqlalchemy import ARRAY, Column, ForeignKey, String, Table
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
@@ -14,7 +15,6 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.collab_api import GulpCollab
 
 
 class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
@@ -22,11 +22,21 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
     Represents an user group in the gulp system.
     """
 
-    title: Mapped[Optional[str]] = mapped_column(String, doc="The name of the group.")
-    user_ids: Mapped[Optional[list[str]]] = mapped_column(
-        MutableList.as_mutable(ARRAY(String)),
-        default_factory=list,
-        doc="The user IDs associated with the group.",
+    # multiple users can be associated with a group
+    user_associations = Table(
+        "user_group_association",
+        GulpCollabBase.metadata,
+        Column("user_id", ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
+        Column(
+            "group_id",
+            ForeignKey("user_group.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+
+    name: Mapped[Optional[str]] = mapped_column(String, doc="The name of the group.")
+    users: Mapped[list["GulpUser"]] = relationship(
+        "GulpUser", secondary=user_associations, lazy="selectin"
     )
     glyph_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("glyph.id", ondelete="SET NULL"),
@@ -71,13 +81,13 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
             The created user group.
         """
         # only admin can create a group
-        await GulpUserSession.check_token_permission(token, [GulpUserPermission.ADMIN])
+        await GulpUserSession.check_token(token, [GulpUserPermission.ADMIN])
         if GulpUserPermission.READ not in permission:
             # ensure that all groups have read permission
             permission.append(GulpUserPermission.READ)
 
         args = {
-            "title": name,
+            "name": name,
             "permission": permission,
             "glyph_id": glyph_id,
             "user_ids": [],
@@ -94,40 +104,45 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
             **args,
         )
 
-    async def add_user(self, user_id: str) -> None:
+    async def add_user(self, sess: AsyncSession, user_id: str) -> None:
         """
         Adds a user to the group.
 
         Args:
+            sess (AsyncSession): The session to use.
             user_id (str): The user id to add to the group.
         """
-        async with GulpCollab.get_instance().session() as sess:
-            user = await GulpUser.get_one_by_id(user_id, sess=sess)
-            sess.add(user)
-            sess.add(self)
-            if user_id not in self.user_ids:
-                MutyLogger.get_instance().debug(
-                    "Adding user %s to group %s" % (user_id, self.id)
-                )
-                self.user_ids.append(user_id)
-            user.group_id = self.id
+        user = await GulpUser.get_by_id(sess, user_id)
+        if user not in self.users:
+            self.users.append(user)
             await sess.commit()
+            MutyLogger.get_instance().info(
+                "Adding user %s to group %s" % (user_id, self.id)
+            )
+        else:
+            MutyLogger.get_instance().info(
+                "User %s already in group %s" % (user_id, self.id)
+            )
 
-    async def remove_user(self, user_id: str) -> None:
+    async def remove_user(self, sess: AsyncSession, user_id: str) -> None:
         """
         Removes a user from the group.
 
         Args:
+            sess (AsyncSession): The session to use.
             user_id (str): The user id to remove from the group.
         """
-        async with GulpCollab.get_instance().session() as sess:
-            user = await GulpUser.get_one_by_id(user_id, sess=sess)
-            sess.add(user)
-            sess.add(self)
-            if user_id in self.user_ids:
-                self.user_ids.remove(user_id)
-            user.group_id = None
+        user = await GulpUser.get_by_id(sess, user_id)
+        if user in self.users:
+            self.users.remove(user)
             await sess.commit()
+            MutyLogger.get_instance().info(
+                "Removing user %s from group %s" % (user_id, self.id)
+            )
+        else:
+            MutyLogger.get_instance().info(
+                "User %s not in group %s" % (user_id, self.id)
+            )
 
     def is_admin(self) -> bool:
         """
@@ -143,12 +158,13 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         Checks if the group has a user.
 
         Args:
+            sess (AsyncSession): The session to use.
             user_id (str): The user id to check.
 
         Returns:
             bool: True if the group has the user, False otherwise.
         """
-        return user_id in self.user_ids
+        return any([u.id == user_id for u in self.users])
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """

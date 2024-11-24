@@ -56,7 +56,7 @@ _app: APIRouter = APIRouter()
         }
     },
     summary="list notes, optionally using a filter.",
-    description="available filters: id, owner_id, operation_id, context, src_file, name(=title), text, time_start(=pin time), time_end, events, tags, private_only, level, limit, offset.",
+    description="available filters: id, owner_id, operation_id, context, src_file, name(=name), text, time_start(=pin time), time_end, events, tags, private_only, level, limit, offset.",
 )
 async def note_list_handler(
     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
@@ -159,7 +159,7 @@ async def note_update_handler(
     ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     events: Annotated[list[GulpAssociatedEvent], Body()] = None,
     text: Annotated[str, Body()] = None,
-    title: Annotated[str, Body()] = None,
+    name: Annotated[str, Body()] = None,
     tags: Annotated[list[str], Body()] = None,
     glyph_id: Annotated[
         int, Query(description="optional new glyph ID for the note.")
@@ -175,14 +175,14 @@ async def note_update_handler(
         if (
             events is None
             and text is None
-            and title is None
+            and name is None
             and tags is None
             and glyph_id is None
             and color is None
             and private is None
         ):
             raise InvalidArgument(
-                "at least one of event_ids, text, title, glyph_id, tags, color, private must be set."
+                "at least one of event_ids, text, name, glyph_id, tags, color, private must be set."
             )
 
         o = await GulpCollabObject.update(
@@ -191,7 +191,7 @@ async def note_update_handler(
             req_id,
             note_id,
             ws_id,
-            name=title,
+            name=name,
             txt=text,
             events=events,
             glyph_id=glyph_id,
@@ -239,7 +239,7 @@ async def note_create_handler(
     ],
     ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
     text: Annotated[str, Body()],
-    title: Annotated[str, Body()],
+    name: Annotated[str, Body()],
     time_pin: Annotated[
         int,
         Query(description="timestamp to pin the note to."),
@@ -278,7 +278,7 @@ async def note_create_handler(
             GulpCollabType.NOTE,
             ws_id=ws_id,
             operation_id=operation_id,
-            name=title,
+            name=name,
             context=context,
             src_file=src_file,
             txt=text,

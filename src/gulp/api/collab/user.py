@@ -1,14 +1,14 @@
-from typing import Optional, override, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, override
 
 import muty.crypto
 import muty.string
 import muty.time
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, String, select
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
-from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
 from gulp.api.collab.structs import (
@@ -19,31 +19,27 @@ from gulp.api.collab.structs import (
     T,
     WrongUsernameOrPassword,
 )
-from gulp.api.collab_api import GulpCollab
+from gulp.api.ws_api import GulpUserLoginLogoutPacket, GulpWsQueueDataType
 from gulp.config import GulpConfig
 
 if TYPE_CHECKING:
+    from gulp.api.collab.user_data import GulpUserData
     from gulp.api.collab.user_group import GulpUserGroup
     from gulp.api.collab.user_session import GulpUserSession
-    from gulp.api.collab.user_data import GulpUserData
+
 
 class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     """
     Represents a user in the system.
     """
+
     pwd_hash: Mapped[str] = mapped_column(
         String, doc="The hashed password of the user."
     )
-    group_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("user_group.id", ondelete="SET NULL"),
-        default=None,
-        doc="The group id of the user.",
-    )
-    group: Mapped[Optional["GulpUserGroup"]] = relationship(
+    groups: Mapped[list["GulpUserGroup"]] = relationship(
         "GulpUserGroup",
-        default=None,
-        foreign_keys="[GulpUser.group_id]",
-        doc="The group associated with the user.",
+        secondary=GulpUserGroup.user_associations,
+        lazy="selectin",
     )
     permission: Mapped[Optional[list[GulpUserPermission]]] = mapped_column(
         MutableList.as_mutable(ARRAY(SQLEnum(GulpUserPermission))),
@@ -84,30 +80,22 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         foreign_keys="[GulpUserData.user_id]",
     )
 
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        super().__init__(*args, type=GulpCollabType.USER, **kwargs)
-
     @classmethod
     async def create(
         cls,
-        token: str,
+        sess: AsyncSession,
         id: str,
         password: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         email: str = None,
         glyph_id: str = None,
         extra: dict = None,
-        ws_id: str = None,
-        req_id: str = None,
-        **kwargs,
     ) -> T:
         """
-        Create a new user object on the collab database.
+        Create a new user object on the collab database (can only be called by an admin).
 
         Args:
-            token: The token of the user creating the object, for permission check (needs ADMIN permission).
+            sess: The database session.
             id: The unique identifier of the user(=username).
             password: The password of the user.
             permission: The permission of the user.
@@ -129,109 +117,58 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "pwd_hash": muty.crypto.hash_sha256(password),
             "permission": permission,
             "email": email,
-            "glyph": glyph_id,
+            "glyph_id": glyph_id,
             "extra": extra,
-            # force owner to the user itself
-            "user_id": id,
         }
 
-        if "init" in kwargs:
-            # "init" internal flag is used to create the default admin user and skip token check
-            token = None
-            kwargs.pop("init")
-
-        return await super()._create(
-            token=token,
-            id=id,
-            required_permission=[GulpUserPermission.ADMIN],
-            ws_id=ws_id,
-            req_id=req_id,
-            ensure_eager_load=True,
-            **args,
-        )
+        return await super()._create(sess, id=id, **args)
 
     @override
-    @classmethod
-    async def update_by_id(
-        cls,
+    async def update(
+        self,
+        sess: AsyncSession,
         token: str,
-        id: str,
         d: dict,
-        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
-        ws_id: str = None,
-        req_id: str = None,
-        sess: AsyncSession = None,
-        throw_if_not_found: bool = True,
+        permission: list[GulpUserPermission] = None,
         **kwargs,
-    ) -> T:
-        check_permission_args = {}
+    ) -> None:
+        if not token:
+            # we are called by admin
+            return await super().update(sess, token, d, **kwargs)
+
+        s: GulpUserSession = await GulpUserSession.get_by_id(sess, token, permission=permission, with_for_update=True)
+
+        # special checks for permission and password
+        #
+        # - only admin can change permission
+        # - only admin can change password to other users
+        # - changing password will invalidate the session
+
         if "permission" in d:
-            # changing permission, only admin can do it, standard users cannot change their own permission too
-            # so we set allow_owner to False explicitly here, so only admin can pass check_token_against_object_by_id
-            if GulpUserPermission.READ not in d["permission"]:
-                # ensure read permission is always present
-                d["permission"].append(GulpUserPermission.READ)
-            check_permission_args["allow_owner"] = False
+            if not s.user.is_admin():
+                # only admin can change permission
+                raise MissingPermission(
+                    "only admin can change permission, user_id=%s" % (self.id)
+                )
 
         if "password" in d:
-            # only admin can change password to other users
-            check_permission_args["permission"] = [GulpUserPermission.ADMIN]
-
-        # if d is a dict and have "password", hash it (password update)
-        pwd_changed = False
-        if "password" in d:
+            if not s.user.is_admin() and s.user.id != self.id:
+                # only admin can change password to other users
+                raise MissingPermission(
+                    "only admin can change password to other users, user_id=%s" % (self.id)
+                )
+            # changing password
             d["pwd_hash"] = muty.crypto.hash_sha256(d["password"])
             del d["password"]
-            pwd_changed = True
 
-        sess = GulpCollab.get_instance().session()
-        async with sess:
-            user: GulpUser = await super().update_by_id(
-                token=token,
-                id=id,
-                d=d,
-                ws_id=ws_id,
-                req_id=req_id,
-                sess=sess,
-                throw_if_not_found=throw_if_not_found,
-                **kwargs,
+            # invalidate session for the user
+            MutyLogger.get_instance().warning(
+                "password changed, deleting session for user_id=%s" % (self.id)
             )
-            if pwd_changed and user.session:
-                # invalidate (delete) the session if the password was changed
-                MutyLogger.get_instance().debug(
-                    "password changed, deleting session for user_id=%s" % (user.id)
-                )
-                sess.add(user.session)
-                user.session = None
+            await sess.delete(s)
+            await sess.flush()
 
-            # commit in the end
-            sess.add(user)
-            await sess.commit()
-            return user
-
-    @override
-    @classmethod
-    async def delete_by_id(
-        cls,
-        token: str,
-        id: str,
-        permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
-        ws_id: str = None,
-        req_id: str = None,
-        sess: AsyncSession = None,
-        throw_if_not_found: bool = True,
-    ) -> None:
-        if id == "admin":
-            raise ValueError("cannot delete the default admin user")
-        await super().delete_by_id(
-            token=token,
-            id=id,
-            permission=permission,
-            ws_id=ws_id,
-            req_id=req_id,
-            sess=sess,
-            throw_if_not_found=throw_if_not_found,
-        )
+        await super().update(sess, token=None, d=d, **kwargs)
 
     def is_admin(self) -> bool:
         """
@@ -241,10 +178,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             bool: True if the user has admin permission, False otherwise.
         """
         admin = GulpUserPermission.ADMIN in self.permission
-        if not admin:
-            # check groups
-            if self.group:
-                admin = self.group.is_admin()
+        if not admin and self.groups:
+            # also check if the user is in an admin group
+            for group in self.groups:
+                if group.is_admin():
+                    admin = True
+                    break
 
         return admin
 
@@ -259,92 +198,93 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     @staticmethod
     async def login(
-        user_id: str, password: str, ws_id: str = None, req_id: str = None
-    ) -> tuple["GulpUser", "GulpUserSession"]:
+        sess: AsyncSession, user_id: str, password: str, ws_id: str, req_id: str
+    ) -> GulpUserSession:
         """
         Asynchronously logs in a user and creates a session (=obtain token).
         Args:
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
         Returns:
-            tuple[GulpUser, GulpUserSession]: The updated user and the session object.
+            GulpUserSession: The created session object.
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        MutyLogger.get_instance().debug("---> logging in user_id=%s ..." % (user_id))
-
-        sess = GulpCollab.get_instance().session()
-        async with sess:
-            u: GulpUser = await GulpUser.get_one_by_id(id=user_id, sess=sess)
+        u: GulpUser = await GulpUser.get_by_id(sess, None, user_id)
+        if u.session:
             # check if user has a session already, if so invalidate
-            if u.session:
-                MutyLogger.get_instance().debug(
-                    "resetting previous session for user_id=%s" % (user_id)
-                )
-                u.session = None
-                sess.add(u)  # keep track of the change
-
-            # check password
-            if u.pwd_hash != muty.crypto.hash_sha256(password):
-                raise WrongUsernameOrPassword(
-                    "wrong password for use_id=%s" % (user_id)
-                )
-
-            # create new session (will auto-generate a token)
-            new_session: GulpUserSession = await GulpUserSession._create(
-                ws_id=ws_id,
-                req_id=req_id,
-                sess=sess,
-                user_id=u.id,
-                user=u,
+            MutyLogger.get_instance().debug(
+                "resetting previous session for user_id=%s" % (user_id)
             )
-            if GulpConfig.get_instance().debug_no_token_expiration():
-                new_session.time_expire = 0
-            else:
-                # setup session expiration
-                if u.is_admin():
-                    new_session.time_expire = (
-                        muty.time.now_msec()
-                        + GulpConfig.get_instance().token_admin_ttl() * 1000
-                    )
-                else:
-                    new_session.time_expire = (
-                        muty.time.now_msec()
-                        + GulpConfig.get_instance().token_ttl() * 1000
-                    )
+            await sess.delete(u.session)
+            await sess.flush()
 
-            # update user with new session and write the new session object itself
-            u.session = new_session
-            u.time_last_login = muty.time.now_msec()
-            sess.add(u)
-            sess.add(new_session)
-            await sess.commit()  # this will also delete the previous session from above, if needed
-            return u, new_session
+        # check password
+        if u.pwd_hash != muty.crypto.hash_sha256(password):
+            raise WrongUsernameOrPassword("wrong password for use_id=%s" % (user_id))
+
+        # get expiration time
+        if GulpConfig.get_instance().debug_no_token_expiration():
+            expire_time = None
+        else:
+            # setup session expiration
+            if u.is_admin():
+                expire_time = (
+                    muty.time.now_msec()
+                    + GulpConfig.get_instance().token_admin_ttl() * 1000
+                )
+            else:
+                expire_time = (
+                    muty.time.now_msec() + GulpConfig.get_instance().token_ttl() * 1000
+                )
+
+        # create new session
+        p = GulpUserLoginLogoutPacket(user_id=u.id, login=True)
+        new_session: GulpUserSession = await GulpUserSession._create(
+            sess,
+            ws_id=ws_id,
+            req_id=req_id,
+            user_id=u.id,
+            expire_time=expire_time,
+            ws_queue_datatype=GulpWsQueueDataType.USER_LOGIN,
+            ws_data=p.model_dump(),
+        )
+
+        # update user with new session and write the new session object itself
+        u.session = new_session
+        u.time_last_login = muty.time.now_msec()
+        sess.add(u)
+        await sess.commit()
+        MutyLogger.get_instance().info(
+            "user %s logged in, token=%s" % (u.id, new_session.id)
+        )
+        return new_session
 
     @staticmethod
-    async def logout(token: str, ws_id: str = None, req_id: str = None) -> None:
+    async def logout(sess: AsyncSession, token: str, ws_id: str, req_id: str) -> None:
         """
-        Logs out the specified user by deleting their session.
+        Logs out the specified user by deleting the session.
         Args:
+            sess (AsyncSession): The session to use.
             token (str): The token of the user to log out.
             ws_id (str, optional): The websocket ID. Defaults to None.
             req_id (str, optional): The request ID. Defaults to None.
         Returns:
             None
         """
-        MutyLogger.get_instance().debug("---> logging out token=%s ..." % (token))
         from gulp.api.collab.user_session import GulpUserSession
+        s: GulpUserSession = await GulpUserSession.get_by_id(sess, token)
+        MutyLogger.get_instance().info("token=%s, user=%s logged out" % (token, s.user_id))
+        p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
+        await s.delete(ws_id=ws_id, req_id=req_id, ws_queue_datatype=GulpWsQueueDataType.USER_LOGOUT, ws_data=p.model_dump())
 
-        await GulpUserSession.delete_by_id(
-            token=token, id=token, ws_id=ws_id, req_id=req_id
-        )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """
-        Check if the user has the specified permission (also check group permission if any)
+        Check if the user has the specified permission
 
         Args:
-            permission (list[GulpUserPermission] | list[str]): The permission(s) to check.
+            permission (list[GulpUserPermission]): The permission(s) to check.
 
         Returns:
             bool: True if the user has the specified permissions, False otherwise.
@@ -353,57 +293,48 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             return True
 
         # check if all permissions are present
-        granted = all([p in self.permission for p in permission])
-        if not granted:
-            # check user group
-            if self.group:
-                granted = self.group.has_permission(permission)
+        return all([p in self.permission for p in permission])
 
-        return granted
-
-    def check_against_object(
+    def check_object_access(
         self,
         obj: GulpCollabBase,
-        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        always_allow_owner: bool = True,
         throw_on_no_permission: bool = False,
-        allow_owner: bool = True,
     ) -> bool:
         """
         Check if the user has permission to access the specified object.
         Args:
             obj (GulpCollabBase): The object to check against.
-            permission (list[GulpUserPermission], optional): The permission to check. Defaults to [GulpUserPermission.READ].
+            always_allow_owner (bool, optional): Whether to always allow the owner of the object to access it. Defaults to True.
             throw_on_no_permission (bool, optional): Whether to throw an exception if the user does not have permission. Defaults to False.
         Returns:
             bool: True if the user has permission to access the object, False otherwise.
         """
         if self.is_admin():
             # admin is always granted
-            #MutyLogger.get_instance().debug("allowing access to admin")
+            # MutyLogger.get_instance().debug("allowing access to admin")
             return True
 
         # check if the user is the owner of the object
-        if obj.user_id == self.id and allow_owner:
-            #MutyLogger.get_instance().debug("allowing access to object owner")
+        if obj.owner_user_id == self.id and always_allow_owner:
+            # MutyLogger.get_instance().debug("allowing access to object owner")
             return True
 
         # check if the user is in the granted users or groups
-        if obj.granted_user_group_ids and self.group_id in obj.granted_group_ids:
-            #MutyLogger.get_instance().debug("allowing access to granted group")
-            return True
+        if obj.granted_user_group_ids:
+            if obj.granted_user_group_ids:
+                for group in self.groups:
+                    if group.id in obj.granted_user_group_ids:
+                        # MutyLogger.get_instance().debug("allowing access to granted group")
+                        return True
 
         # check if the user is in the granted users
         if obj.granted_user_ids and self.id in obj.granted_user_ids:
-            #MutyLogger.get_instance().debug("allowing access to granted user")
-            return True
-
-        if self.has_permission(permission):
-            # just check the permission
-            #MutyLogger.get_instance().debug("allowing access to permission")
+            # MutyLogger.get_instance().debug("allowing access to granted user")
             return True
 
         if throw_on_no_permission:
             raise MissingPermission(
-                f"User {self.id} does not have the required permissions to perform this operation: requested permission={permission}, obj={obj}"
+                f"User {self.id} does not have the required permissions to access the object {obj.id}."
             )
         return False

@@ -1,21 +1,30 @@
 import base64
 from typing import Optional, override
+
 import muty.file
 from sqlalchemy import LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T, GulpUserPermission
+
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabType,
+    GulpUserPermission,
+    T,
+)
 
 
 class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     """
     Represents a glyph object.
     """
-    title: Mapped[Optional[str]] = mapped_column(
+
+    name: Mapped[Optional[str]] = mapped_column(
         String, doc="Display name for the glyph."
-    )    
+    )
     img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
+
     @override
     def __repr__(self) -> str:
         return super().__repr__() + f" img={self.img[:10]}[...]"
@@ -31,7 +40,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
         token: str,
         id: str,
         img: bytes | str,
-        title: str = None,
+        name: str = None,
         **kwargs,
     ) -> T:
         """
@@ -41,7 +50,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
             token (str): The token of the user creating the object, for permission check (needs EDIT permission).
             id (str): The name of the glyph (must be unique and not containing spaces)
             img (bytes | str): The image data of the glyph as binary blob or file path.
-            title (str, optional): The display name for the glyph. Defaults to id.
+            name (str, optional): The display name for the glyph. Defaults to id.
             **kwargs: Arbitrary keyword arguments.
 
         Returns:
@@ -51,8 +60,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
             # load from file path
             img = await muty.file.read_file_async(img)
 
-        args = {"img": img, "title": title or id,
-                **kwargs}
+        args = {"img": img, "name": name or id, **kwargs}
         return await super()._create(
             token=token,
             id=id,

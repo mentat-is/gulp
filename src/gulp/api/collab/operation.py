@@ -24,8 +24,8 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     Represents an operation in the gulp system.
     """
 
-    title: Mapped[Optional[str]] = mapped_column(
-        String, doc="The title of the operation."
+    name: Mapped[Optional[str]] = mapped_column(
+        String, doc="The name of the operation."
     )
 
     index: Mapped[Optional[str]] = mapped_column(
@@ -67,6 +67,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         Returns:
             GulpContext: the context added (or already existing), eager loaded
         """
+
         async def _add_context_internal():
             # check if context exists
             ctx: GulpContext = await GulpContext.get_one(
@@ -138,7 +139,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         token: str,
         id: str,
         index: str = None,
-        title: str = None,
+        name: str = None,
         description: str = None,
         glyph_id: str = None,
         **kwargs,
@@ -150,7 +151,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             token (str): The authentication token (must have INGEST permission).
             id (str, optional): The name of the operation (must be unique)
             index (str, optional): The gulp opensearch index to associate the operation with.
-            title (str, optional): The display name for the operation. Defaults to id.
+            name (str, optional): The display name for the operation. Defaults to id.
             description (str, optional): The description of the operation. Defaults to None.
             glyph_id (str, optional): The id of the glyph associated with the operation. Defaults to None.
             kwargs: Arbitrary keyword arguments.
@@ -160,7 +161,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         """
         args = {
             "index": index,
-            "title": title or id,
+            "name": name or id,
             "description": description,
             "glyph_id": glyph_id,
             "context": [],

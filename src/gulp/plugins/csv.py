@@ -149,7 +149,7 @@ class Plugin(GulpPluginBase):
         )
 
         # stats must be created by the caller, get it
-        stats: GulpIngestionStats = await GulpIngestionStats.get_one_by_id(id=req_id)
+        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(id=req_id)
         try:
             # initialize plugin
             if plugin_params is None:
