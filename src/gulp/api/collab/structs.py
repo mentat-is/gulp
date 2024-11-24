@@ -1,5 +1,7 @@
 import re
 from enum import StrEnum
+from sqlalchemy.ext.mutable import MutableList
+
 from typing import List, Optional, TypeVar, override
 import muty.string
 import muty.time
@@ -47,9 +49,6 @@ class WrongUsernameOrPassword(Exception):
 
 class MissingPermission(Exception):
     """if the user does not have the required permission"""
-
-
-COLLAB_MAX_NAME_LENGTH = 128
 
 
 class GulpRequestStatus(StrEnum):
@@ -294,7 +293,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     """
 
     id: Mapped[str] = mapped_column(
-        String(COLLAB_MAX_NAME_LENGTH),
+        String,
         primary_key=True,
         unique=True,
         doc="The unque id/name of the object.",
@@ -307,11 +306,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         doc="The id of the user who created(=owns) the object.",
     )
     granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String),
+        MutableList.as_mutable(ARRAY(String)),
+        default_factory=list,
         doc="The ids of the users who have been granted access to the object.",
     )
     granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String),
+        MutableList.as_mutable(ARRAY(String)),
+        default_factory=list,
         doc="The ids of the user groups who have been granted access to the object.",
     )
     time_created: Mapped[Optional[int]] = mapped_column(
@@ -399,6 +400,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         exclude: List[str] | None = None,
         exclude_none: bool = False,
     ) -> dict:
+        # same as super.to_dict() but with exclude_none parameter
         d = super().to_dict(nested, hybrid_attributes, exclude)
         if not exclude_none:
             return d
@@ -408,12 +410,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     @classmethod
     async def _create(
         cls,
+        sess: AsyncSession,
         token: str = None,
         id: str = None,
         required_permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         ws_id: str = None,
         req_id: str = None,
-        sess: AsyncSession = None,
         ensure_eager_load: bool = False,
         eager_load_depth: int = 3,
         **kwargs,
