@@ -905,7 +905,6 @@ class GulpPluginBase(ABC):
 
     async def process_record(
         self,
-        stats: GulpIngestionStats,
         record: any,
         record_idx: int,
         flt: GulpIngestionFilter = None,
@@ -917,7 +916,6 @@ class GulpPluginBase(ABC):
         the document is then sent to the configured websocket and, if enabled, ingested in the configured opensearch index.
 
         Args:
-            stats (GulpIngestionStats): The ingestion statistics object to update.
             record (any): The record to process.
             record_idx (int): The index of the record.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
@@ -960,7 +958,7 @@ class GulpPluginBase(ABC):
                         records_processed=self._records_processed,
                         records_failed=self._records_failed,
                     )
-                    await stats.update(
+                    await self._stats.update(
                         self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
                     )
 

@@ -14,6 +14,7 @@ from starlette.endpoints import WebSocketEndpoint
 
 from gulp.api.collab.structs import GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import ConnectedSocket, GulpConnectedSockets, WsParameters
 from gulp.config import GulpConfig
 
@@ -60,9 +61,10 @@ class GulpAPIWebsocket:
                 try:
                     js = await websocket.receive_json()
                     params = WsParameters.model_validate(js)
-                    await GulpUserSession.check_token(
-                        params.token, GulpUserPermission.READ
-                    )
+                    async with GulpCollab.get_instance().session() as sess:
+                        await GulpUserSession.check_token(
+                            sess, params.token, GulpUserPermission.READ
+                        )
                 except Exception as ex:
                     MutyLogger.get_instance().error("ws rejected: %s" % (ex))
                     return

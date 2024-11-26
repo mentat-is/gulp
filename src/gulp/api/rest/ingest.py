@@ -229,7 +229,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         return file_path, payload, result
 
     @staticmethod
-    async def _ingest_single_internal(
+    async def _ingest_file_internal(
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -413,7 +413,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
             # spawn a task which runs the ingestion in a worker process
             async def worker_coro(kwds: dict):
                 await GulpProcess.get_instance().process_pool.apply(
-                    GulpAPIIngest._ingest_single_internal, kwds=kwds
+                    GulpAPIIngest._ingest_file_internal, kwds=kwds
                 )
 
             await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
@@ -580,33 +580,33 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                     name=source,
                 )
 
-                # run ingestion in a coroutine in one of the workers
-                MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
-                kwds = dict(
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    user_id=user_id,
-                    operation_id=operation_id,
-                    context_id=context_id,
-                    source_id=src.id,
-                    index=index,
-                    chunk=chunk,
-                    flt=flt,
-                    plugin=plugin,
-                    plugin_params=plugin_params,
+            # run ingestion in a coroutine in one of the workers
+            MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
+            kwds = dict(
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=src.id,
+                index=index,
+                chunk=chunk,
+                flt=flt,
+                plugin=plugin,
+                plugin_params=plugin_params,
+            )
+            # print(json.dumps(kwds, indent=2))
+
+            # spawn a task which runs the ingestion in a worker process
+            async def worker_coro(kwds: dict):
+                await GulpProcess.get_instance().process_pool.apply(
+                    GulpAPIIngest._ingest_raw_internal, kwds=kwds
                 )
-                # print(json.dumps(kwds, indent=2))
 
-                # spawn a task which runs the ingestion in a worker process
-                async def worker_coro(kwds: dict):
-                    await GulpProcess.get_instance().process_pool.apply(
-                        GulpAPIIngest._ingest_raw_internal, kwds=kwds
-                    )
+            await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
 
-                await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
-
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
         except Exception as ex:
             raise JSendException(ex=ex, req_id=req_id)
 
@@ -700,7 +700,7 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                 # spawn a task which runs the ingestion in a worker process
                 async def worker_coro(kwds: dict):
                     await GulpProcess.get_instance().process_pool.apply(
-                        GulpAPIIngest._ingest_single_internal, kwds=kwds
+                        GulpAPIIngest._ingest_file_internal, kwds=kwds
                     )
 
                 await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))

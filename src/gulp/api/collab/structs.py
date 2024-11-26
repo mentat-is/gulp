@@ -785,9 +785,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         # commit
         await sess.commit()
         await sess.refresh(instance)
-        await sess.refresh(self)
+        #await sess.refresh(self)
 
-        MutyLogger.get_instance().debug("---> updated: %s" % (self))
+        MutyLogger.get_instance().debug("---> updated: %s" % (instance))
 
         if ws_id:
             # notify the websocket of the collab object update

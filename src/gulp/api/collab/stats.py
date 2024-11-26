@@ -231,40 +231,38 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             )
             return self
 
-
         # get stats from db first
-        #await sess.refresh(self, with_for_update=True)
-        stats = await sess.get(GulpIngestionStats, self.id, with_for_update=True)
-
+        await sess.refresh(self, with_for_update=True)
+    
         # update
-        stats.source_processed += d.get("source_processed", 0)
-        stats.source_failed += d.get("source_failed", 0)
-        stats.records_failed += d.get("records_failed", 0)
-        stats.records_skipped += d.get("records_skipped", 0)
-        stats.records_processed += d.get("records_processed", 0)
-        stats.records_ingested += d.get("records_ingested", 0)
+        self.source_processed += d.get("source_processed", 0)
+        self.source_failed += d.get("source_failed", 0)
+        self.records_failed += d.get("records_failed", 0)
+        self.records_skipped += d.get("records_skipped", 0)
+        self.records_processed += d.get("records_processed", 0)
+        self.records_ingested += d.get("records_ingested", 0)
         error = d.get("error", None)
         if error:
-            if not stats.errors:
-                stats.errors = []
+            if not self.errors:
+                self.errors = []
             if isinstance(error, Exception):
                 # MutyLogger.get_instance().error(f"PRE-COMMIT: ex error={error}")
                 error = str(error)
-                if error not in stats.errors:
-                    stats.errors.append(error)
+                if error not in self.errors:
+                    self.errors.append(error)
             elif isinstance(error, str):
                 # MutyLogger.get_instance().error(f"PRE-COMMIT: str error={error}")
-                if error not in stats.errors:
-                    stats.errors.append(error)
+                if error not in self.errors:
+                    self.errors.append(error)
             elif isinstance(error, list[str]):
                 # MutyLogger.get_instance().error(f"PRE-COMMIT: list error={error}")
                 for e in error:
-                    if e not in stats.errors:
-                        stats.errors.append(e)
+                    if e not in self.errors:
+                        self.errors.append(e)
 
         status = d.get("status", None)
         if status:
-            stats.status = status
+            self.status = status
 
         msg = f"---> update: ws_id={ws_id}, d={d}, kwargs={kwargs}"
         if error:
@@ -272,53 +270,55 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         else:
             MutyLogger.get_instance().debug(msg)
 
-        if stats.source_processed == stats.source_total:
+        if self.source_processed == self.source_total:
             MutyLogger.get_instance().debug(
                 'source_processed == source_total, setting request "%s" to DONE'
-                % (stats.id)
+                % (self.id)
             )
-            stats.status = GulpRequestStatus.DONE
+            self.status = GulpRequestStatus.DONE
 
-        if stats.source_failed == stats.source_total:
+        if self.source_failed == self.source_total:
             MutyLogger.get_instance().error(
                 'source_failed == source_total, setting request "%s" to FAILED'
-                % (stats.id)
+                % (self.id)
             )
-            stats.status = GulpRequestStatus.FAILED
+            self.status = GulpRequestStatus.FAILED
 
         # check threshold
         failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
         if (
             failure_threshold > 0
-            and stats.type == GulpCollabType.INGESTION_STATS
-            and stats.records_failed >= failure_threshold
-            or stats.records_skipped >= failure_threshold
+            and self.type == GulpCollabType.INGESTION_STATS
+            and (
+                self.records_failed >= failure_threshold
+                or self.records_skipped >= failure_threshold
+            )
         ):
             # too many failures, abort
             MutyLogger.get_instance().error(
                 "TOO MANY FAILURES req_id=%s (failed=%d, threshold=%d), aborting ingestion!"
-                % (stats.id, stats.source_failed, failure_threshold)
+                % (self.id, self.source_failed, failure_threshold)
             )
-            stats.status = GulpRequestStatus.CANCELED
+            self.status = GulpRequestStatus.CANCELED
 
-        if stats.status == GulpRequestStatus.DONE:
+        if self.status == GulpRequestStatus.DONE:
             # if no records were processed and some failed, set to FAILED
-            if stats.records_processed == 0 and stats.records_failed > 0:
-                stats.status = GulpRequestStatus.FAILED
+            if self.records_processed == 0 and self.records_failed > 0:
+                self.status = GulpRequestStatus.FAILED
 
-        if stats.status in [
+        if self.status in [
             GulpRequestStatus.CANCELED,
             GulpRequestStatus.FAILED,
             GulpRequestStatus.DONE,
         ]:
-            stats.time_finished = muty.time.now_msec()
+            self.time_finished = muty.time.now_msec()
             MutyLogger.get_instance().debug(
-                'request "%s" COMPLETED with status=%s' % (stats.id, stats.status)
+                'request "%s" COMPLETED with status=%s' % (self.id, self.status)
             )
             # print the time it took to complete the request, in seconds
             MutyLogger.get_instance().debug(
                 "*** TOTAL TIME TOOK by request %s: %s seconds ***"
-                % (stats.id, (stats.time_finished - stats.time_created) / 1000)
+                % (self.id, (self.time_finished - self.time_created) / 1000)
             )
 
         # update the instance (will update websocket too)
@@ -328,11 +328,11 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             ws_id=ws_id,
             user_id=user_id,
             ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
-            req_id=stats.id,
-            updated_instance=stats,
+            req_id=self.id,
+            updated_instance=self,
             **kwargs,
         )
 
-        if stats.status == GulpRequestStatus.CANCELED:
-            MutyLogger.get_instance().error('request "%s" set to CANCELED' % (stats.id))
+        if self.status == GulpRequestStatus.CANCELED:
+            MutyLogger.get_instance().error('request "%s" set to CANCELED' % (self.id))
             raise RequestCanceledError()
