@@ -22,16 +22,14 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         JSONB, doc="One or more target documents."
     )
 
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        super().__init__(*args, type=GulpCollabType.LINK, **kwargs)
-
     @classmethod
     async def create(
         cls,
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         operation_id: str,
+        ws_id: str,
+        req_id: str,
         document_from: str,
         documents: list[GulpBasicDocument],
         glyph_id: str = None,
@@ -40,16 +38,16 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         name: str = None,
         description: str = None,
         private: bool = False,
-        ws_id: str = None,
-        req_id: str = None,
-        **kwargs,
     ) -> T:
         """
         Create a new link object on the collab database.
 
         Args:
-            token(str): the token of the user creating the object, for access check
-            operation_id(str): the id of the operation associated with the link
+            sess (AsyncSession): The database session.
+            user_id (str): The ID of the user creating the object.
+            operation_id (str): The ID of the operation associated with the highlight.
+            ws_id (str): The ID of the workspace associated with the highlight.
+            req_id (str): The ID of the request associated with the highlight.
             document_from(str): the source document
             documents(list[GulpBasicDocument]): the target documents
             glyph_id(str, optional): the id of the glyph associated with the link
@@ -64,7 +62,7 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
         Returns:
             the created link object
         """
-        args = {
+        object_data = {
             "operation_id": operation_id,
             "document_from": document_from,
             "documents": documents,
@@ -74,12 +72,14 @@ class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
             "name": name,
             "description": description,
             "private": private,
-            **kwargs,
         }
-        # id is automatically generated
+
         return await super()._create(
-            token=token,
+            sess,
+            object_data,
+            user_id=user_id,
+            operation_id=operation_id,
             ws_id=ws_id,
             req_id=req_id,
-            **args,
+            private=private,
         )

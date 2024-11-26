@@ -21,6 +21,7 @@ import muty.time
 from muty.log import MutyLogger
 from sigma.collection import SigmaCollection
 from sigma.conversion.base import Backend
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.stats import GulpIngestionStats
@@ -182,9 +183,17 @@ class GulpPluginBase(ABC):
         self._stacked = False
         # plugin file path
         self.path = path
+
         #
-        # the following, if available, are stored in the plugin instance at the query/ingest entrypoint
+        # the followin  are stored in the plugin instance at the query/ingest entrypoint
         #
+
+        # SQLAlchemy session
+        self._sess: AsyncSession = None
+
+        # ingestion stats
+        self._stats: GulpIngestionStats = None
+
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
         # for ingestion, the key in the mappings dict to be used
@@ -421,14 +430,16 @@ class GulpPluginBase(ABC):
 
     async def query_external(
         self,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         query: GulpQueryExternalParameters,
         operation_id: str = None,
         context_id: str = None,
         source: str = None,
         ingest_index: str = None,
+        stats: GulpIngestionStats = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> None:
@@ -438,6 +449,7 @@ class GulpPluginBase(ABC):
         optionally ingest them.
 
         Args:
+            sess (AsyncSession): The database session.
             req_id (str): the request id
             ws_id (str): the websocket id
             user (str): the user performing the query
@@ -446,10 +458,11 @@ class GulpPluginBase(ABC):
             context_id (str, optional): the context to set on the documents. Defaults to None.
             source (str, optional): the source to set on the documents. Defaults to None.
             ingest_index (str, optional): the index to ingest the results. Defaults to None.
+            stats (GulpIngestionStats, optional): the ingestion stats, ignored if ingest_index is None. Defaults to None.
             plugin_params (GulpPluginParameters, optional): any plugin specific parameters. Defaults to None.
 
         Notes:
-            - implementers must call super().ingest_file first, then _initialize().<br>
+            - implementers must call super().ingest_file first, then _initialize().
             - this function *MUST NOT* raise exceptions.
 
         Raises:
@@ -460,18 +473,23 @@ class GulpPluginBase(ABC):
         # 1. query the external source in chunk of 1000 documents, with loop set
         # 2. run the same process_record loop as in ingest_file then
         # 3. use the raw plugin to ingest ~~consider to implement ingest_raw to ingest the results~~
-
+        self._sess = sess
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
         self._operation_id = operation_id
         self._file_path = source
+        self._context_id = context_id
 
         # setup internal state to be able to call process_record as during ingestion
         self._stats_enabled = False
         if ingest_index:
             # ingest during query
             self._index = ingest_index
+            self._stats = stats
+            if not self._stats:
+                raise ValueError("stats must be set when ingest_index is set")
+
             self._ingestion_enabled = True
             self._query_create_notes = query.sigma_parameters.create_notes
             if self._query_create_notes:
@@ -480,7 +498,6 @@ class GulpPluginBase(ABC):
                 self._note_color = query.sigma_parameters.note_color
                 self._note_tags = query.sigma_parameters.note_glyph
                 self._note_glyph = query.sigma_parameters.note_tags
-
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
@@ -604,9 +621,10 @@ class GulpPluginBase(ABC):
             if self._query_create_notes:
                 # auto-create notes during external query with ingestion (this is a sigma query)
                 GulpNote.bulk_create_from_documents(
-                    req_id=self._req_id,
-                    ws_id=self._ws_id,
+                    sess=self._sess,
                     user_id=self._user_id,
+                    ws_id=self._ws_id,
+                    req_id=self._req_id,
                     docs=data,
                     name=self._note_name,
                     tags=self._note_tags,
@@ -618,9 +636,11 @@ class GulpPluginBase(ABC):
 
     async def ingest_raw(
         self,
+        sess: AsyncSession,
+        stats: GulpIngestionStats,
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         index: str,
         operation_id: str,
         context_id: str,
@@ -633,9 +653,11 @@ class GulpPluginBase(ABC):
         ingest a chunk of GulpDocument dictionaries.
 
         Args:
+            sess (AsyncSession): The database session.
+            stats (GulpIngestionStats): The ingestion stats.
+            user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
-            user_id (str): The user performing the ingestion (id on collab database)
             index (str): The name of the target opensearch/elasticsearch index or datastream.
             operation_id (str): id of the operation on collab database.
             context_id (str): id of the context on collab database.
@@ -648,9 +670,11 @@ class GulpPluginBase(ABC):
             GulpRequestStatus: The status of the ingestion.
 
         Notes:
-            - implementers must call super().ingest_raw first, then _initialize().<br>
+            - implementers must call super().ingest_raw first, then _initialize().
             - this function *MUST NOT* raise exceptions.
         """
+        self._sess = sess
+        self._stats = stats
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
@@ -665,9 +689,11 @@ class GulpPluginBase(ABC):
 
     async def ingest_file(
         self,
+        sess: AsyncSession,
+        stats: GulpIngestionStats,
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         index: str,
         operation_id: str,
         context_id: str,
@@ -681,9 +707,11 @@ class GulpPluginBase(ABC):
         ingests a file containing records in the plugin specific format.
 
         Args:
+            sess (AsyncSession): The database session.
+            stats (GulpIngestionStats): The ingestion stats.
+            user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
-            user_id (str): The user performing the ingestion (id on collab database)
             index (str): The name of the target opensearch/elasticsearch index or datastream.
             operation_id (str): id of the operation on collab database.
             context_id (str): id of the context on collab database.
@@ -697,9 +725,11 @@ class GulpPluginBase(ABC):
             GulpRequestStatus: The status of the ingestion.
 
         Notes:
-            - implementers must call super().ingest_file first, then _initialize().<br>
+            - implementers must call super().ingest_file first, then _initialize().
             - this function *MUST NOT* raise exceptions.
         """
+        self._sess = sess
+        self._stats = stats
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
@@ -718,7 +748,7 @@ class GulpPluginBase(ABC):
         self, plugin: str, ignore_cache: bool = False, *args, **kwargs
     ) -> "GulpPluginBase":
         """
-        in a stacked plugin, load the lower plugin and set the _lower_record_to_gulp_document_fun to the lower plugin record_to_gulp_document function.
+        in a stacked plugin, loads the lower plugin and set the _lower_record_to_gulp_document_fun to the lower plugin record_to_gulp_document function.
 
         Args:
             plugin (str): the plugin to load
@@ -924,12 +954,14 @@ class GulpPluginBase(ABC):
                 )
                 if self._stats_enabled:
                     # update stats
-                    await stats.update(
-                        ws_id=self._ws_id,
+                    d = dict(
                         records_skipped=skipped,
                         records_ingested=ingested,
                         records_processed=self._records_processed,
                         records_failed=self._records_failed,
+                    )
+                    await stats.update(
+                        self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
                     )
 
                 # reset buffer and counters
@@ -1116,6 +1148,19 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %s:%s" % (k, v))
         return k, v
 
+    def _stats_status(self) -> GulpRequestStatus:
+        """
+        Returns the status of the ingestion statistics.
+
+        if not stats are set, returns GulpRequestStatus.DONE.
+
+        Returns:
+            GulpRequestStatus: The status of the ingestion statistics.
+        """
+        if not self._stats:
+            return GulpRequestStatus.DONE
+        return self._stats.status
+
     async def _flush_buffer(
         self,
         flt: GulpIngestionFilter = None,
@@ -1146,16 +1191,12 @@ class GulpPluginBase(ABC):
         )
         return ingested, skipped
 
-    async def _source_done(
-        self, stats: GulpIngestionStats, flt: GulpIngestionFilter = None
-    ) -> GulpIngestionStats:
+    async def _source_done(self, flt: GulpIngestionFilter = None) -> None:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
+
         Args:
-            stats (GulpIngestionStats): The current ingestion statistics.
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
-        Returns:
-            GulpIngestionStats: The updated ingestion statistics.
         """
         MutyLogger.get_instance().debug(
             "INGESTION SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d"
@@ -1163,28 +1204,30 @@ class GulpPluginBase(ABC):
         )
         ingested, skipped = await self._flush_buffer(flt, wait_for_refresh=True)
         if self._stats_enabled:
-            return await stats.update(
-                ws_id=self._ws_id,
-                error=self._source_error,
+            d = dict(
                 source_failed=1 if self._is_source_failed else 0,
                 source_processed=1,
                 records_ingested=ingested,
                 records_skipped=skipped,
                 records_failed=self._records_failed,
                 records_processed=self._records_processed,
+                error=self._source_error,
             )
-        return GulpIngestionStats()
+            await self._stats.update(
+                self._sess,
+                d,
+                ws_id=self._ws_id,
+                user_id=self._user_id,
+            )
 
     async def _source_failed(
         self,
-        stats: GulpIngestionStats,
         err: str | Exception,
     ) -> None:
         """
         Handles the failure of a source during ingestion.
-        Logs the error and updates the ingestion statistics with the failure details.
+
         Args:
-            stats (GulpIngestionStats): The current ingestion statistics.
             err (str | Exception): The error that caused the source to fail.
         """
         if not isinstance(err, str):

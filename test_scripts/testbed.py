@@ -4,6 +4,8 @@ import os
 import timeit
 from typing import Optional, TypeVar
 
+import muty.file
+
 # from gulp.api.collab import context as collab_context
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,7 +27,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
-import muty.file
+
 _opt_samples_dir = os.environ.get("GULP_SAMPLES_DIR", "~/repos/gulp/samples")
 _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
 _opt_reset = os.environ.get("GULP_RESET", False)
@@ -279,7 +281,7 @@ async def test_ingest_windows():
 
     # create stats upfront
     # 62031 ingested, 62031 processed, 0 failed
-    await GulpIngestionStats.create_or_get(
+    await GulpIngestionStats.create(
         _test_req_id,
         operation_id=_operation_id,
         source_id=_source_id,
@@ -316,7 +318,7 @@ async def test_ingest_csv():
 
     # create stats upfront
     # 75 ingested, 75 processed, 0 failed
-    await GulpIngestionStats.create_or_get(
+    await GulpIngestionStats.create(
         _test_req_id,
         operation_id=_operation_id,
         source_id=_source_id,
@@ -356,7 +358,7 @@ async def test_ingest_csv_with_mappings():
 
     # create stats upfront
     # 10 processed, 44 ingested, 0 failed
-    await GulpIngestionStats.create_or_get(
+    await GulpIngestionStats.create(
         _test_req_id,
         operation_id=_operation_id,
         source_id=_source_id,
@@ -394,7 +396,7 @@ async def test_ingest_csv_stacked():
 
     # create stats upfront
     # 75 ingested, 75 processed, 0 failed, every document duration set to 9999
-    await GulpIngestionStats.create_or_get(
+    await GulpIngestionStats.create(
         _test_req_id,
         operation_id=_operation_id,
         source_id=_source_id,

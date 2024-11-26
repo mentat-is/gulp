@@ -1,15 +1,7 @@
-####################################################################################################
-# TODO: needs full rework !
-####################################################################################################
-
-
-import json
 from typing import override
 
-import muty.crypto
-import muty.time
 import muty.xml
-from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
@@ -105,9 +97,11 @@ class Plugin(GulpPluginBase):
     @override
     async def ingest_raw(
         self,
+        sess: AsyncSession,
+        stats: GulpIngestionStats,
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         index: str,
         operation_id: str,
         context_id: str,
@@ -117,9 +111,11 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
         await super().ingest_raw(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            user_id=user_id,
             index=index,
             operation_id=operation_id,
             context_id=context_id,
@@ -128,16 +124,14 @@ class Plugin(GulpPluginBase):
             plugin_params=plugin_params,
             flt=flt,
         )
-        # stats must be created by the caller, get it
-        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(id=req_id)
         try:
             # initialize plugin
             if not plugin_params:
                 plugin_params = GulpPluginParameters()
             await self._initialize(plugin_params)
         except Exception as ex:
-            await self._source_failed(stats, ex)
-            await self._source_done(stats, flt)
+            await self._source_failed(ex)
+            await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
         doc_idx = 0
@@ -150,7 +144,7 @@ class Plugin(GulpPluginBase):
                 except RequestCanceledError:
                     break
         except Exception as ex:
-            await self._source_failed(stats, ex)
+            await self._source_failed(ex)
         finally:
-            stats = await self._source_done(stats, flt)
-            return stats.status
+            await self._source_done(flt)
+            return self._stats_status()

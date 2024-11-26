@@ -1,6 +1,6 @@
-from typing import override
 
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType, T
@@ -12,20 +12,18 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
     a story in the gulp collaboration system
     """
 
-    documents: Mapped[list[GulpBasicDocument]] = mapped_column(
-        JSONB, doc="One or more events associated with the story."
+    docs: Mapped[list[GulpBasicDocument]] = mapped_column(
+        JSONB, doc="One or more documents associated with the story."
     )
-
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        super().__init__(*args, type=GulpCollabType.STORY, **kwargs)
 
     @classmethod
     async def create(
         cls,
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         operation_id: str,
+        ws_id: str,
+        req_id: str,
         name: str,
         documents: list[GulpBasicDocument],
         color: str = None,
@@ -33,30 +31,27 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         glyph_id: str = None,
         tags: list[str] = None,
         private: bool = False,
-        ws_id: str = None,
-        req_id: str = None,
-        **kwargs,
     ) -> T:
         """
         Create a new story object on the collab database.
 
         Args:
-            token(str): the token of the user creating the object, for access check
-            operation_id(str): the id of the operation associated with the story
-            name(str): the name of the story
-            documents(list[GulpBasicDocument]): the documents associated with the story
-            color(str, Optional): the color associated with the story (default: blue)
-            description(str, Optional): the description of the story
-            glyph_id(str, Optional): the id of the glyph associated with the story
-            tags(list[str], Optional): the tags associated with the story
-            private(bool, Optional): whether the story is private (default: False)
-            ws_id(str, Optional): the websocket id
-            req_id(str, Optional): the request id
-
+            sess (AsyncSession): The database session.
+            user_id (str): The ID of the user creating the object.
+            operation_id (str): The ID of the operation associated with the story.
+            ws_id (str): websocket id
+            req_id (str): The ID of the request associated with the story.
+            name (str): The display name for the story.
+            documents (list[GulpBasicDocument]): The documents associated with the story.
+            color (str): The color of the story.
+            description (str): The description of the story.
+            glyph_id (str): The ID of the glyph associated with the story.
+            tags (list[str]): The tags associated with the story.
+            private (bool): Whether the story is private.
         Returns:
             the created story object
         """
-        args = {
+        object_data = {
             "operation": operation_id,
             "documents": documents,
             "glyph_id": glyph_id,
@@ -68,8 +63,11 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         }
         # id is automatically generated
         return await super()._create(
-            token=token,
+            sess,
+            object_data,
+            user_id=user_id,
             ws_id=ws_id,
             req_id=req_id,
-            **args,
+            operation_id=operation_id,
+            private=private,
         )

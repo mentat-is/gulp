@@ -1,14 +1,14 @@
 import base64
-from typing import Optional, override
+from typing import override
 
 import muty.file
 from sqlalchemy import LargeBinary, String
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabType,
-    GulpUserPermission,
     T,
 )
 
@@ -18,7 +18,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     Represents a glyph object.
     """
 
-    name: Mapped[Optional[str]] = mapped_column(
+    name: Mapped[str] = mapped_column(
         String, doc="Display name for the glyph."
     )
     img: Mapped[bytes] = mapped_column(
@@ -29,28 +29,22 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     def __repr__(self) -> str:
         return super().__repr__() + f" img={self.img[:10]}[...]"
 
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        super().__init__(*args, type=GulpCollabType.GLYPH, **kwargs)
-
     @classmethod
     async def create(
         cls,
-        token: str,
-        id: str,
+        sess: AsyncSession,
+        user_id: str,
         img: bytes | str,
-        name: str = None,
-        **kwargs,
+        name: str,
     ) -> T:
         """
         Create a new glyph object on the collab database.
 
         Args:
-            token (str): The token of the user creating the object, for permission check (needs EDIT permission).
-            id (str): The name of the glyph (must be unique and not containing spaces)
+            sess (AsyncSession): The database session.
+            user_id (str): The ID of the user creating the object.
             img (bytes | str): The image data of the glyph as binary blob or file path.
-            name (str, optional): The display name for the glyph. Defaults to id.
+            name (str): The display name for the glyph.
             **kwargs: Arbitrary keyword arguments.
 
         Returns:
@@ -60,12 +54,11 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
             # load from file path
             img = await muty.file.read_file_async(img)
 
-        args = {"img": img, "name": name or id, **kwargs}
+        object_data = {"img": img, "name": name}
         return await super()._create(
-            token=token,
-            id=id,
-            required_permission=[GulpUserPermission.EDIT],
-            **args,
+            sess,
+            object_data,
+            user_id=user_id,
         )
 
     @override

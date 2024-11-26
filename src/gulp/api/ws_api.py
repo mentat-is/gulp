@@ -10,37 +10,53 @@ from fastapi import WebSocket
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 
+
 class GulpUserLoginLogoutPacket(BaseModel):
     """
     Represents a user login or logout event.
     """
 
     user_id: str = Field(..., description="The user ID.")
-    login: bool = Field(..., description="If the event is a login event, either it is a logout.")
+    login: bool = Field(
+        ..., description="If the event is a login event, either it is a logout."
+    )
 
-class GulpDeleteCollabPacket(BaseModel):
+
+class GulpCollabDeletePacket(BaseModel):
     """
     Represents a delete collab event.
     """
 
     id: str = Field(..., description="The collab ID.")
 
+
+class GulpCollabCreateUpdatePacket(BaseModel):
+    """
+    Represents a create or update event.
+    """
+
+    data: dict = Field(..., description="The created or updated data.")
+    created: Optional[bool] = Field(
+        default=False, description="If the event is a create event."
+    )
+
+
 class GulpWsQueueDataType(StrEnum):
     """
     The type of data into the websocket queue.
     """
 
-    # a GulpIngestionStas object, created or updated
+    # GulpCollabCreateUpdatePacket
     STATS_UPDATE = "stats_update"
-    # a GulpCollabObject (note, story, highlight, link), created or updated
+    # GulpCollabCreateUpdatePacket
     COLLAB_UPDATE = "collab_update"
     # GulpUserLoginLogoutPacket
-    USER_LOGIN = "user_login",
+    USER_LOGIN = ("user_login",)
     # GulpUserLoginLogoutPacket
-    USER_LOGOUT = "user_logout",
+    USER_LOGOUT = ("user_logout",)
     # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
     DOCUMENTS_CHUNK = "docs_chunk"
-    # GulpDeleteCollabPacket
+    # GulpCollabDeletePacket
     COLLAB_DELETE = "collab_delete"
     # signal an ingest source operation is done
     INGEST_SOURCE_DONE = "ingest_source_done"
@@ -101,12 +117,14 @@ class WsData(BaseModel):
     """
     data carried by the websocket
     """
+
     model_config = ConfigDict(
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
     )
-    timestamp: int = Field(..., description="The timestamp of the data.",
-                           alias="@timestamp")
+    timestamp: int = Field(
+        ..., description="The timestamp of the data.", alias="@timestamp"
+    )
     type: GulpWsQueueDataType = Field(
         ..., description="The type of data carried by the websocket."
     )
@@ -114,8 +132,9 @@ class WsData(BaseModel):
     user_id: str = Field(..., description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
-        None, description="The operation this data belongs to.",
-        alias="gulp.operation_id"
+        None,
+        description="The operation this data belongs to.",
+        alias="gulp.operation_id",
     )
     private: Optional[bool] = Field(
         False,
@@ -299,7 +318,11 @@ class GulpConnectedSockets:
 
             if cws.ws_id == d.ws_id:
                 # always relay to the ws async queue for the target websocket
-                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True, by_alias=True))
+                await cws.q.put(
+                    d.model_dump(
+                        exclude_none=True, exclude_defaults=True, by_alias=True
+                    )
+                )
             else:
                 # not the target websocket
                 if d.private:
@@ -314,7 +337,11 @@ class GulpConnectedSockets:
                 if d.type not in [GulpWsQueueDataType.COLLAB_UPDATE]:
                     continue
 
-                await cws.q.put(d.model_dump(exclude_none=True, exclude_defaults=True, by_alias=True))
+                await cws.q.put(
+                    d.model_dump(
+                        exclude_none=True, exclude_defaults=True, by_alias=True
+                    )
+                )
 
 
 class GulpSharedWsQueue:

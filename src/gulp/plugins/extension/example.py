@@ -14,7 +14,9 @@ from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.defs import (
+    API_DESC_CONTEXT_ID,
     API_DESC_OPERATION_ID,
     API_DESC_REQ_ID,
     API_DESC_TOKEN,
@@ -93,30 +95,41 @@ class Plugin(GulpPluginBase):
         self,
         user_id: str,
         operation_id: str,
+        context_id: str,
         ws_id: str,
         req_id: str,
         **kwargs,
     ):
         MutyLogger.get_instance().error(
-            "IN MAIN PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation_id, ws_id, req_id)
+            "IN MAIN PROCESS, for user_id=%s, operation_id=%s, context_id=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation_id, context_id, ws_id, req_id)
         )
         # create an example stats
-        try:
-            await GulpIngestionStats.create_or_get(req_id, source_total=33)
-        except Exception as ex:
-            raise JSendException(req_id=req_id, ex=ex) from ex
+        async with GulpCollab.get_instance().session() as sess:
+            try:
+                await GulpIngestionStats.create(
+                    sess,
+                    user_id,
+                    req_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_total=33,
+                )
+            except Exception as ex:
+                raise JSendException(req_id=req_id, ex=ex) from ex
 
         # spawn coro in worker process
         tasks = []
         MutyLogger.get_instance().debug(
-            "spawning process for extension example for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
-            % (user_id, operation_id, ws_id, req_id)
+            "spawning process for extension example for user_id=%s, operation_id=%s, context_id=%s, ws_id=%s, req_id=%s"
+            % (user_id, operation_id, context_id, ws_id, req_id)
         )
         try:
             tasks.append(
                 GulpProcess.get_instance().process_pool.apply(
-                    self._run_in_worker, (user_id, operation_id, ws_id, req_id)
+                    self._run_in_worker,
+                    (user_id, operation_id, context_id, ws_id, req_id),
                 )
             )
 
@@ -158,6 +171,7 @@ class Plugin(GulpPluginBase):
         self,
         token: Annotated[str, Header(description=API_DESC_TOKEN)],
         operation_id: Annotated[str, Query(description=API_DESC_OPERATION_ID)],
+        context_id: Annotated[str, Query(description=API_DESC_CONTEXT_ID)],
         ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
         req_id: Annotated[str, Query(description=API_DESC_REQ_ID)] = None,
     ) -> JSendResponse:
@@ -167,7 +181,9 @@ class Plugin(GulpPluginBase):
             session = await GulpUserSession.check_token(token)
 
             # spawn coroutine in the main process, will run asap
-            coro = self._example_task(session.user_id, operation_id, ws_id, req_id)
+            coro = self._example_task(
+                session.user_id, operation_id, context_id, ws_id, req_id
+            )
             await GulpProcess.get_instance().coro_pool.spawn(coro)
             return muty.jsend.pending_jsend(req_id=req_id)
         except Exception as ex:

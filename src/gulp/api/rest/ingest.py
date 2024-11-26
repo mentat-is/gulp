@@ -23,9 +23,11 @@ from pydantic import BaseModel, ConfigDict, Field
 import gulp.api.rest.defs as api_defs
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.server_utils import GulpUploadResponse, ServerUtils
 from gulp.api.rest_api import GulpRestServer
@@ -228,9 +230,9 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 
     @staticmethod
     async def _ingest_single_internal(
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         operation_id: str,
         context_id: str,
         source_id: str,
@@ -240,62 +242,73 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         file_total: int,
         payload: GulpIngestPayload,
     ) -> None:
+        """
+        runs in a worker process to ingest a single file
+        """
         # MutyLogger.get_instance().debug("---> ingest_single_internal")
-        # create stats
-        stats: GulpIngestionStats
-        stats, _ = await GulpIngestionStats.create_or_get(
-            id=req_id,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_total=file_total,
-        )
-
-        mod: GulpPluginBase = None
-        status = GulpRequestStatus.DONE
-        try:
-            # run plugin
-            mod = await GulpPluginBase.load(plugin)
-            status = await mod.ingest_file(
+        async with GulpCollab.get_instance().session() as sess:
+            # create stats
+            stats: GulpIngestionStats = await GulpIngestionStats.create(
+                sess,
+                user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                user_id=user_id,
-                index=index,
                 operation_id=operation_id,
                 context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=payload.original_file_path,
-                plugin_params=payload.plugin_params,
-                flt=payload.flt,
+                source_total=file_total,
             )
-        except Exception as ex:
-            status = GulpRequestStatus.FAILED
-            await stats.update(
-                ws_id=ws_id,
-                source_failed=1,
-                error=ex,
-            )
-        finally:
-            # send done packet on the websocket
-            GulpSharedWsQueue.get_instance().put(
-                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=operation_id,
-                data=GulpIngestSourceDone(
-                    source_id=source_id,
-                    context_id=context_id,
+
+        async with GulpCollab.get_instance().session() as sess:
+            mod: GulpPluginBase = None
+            status = GulpRequestStatus.DONE
+            sess.add(stats)
+
+            try:
+                # run plugin
+                mod = await GulpPluginBase.load(plugin)
+                status = await mod.ingest_file(
+                    sess=sess,
+                    stats=stats,
                     req_id=req_id,
-                    status=status,
-                ),
-            )
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    index=index,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_id=source_id,
+                    file_path=file_path,
+                    original_file_path=payload.original_file_path,
+                    plugin_params=payload.plugin_params,
+                    flt=payload.flt,
+                )
+            except Exception as ex:
+                status = GulpRequestStatus.FAILED
+                d = dict(
+                    source_failed=1,
+                    error=ex,
+                )
+                await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
+            finally:
+                # send done packet on the websocket
+                GulpSharedWsQueue.get_instance().put(
+                    type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    data=GulpIngestSourceDone(
+                        source_id=source_id,
+                        context_id=context_id,
+                        req_id=req_id,
+                        status=status,
+                    ),
+                )
 
-            # delete file
-            await muty.file.delete_file_or_dir_async(file_path)
+                # delete file
+                await muty.file.delete_file_or_dir_async(file_path)
 
-            # done
-            if mod:
-                await mod.unload()
+                # done
+                if mod:
+                    await mod.unload()
 
     @staticmethod
     async def ingest_file_handler(
@@ -345,14 +358,13 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         req_id = GulpRestServer.ensure_req_id(req_id)
 
         try:
-            # check token and get caller user id
-            s = await GulpUserSession.check_token(token, GulpUserPermission.INGEST)
-            user_id = s.user_id
-
             # handle multipart request manually
             MutyLogger.get_instance().debug("headers=%s" % (r.headers))
             file_path, payload, result = await GulpAPIIngest._handle_multipart_request(
-                r=r, operation_id=operation_id, context_id=context_id, req_id=req_id
+                r=r,
+                operation_id=operation_id,
+                context_id=context_id,
+                req_id=req_id,
             )
             if not result.done:
                 # must continue upload with a new chunk
@@ -361,23 +373,35 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                 )
                 return JSONResponse(d)
 
-            # create (and associate) context and source on the collab db, if they do not exist
-            await GulpOperation.add_context_to_id(operation_id, context_id)
-            source = await GulpContext.add_source_to_id(
-                operation_id,
-                context_id,
-                payload.original_file_path or os.path.basename(file_path),
-            )
+            async with GulpCollab.get_instance().session() as sess:
+                # check permission and get user id
+                s = await GulpUserSession.check_token(
+                    sess, token, [GulpUserPermission.INGEST]
+                )
+                user_id = s.user_id
+
+                # create (and associate) context and source on the collab db, if they do not exist
+                operation: GulpOperation = await GulpOperation.get_by_id(
+                    sess, operation_id
+                )
+                ctx: GulpContext = await operation.add_context(
+                    sess, user_id=user_id, context_id=context_id
+                )
+                src: GulpSource = await ctx.add_source(
+                    sess,
+                    user_id=user_id,
+                    name=payload.original_file_path or os.path.basename(file_path),
+                )
 
             # run ingestion in a coroutine in one of the workers
             MutyLogger.get_instance().debug("spawning ingestion task ...")
             kwds = dict(
+                user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                user_id=user_id,
                 operation_id=operation_id,
                 context_id=context_id,
-                source_id=source.id,
+                source_id=src.id,
                 index=index,
                 plugin=plugin,
                 file_path=file_path,
@@ -411,60 +435,71 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         index: str,
         chunk: dict,
         flt: GulpIngestionFilter,
+        plugin: str,
         plugin_params: GulpPluginParameters,
     ) -> None:
+        """
+        runs in a worker process to ingest a raw chunk of data
+        """
         # MutyLogger.get_instance().debug("---> ingest_raw_internal")
-        # create stats
-        stats: GulpIngestionStats
-        stats, _ = await GulpIngestionStats.create_or_get(
-            id=req_id,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_total=1,
-        )
 
-        mod: GulpPluginBase = None
-        status = GulpRequestStatus.DONE
-        try:
-            # run plugin
-            mod = await GulpPluginBase.load("raw")
-            status = await mod.ingest_raw(
+        async with GulpCollab.get_instance().session() as sess:
+            stats: GulpIngestionStats = await GulpIngestionStats.create(
+                sess,
+                user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                user_id=user_id,
-                index=index,
                 operation_id=operation_id,
                 context_id=context_id,
-                source_id=source_id,
-                chunk=chunk,
-                flt=flt,
-                plugin_params=plugin_params,
-            )
-        except Exception as ex:
-            status = GulpRequestStatus.FAILED
-            await stats.update(
-                ws_id=ws_id,
-                source_failed=1,
-                error=ex,
-            )
-        finally:
-            # send done packet on the websocket
-            GulpSharedWsQueue.get_instance().put(
-                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=operation_id,
-                data=GulpIngestSourceDone(
-                    source_id=source_id,
-                    context_id=context_id,
-                    req_id=req_id,
-                    status=status,
-                ),
+                source_total=1,
             )
 
-            # done
-            if mod:
-                await mod.unload()
+            mod: GulpPluginBase = None
+            status = GulpRequestStatus.DONE
+
+            try:
+                # run plugin
+                plugin = plugin or "raw"
+                mod = await GulpPluginBase.load(plugin)
+                status = await mod.ingest_raw(
+                    sess,
+                    stats,
+                    user_id=user_id,
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    index=index,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_id=source_id,
+                    chunk=chunk,
+                    flt=flt,
+                    plugin_params=plugin_params,
+                )
+            except Exception as ex:
+                status = GulpRequestStatus.FAILED
+                d = dict(
+                    source_failed=1,
+                    error=ex,
+                )
+                await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
+            finally:
+                # send done packet on the websocket
+                GulpSharedWsQueue.get_instance().put(
+                    type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    data=GulpIngestSourceDone(
+                        source_id=source_id,
+                        context_id=context_id,
+                        req_id=req_id,
+                        status=status,
+                    ),
+                )
+
+                # done
+                if mod:
+                    await mod.unload()
 
     @staticmethod
     async def ingest_raw_handler(
@@ -505,6 +540,12 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
         flt: Annotated[
             GulpIngestionFilter, Body(description="to filter ingested data.")
         ] = None,
+        plugin: Annotated[
+            str,
+            Query(
+                description="the plugin to use for ingestion, default=raw",
+            ),
+        ] = None,
         plugin_params: Annotated[
             GulpPluginParameters,
             Body(
@@ -520,42 +561,52 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 
         try:
             # check token and get caller user id
-            s = await GulpUserSession.check_token(token, GulpUserPermission.INGEST)
-            user_id = s.user_id
+            async with GulpCollab.get_instance().session() as sess:
+                s = await GulpUserSession.check_token(
+                    sess, token, [GulpUserPermission.INGEST]
+                )
+                user_id = s.user_id
 
-            # create (and associate) context and source on the collab db, if they do not exist
-            await GulpOperation.add_context_to_id(operation_id, context_id)
-            source = await GulpContext.add_source_to_id(
-                operation_id, context_id, source
-            )
-
-            # run ingestion in a coroutine in one of the workers
-            MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
-            kwds = dict(
-                req_id=req_id,
-                ws_id=ws_id,
-                user_id=user_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source.id,
-                chunk=chunk,
-                flt=flt,
-                plugin_params=plugin_params,
-            )
-            # print(json.dumps(kwds, indent=2))
-
-            # spawn a task which runs the ingestion in a worker process
-            async def worker_coro(kwds: dict):
-                await GulpProcess.get_instance().process_pool.apply(
-                    GulpAPIIngest._ingest_raw_internal, kwds=kwds
+                # create (and associate) context and source on the collab db, if they do not exist
+                operation: GulpOperation = await GulpOperation.get_by_id(
+                    sess, operation_id
+                )
+                ctx: GulpContext = await operation.add_context(
+                    sess, user_id=user_id, context_id=context_id
+                )
+                src: GulpSource = await ctx.add_source(
+                    sess,
+                    user_id=user_id,
+                    name=source,
                 )
 
-            await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+                # run ingestion in a coroutine in one of the workers
+                MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
+                kwds = dict(
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_id=src.id,
+                    index=index,
+                    chunk=chunk,
+                    flt=flt,
+                    plugin=plugin,
+                    plugin_params=plugin_params,
+                )
+                # print(json.dumps(kwds, indent=2))
 
-            # and return pending
-            return JSONResponse(JSendResponse.pending(req_id=req_id))
+                # spawn a task which runs the ingestion in a worker process
+                async def worker_coro(kwds: dict):
+                    await GulpProcess.get_instance().process_pool.apply(
+                        GulpAPIIngest._ingest_raw_internal, kwds=kwds
+                    )
 
+                await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+
+                # and return pending
+                return JSONResponse(JSendResponse.pending(req_id=req_id))
         except Exception as ex:
             raise JSendException(ex=ex, req_id=req_id)
 

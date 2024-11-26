@@ -5,6 +5,7 @@ import muty.dict
 import muty.os
 import muty.string
 import muty.xml
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
@@ -86,9 +87,11 @@ class Plugin(GulpPluginBase):
 
     async def ingest_file(
         self,
+        sess: AsyncSession,
+        stats: GulpIngestionStats,
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         index: str,
         operation_id: str,
         context_id: str,
@@ -98,10 +101,21 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
+
+        # set as stacked
+        try:
+            lower = await self.setup_stacked_plugin("csv")
+        except Exception as ex:
+            await self._source_failed(ex)
+            return GulpRequestStatus.FAILED
+
+        # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
+        return await lower.ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            user_id=user_id,
             index=index,
             operation_id=operation_id,
             context_id=context_id,
@@ -111,28 +125,3 @@ class Plugin(GulpPluginBase):
             plugin_params=plugin_params,
             flt=flt,
         )
-
-        # initialize stats
-        stats: GulpIngestionStats = await GulpIngestionStats.create_or_get(
-            req_id, operation_id=operation_id, context_id=context_id
-        )
-
-        # set as stacked
-        try:
-            lower = await self.setup_stacked_plugin("csv")
-            return await lower.ingest_file(
-                req_id=req_id,
-                ws_id=ws_id,
-                user_id=user_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-            )
-        except Exception as ex:
-            await self._source_failed(stats, ex)
-            return GulpRequestStatus.FAILED

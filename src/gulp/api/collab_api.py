@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy_utils import create_database, database_exists, drop_database
 
+from gulp.api.collab.structs import GulpCollabBase
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -178,7 +179,7 @@ class GulpCollab:
         self._collab_sessionmaker = None
 
     @staticmethod
-    async def exists(url: str) -> bool:
+    async def db_exists(url: str) -> bool:
         """
         Check if a database exists at the given URL.
 
@@ -193,7 +194,7 @@ class GulpCollab:
         return b
 
     @staticmethod
-    async def drop_db(url: str, raise_if_not_exists: bool = False) -> None:
+    async def db_drop(url: str, raise_if_not_exists: bool = False) -> None:
         """
         Drops a database specified by the given URL.
 
@@ -230,7 +231,7 @@ class GulpCollab:
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
 
     @staticmethod
-    async def create_db(url: str) -> None:
+    async def db_create(url: str) -> None:
         """
         Create a database at the given URL.
 
@@ -319,6 +320,7 @@ class GulpCollab:
             GulpUserPermission,
         )
         from gulp.api.collab.user import GulpUser
+        from gulp.api.collab.user_group import GulpUserGroup
 
         # create database tables and functions
         async with self._engine.begin() as conn:
@@ -334,86 +336,129 @@ class GulpCollab:
             muty.file.safe_path_join(assets_path, "operation.png")
         )
 
-        # create admin user, which is the root of everything else
-        admin_user: GulpUser = await GulpUser.create(
-            token=None,
-            id="admin",
-            password="admin",
-            permission=[GulpUserPermission.ADMIN],
-            init=True,
-        )
+        async with self._collab_sessionmaker() as sess:
+            # create admin user, which is the root of everything else
+            admin_user: GulpUser = await GulpUser.create(
+                sess,
+                "admin",
+                "admin",
+                permission=[GulpUserPermission.ADMIN],
+            )
 
-        # login admin user
-        admin_user, admin_session = await GulpUser.login("admin", "admin")
+            # login admin user
+            admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
-        # create glyphs
-        user_glyph = await GulpGlyph.create(
-            token=admin_session.id,
-            id="user",
-            img=user_b,
-        )
+            # create glyphs
+            user_glyph = await GulpGlyph.create(
+                sess,
+                user_id=admin_user.id,
+                img=user_b,
+                name="user",
+            )
 
-        operation_glyph = await GulpGlyph.create(
-            token=admin_session.id, id="operation", img=operation_b
-        )
+            operation_glyph = await GulpGlyph.create(
+                sess,
+                user_id=admin_user.id,
+                img=operation_b,
+                name="operation",
+            )
 
-        await admin_user.update(
-            token=admin_session.id,
-            d={"glyph_id": user_glyph.id},
-        )
+            await admin_user.update(
+                sess,
+                d={"glyph_id": user_glyph.id},
+                user_session=admin_session,
+            )
 
-        # create user groups
-        from gulp.api.collab.user_group import GulpUserGroup
+            # create user groups
+            group: GulpUserGroup = await GulpUserGroup.create(
+                sess,
+                user_id=admin_user.id,
+                name="test_group",
+                permission=[GulpUserPermission.ADMIN],
+            )
+            # add admin to group
+            await group.add_user(sess, admin_user.id)
 
-        group: GulpUserGroup = await GulpUserGroup.create(
-            token=admin_session.id,
-            name="test_group",
-            permission=[GulpUserPermission.ADMIN],
-        )
-        # add admin to group
-        await group.add_user(admin_user.id)
+            # create default operation
+            operation: GulpOperation = await GulpOperation.create(
+                sess,
+                user_id=admin_user.id,
+                name="test operation",
+                index="test_idx",
+                glyph_id=operation_glyph.id,
+            )
 
-        # create default operation
-        operation: GulpOperation = await GulpOperation.create(
-            token=admin_session.id,
-            id="test_operation",
-            index="testidx",
-            glyph_id=operation_glyph.id,
-        )
+            # add sources to context and context to operation
+            ctx = await operation.add_context(
+                sess, user_id=admin_user.id, context_id="test_context"
+            )
+            await ctx.add_source(sess, admin_user.id, "test source 1")
+            await ctx.add_source(sess, admin_user.id, "test source 2")
 
-        # add sources to context and context to operation
-        ctx = await operation.add_context("test_context")
-        await ctx.add_source("test source 1")
-        await ctx.add_source("test source 2")
-        from gulp.api.collab.structs import GulpCollabFilter
+            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
+            for op in operations:
+                MutyLogger.get_instance().debug(
+                    json.dumps(op.to_dict(nested=True), indent=4)
+                )
 
+            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(sess)
+            for group in groups:
+                MutyLogger.get_instance().debug(
+                    json.dumps(group.to_dict(nested=True), indent=4)
+                )
+
+            MutyLogger.get_instance().debug(
+                json.dumps(admin_user.to_dict(nested=True), indent=4)
+            )
+
+            # create other users
+            guest_user = await GulpUser.create(
+                sess,
+                username="guest",
+                password="guest",
+                glyph_id=user_glyph.id,
+            )
+            editor_user = await GulpUser.create(
+                sess,
+                username="editor",
+                password="editor",
+                permission=PERMISSION_MASK_EDIT,
+                glyph_id=user_glyph.id,
+            )
+            power_user = await GulpUser.create(
+                sess,
+                username="power",
+                password="power",
+                permission=PERMISSION_MASK_DELETE,
+                glyph_id=user_glyph.id,
+            )
+
+    async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:
         """
-        operations: list[GulpOperation] = await GulpOperation.get()
-        for op in operations:
-            print(op.to_dict(nested=True))
+        check if all tables exist in the database.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+        Returns:
+            bool: True if all tables exist, False otherwise.
         """
 
-        # create other users
-        guest_user = await GulpUser.create(
-            token=admin_session.id,
-            id="guest",
-            password="guest",
-            glyph_id=user_glyph.id,
-        )
-        editor_user = await GulpUser.create(
-            token=admin_session.id,
-            id="editor",
-            password="editor",
-            permission=PERMISSION_MASK_EDIT,
-            glyph_id=user_glyph.id,
-        )
-        power_user = await GulpUser.create(
-            token=admin_session.id,
-            id="power",
-            password="power",
-            permission=PERMISSION_MASK_DELETE,
-            glyph_id=user_glyph.id,
-        )
+        # get all table names from metadata
+        table_names = GulpCollabBase.metadata.tables.keys()
+
+        # build query to check all tables
+        tables_check = []
+        for table in table_names:
+            tables_check.append(f"to_regclass('public.{table}') AS {table}")
+
+        query = text(f"SELECT {', '.join(tables_check)}")
+
+        # execute query
+        result = await sess.execute(query)
+        row = result.one()
+
+        # check if any table is missing
+        return all(row)
 
     async def _ensure_setup(
         self, force_recreate: bool = False, expire_on_commit: bool = False
@@ -434,8 +479,8 @@ class GulpCollab:
         async def _recreate_internal(url: str, expire_on_commit: bool = False) -> None:
             # drop and recreate database
             await self.shutdown()
-            await GulpCollab.drop_db(url)
-            await GulpCollab.create_db(url)
+            await GulpCollab.db_drop(url)
+            await GulpCollab.db_create(url)
 
             # recreate tables and default data
             self._engine = await self._create_engine()
@@ -459,13 +504,9 @@ class GulpCollab:
             )
             await _recreate_internal(url, expire_on_commit=expire_on_commit)
         else:
-            if await GulpCollab.exists(GulpConfig.get_instance().postgres_url()):
-                # check if tables exist
+            if await GulpCollab.db_exists(GulpConfig.get_instance().postgres_url()):
                 async with self._collab_sessionmaker() as sess:
-                    res = await sess.execute(
-                        text("SELECT to_regclass('public.context') AS exists")
-                    )
-                    if res.scalar_one_or_none():
+                    if await self._check_all_tables_exist(sess):
                         # tables ok
                         MutyLogger.get_instance().info(
                             "collab database exists and tables are ok."

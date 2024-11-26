@@ -19,15 +19,12 @@ from muty.jsend import JSendException, JSendResponse
 from pydantic import AfterValidator
 
 import gulp.api.collab_api as collab_api
-
-import gulp.structs
 import gulp.plugin
-import gulp.utils
-from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.session import GulpUserSession
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user import GulpUser
-from gulp.structs import InvalidArgument
+from gulp.api.collab.user_session import GulpUserSession
 from gulp.config import GulpConfig
+from gulp.structs import InvalidArgument
 
 _app: APIRouter = APIRouter()
 
@@ -293,7 +290,8 @@ async def user_create_handler(
     username: Annotated[
         str,
         Query(
-            description="username for the new user.", pattern=gulp.structs.REGEX_USERNAME
+            description="username for the new user.",
+            pattern=gulp.structs.REGEX_USERNAME,
         ),
     ],
     password: Annotated[

@@ -10,6 +10,7 @@ import muty.time
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.opensearch.filters import (
@@ -986,11 +987,13 @@ class GulpOpenSearch:
         user_id: str = None,
         options: "GulpQueryAdditionalParameters" = None,
         el: AsyncElasticsearch = None,
+        sess: AsyncSession = None,
     ) -> None:
         """
         Executes a raw DSL query on OpenSearch and stream results on the websocket
 
         Args:
+            sess (AsyncSession): SQLAlchemy session, used only with sigma queries when creating notes
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The request ID for the query
@@ -1013,8 +1016,8 @@ class GulpOpenSearch:
         note_color = options.model_extra.get("note_color", None)
         note_tags = options.model_extra.get("note_tags", None)
         note_glyph = options.model_extra.get("note_glyph", None)
-        if sigma_create_notes and not note_name:
-            raise ValueError("note_name is required for a sigma query")
+        if sigma_create_notes and (not note_name or not sess):
+            raise ValueError("note_name and sess are both required for a sigma query when sigma_create_notes is set!")
 
         use_elasticsearch_api = False
         if el:
@@ -1109,9 +1112,10 @@ class GulpOpenSearch:
             if sigma_create_notes:
                 # this is a sigma, auto-create a note for each of the matched document on collab db
                 GulpNote.bulk_create_from_documents(
-                    req_id=req_id,
+                    sess,
+                    user_id,
                     ws_id=ws_id,
-                    user_id=user_id,
+                    req_id=req_id,
                     docs=docs,
                     name=note_name,
                     tags=note_tags,

@@ -46,6 +46,7 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
     async def create(
         cls,
         sess: AsyncSession,
+        user_id: str,
         operation_id: str,
         context_id: str,
         name: str,
@@ -56,16 +57,17 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
         Create a new source object on the collab database.
 
         Args:
+            sess (AsyncSession): The database session.
             operation_id (str): The id of the operation associated with the source.
+            user_id (str): The id of the user creating the source.
             context_id (str): The id of the context associated with the source.
             name (str, optional): The display name of the source (i.e. log file name/path)
             color (str, optional): The color of the context. Defaults to purple.
             glyph (str, optional): The id of the glyph associated with the context. Defaults to None.
-            **kwargs: Arbitrary keyword arguments.
         Returns:
             T: The created context object
         """
-        args = {
+        object_data = {
             "operation_id": operation_id,
             "context_id": context_id,
             "name": name,
@@ -74,5 +76,8 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
         }
         return await super()._create(
             sess,
-            **args,
+            object_data,
+            operation_id=operation_id,
+            context_id=context_id,
+            user_id=user_id,
         )

@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from elasticsearch import AsyncElasticsearch
 from pydantic import BaseModel, ConfigDict, Field
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch.filters import (
@@ -89,7 +89,7 @@ class GulpQueryExternalParameters(BaseModel):
         None,
         description="a tuple with the username and password to use to query the external system, may be None if set in the uri.",
     )
-    
+
     options: Optional[Any] = Field(
         None,
         description="further options to pass to the external system, format is specific to the external system and will be handled by the plugin implementing `query_external`.",
@@ -202,39 +202,23 @@ class GulpQuery:
     """
 
     @staticmethod
-    async def _get_requestor_user_id(token: str) -> int:
-        """
-        Get the user id of the requestor.
-
-        Args:
-            token(str): the authentication token
-
-        Returns:
-            int: the user id of the requestor
-
-        Raises:
-            MissingPermission: if the token is invalid or the user has no permission
-        """
-        sess: GulpUserSession = await GulpUserSession.check_token(token)
-        return sess.user_id
-
-    @staticmethod
     async def query_raw(
-        token: str,
-        dsl: dict,
-        ws_id: str,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
+        ws_id: str,
+        dsl: dict,
         index: str,
         flt: GulpQueryFilter = None,
         options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
-        user_id: str = None,
     ) -> None:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
 
         Args:
-            token(str): the authentication token (if user_id is not set)
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
             dsl(dict): the dsl query in OpenSearch/Elasticsearch DSL language to use
@@ -247,12 +231,6 @@ class GulpQuery:
             MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
         """
-        if token is None:
-            if not user_id:
-                raise ValueError("if token is not set, user_id must be set")
-        else:
-            user_id = await GulpQuery._get_requestor_user_id(token)
-
         if not options:
             options = GulpQueryAdditionalParameters()
 
@@ -260,7 +238,7 @@ class GulpQuery:
             # merge with filter
             dsl = flt.merge_to_opensearch_dsl(dsl)
 
-        return await GulpOpenSearch.get_instance().search_dsl(
+        await GulpOpenSearch.get_instance().search_dsl(
             index=index,
             q=dsl,
             req_id=req_id,
@@ -268,11 +246,13 @@ class GulpQuery:
             user_id=user_id,
             options=options,
             el=el,
+            sess=sess,
         )
 
     @staticmethod
     async def query_gulp(
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
         ws_id: str,
         index: str,
@@ -285,7 +265,8 @@ class GulpQuery:
         NOTE: calls `raw_query` with the filter converted to OpenSearch/Elasticsearch DSL.
 
         Args:
-            token(str): the authentication token
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
             index(str): the opensearch/elasticsearch index/datastream to target
@@ -302,8 +283,9 @@ class GulpQuery:
         options.sigma_parameters = None
 
         dsl = flt.to_opensearch_dsl()
-        return await GulpQuery.query_raw(
-            token=token,
+        await GulpQuery.query_raw(
+            sess=sess,
+            user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
             dsl=dsl,
@@ -354,7 +336,8 @@ class GulpQuery:
 
     @staticmethod
     async def query_sigma(
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
         ws_id: str,
         sigma: str,
@@ -370,7 +353,8 @@ class GulpQuery:
         NOTE: calls `raw_query` with the converted sigma rule and filter.
 
         Args:
-            token(str): the authentication token
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
             sigma(str): the main sigma rule YAML
@@ -385,7 +369,6 @@ class GulpQuery:
             MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
         """
-        user_id = await GulpQuery._get_requestor_user_id(token)
         if not options:
             options = GulpQueryAdditionalParameters()
 
@@ -405,8 +388,8 @@ class GulpQuery:
             # perform queries
             options.sigma_parameters.note_name = q.name
             options.sigma_parameters.note_tags = q.tags
-            return await GulpQuery.query_raw(
-                token=None,
+            await GulpQuery.query_raw(
+                sess=sess,
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
@@ -419,7 +402,8 @@ class GulpQuery:
 
     @staticmethod
     async def query_stored(
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
         ws_id: str,
         id: str,
@@ -432,7 +416,8 @@ class GulpQuery:
         Perform a query on gulp's opensearch using a stored query, streaming GulpDocumentChunk results to the websocket.
 
         Args:
-            token(str): the authentication token
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
             id(str): the id of the stored query to use
@@ -446,14 +431,15 @@ class GulpQuery:
             ObjectNotFound: if no document is found
         """
         # get stored query by id
-        q: GulpStoredQuery = await GulpStoredQuery.get_by_id(id)
+        q: GulpStoredQuery = await GulpStoredQuery.get_by_id(sess, id)
         if not options:
             options = GulpQueryAdditionalParameters()
         options.sigma_parameters = None
 
         if q.converted:
-            return await GulpQuery.query_raw(
-                token=token,
+            await GulpQuery.query_raw(
+                sess,
+                user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
                 dsl=json.loads(q.converted),
@@ -468,7 +454,8 @@ class GulpQuery:
 
     @staticmethod
     async def query_external(
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
         ws_id: str,
         plugin: str,
@@ -485,7 +472,8 @@ class GulpQuery:
         the results are converted to gulp documents and streamed to the websocket.
 
         Args:
-            token (str): the authentication token
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
             req_id (str): the request id
             ws_id (str): the websocket id
             query (GulpExternalQuery): includes the query and all the necessary parameters to communicate with the external source
@@ -499,8 +487,6 @@ class GulpQuery:
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
-        user_id = await GulpQuery._get_requestor_user_id(token)
-
         try:
             # load plugin
             from gulp.plugin import GulpPluginBase
@@ -510,6 +496,7 @@ class GulpQuery:
             # query
             query.sigma_parameters = None
             await p.query_external(
+                sess=sess,
                 req_id=req_id,
                 ws_id=ws_id,
                 user_id=user_id,
@@ -526,7 +513,7 @@ class GulpQuery:
 
     @staticmethod
     async def query_external_single(
-        token: str,
+        sess: AsyncSession,
         req_id: str,
         plugin: str,
         query: GulpQueryExternalParameters,
@@ -536,7 +523,9 @@ class GulpQuery:
         query a single document on an external source.
 
         Args:
+            sess(AsyncSession): the database session
             req_id (str): the request id
+            plugin (str): the plugin to use to query the external source, must implement `query_external_single`
             query (GulpExternalQuery): set `query.query` to the `id` of the single document to query here.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
@@ -549,9 +538,6 @@ class GulpQuery:
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
-        # check token
-        await GulpQuery._get_requestor_user_id(token)
-
         try:
             # load plugin
             from gulp.plugin import GulpPluginBase
@@ -571,7 +557,8 @@ class GulpQuery:
 
     @staticmethod
     async def query_external_sigma(
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         req_id: str,
         ws_id: str,
         plugin: str,
@@ -590,7 +577,8 @@ class GulpQuery:
         the results are converted to gulp documents and streamed to the websocket.
 
         Args:
-            token (str): the authentication token
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
             req_id (str): the request id
             ws_id (str): the websocket id
             plugin(str): the plugin to use to query the external source, must implement `query_external`
@@ -604,7 +592,6 @@ class GulpQuery:
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
-        user_id = await GulpQuery._get_requestor_user_id(token)
         if not query.sigma_parameters:
             query.sigma_parameters = GulpSigmaQueryParameters()
 
@@ -636,9 +623,10 @@ class GulpQuery:
                 query.sigma_parameters.note_tags = q.tags
                 query.query = q.q
                 await p.query_external(
+                    sess,
+                    user_id=user_id,
                     req_id=req_id,
                     ws_id=ws_id,
-                    user_id=user_id,
                     query=query,
                     operation_id=operation_id,
                     context_id=context_id,

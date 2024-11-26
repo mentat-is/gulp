@@ -6,7 +6,7 @@ import muty.dict
 import muty.os
 import muty.string
 import muty.xml
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
@@ -122,9 +122,11 @@ class Plugin(GulpPluginBase):
 
     async def ingest_file(
         self,
+        sess: AsyncSession,
+        stats: GulpIngestionStats,
+        user_id: str,
         req_id: str,
         ws_id: str,
-        user_id: str,
         index: str,
         operation_id: str,
         context_id: str,
@@ -135,9 +137,11 @@ class Plugin(GulpPluginBase):
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            user_id=user_id,
             index=index,
             operation_id=operation_id,
             context_id=context_id,
@@ -149,7 +153,7 @@ class Plugin(GulpPluginBase):
         )
 
         # stats must be created by the caller, get it
-        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(id=req_id)
+        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(sess, id=req_id)
         try:
             # initialize plugin
             if plugin_params is None:
@@ -165,7 +169,8 @@ class Plugin(GulpPluginBase):
                     "if no mapping_file or mappings specified, timestamp_field must be set in GulpMapping !"
                 )
         except Exception as ex:
-            await self._source_failed(stats, ex)
+            await self._source_failed(ex)
+            await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
         delimiter = plugin_params.model_extra.get("delimiter", ",")
@@ -191,7 +196,7 @@ class Plugin(GulpPluginBase):
                     except RequestCanceledError as ex:
                         break
         except Exception as ex:
-            await self._source_failed(stats, ex)
+            await self._source_failed(ex)
         finally:
-            stats = await self._source_done(stats, flt)
-            return stats.status
+            await self._source_done(flt)
+            return self._stats_status()

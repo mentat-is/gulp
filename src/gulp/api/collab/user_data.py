@@ -1,11 +1,10 @@
-from typing import Union, override
+
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T
-from muty.log import MutyLogger
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
 
 
 class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
@@ -18,50 +17,32 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
         doc="The user ID associated with this data.",
         unique=True,
     )
-    user: Mapped["GulpUser"] = relationship(
-        "GulpUser",
-        back_populates="user_data",
-        foreign_keys=[user_id],
-        single_parent=True,
-        uselist=False,
-        innerjoin=True,
-    )
     data: Mapped[dict] = mapped_column(
         JSONB, doc="The data to be associated with user."
     )
 
-    @override
-    def __init__(self, *args, **kwargs):
-        # initializes the base class
-        super().__init__(*args,  type=GulpCollabType.USER_DATA, **kwargs)
-
-    @classmethod    
+    @classmethod
     async def create(
         cls,
-        token: str,
+        sess: AsyncSession,
+        user_id: str,
         data: dict,
-        ws_id: str = None,
-        req_id: str = None,
-        **kwargs,
     ) -> T:
         """
-        Asynchronously creates a new user data entry.
+        creates a data object associated with an user
+
         Args:
-            token (str): The authentication token, for permission check.
-            data (dict): The data to be stored in the user data entry.
-            ws_id (str, optional): The websocket ID. Defaults to None.
-            req_id (str, optional): The request ID. Defaults to None.
-            **kwargs: Additional keyword arguments.
+            sess (AsyncSession): The database session.
+            user_id (str): The ID of the user associated with the data.
+            data (dict): The data to be associated with the user.
         Returns:
             T: The created user data entry.
-        """        
-        args = {
+        """
+        object_data = {
             "data": data,
         }
         return await super()._create(
-            # id is automatically generated
-            token=token,
-            ws_id=ws_id,
-            req_id=req_id,
-            **args,
+            sess,
+            object_data,
+            user_id=user_id,
         )
