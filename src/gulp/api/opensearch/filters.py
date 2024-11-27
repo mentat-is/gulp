@@ -81,7 +81,7 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         doc: dict, flt: "GulpIngestionFilter" = None
     ) -> GulpDocumentFilterResult:
         """
-        Check if a document is eligible for ingestion based on a filter.
+        Check if a document is eligible for ingestion based on a time-range filter.
 
         Args:
             doc (dict): The GulpDocument dictionary to check.

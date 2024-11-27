@@ -150,6 +150,8 @@ class ServerUtils:
 
             return filename
 
+        MutyLogger.get_instance().debug("headers=%s" % (r.headers))
+        
         # Parse request headers, continue_offset=0 (first chunk) is assumed if missing
         continue_offset = int(r.headers.get("continue_offset", 0))
         total_file_size = int(r.headers["size"])
@@ -168,9 +170,11 @@ class ServerUtils:
         cache_dir = GulpConfig.get_instance().upload_tmp_dir()
 
         # build a unique filename based on the operation_id, context_id, req_id and the original filename
-        h = "%s-%s" % (muty.crypto.hash_xxh128(f"{operation_id}-{context_id}-{req_id}"), filename)
-        cache_file_path = muty.file.safe_path_join(
-            cache_dir, h)
+        h = "%s-%s" % (
+            muty.crypto.hash_xxh128(f"{operation_id}-{context_id}-{req_id}"),
+            filename,
+        )
+        cache_file_path = muty.file.safe_path_join(cache_dir, h)
 
         # Check if file is already complete
         current_size = await muty.file.get_size(cache_file_path)
@@ -192,11 +196,13 @@ class ServerUtils:
         current_written_size = await muty.file.get_size(cache_file_path)
         is_complete = current_written_size == total_file_size
 
-        return (
-            cache_file_path,
-            payload_dict,
-            GulpUploadResponse(
-                done=is_complete,
-                continue_offset=None if is_complete else current_written_size,
-            ),
+        result = GulpUploadResponse(
+            done=is_complete,
+            continue_offset=None if is_complete else current_written_size,
         )
+        MutyLogger.get_instance().debug(
+            "file_path=%s,\npayload=%s,\nresult=%s"
+            % (cache_file_path, json.dumps(payload_dict, indent=2), result)
+        )
+
+        return (cache_file_path, payload_dict, result)

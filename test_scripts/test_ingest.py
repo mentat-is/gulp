@@ -39,11 +39,14 @@ from muty.log import MutyLogger
 """
 
 
+# zip (with metadata.json), win_evtx and csv with mappings
+# 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
+# ./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
 def _parse_args():
     parser = argparse.ArgumentParser(
         description="Spawn n curl processes in parallel for file ingestion."
     )
-    parser.add_argument("--path", help="File or directory path", metavar="FILEPATH")
+    parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH")
     parser.add_argument(
         "--raw",
         help='a JSON file with raw data for the "raw" plugin, --path is ignored if this is set',
@@ -67,7 +70,7 @@ def _parse_args():
     parser.add_argument(
         "--plugin",
         default="win_evtx",
-        help="Plugin to be used, ignored if --raw is set",
+        help="Plugin to be used, ignored if --raw is set or file is a zip",
         metavar="PLUGIN",
     )
     parser.add_argument(
@@ -88,7 +91,7 @@ def _parse_args():
     parser.add_argument(
         "--plugin_params",
         default=None,
-        help="GulpPluginParameters as JSON",
+        help="GulpPluginParameters as JSON, ignored if ingesting a zip file (use metadata.json)",
         metavar="GULPPLUGINPARAMETERS",
     )
     parser.add_argument("--token", default=None, help="Gulp token", metavar="TOKEN")
@@ -103,30 +106,47 @@ def _parse_args():
 
 
 def _create_curl_command(file_path: str, file_total: int, raw: dict, args):
-    d = {
-        "flt": json.loads(args.flt) if args.flt else None,
-        "plugin_params": (
-            json.loads(args.plugin_params) if args.plugin_params else None
-        ),
-    }
-    if raw:
-        d["chunk"] = raw
-    else:
-        d["original_file_path"] = file_path
+    def _create_payload(file_path, raw, args, is_zip=False):
+        payload = {"flt": json.loads(args.flt) if args.flt else None}
 
-    payload = json.dumps(d)
+        if not is_zip:
+            payload["plugin_params"] = (
+                json.loads(args.plugin_params) if args.plugin_params else {}
+            )
+            payload["original_file_path"] = file_path
+        if raw:
+            payload["chunk"] = raw
 
-    command = [
-        "curl",
-        "-v",
-        "-X",
-        "PUT",
-    ]
+        return json.dumps(payload)
+
+    def _get_common_headers(args, file_size=None):
+        headers = [
+            ("-H", "content-type: multipart/form-data"),
+            ("-H", f"token: {args.token or 'null'}"),
+        ]
+        if file_size:
+            headers.extend(
+                [
+                    ("-H", f"size: {file_size}"),
+                    ("-H", f"continue_offset: {args.restart_from}"),
+                ]
+            )
+        return headers
+
+    is_zip = file_path and file_path.lower().endswith(".zip")
+    base_url = f"http://{args.host}"
+    command = ["curl", "-v", "-X", "PUT"]
+    payload = _create_payload(file_path, raw, args, is_zip)
+
     if raw:
-        # request is application/json
+        # raw request
+        url = f"{base_url}/ingest_raw"
+        params = f"operation_id={args.operation}&context_id={args.context}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}"
         command.extend(
             [
-                f"http://{args.host}/ingest_raw?operation_id={args.operation}&context_id={args.context}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}",
+                "-H",
+                f"token: {args.token or 'null'}",
+                f"{url}?{params}",
                 "-H",
                 "content-type: application/json",
                 "-d",
@@ -134,30 +154,39 @@ def _create_curl_command(file_path: str, file_total: int, raw: dict, args):
             ]
         )
     else:
-        # request is multipart/form-data
+        # file upload request
         file_size = os.path.getsize(file_path)
+
+        if is_zip:
+            url = f"{base_url}/ingest_zip"
+            params = f"operation_id={args.operation}&context_id={args.context}&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}"
+            file_type = "application/zip"
+        else:
+            url = f"{base_url}/ingest_file"
+            params = f"operation_id={args.operation}&context_id={args.context}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}"
+            file_type = "application/octet-stream"
+
         command.extend(
             [
-                f"http://{args.host}/ingest_file?operation_id={args.operation}&context_id={args.context}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}",
-                "-H",
-                "content-type: multipart/form-data",
-                "-H",
-                f"size: {file_size}",
-                "-H",
-                f"continue_offset: {args.restart_from}",
+                f"{url}?{params}",
+                *[
+                    item
+                    for pair in _get_common_headers(args, file_size)
+                    for item in pair
+                ],
                 "-F",
                 f"payload={payload}; type=application/json",
                 "-F",
-                f"f=@{file_path};type=application/octet-stream",
+                f"f=@{file_path};type={file_type}",
             ]
         )
 
-    command.extend(["-H", f"token: {args.token or "null"}"])
     return command
 
 
 def _run_curl(file_path: str, file_total: int, raw: dict, args):
     command = _create_curl_command(file_path, file_total, raw, args)
+
     # print curl command line
     cmdline = " ".join(command)
     MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug(
