@@ -1,3 +1,4 @@
+import json
 import os
 from typing import override
 
@@ -6,6 +7,7 @@ import muty.dict
 import muty.os
 import muty.string
 import muty.xml
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
@@ -91,7 +93,7 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int
     ) -> GulpDocument:
 
-        # MutyLogger.get_instance().debug("record: %s" % record)
+        # MutyLogger.get_instance().debug("processing record:\n%s" % (json.dumps(record,indent=2)))
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]
@@ -192,7 +194,7 @@ class Plugin(GulpPluginBase):
                     fixed_dict["__line__"] = line[:-1]
 
                     try:
-                        await self.process_record(stats, fixed_dict, doc_idx, flt)
+                        await self.process_record(fixed_dict, doc_idx, flt)
                     except RequestCanceledError as ex:
                         break
         except Exception as ex:

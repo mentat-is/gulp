@@ -75,15 +75,14 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         sess.add(self)
 
         # check if source exists
-        src: GulpSource = await GulpSource.get_by_filter(
+        src: GulpSource = await GulpSource.get_first_by_filter(
             sess,
             flt=GulpCollabFilter(
                 name=[name],
                 operation_id=[self.operation_id],
                 context_id=[self.id],
             ),
-            throw_if_not_found=False,
-            with_for_update=True,
+            throw_if_not_found=False
         )
         if src:
             MutyLogger.get_instance().info(

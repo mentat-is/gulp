@@ -882,6 +882,33 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 return []
         return objects
 
+    @classmethod
+    async def get_first_by_filter(
+        cls,
+        sess: AsyncSession,
+        flt: GulpCollabFilter = None,
+        throw_if_not_found: bool = True,
+        with_for_update: bool = False,
+    ) -> T:
+        """
+        Asynchronously retrieves the first object based on the provided filter.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
+            throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
+            with_for_update (bool, optional): If True, the query will be executed
+        
+        Returns:
+            T: The first object that matches the filter criteria or None if not found.
+        """
+        obj = await cls.get_by_filter(
+            sess, flt=flt, throw_if_not_found=throw_if_not_found, with_for_update=with_for_update
+        )
+    
+        if obj:
+            return obj[0]
+        return None
 
 class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
     """

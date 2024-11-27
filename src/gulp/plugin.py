@@ -784,10 +784,28 @@ class GulpPluginBase(ABC):
             return [doc.model_dump(by_alias=True)]
 
         base_doc_dump = doc.model_dump()
+        # MutyLogger.get_instance().debug(json.dumps("base doc:\n%s" % (base_doc_dump), indent=2))
         extra_docs = []
         for extra_fields in self._extra_docs:
+            # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (json.dumps(extra_fields, indent=2), json.dumps(base_doc_dump, indent=2)))
+            
             new_doc_data = {**base_doc_dump, **extra_fields}
-            new_doc = GulpDocument(self, **new_doc_data)
+
+            # also add link to the base document
+            new_doc_data["gulp.base_document_id"] = doc.id
+
+            # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
+            new_doc = GulpDocument(self, **new_doc_data, __ignore_default_event_code__=True)
+            """
+            MutyLogger.get_instance().debug(
+                "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
+                % (
+                    json.dumps(base_doc_dump, indent=2),
+                    json.dumps(new_doc_data, indent=2),
+                    json.dumps(new_doc.model_dump(), indent=2),
+                )
+            )
+            """
             extra_docs.append(new_doc.model_dump(by_alias=True))
         return [doc.model_dump(by_alias=True)] + extra_docs
 
@@ -867,6 +885,20 @@ class GulpPluginBase(ABC):
         Returns:
             a dictionary to be merged in the final gulp document
         """
+
+        def _try_map_ecs(fields_mapping: dict, d: dict, source_value: any) -> dict:
+            if fields_mapping.ecs:
+                # source key is mapped, add the mapped key to the document
+                for k in fields_mapping.ecs:
+                    kk, vv = self._type_checks(k, source_value)
+                    if vv:
+                        d[kk] = vv                    
+            else:
+                # unmapped key
+                d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
+
+            return d
+
         if not source_value:
             return {}
 
@@ -886,22 +918,21 @@ class GulpPluginBase(ABC):
             # this will trigger the creation of an extra document
             # with the given event code in _finalize_process_record()
             extra = {
-                "event.code": str(fields_mapping.extra_doc_with_event_code),
-                "@timestamp": source_value,
+                "event_code": str(fields_mapping.extra_doc_with_event_code),
+                "timestamp": source_value,
             }
+            # this will trigger the removal of field/s corresponding to this key in the generated extra document,
+            # to avoid duplication
+            mapped = _try_map_ecs(fields_mapping, d, source_value)
+            for k,_ in mapped.items():
+                extra[k] = None
+
             self._extra_docs.append(extra)
 
-        if fields_mapping.ecs:
-            # source key is mapped, add the mapped key to the document
-            for k in fields_mapping.ecs:
-                kk, vv = self._type_checks(k, source_value)
-                if vv:
-                    d[kk] = vv
-        else:
-            # unmapped key
-            d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
+            # we also add this key to the main document
+            return mapped
 
-        return d
+        return _try_map_ecs(fields_mapping, d, source_value)
 
     async def process_record(
         self,
@@ -1232,9 +1263,11 @@ class GulpPluginBase(ABC):
             # err = muty.log.exception_to_string_lite(err)
             err = muty.log.exception_to_string(err)  # , with_full_traceback=True)
         MutyLogger.get_instance().error(
-            "INGESTION SOURCE FAILED: source=%s, ex=%s" % (self._file_path, err)
+            "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d"
+            % (self._file_path, err, self._records_processed)
         )
         self._is_source_failed = True
+
         err = "source=%s, %s" % (self._file_path or "-", err)
         self._source_error = err
 

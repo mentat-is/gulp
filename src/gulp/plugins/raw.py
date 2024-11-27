@@ -140,7 +140,7 @@ class Plugin(GulpPluginBase):
                 doc_idx += 1
 
                 try:
-                    await self.process_record(stats, rr, doc_idx, flt)
+                    await self.process_record(rr, doc_idx, flt)
                 except RequestCanceledError:
                     break
         except Exception as ex:

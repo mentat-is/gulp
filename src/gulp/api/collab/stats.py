@@ -231,9 +231,14 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             )
             return self
 
-        # get stats from db first
-        await sess.refresh(self, with_for_update=True)
-    
+        # refresh stats from db first, use advisory lock here which is more
+        # efficient than row-level lock with with_for_update
+        lock_id = muty.crypto.hash_xxh64_int(self.id)
+        await sess.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
+        await sess.refresh(self)
+
         # update
         self.source_processed += d.get("source_processed", 0)
         self.source_failed += d.get("source_failed", 0)

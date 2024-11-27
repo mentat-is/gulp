@@ -380,13 +380,16 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                 )
                 user_id = s.user_id
 
+            async with GulpCollab.get_instance().session() as sess:
                 # create (and associate) context and source on the collab db, if they do not exist
                 operation: GulpOperation = await GulpOperation.get_by_id(
                     sess, operation_id
                 )
+
                 ctx: GulpContext = await operation.add_context(
                     sess, user_id=user_id, context_id=context_id
                 )
+
                 src: GulpSource = await ctx.add_source(
                     sess,
                     user_id=user_id,

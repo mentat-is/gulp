@@ -5,6 +5,7 @@ import muty.crypto
 import muty.dict
 import muty.string
 import muty.time
+from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gulp.api.mapping.models import GulpMapping
@@ -63,7 +64,6 @@ class GulpDocument(GulpBasicDocument):
     """
     represents a Gulp document.
     """
-
     log_file_path: Optional[str] = Field(
         None,
         description='"log.file.path": the original log file name or path.',
@@ -164,21 +164,27 @@ class GulpDocument(GulpBasicDocument):
             event_sequence (int): The sequence number of the event.
             timestamp (str, optional): The timestamp of the event as a number or numeric string (seconds/milliseconds/nanoseconds from unix epoch)<br>
                 or a string in a format supported by dateutil.parser.<br>
-                if None, assumes **kwargs has been processed by the mapping engine and contains {"@timestamp", "gulp.timestamp" and possibly "gulp.timestamp_invalid" flag}
+                if None, assumes **kwargs has been already processed by the mapping engine and contains {"@timestamp", "gulp.timestamp" and possibly "gulp.timestamp_invalid" flag}
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
             log_file_path (str, optional): The source log file path. Defaults to None.
+            
             **kwargs: Additional keyword arguments to be added as attributes.
-        Returns:
+                - ignore_default_event_code (bool, optional): If True, do not use the default event code from the mapping. Defaults to False.
+
+            Returns:
             None
         """
 
         super().__init__()
 
         # replace alias keys in kwargs with their corresponding field names
+        # (i.e. "event.code" -> "event_code")
+        # this is needed to i.e. augment already existing documents
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
         mapping: GulpMapping = plugin_instance.selected_mapping()
-
+        ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
+        
         self.operation_id = operation_id
         self.context_id = context_id
         if mapping and mapping.agent_type:
@@ -189,21 +195,22 @@ class GulpDocument(GulpBasicDocument):
             self.agent_type = plugin_instance.bare_filename
         self.event_original = event_original
         self.event_sequence = event_sequence
-        if mapping and mapping.event_code:
+        if mapping and mapping.event_code and not ignore_default_event_code:
             # force event code from mapping
+            # MutyLogger.get_instance().debug('mapping.event_code = %s' % mapping.event_code)
             self.event_code = mapping.event_code
         else:
             self.event_code = event_code
         self.event_duration = event_duration
         self.source_id = source_id
         self.log_file_path = log_file_path
-
         # add each kwargs as an attribute as-is (may contain event.code, @timestamp, and other fields previously set above, they will be overwritten)
         # @timestamp may have been mapped and already checked for validity in plugin._process_key()
         # if so, we will find it in the kwargs
         for k, v in kwargs.items():
             setattr(self, k, v)
-
+        
+        # MutyLogger.get_instance().debug('doc event_code = %s, passed=%s' % (self.event_code, event_code))    
         if not self.timestamp:
             # use argument, timestamp has been directly passed by the plugin
             self.timestamp = timestamp
