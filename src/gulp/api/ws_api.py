@@ -6,9 +6,13 @@ from queue import Empty, Queue
 from typing import Any, Optional
 
 import muty
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
+
+from gulp.config import GulpConfig
+import asyncio
+from fastapi.websockets import WebSocketState
 
 
 class GulpUserLoginLogoutPacket(BaseModel):
@@ -152,8 +156,8 @@ class ConnectedSocket:
         self,
         ws: WebSocket,
         ws_id: str,
-        type: list[GulpWsQueueDataType] = None,
-        operation_id: list[str] = None,
+        types: list[GulpWsQueueDataType] = None,
+        operation_ids: list[str] = None,
     ):
         """
         Initializes the ConnectedSocket object.
@@ -161,19 +165,125 @@ class ConnectedSocket:
         Args:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
-            type (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
-            operation (list[str], optional): The operations this websocket is interested in. Defaults to None (all).
+            types (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
+            operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
         """
         self.ws = ws
         self.ws_id = ws_id
-        self.type = type
-        self.operation_id = operation_id
+        self.types = types
+        self.operation_ids = operation_ids
 
-        # each socket has its own asyncio queue
+        # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
 
+    async def run_loop(self) -> None:
+        """
+        Runs the websocket loop with optimized task management and cleanup
+        """
+        tasks = set()
+        try:
+            # Create tasks with names for better debugging
+            send_task = asyncio.create_task(
+                self._send_loop(), name=f"send_loop_{self.ws_id}"
+            )            
+            receive_task = asyncio.create_task(
+                self._receive_loop(), name=f"receive_loop_{self.ws_id}"
+            )
+            tasks.update([send_task, receive_task])
+
+            # Wait for first task to complete
+            done, _ = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Process completed task
+            task = done.pop()
+            try:
+                await task
+            except WebSocketDisconnect as ex:
+                MutyLogger.get_instance().debug(
+                    f"websocket {self.ws_id} disconnected: {ex}"
+                )
+                raise
+            except Exception as ex:
+                MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
+                raise
+
+        finally:
+            # ensure cleanup happens even if cancelled
+            await asyncio.shield(self._cleanup_tasks(tasks))
+
+    async def _cleanup_tasks(self, tasks: set) -> None:
+        """
+        Clean up tasks with proper cancellation handling
+        """
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except WebSocketDisconnect:
+                    pass
+                except Exception as ex:
+                    MutyLogger.get_instance().error(
+                        f"error cleaning up {task.get_name()}: {ex}"
+                    )
+
+    async def _receive_loop(self) -> None:
+        """
+        continuously receives messages to detect disconnection
+        """
+        while True:
+            if self.ws.client_state != WebSocketState.CONNECTED:
+                raise WebSocketDisconnect("client disconnected")
+
+            # this will raise WebSocketDisconnect when client disconnects
+            await self.ws.receive_json()
+
+    async def _send_loop(self) -> None:
+        """
+        sends messages from the queue
+        """
+        try:
+            MutyLogger.get_instance().debug(f'starting ws "{self.ws_id}" loop ...')
+            ws_delay = GulpConfig.get_instance().ws_rate_limit_delay()
+
+            while True:
+                try:
+                    # Single message processing with timeout
+                    item = await asyncio.wait_for(self.q.get(), timeout=0.1)
+
+                    # Check state before sending
+                    if asyncio.current_task().cancelled():
+                        raise asyncio.CancelledError()
+
+                    if self.ws.client_state != WebSocketState.CONNECTED:
+                        raise WebSocketDisconnect("client disconnected")
+
+                    # Send immediately
+                    await self.ws.send_json(item)
+                    self.q.task_done()
+                    await asyncio.sleep(ws_delay)
+
+                except asyncio.TimeoutError:
+                    if asyncio.current_task().cancelled():
+                        raise asyncio.CancelledError()
+                    continue
+
+        except asyncio.CancelledError:
+            MutyLogger.get_instance().debug(f'ws "{self.ws_id}" send loop cancelled')
+            raise
+        except WebSocketDisconnect as ex:
+            MutyLogger.get_instance().debug(f'ws "{self.ws_id}" disconnected: {ex}')
+            raise
+        except Exception as ex:
+            MutyLogger.get_instance().error(f'ws "{self.ws_id}" error: {ex}')
+            raise
+
     def __str__(self):
-        return f"ConnectedSocket(ws_id={self.ws_id}, registered_types={self.type}, registered_operations={self.operation_id})"
+        return f"ConnectedSocket(ws_id={self.ws_id}, registered_types={self.types}, registered_operations={self.operation_ids})"
 
 
 class GulpConnectedSockets:
@@ -219,10 +329,12 @@ class GulpConnectedSockets:
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
-        ws = ConnectedSocket(ws=ws, ws_id=ws_id, type=type, operation_id=operation_id)
-        self._sockets[str(id(ws))] = ws
-        MutyLogger.get_instance().debug(f"added connected ws {id(ws)}: {ws}")
-        return ws
+        wws = ConnectedSocket(
+            ws=ws, ws_id=ws_id, types=type, operation_ids=operation_id
+        )
+        self._sockets[str(id(ws))] = wws
+        MutyLogger.get_instance().debug(f"added connected ws: {wws}")
+        return wws
 
     async def remove(self, ws: WebSocket, flush: bool = True) -> None:
         """
@@ -235,7 +347,7 @@ class GulpConnectedSockets:
         """
         id_str = str(id(ws))
         cws = self._sockets.get(id_str, None)
-        if cws is None:
+        if not cws:
             MutyLogger.get_instance().warning(f"no websocket found for ws_id={id_str}")
             return
 
@@ -299,20 +411,20 @@ class GulpConnectedSockets:
             d (WsData): The data to broadcast.
         """
         for _, cws in self._sockets.items():
-            if cws.type:
+            if cws.types:
                 # check types
-                if d.type not in cws.type:
+                if d.type not in cws.types:
                     MutyLogger.get_instance().warning(
                         "skipping entry type=%s for ws_id=%s, cws.types=%s"
-                        % (d.type, cws.ws_id, cws.type)
+                        % (d.type, cws.ws_id, cws.types)
                     )
                     continue
-            if cws.operation_id:
+            if cws.operation_ids:
                 # check operation/s
-                if d.operation_id not in cws.operation_id:
+                if d.operation_id not in cws.operation_ids:
                     MutyLogger.get_instance().warning(
                         "skipping entry type=%s for ws_id=%s, cws.operation_id=%s"
-                        % (d.type, cws.ws_id, cws.operation_id)
+                        % (d.type, cws.ws_id, cws.operation_ids)
                     )
                     continue
 
@@ -418,33 +530,30 @@ class GulpSharedWsQueue:
         from gulp.api.rest_api import GulpRestServer
 
         MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as pool:
-            while True:
-                if GulpRestServer.get_instance().is_shutdown():
-                    # server is shutting down, break the loop
-                    break
-                # MutyLogger.get_instance().debug("running ws_q.get in executor ...")
-                try:
-                    # get a WsData entry from the shared multiprocessing queue
-                    entry = await loop.run_in_executor(
-                        pool, self._shared_q.get, True, 1
-                    )
-                    self._shared_q.task_done()
+        while True:
+            if GulpRestServer.get_instance().is_shutdown():
+                # server is shutting down, break the loop
+                break
+            # MutyLogger.get_instance().debug("running ws_q.get in executor ...")
+            try:
+                # get a WsData entry from the shared multiprocessing queue
+                # entry = await loop.run_in_executor(pool, self._shared_q.get, True, 1)
+                entry = self._shared_q.get(timeout=1)
+                self._shared_q.task_done()
 
-                    # find the websocket associated with this entry
-                    cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
-                    if not cws:
-                        # no websocket found for this entry, skip (this WsData entry will be lost)
-                        continue
-
-                    # broadcast
-                    await GulpConnectedSockets.get_instance().broadcast_data(entry)
-
-                except Empty:
-                    # let's not busy wait...
-                    await asyncio.sleep(1)
+                # find the websocket associated with this entry
+                cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
+                if not cws:
+                    # no websocket found for this entry, skip (this WsData entry will be lost)
                     continue
+
+                # broadcast
+                await GulpConnectedSockets.get_instance().broadcast_data(entry)
+
+            except Empty:
+                # let's not busy wait...
+                await asyncio.sleep(1)
+                continue
 
     def close(self) -> None:
         """

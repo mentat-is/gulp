@@ -135,8 +135,8 @@ class GulpProcess:
         """
         if self.process_pool:
             MutyLogger.get_instance().debug("closing mp pool...")
-            self.process_pool.close()
-            await self.process_pool.join()
+            self.process_pool.close()        
+            self.process_pool.terminate()
             MutyLogger.get_instance().debug("mp pool closed!")
 
     async def recreate_process_pool_and_shared_queue(self):

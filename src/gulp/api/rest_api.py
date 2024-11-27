@@ -188,11 +188,11 @@ class GulpRestServer:
         return JSONResponse(js, status_code=status_code)
 
     def _add_routers(self):
-        from gulp.api.rest.ingest import GulpAPIIngest
-        from gulp.api.rest.ws import GulpAPIWebsocket
+        from gulp.api.rest.ingest import router as ingest_router
+        from gulp.api.rest.ws import router as ws_router
 
-        self._app.include_router(GulpAPIIngest.router())
-        self._app.include_router(GulpAPIWebsocket.router())
+        self._app.include_router(ingest_router)
+        self._app.include_router(ws_router)
 
         """
         import gulp.api.rest.collab_utility

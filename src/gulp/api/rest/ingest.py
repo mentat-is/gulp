@@ -68,137 +68,13 @@ class GulpIngestSourceDone(BaseModel):
     status: GulpRequestStatus = Field(..., description="The request status.")
 
 
+router = APIRouter()
+
+
 class GulpAPIIngest:
     """
     handles rest entrypoint/s for ingestion
     """
-
-    @staticmethod
-    def router() -> APIRouter:
-        """
-        Returns this module api-router, to add it to the main router
-
-        Returns:
-            APIRouter: The APIRouter instance
-        """
-        router = APIRouter()
-        router.add_api_route(
-            "/ingest_file",
-            GulpAPIIngest.ingest_file_handler,
-            methods=["PUT"],
-            tags=["ingest"],
-            response_model=JSendResponse,
-            response_model_exclude_none=True,
-            description="""
-**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume.
-
-The following is an example CURL for the request, containing GulpIngestionFilter and GulpPluginParameters.
-
-Headers:
-* `size`: The total size of the file being uploaded
-* `continue_offset`: The offset of the chunk being uploaded (must be 0 if this is the first chunk)
-
-```bash
-curl -v -X PUT "http://localhost:8080/ingest_file?index=testidx&token=&plugin=win_evtx&client_id=1&operation_id=1&context=testcontext&req_id=2fe81cdf-5f0a-482e-a5b2-74684c6e05fb&sync=0&ws_id=the_ws_id" \
-    -k \
-    -H "size: 69632" \
-    -H "continue_offset: 0" \
-    -F "payload={\"flt\":{},\"plugin_params\":{}};type=application/json" \
-    -F "f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx;type=application/octet-stream"
-```
-
-the payload is a a `GulpIngestPayload`, which may contain the following fields:
-
-* `flt` (GulpIngestionFilter): the ingestion filter, to restrict ingestion to a subset of the data specifying a `time_range`
-* `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
-* `original_file_path` (str): the original file path, to indicate the original full path of the file being ingested on the machine where it was acquired from
-
-response's `data` is a `ChunkedUploadResponse`, which contains the following fields:
-
-* `done` (bool): indicates whether the upload is complete
-* `continue_offset` (int): the offset of the next chunk to be uploaded, if `done` is `False`
-
-once the file is fully uploaded, this function returns a `pending` response and `STATS_UPDATE`, `DOCUMENTS_CHUNK` are streamed to the `ws_id` websocket until done.
-
-if the upload is interrupted, this API allows the upload resume `by sending a request with the same req_id`:
-
-1. the server will check the `continue_offset` and `total_file_size` headers to verify the upload status
-2. if the file is fully uploaded, the server will continue with the ingestion, processing the file.
-3. if the file is not fully uploaded, the server will respond with an `error` status and `continue_offset` set to the next chunk to be uploaded.
-4. once the upload is done, the server will automatically delete the uploaded file once processed.
-            """,
-            summary="ingest file using the specified plugin.",
-        )
-
-        router.add_api_route(
-            "/ingest_raw",
-            GulpAPIIngest.ingest_raw_handler,
-            methods=["PUT"],
-            tags=["ingest"],
-            response_model=JSendResponse,
-            response_model_exclude_none=True,
-            description="""
-ingests a chunk of data using the `raw` plugin (**must be available**).
-
-the `chunks`array is a list of raw JSON documents to be ingested, each with the following format:
-
-```json
-{   // mandatory
-    "__metadata__": {
-        // mandatory, with a format supported by gulp
-        "timestamp": "2021-01-01T00:00:00Z"
-        // mandatory, the raw event as string
-        "event_original": "raw event content",
-        // optional, will be set to 0 if missing
-        "event_code": "something"
-    },
-    // any other key/value pairs here, will be ingested according to plugin_params.ignore_mapping:
-    "something": "value",
-    "something_else": "value",
-    "another_thing": 123,
-}
-```
-
-if `plugin_params.ignore_mapping` is set to `True`, the mapping (if specified) will be ignored and fields in the resulting GulpDocuments will be ingested as is.
-either, they will be prefixed with `gulp.unmapped`.
-            """,
-            summary="ingest a chunk of raw events.",
-        )
-
-        router.add_api_route(
-            "/ingest_zip",
-            GulpAPIIngest.ingest_zip_handler,
-            methods=["PUT"],
-            tags=["ingest"],
-            response_model=JSendResponse,
-            response_model_exclude_none=True,
-            description="""
-**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume: refer to `ingest_file` for the request and response specifications.
-
-the zip file **must include** a `metadata.json` describing the file/s Gulp is going to ingest and the specific plugin/s to be used:
-
-```json
-[
-    {
-        // plugin to handle the ingestion with
-        "plugin": "win_evtx",
-        // the original path where these files were found
-        "original_path": "c:\\some\\path",
-        // the files to ingest, relative path in the zip file
-        "files": [
-            "win_evtx/2-system-Microsoft-Windows-LiveId%4Operational.evtx",
-            "win_evtx/2-system-Security-dirty.evtx",
-        ],
-    },
-    ...
-]
-```
-            """,
-            summary="ingest a zip with multiple sources.",
-        )
-
-        return router
-
     @staticmethod
     async def _handle_multipart_request(
         r: Request, operation_id: str, context_id: str, req_id: str
@@ -311,6 +187,51 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                     await mod.unload()
 
     @staticmethod
+    @router.put(
+        "/ingest_file",
+        tags=["ingest"],
+        response_model=JSendResponse,
+        response_model_exclude_none=True,
+        description="""
+**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume.
+
+The following is an example CURL for the request, containing GulpIngestionFilter and GulpPluginParameters.
+
+Headers:
+* `size`: The total size of the file being uploaded
+* `continue_offset`: The offset of the chunk being uploaded (must be 0 if this is the first chunk)
+
+```bash
+curl -v -X PUT "http://localhost:8080/ingest_file?index=testidx&token=&plugin=win_evtx&client_id=1&operation_id=1&context=testcontext&req_id=2fe81cdf-5f0a-482e-a5b2-74684c6e05fb&sync=0&ws_id=the_ws_id" \
+    -k \
+    -H "size: 69632" \
+    -H "continue_offset: 0" \
+    -F "payload={\"flt\":{},\"plugin_params\":{}};type=application/json" \
+    -F "f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx;type=application/octet-stream"
+```
+
+the payload is a a `GulpIngestPayload`, which may contain the following fields:
+
+* `flt` (GulpIngestionFilter): the ingestion filter, to restrict ingestion to a subset of the data specifying a `time_range`
+* `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
+* `original_file_path` (str): the original file path, to indicate the original full path of the file being ingested on the machine where it was acquired from
+
+response's `data` is a `ChunkedUploadResponse`, which contains the following fields:
+
+* `done` (bool): indicates whether the upload is complete
+* `continue_offset` (int): the offset of the next chunk to be uploaded, if `done` is `False`
+
+once the file is fully uploaded, this function returns a `pending` response and `STATS_UPDATE`, `DOCUMENTS_CHUNK` are streamed to the `ws_id` websocket until done.
+
+if the upload is interrupted, this API allows the upload resume `by sending a request with the same req_id`:
+
+1. the server will check the `continue_offset` and `total_file_size` headers to verify the upload status
+2. if the file is fully uploaded, the server will continue with the ingestion, processing the file.
+3. if the file is not fully uploaded, the server will respond with an `error` status and `continue_offset` set to the next chunk to be uploaded.
+4. once the upload is done, the server will automatically delete the uploaded file once processed.
+            """,
+        summary="ingest file using the specified plugin.",
+    )
     async def ingest_file_handler(
         r: Request,
         token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
@@ -505,6 +426,38 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
                     await mod.unload()
 
     @staticmethod
+    @router.put(
+        "/ingest_raw",
+        tags=["ingest"],
+        response_model=JSendResponse,
+        response_model_exclude_none=True,
+        description="""
+ingests a chunk of data using the `raw` plugin (**must be available**).
+
+the `chunks`array is a list of raw JSON documents to be ingested, each with the following format:
+
+```json
+{   // mandatory
+    "__metadata__": {
+        // mandatory, with a format supported by gulp
+        "timestamp": "2021-01-01T00:00:00Z"
+        // mandatory, the raw event as string
+        "event_original": "raw event content",
+        // optional, will be set to 0 if missing
+        "event_code": "something"
+    },
+    // any other key/value pairs here, will be ingested according to plugin_params.ignore_mapping:
+    "something": "value",
+    "something_else": "value",
+    "another_thing": 123,
+}
+```
+
+if `plugin_params.ignore_mapping` is set to `True`, the mapping (if specified) will be ignored and fields in the resulting GulpDocuments will be ingested as is.
+either, they will be prefixed with `gulp.unmapped`.
+            """,
+        summary="ingest a chunk of raw events.",
+    )
     async def ingest_raw_handler(
         token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
         operation_id: Annotated[
@@ -614,6 +567,35 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
             raise JSendException(ex=ex, req_id=req_id)
 
     @staticmethod
+    @router.put(
+        "/ingest_zip",
+        tags=["ingest"],
+        response_model=JSendResponse,
+        response_model_exclude_none=True,
+        description="""
+**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume: refer to `ingest_file` for the request and response specifications.
+
+the zip file **must include** a `metadata.json` describing the file/s Gulp is going to ingest and the specific plugin/s to be used:
+
+```json
+[
+    {
+        // plugin to handle the ingestion with
+        "plugin": "win_evtx",
+        // the original path where these files were found
+        "original_path": "c:\\some\\path",
+        // the files to ingest, relative path in the zip file
+        "files": [
+            "win_evtx/2-system-Microsoft-Windows-LiveId%4Operational.evtx",
+            "win_evtx/2-system-Security-dirty.evtx",
+        ],
+    },
+    ...
+]
+```
+            """,
+        summary="ingest a zip with multiple sources.",
+    )
     async def ingest_zip_handler(
         r: Request,
         token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
@@ -649,8 +631,11 @@ the zip file **must include** a `metadata.json` describing the file/s Gulp is go
 
         try:
             # check token and get caller user id
-            s = await GulpUserSession.check_token(token, GulpUserPermission.INGEST)
-            user_id = s.user_id
+            async with GulpCollab.get_instance().session() as sess:
+                s = await GulpUserSession.check_token(
+                    sess, token, [GulpUserPermission.INGEST]
+                )
+                user_id = s.user_id
 
             # handle multipart request manually
             MutyLogger.get_instance().debug("headers=%s" % (r.headers))

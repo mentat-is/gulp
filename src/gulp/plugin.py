@@ -788,14 +788,16 @@ class GulpPluginBase(ABC):
         extra_docs = []
         for extra_fields in self._extra_docs:
             # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (json.dumps(extra_fields, indent=2), json.dumps(base_doc_dump, indent=2)))
-            
+
             new_doc_data = {**base_doc_dump, **extra_fields}
 
             # also add link to the base document
             new_doc_data["gulp.base_document_id"] = doc.id
 
             # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
-            new_doc = GulpDocument(self, **new_doc_data, __ignore_default_event_code__=True)
+            new_doc = GulpDocument(
+                self, **new_doc_data, __ignore_default_event_code__=True
+            )
             """
             MutyLogger.get_instance().debug(
                 "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
@@ -892,7 +894,7 @@ class GulpPluginBase(ABC):
                 for k in fields_mapping.ecs:
                     kk, vv = self._type_checks(k, source_value)
                     if vv:
-                        d[kk] = vv                    
+                        d[kk] = vv
             else:
                 # unmapped key
                 d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
@@ -924,7 +926,7 @@ class GulpPluginBase(ABC):
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
             mapped = _try_map_ecs(fields_mapping, d, source_value)
-            for k,_ in mapped.items():
+            for k, _ in mapped.items():
                 extra[k] = None
 
             self._extra_docs.append(extra)
@@ -1210,14 +1212,18 @@ class GulpPluginBase(ABC):
             self._docs_buffer, flt, wait_for_refresh
         )
 
-        # update index type mapping too
-        el = GulpOpenSearch.get_instance()
-        self._index_type_mapping = await el.datastream_get_key_value_mapping(
-            self._index
-        )
-        MutyLogger.get_instance().debug(
-            "got index type mappings with %d entries" % (len(self._index_type_mapping))
-        )
+        """
+        if wait_for_refresh:
+            # update index type mapping too
+            el = GulpOpenSearch.get_instance()
+            self._index_type_mapping = await el.datastream_get_key_value_mapping(
+                self._index
+            )
+            MutyLogger.get_instance().debug(
+                "got index type mappings with %d entries"
+                % (len(self._index_type_mapping))
+            )
+        """
         return ingested, skipped
 
     async def _source_done(self, flt: GulpIngestionFilter = None) -> None:
