@@ -124,7 +124,7 @@ class ServerUtils:
                 payload_dict = json.loads(payload)
                 return payload_dict
             except Exception:
-                MutyLogger.get_instance().error(f"invalid payload: {payload}")
+                MutyLogger.get_instance().error(f"invalid payload: {content}")
                 return None
 
         def _extract_filename(content_disposition: str) -> str:
@@ -151,7 +151,7 @@ class ServerUtils:
             return filename
 
         MutyLogger.get_instance().debug("headers=%s" % (r.headers))
-        
+
         # Parse request headers, continue_offset=0 (first chunk) is assumed if missing
         continue_offset = int(r.headers.get("continue_offset", 0))
         total_file_size = int(r.headers["size"])

@@ -2,10 +2,12 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
+from functools import wraps
 import json
 import os
-from typing import Annotated, Optional, override
+from typing import Annotated, Any, Dict, Optional, override
 
+from fastapi.routing import APIRoute
 import muty.crypto
 import muty.file
 import muty.jsend
@@ -14,7 +16,7 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import APIRouter, Body, Header, Query, Request
+from fastapi import APIRouter, Body, Form, Header, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -165,6 +167,20 @@ EXAMPLE_DONE_UPLOAD = {
     }
 }
 
+INGEST_FILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "flt": {
+            "$ref": "#/components/schemas/GulpIngestionFilter",
+            "description": "Optional ingestion filter to restrict ingested data",
+        },
+        "plugin_params": {
+            "$ref": "#/components/schemas/GulpPluginParameters",
+            "description": "Optional plugin-specific parameters",
+        },
+    },
+}
+
 
 class GulpAPIIngest:
     """
@@ -264,7 +280,7 @@ class GulpAPIIngest:
             200: EXAMPLE_DONE_UPLOAD,
         },
         description="""
-**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume.
+**NOTE**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume.
 
 The following is an example CURL for the request, containing GulpIngestionFilter and GulpPluginParameters.
 
@@ -302,6 +318,62 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
 4. once the upload is done, the server will automatically delete the uploaded file once processed.
             """,
         summary="ingest file using the specified plugin.",
+        openapi_extra={
+            "parameters": [
+                {
+                    "name": "size",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "integer"},
+                    "description": api_defs.API_DESC_HEADER_SIZE,
+                    "example": 69632,
+                },
+                {
+                    "name": "continue_offset",
+                    "in": "header",
+                    "required": False,
+                    "default": 0,
+                    "schema": {"type": "integer"},
+                    "description": api_defs.API_DESC_HEADER_CONTINUE_OFFSET,
+                    "example": 0,
+                },
+            ],
+            "requestBody": {
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "f": {"type": "string", "format": "binary"},
+                                "payload": {
+                                    "type": "object",
+                                    "properties": {
+                                        "flt": {
+                                            "$ref": "#/components/schemas/GulpIngestionFilter",
+                                            "description": "Optional ingestion filter to restrict ingested data",
+                                            "examples": [
+                                                autogenerate_model_example_by_class(
+                                                    GulpIngestionFilter
+                                                )
+                                            ],
+                                        },
+                                        "plugin_params": {
+                                            "$ref": "#/components/schemas/GulpPluginParameters",
+                                            "description": "Optional plugin-specific parameters",
+                                            "examples": [
+                                                autogenerate_model_example_by_class(
+                                                    GulpPluginParameters
+                                                )
+                                            ],
+                                        },
+                                    },
+                                },
+                            },
+                        }
+                    }
+                }
+            },
+        },
     )
     async def ingest_file_handler(
         r: Request,
@@ -309,72 +381,52 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
             str,
             Header(
                 description=api_defs.API_DESC_INGEST_TOKEN,
-                examples=[api_defs.EXAMPLE_TOKEN],
+                example=api_defs.EXAMPLE_TOKEN,
             ),
         ],
         operation_id: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_OPERATION_ID,
-                examples=[api_defs.EXAMPLE_OPERATION_ID],
+                example=api_defs.EXAMPLE_OPERATION_ID,
             ),
         ],
         context_id: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_CONTEXT_ID,
-                examples=[api_defs.EXAMPLE_CONTEXT_ID],
+                example=api_defs.EXAMPLE_CONTEXT_ID,
             ),
         ],
         index: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_INDEX,
-                examples=[api_defs.EXAMPLE_INDEX],
+                example=api_defs.EXAMPLE_INDEX,
             ),
         ],
         plugin: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_PLUGIN,
-                examples=[api_defs.EXAMPLE_PLUGIN],
+                example=api_defs.EXAMPLE_PLUGIN,
             ),
         ],
         ws_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_WS_ID, examples=[api_defs.EXAMPLE_WS_ID]
-            ),
+            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
         ] = None,
         file_total: Annotated[
             int,
             Query(
                 description="set to the total number of files if this call is part of a multi-file upload, default=1.",
-                examples=[1],
+                example=1,
             ),
         ] = 1,
-        flt: Annotated[
-            dict,
-            Body(
-                description=api_defs.API_DESC_INGESTION_FILTER,
-                examples=[
-                    autogenerate_model_example_by_class(GulpIngestionFilter)
-                ],
-            ),
-        ] = None,
-        plugin_params: Annotated[
-            dict,
-            Body(
-                description=api_defs.API_DESC_PLUGIN_PARAMETERS,
-                examples=[
-                    autogenerate_model_example_by_class(GulpPluginParameters)
-                ],
-            ),
-        ] = None,
         req_id: Annotated[
             str,
             Query(
-                description=api_defs.API_DESC_REQ_ID, examples=[api_defs.EXAMPLE_REQ_ID]
+                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
             ),
         ] = None,
     ) -> JSONResponse:
@@ -571,42 +623,40 @@ either, they will be prefixed with `gulp.unmapped`.
             str,
             Header(
                 description=api_defs.API_DESC_INGEST_TOKEN,
-                examples=[api_defs.EXAMPLE_TOKEN],
+                example=api_defs.EXAMPLE_TOKEN,
             ),
         ],
         operation_id: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_OPERATION_ID,
-                examples=[api_defs.EXAMPLE_OPERATION_ID],
+                example=api_defs.EXAMPLE_OPERATION_ID,
             ),
         ],
         context_id: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_CONTEXT_ID,
-                examples=[api_defs.EXAMPLE_CONTEXT_ID],
+                example=api_defs.EXAMPLE_CONTEXT_ID,
             ),
         ],
         source: Annotated[
             str,
             Query(
                 description="name of the source to associate the data with, a source on the collab db will be generated if it doesn't exist.",
-                examples=["raw source"],
+                example="raw source",
             ),
         ],
         index: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_INDEX,
-                examples=[api_defs.EXAMPLE_INDEX],
+                example=api_defs.EXAMPLE_INDEX,
             ),
         ],
         ws_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_WS_ID, examples=[api_defs.EXAMPLE_WS_ID]
-            ),
+            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
         ],
         chunk: Annotated[
             list[dict],
@@ -619,7 +669,7 @@ either, they will be prefixed with `gulp.unmapped`.
             str,
             Query(
                 description=api_defs.API_DESC_PLUGIN,
-                examples=[api_defs.EXAMPLE_PLUGIN],
+                example=api_defs.EXAMPLE_PLUGIN,
             ),
         ] = "raw",
         plugin_params: Annotated[
@@ -629,7 +679,7 @@ either, they will be prefixed with `gulp.unmapped`.
         req_id: Annotated[
             str,
             Query(
-                description=api_defs.API_DESC_REQ_ID, examples=[api_defs.EXAMPLE_REQ_ID]
+                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
             ),
         ] = None,
     ) -> JSONResponse:
@@ -740,8 +790,55 @@ either, they will be prefixed with `gulp.unmapped`.
         tags=["ingest"],
         response_model=JSendResponse,
         response_model_exclude_none=True,
+        openapi_extra={
+            "parameters": [
+                {
+                    "name": "size",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "integer"},
+                    "description": api_defs.API_DESC_HEADER_SIZE,
+                    "example": 69632,
+                },
+                {
+                    "name": "continue_offset",
+                    "in": "header",
+                    "required": False,
+                    "default": 0,
+                    "schema": {"type": "integer"},
+                    "description": api_defs.API_DESC_HEADER_CONTINUE_OFFSET,
+                    "example": 0,
+                },
+            ],
+            "requestBody": {
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "f": {"type": "string", "format": "binary"},
+                                "payload": {
+                                    "type": "object",
+                                    "properties": {
+                                        "flt": {
+                                            "$ref": "#/components/schemas/GulpIngestionFilter",
+                                            "description": "Optional ingestion filter to restrict ingested data",
+                                            "examples": [
+                                                autogenerate_model_example_by_class(
+                                                    GulpIngestionFilter
+                                                )
+                                            ],
+                                        },
+                                    },
+                                },
+                            },
+                        }
+                    }
+                }
+            },
+        },
         description="""
-**NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume: refer to `ingest_file` for the request and response specifications.
+**WARNING**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume: refer to `ingest_file` for the request and response specifications.
 
 - the uploaded zip file **must include** a `metadata.json` describing the file/s Gulp is going to ingest and the specific plugin/s to be used: look at `GulpZipMetadataEntry` for the format.
 
@@ -757,43 +854,38 @@ for further information (headers, internals) refer to `ingest_file`.
             str,
             Header(
                 description=api_defs.API_DESC_INGEST_TOKEN,
-                examples=[api_defs.EXAMPLE_TOKEN],
+                example=api_defs.EXAMPLE_TOKEN,
             ),
         ],
         operation_id: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_OPERATION_ID,
-                examples=[api_defs.EXAMPLE_OPERATION_ID],
+                example=api_defs.EXAMPLE_OPERATION_ID,
             ),
         ],
         context_id: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_CONTEXT_ID,
-                examples=[api_defs.EXAMPLE_CONTEXT_ID],
+                example=api_defs.EXAMPLE_CONTEXT_ID,
             ),
         ],
         index: Annotated[
             str,
             Query(
                 description=api_defs.API_DESC_INDEX,
-                examples=[api_defs.EXAMPLE_INDEX],
+                example=api_defs.EXAMPLE_INDEX,
             ),
         ],
         ws_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_WS_ID, examples=[api_defs.EXAMPLE_WS_ID]
-            ),
+            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
         ],
-        flt: Annotated[
-            GulpIngestionFilter, Body(description=api_defs.API_DESC_INGESTION_FILTER)
-        ] = None,
         req_id: Annotated[
             str,
             Query(
-                description=api_defs.API_DESC_REQ_ID, examples=[api_defs.EXAMPLE_REQ_ID]
+                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
             ),
         ] = None,
     ) -> JSONResponse:

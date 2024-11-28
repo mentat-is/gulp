@@ -39,7 +39,8 @@ API_DESC_OPERATION_ID = (
     "the id of an operation registered via operation_create() on the collab database"
 )
 API_DESC_GLYPH = "the id of a glyph registered via glyph_create() on the collab DB."
-
+API_DESC_HEADER_SIZE = "the size of the header in bytes."
+API_DESC_HEADER_CONTINUE_OFFSET = "the offset in the file to continue the upload from."
 
 EXAMPLE_INDEX = "test_idx"
 EXAMPLE_OPERATION_ID = "test_operation"
