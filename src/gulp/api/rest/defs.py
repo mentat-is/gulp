@@ -28,27 +28,32 @@ API_DESC_INGEST_PLUGIN = "plugin to be used for ingestion."
 API_DESC_OPERATION_ID = 'the id of an operation registered with operation_create(): this will be set in ingested events as "gulp.operation_id.id".'
 API_DESC_CONTEXT_ID = "id of a context to assign to the operation."
 API_DESC_SOURCE_ID = "id of a source to assign to the context."
-API_DESC_INGEST_IGNORE_ERRORS = (
-    "ignore errors instead of stopping (current file) ingestion at first error."
-)
-API_DESC_INGESTION_PLUGIN_PARAMS = "additional parameters for the ingestion plugin."
-API_DESC_PYSYGMA_PLUGIN = "fallback pysigma plugin `filename with or without .py/.py`. Defaults to None (use 'logsource.product' from sigma rule if present)."
+
+API_DESC_PLUGIN_PARAMETERS = """plugin parameters.
+
+for additional parameters, refer to the plugin documentation.
+"""
+API_DESC_INGESTION_FILTER = "ingestion filter."
 API_DESC_SIGMA_PLUGIN_PARAMS = "additional parameters for the sigma plugin."
 API_DESC_OPERATION_ID = (
-    "the id of an operation registered via operation_create() on the collab DB."
+    "the id of an operation registered via operation_create() on the collab database"
 )
 API_DESC_GLYPH = "the id of a glyph registered via glyph_create() on the collab DB."
-API_DESC_SYNC = 'if set, the request will be processed synchronously (but concurrently in the event loop) and a *GulpStats* dictionary is returned. either, this API returns "pending" and the result will be available via the *stats_list* API using the same *req_id* (or via the */ws_stats* websocket).'
-API_DESC_WORKFLOW_ID = (
-    "optional id of a workflow (in the shared-data table) to assign to the operation."
-)
-API_DESC_CUSTOM_MAPPINGS_FILE = 'an optional JSON filename (i.e. "custom_mapping.json") in the "mapping_files" directory, containing specific mappings. if not present, default for the plugin will be used.'
+
 
 EXAMPLE_INDEX = "test_idx"
 EXAMPLE_OPERATION_ID = "test_operation"
 EXAMPLE_CONTEXT_ID = "test_context"
 EXAMPLE_SOURCE_ID = "test_source"
-
+EXAMPLE_WS_ID = "test_ws"
+EXAMPLE_TOKEN = "test_token"
+EXAMPLE_REQ_ID = "test_req"
+EXAMPLE_INGESTION_FILTER = {
+    "filter": {"term": {"field1": "value1"}},
+    "limit": 10,
+    "skip": 0,
+    "sort": [{"field1": "asc"}],
+}
 EXAMPLE_INDEX_TEMPLATE = {
     "example": {
         "value": {

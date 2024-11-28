@@ -157,10 +157,10 @@ The endpoint `/ws` provides live feedback and results for _ingestion_, _queries_
 sequenceDiagram
 
 client->>server: {"token": "...", "ws_id": "...", "types": [...]}
-server-->>client: { WsData }
+server-->>client: { GulpWsData }
 ```
 
-Response from the websocket is a [WsData](./src/gulp/api/rest/ws.py) object like the following:
+Response from the websocket is a [GulpWsData](./src/gulp/api/rest/ws.py) object like the following:
 
 ```json
 {

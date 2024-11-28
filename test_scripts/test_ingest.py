@@ -46,6 +46,13 @@ def _parse_args():
     parser = argparse.ArgumentParser(
         description="Spawn n curl processes in parallel for file ingestion."
     )
+    parser.add_argument(
+        "--user",
+        help="User name and password",
+        metavar=("USERNAME", "PASSWORD"),
+        nargs=2,
+        default=["admin", "admin"],
+    )
     parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH")
     parser.add_argument(
         "--raw",
@@ -102,12 +109,13 @@ def _parse_args():
         help="Offset to continue upload from",
         metavar="OFFSET",
     )
+    parser.add_argument("--test", action="store_true", help="run integration tests")
     return parser.parse_args()
 
 
-def _create_curl_command(file_path: str, file_total: int, raw: dict, args):
+def _create_ingest_curl_command(file_path: str, file_total: int, raw: dict, args):
     def _create_payload(file_path, raw, args, is_zip=False):
-        payload = {"flt": json.loads(args.flt) if args.flt else None}
+        payload = {"flt": json.loads(args.flt) if args.flt else {}}
 
         if not is_zip:
             payload["plugin_params"] = (
@@ -135,7 +143,7 @@ def _create_curl_command(file_path: str, file_total: int, raw: dict, args):
 
     is_zip = file_path and file_path.lower().endswith(".zip")
     base_url = f"http://{args.host}"
-    command = ["curl", "-v", "-X", "PUT"]
+    command = ["curl", "-v", "-X", "POST"]
     payload = _create_payload(file_path, raw, args, is_zip)
 
     if raw:
@@ -185,7 +193,7 @@ def _create_curl_command(file_path: str, file_total: int, raw: dict, args):
 
 
 def _run_curl(file_path: str, file_total: int, raw: dict, args):
-    command = _create_curl_command(file_path, file_total, raw, args)
+    command = _create_ingest_curl_command(file_path, file_total, raw, args)
 
     # print curl command line
     cmdline = " ".join(command)
@@ -195,9 +203,37 @@ def _run_curl(file_path: str, file_total: int, raw: dict, args):
     subprocess.run(command)
 
 
+def _run_tests(args):
+    MutyLogger.get_instance().info("running integration tests...")
+
+    # get path relative to this file
+    path = os.path.join(os.path.dirname(__file__), "../samples/win_evtx")
+    files = muty.file.list_directory(path, recursive=True, files_only=True)
+
+    # spawn curl processes
+    with Pool() as pool:
+        _run_curl, [(file, len(files), None, args) for file in files]
+
+        # wait for all processes to finish
+        pool.close()
+        pool.join()
+
+    # connect to the websocket
+    MutyLogger.get_instance().info("connecting to the websocket...")
+    command = [
+        "curl",
+        "-v",
+        f"http://{args.host}/ws?token={args.token}&ws_id={args.ws_id}",
+    ]
+
+
 def main():
     MutyLogger.get_instance("test_ingest", level=logging.DEBUG)
     args = _parse_args()
+
+    if args.test:
+        # run integration tests
+        return _run_tests(args)
 
     if args.path and args.raw:
         MutyLogger.get_instance().error("only one of --path or --raw can be set")

@@ -1,10 +1,11 @@
 """Gulp global definitions."""
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping
+from muty.pydantic import autogenerate_model_example
 
 
 class ObjectAlreadyExists(Exception):
@@ -30,6 +31,7 @@ class GulpPluginParameters(BaseModel):
 
     mapping_file: Optional[str] = Field(
         None,
+        examples=["mftecmd_csv.json"],
         description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
 
@@ -40,8 +42,14 @@ class GulpPluginParameters(BaseModel):
 
     mapping_id: Optional[str] = Field(
         None,
-        description="used for ingestion only: the GulpMapping to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
+        description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
+        examples=["record"],
     )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
 
 
 class GulpPluginAdditionalParameter(BaseModel):
@@ -50,11 +58,25 @@ class GulpPluginAdditionalParameter(BaseModel):
 
     `name` may also be a key in the `GulpPluginParameters` object, to list additional parameters specific for the plugin.
     """
-    name: str = Field(..., description="option name.")
-    type: Literal['bool', 'str', 'int', 'float', 'dict', 'list'] = Field(..., description="option type.")
-    default_value: Optional[Any] = Field(None, description="default value.")
-    desc: Optional[str] = Field(None, description="option description.")
-    required: Optional[bool] = Field(False, description="is the option required ?")
+
+    name: str = Field(..., description="option name.", examples=["ignore_mapping"])
+    type: Literal["bool", "str", "int", "float", "dict", "list"] = Field(
+        ..., description="option type.", examples=["bool"]
+    )
+    default_value: Optional[Any] = Field(
+        None, description="default value.", examples=[False]
+    )
+    desc: Optional[str] = Field(
+        None, description="option description.", examples=["test description."]
+    )
+    required: Optional[bool] = Field(
+        False, description="is the option required ?", examples=[True]
+    )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
 
 
 class GulpPluginSigmaSupport(BaseModel):
@@ -63,10 +85,24 @@ class GulpPluginSigmaSupport(BaseModel):
 
     refer to [sigma-cli](https://github.com/SigmaHQ/sigma-cli) for parameters (backend=-t, pipeline=-p, output=-f).
     """
-    backend: list[str] = Field(..., description="one or more pysigma backend supported by the plugin.")
-    pipelines: list[str] = Field(..., description="one or more pysigma pipelines supported by the plugin.")
-    output: list[str] = Field(..., description="one or more output formats supported by the plugin. ")
 
+    backend: list[str] = Field(
+        ...,
+        description="one or more pysigma backend supported by the plugin.",
+        examples=["opensearch"],
+    )
+    pipelines: list[str] = Field(
+        ...,
+        description="one or more pysigma pipelines supported by the plugin.",
+        examples=["default"],
+    )
+    output: list[str] = Field(
+        ...,
+        description="one or more output formats supported by the plugin. ",
+        examples=["dsl_lucene"],
+    )
 
-
-
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)

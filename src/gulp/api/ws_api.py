@@ -68,9 +68,9 @@ class GulpWsQueueDataType(StrEnum):
     REBASE_DONE = "rebase_done"
 
 
-class WsParameters(BaseModel):
+class GulpWsAuthParameters(BaseModel):
     """
-    Parameters for the websocket.
+    Parameters for authentication on the websocket
     """
 
     token: str = Field(..., description="user token")
@@ -81,7 +81,7 @@ class WsParameters(BaseModel):
     )
     type: Optional[list[GulpWsQueueDataType]] = Field(
         None,
-        description="The WsData.type this websocket is registered to receive, defaults to None(=all).",
+        description="The GulpWsData.type this websocket is registered to receive, defaults to None(=all).",
     )
 
 
@@ -117,9 +117,9 @@ class GulpDocumentsChunk(BaseModel):
     )
 
 
-class WsData(BaseModel):
+class GulpWsData(BaseModel):
     """
-    data carried by the websocket
+    data carried by the websocket ui->gulp
     """
 
     model_config = ConfigDict(
@@ -185,16 +185,14 @@ class ConnectedSocket:
             # Create tasks with names for better debugging
             send_task = asyncio.create_task(
                 self._send_loop(), name=f"send_loop_{self.ws_id}"
-            )            
+            )
             receive_task = asyncio.create_task(
                 self._receive_loop(), name=f"receive_loop_{self.ws_id}"
             )
             tasks.update([send_task, receive_task])
 
             # Wait for first task to complete
-            done, _ = await asyncio.wait(
-                tasks, return_when=asyncio.FIRST_COMPLETED
-            )
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
             # Process completed task
             task = done.pop()
@@ -403,12 +401,12 @@ class GulpConnectedSockets:
             await self.remove(cws.ws, flush=True)
         MutyLogger.get_instance().debug("all active websockets closed!")
 
-    async def broadcast_data(self, d: WsData):
+    async def broadcast_data(self, d: GulpWsData):
         """
         broadcasts data to all connected websockets
 
         Args:
-            d (WsData): The data to broadcast.
+            d (GulpWsData): The data to broadcast.
         """
         for _, cws in self._sockets.items():
             if cws.types:
@@ -536,7 +534,7 @@ class GulpSharedWsQueue:
                 break
             # MutyLogger.get_instance().debug("running ws_q.get in executor ...")
             try:
-                # get a WsData entry from the shared multiprocessing queue
+                # get a GulpWsData entry from the shared multiprocessing queue
                 # entry = await loop.run_in_executor(pool, self._shared_q.get, True, 1)
                 entry = self._shared_q.get(timeout=1)
                 self._shared_q.task_done()
@@ -544,7 +542,7 @@ class GulpSharedWsQueue:
                 # find the websocket associated with this entry
                 cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
                 if not cws:
-                    # no websocket found for this entry, skip (this WsData entry will be lost)
+                    # no websocket found for this entry, skip (this GulpWsData entry will be lost)
                     continue
 
                 # broadcast
@@ -596,7 +594,7 @@ class GulpSharedWsQueue:
             data (any, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.
         """
-        wsd = WsData(
+        wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=type,
             operation_id=operation_id,

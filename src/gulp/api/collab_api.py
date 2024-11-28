@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy_utils import create_database, database_exists, drop_database
 
-from gulp.api.collab.structs import GulpCollabBase
+from gulp.api.collab.structs import PERMISSION_MASK_INGEST, GulpCollabBase
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -423,6 +423,13 @@ class GulpCollab:
                 username="editor",
                 password="editor",
                 permission=PERMISSION_MASK_EDIT,
+                glyph_id=user_glyph.id,
+            )
+            ingest_user = await GulpUser.create(
+                sess,
+                username="ingest",
+                password="ingest",
+                permission=PERMISSION_MASK_INGEST,
                 glyph_id=user_glyph.id,
             )
             power_user = await GulpUser.create(

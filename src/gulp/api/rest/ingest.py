@@ -4,7 +4,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import json
 import os
-from typing import Annotated, Optional
+from typing import Annotated, Optional, override
 
 import muty.crypto
 import muty.file
@@ -19,7 +19,10 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
-
+from muty.pydantic import (
+    autogenerate_model_example,
+    autogenerate_model_example_by_class,
+)
 import gulp.api.rest.defs as api_defs
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
@@ -64,6 +67,11 @@ class GulpIngestPayload(GulpBaseIngestPayload):
         None, description="The original file path."
     )
 
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
+
 
 class GulpZipIngestPayload(GulpBaseIngestPayload):
     """
@@ -76,11 +84,16 @@ class GulpZipMetadataEntry(BaseModel):
     metadata entry for ingest_zip
     """
 
-    plugin: str = Field(..., description="The plugin to use.")
-    files: list[str] = Field(..., description="The files to ingest.")
+    plugin: str = Field(
+        ..., description="The plugin to use.", examples=[api_defs.EXAMPLE_PLUGIN]
+    )
+    files: list[str] = Field(
+        ..., description="The files to ingest.", examples=["file1.evtx"]
+    )
     original_path: Optional[str] = Field(
         None,
-        description="The original base path where `files` are taken from, i.e. `c:\\logs`.",
+        description="The original base path where `files` are taken from.",
+        examples=["c:\\logs"],
     )
     plugin_params: Optional[GulpPluginParameters] = Field(
         GulpPluginParameters(), description="The plugin parameters."
@@ -96,13 +109,61 @@ class GulpIngestSourceDone(BaseModel):
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
     )
-    source_id: str = Field(..., description="The source ID.", alias="gulp.source_id")
-    context_id: str = Field(..., description="The context ID.", alias="gulp.context_id")
-    req_id: str = Field(..., description="The request ID.")
-    status: GulpRequestStatus = Field(..., description="The request status.")
+    source_id: str = Field(
+        ...,
+        description="The source ID.",
+        alias="gulp.source_id",
+        examples=[api_defs.EXAMPLE_SOURCE_ID],
+    )
+    context_id: str = Field(
+        ...,
+        description="The context ID.",
+        alias="gulp.context_id",
+        examples=[api_defs.EXAMPLE_CONTEXT_ID],
+    )
+    req_id: str = Field(
+        ..., description="The request ID.", examples=[api_defs.EXAMPLE_REQ_ID]
+    )
+    status: GulpRequestStatus = Field(
+        ..., description="The request status.", examples=["done"]
+    )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
 
 
 router = APIRouter()
+
+EXAMPLE_INCOMPLETE_UPLOAD = {
+    "content": {
+        "application/json": {
+            "example": {
+                "status": "success",
+                "data": {
+                    "done": False,
+                    "continue_offset": 12345678,
+                },
+                "req_id": "2fe81cdf-5f0a-482e-a5b2-74684c6e05fb",
+                "timestamp_msec": 1618220400000,
+            }
+        }
+    },
+    "description": "The upload is incomplete, send another chunk from the `continue_offset`.",
+}
+
+EXAMPLE_DONE_UPLOAD = {
+    "content": {
+        "application/json": {
+            "example": {
+                "status": "pending",
+                "req_id": "2fe81cdf-5f0a-482e-a5b2-74684c6e05fb",
+                "timestamp_msec": 1618220400000,
+            }
+        }
+    }
+}
 
 
 class GulpAPIIngest:
@@ -193,11 +254,15 @@ class GulpAPIIngest:
                     await mod.unload()
 
     @staticmethod
-    @router.put(
+    @router.post(
         "/ingest_file",
         tags=["ingest"],
         response_model=JSendResponse,
         response_model_exclude_none=True,
+        responses={
+            100: EXAMPLE_INCOMPLETE_UPLOAD,
+            200: EXAMPLE_DONE_UPLOAD,
+        },
         description="""
 **NOTE**: This function cannot be used from the `/docs` page since it needs custom request handling to support resume.
 
@@ -240,7 +305,13 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
     )
     async def ingest_file_handler(
         r: Request,
-        token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
+        token: Annotated[
+            str,
+            Header(
+                description=api_defs.API_DESC_INGEST_TOKEN,
+                examples=[api_defs.EXAMPLE_TOKEN],
+            ),
+        ],
         operation_id: Annotated[
             str,
             Query(
@@ -269,16 +340,43 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
                 examples=[api_defs.EXAMPLE_PLUGIN],
             ),
         ],
-        ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
+        ws_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_WS_ID, examples=[api_defs.EXAMPLE_WS_ID]
+            ),
+        ] = None,
         file_total: Annotated[
             int,
             Query(
-                description="set to the total number of files if this call is part of a multi-file upload, default=1."
+                description="set to the total number of files if this call is part of a multi-file upload, default=1.",
+                examples=[1],
             ),
         ] = 1,
-        # flt: Annotated[GulpIngestionFilter, Body()] = None,
-        # plugin_params: Annotated[GulpPluginParameters, Body()] = None,
-        req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID)] = None,
+        flt: Annotated[
+            dict,
+            Body(
+                description=api_defs.API_DESC_INGESTION_FILTER,
+                examples=[
+                    autogenerate_model_example_by_class(GulpIngestionFilter)
+                ],
+            ),
+        ] = None,
+        plugin_params: Annotated[
+            dict,
+            Body(
+                description=api_defs.API_DESC_PLUGIN_PARAMETERS,
+                examples=[
+                    autogenerate_model_example_by_class(GulpPluginParameters)
+                ],
+            ),
+        ] = None,
+        req_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_REQ_ID, examples=[api_defs.EXAMPLE_REQ_ID]
+            ),
+        ] = None,
     ) -> JSONResponse:
         # ensure a req_id exists
         MutyLogger.get_instance().debug("---> ingest_file_handler")
@@ -296,7 +394,7 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
                 d = JSendResponse.error(
                     req_id=req_id, data=result.model_dump(exclude_none=True)
                 )
-                return JSONResponse(d)
+                return JSONResponse(d, status_code=100)
 
             # ensure payload is valid
             payload = GulpIngestPayload.model_validate(payload)
@@ -432,11 +530,15 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
                     await mod.unload()
 
     @staticmethod
-    @router.put(
+    @router.post(
         "/ingest_raw",
         tags=["ingest"],
         response_model=JSendResponse,
         response_model_exclude_none=True,
+        responses={
+            100: EXAMPLE_INCOMPLETE_UPLOAD,
+            200: EXAMPLE_DONE_UPLOAD,
+        },
         description="""
 ingests a chunk of data using the `raw` plugin (**must be available**).
 
@@ -465,7 +567,13 @@ either, they will be prefixed with `gulp.unmapped`.
         summary="ingest a chunk of raw events.",
     )
     async def ingest_raw_handler(
-        token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
+        token: Annotated[
+            str,
+            Header(
+                description=api_defs.API_DESC_INGEST_TOKEN,
+                examples=[api_defs.EXAMPLE_TOKEN],
+            ),
+        ],
         operation_id: Annotated[
             str,
             Query(
@@ -494,28 +602,36 @@ either, they will be prefixed with `gulp.unmapped`.
                 examples=[api_defs.EXAMPLE_INDEX],
             ),
         ],
-        ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
+        ws_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_WS_ID, examples=[api_defs.EXAMPLE_WS_ID]
+            ),
+        ],
         chunk: Annotated[
             list[dict],
             Body(description="chunk of raw JSON events to be ingested."),
         ],
         flt: Annotated[
-            GulpIngestionFilter, Body(description="to filter ingested data.")
+            GulpIngestionFilter, Body(description=api_defs.API_DESC_INGESTION_FILTER)
         ] = None,
         plugin: Annotated[
             str,
             Query(
-                description="the plugin to use for ingestion, default=raw",
+                description=api_defs.API_DESC_PLUGIN,
+                examples=[api_defs.EXAMPLE_PLUGIN],
             ),
-        ] = None,
+        ] = "raw",
         plugin_params: Annotated[
             GulpPluginParameters,
-            Body(
-                description='optional parameters for the "raw" plugin:<br><br>'
-                "- `ignore_mapping` (str): ignore mapping if set, and ingest raw data as is."
+            Body(description=api_defs.API_DESC_PLUGIN_PARAMETERS),
+        ] = None,
+        req_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_REQ_ID, examples=[api_defs.EXAMPLE_REQ_ID]
             ),
         ] = None,
-        req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID)] = None,
     ) -> JSONResponse:
         # ensure a req_id exists
         MutyLogger.get_instance().debug("---> ingest_raw_handler")
@@ -619,7 +735,7 @@ either, they will be prefixed with `gulp.unmapped`.
         return files
 
     @staticmethod
-    @router.put(
+    @router.post(
         "/ingest_zip",
         tags=["ingest"],
         response_model=JSendResponse,
@@ -637,7 +753,13 @@ for further information (headers, internals) refer to `ingest_file`.
     )
     async def ingest_zip_handler(
         r: Request,
-        token: Annotated[str, Header(description=api_defs.API_DESC_INGEST_TOKEN)],
+        token: Annotated[
+            str,
+            Header(
+                description=api_defs.API_DESC_INGEST_TOKEN,
+                examples=[api_defs.EXAMPLE_TOKEN],
+            ),
+        ],
         operation_id: Annotated[
             str,
             Query(
@@ -659,9 +781,21 @@ for further information (headers, internals) refer to `ingest_file`.
                 examples=[api_defs.EXAMPLE_INDEX],
             ),
         ],
-        ws_id: Annotated[str, Query(description=api_defs.API_DESC_WS_ID)],
-        # flt: Annotated[GulpIngestionFilter, Body()] = None,
-        req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID)] = None,
+        ws_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_WS_ID, examples=[api_defs.EXAMPLE_WS_ID]
+            ),
+        ],
+        flt: Annotated[
+            GulpIngestionFilter, Body(description=api_defs.API_DESC_INGESTION_FILTER)
+        ] = None,
+        req_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_REQ_ID, examples=[api_defs.EXAMPLE_REQ_ID]
+            ),
+        ] = None,
     ) -> JSONResponse:
         # ensure a req_id exists
         MutyLogger.get_instance().debug("---> ingest_zip_handler")
@@ -696,7 +830,7 @@ for further information (headers, internals) refer to `ingest_file`.
                 d = JSendResponse.error(
                     req_id=req_id, data=result.model_dump(exclude_none=True)
                 )
-                return JSONResponse(d)
+                return JSONResponse(d, status_code=100)
 
             # ensure payload is valid
             payload = GulpZipIngestPayload.model_validate(payload)

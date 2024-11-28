@@ -26,8 +26,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.config import GulpConfig
 from gulp.structs import InvalidArgument
 
-_app: APIRouter = APIRouter()
-
+router = APIRouter()
 
 def _pwd_regex_validator(value: str) -> str:
     """
@@ -375,7 +374,7 @@ async def user_delete_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@_app.put(
+@router.put(
     "/login",
     response_model=JSendResponse,
     tags=["user"],

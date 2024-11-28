@@ -2,6 +2,7 @@ import re
 from enum import StrEnum
 from typing import List, Optional, TypeVar, override
 
+from muty.pydantic import autogenerate_model_example
 import muty.string
 import muty.time
 from muty.log import MutyLogger
@@ -130,51 +131,71 @@ class GulpCollabFilter(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    id: Optional[list[str]] = Field(None, description="filter by the given id/s.")
+    id: Optional[list[str]] = Field(
+        None, description="filter by the given id/s.", examples=[["id1", "id2"]]
+    )
     type: Optional[list[GulpCollabType]] = Field(
-        None, description="filter by the given type/s."
+        None,
+        description="filter by the given type/s.",
+        examples=[["note", "highlight"]],
     )
     operation_id: Optional[list[str]] = Field(
-        None, description="filter by the given operation/s."
+        None, description="filter by the given operation/s.",examples=[["op1", "op2"]]        
     )
     context_id: Optional[list[str]] = Field(
-        None, description="filter by the given context/s."
+        None, description="filter by the given context/s.",
+        examples=[["ctx1", "ctx2"]]
     )
     source_id: Optional[list[str]] = Field(
-        None, description="filter by the given source path/s or name/s."
+        None, description="filter by the given source path/s or name/s.",
+        examples=[["src1", "src2"]]        
     )
     owner_user_id: Optional[list[str]] = Field(
-        None, description="filter by the given owner user id/s."
+        None, description="filter by the given owner user id/s.",
+        examples=[["admin"]]
     )
-    tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
-    name: Optional[list[str]] = Field(None, description="filter by the given name/s.")
+    tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.",
+                                      examples=[["tag1", "tag2"]])
+    name: Optional[list[str]] = Field(None, description="filter by the given name/s.", examples=[["name1", "name2"]])
     text: Optional[list[str]] = Field(
-        None, description="filter by the given object text."
+        None, description="filter by the given object text (wildcard accepted).",
+        examples=[["text1", "text2"]]
     )
     documents: Optional[list[GulpBasicDocument]] = Field(
         None,
-        description="filter by the given event ID/s in a CollabObj.documents list of GulpBasicDocument.",
+        description="filter by the given document ID/s in a CollabObj.docs list of GulpBasicDocument.",
+        examples=[["the_doc_id"]],
     )
     time_range: Optional[tuple[int, int]] = Field(
         None,
-        description="if set, a `gulp.timestamp` range [start, end] relative to CollabObject.documents, inclusive, in nanoseconds from unix epoch.",
+        examples=[(1620000000000000000, 1620000000000000001)],
+        description="if set, a `gulp.timestamp` range [start, end] relative to CollabObject.docs, inclusive, in nanoseconds from unix epoch.",
     )
     private: Optional[bool] = Field(
         False,
+        examples=[False],
         description="if True, return only private objects. Default=False (return all).",
     )
     limit: Optional[int] = Field(
         None,
+        examples=[10],
         description='to be used together with "offset", maximum number of results to return. default=return all.',
     )
     offset: Optional[int] = Field(
         None,
+        examples=[100],
         description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
     )
     tags_and: Optional[bool] = Field(
         False,
+        examples=[False],
         description="if True, all tags must match. Default=False (at least one tag must match).",
     )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
 
     @override
     def __str__(self) -> str:
@@ -785,7 +806,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         # commit
         await sess.commit()
         await sess.refresh(instance)
-        #await sess.refresh(self)
+        # await sess.refresh(self)
 
         MutyLogger.get_instance().debug("---> updated: %s" % (instance))
 
@@ -898,17 +919,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             with_for_update (bool, optional): If True, the query will be executed
-        
+
         Returns:
             T: The first object that matches the filter criteria or None if not found.
         """
         obj = await cls.get_by_filter(
-            sess, flt=flt, throw_if_not_found=throw_if_not_found, with_for_update=with_for_update
+            sess,
+            flt=flt,
+            throw_if_not_found=throw_if_not_found,
+            with_for_update=with_for_update,
         )
-    
+
         if obj:
             return obj[0]
         return None
+
 
 class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
     """

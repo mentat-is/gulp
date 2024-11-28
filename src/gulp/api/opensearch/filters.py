@@ -2,6 +2,7 @@ from enum import IntEnum, StrEnum
 from typing import Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
+from muty.pydantic import autogenerate_model_example
 
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = [
@@ -26,14 +27,19 @@ class GulpBaseDocumentFilter(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     time_range: Optional[tuple[int | str, int | str, bool]] = Field(
-        None,
-        description="include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.<br>"
-        "if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).<br><br>"
-        "**for ingestion filtering, `gulp.timestamp` is always used and the third element is ignored**.",
+        default=None,
+        examples=[[1609459200000, 1609545600000, False]],
+        description="""
+        include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.
+        if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).
+
+        **for ingestion filtering, `gulp.timestamp` is always used (match against nanoseconds) and the third element is ignored**.
+        """,
     )
 
     query_string_parameters: Optional[dict] = Field(
-        None,
+        default=None,
+        examples=[{"analyze_wildcard": True, "default_field": "_id"}],
         description="additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)",
     )
 
@@ -56,21 +62,15 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
     each field is optional, if no filter is specified all events are ingested.
     """
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "time_range": [1609459200000, 1609545600000, False],
-                    "storage_ignore_filter": False,
-                }
-            ]
-        }
-    }
-
     storage_ignore_filter: Optional[bool] = Field(
         False,
         description="on filtering during ingestion, websocket receives filtered results while OpenSearch stores all documents anyway (default=False=both OpenSearch and websocket receives the filtered results).",
     )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
 
     @override
     def __str__(self) -> str:
@@ -110,52 +110,50 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     further key,value pairs are allowed and will be used as additional filters.
     """
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "time_range": [1609459200000, 1609545600000, False],
-                    "agent_type": ["winlogbeat"],
-                    "operation": ["test"],
-                    "context": ["testcontext"],
-                    "source_id": ["test.log"],
-                    "event_original": ["test event", True],
-                    "event_code": ["5152"],
-                }
-            ]
-        }
-    }
-
     agent_type: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `agent.type`/s.",
+        examples=[["win_evtx"]],
     )
     id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `_id`/s.",
+        examples=[["18b6332595d82048e31963e6960031a1"]],        
     )
     operation_id: Optional[list[str]] = Field(
         None,
         description="include documents  matching the given `gulp.operation_id`/s.",
+        examples=[["test_operation"]],
     )
     context_id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `gulp.context_id`/s.",
+        examples=[["test_context"]],
     )
     source_id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `gulp.source_id`/s.",
+        examples=[["311fdbfe-21c6-4e61-b44a-175bf15a18a5"]],
     )
     event_code: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `event.code`/s.",
+        examples=[["5152"]],
     )
     event_original: Optional[tuple[str, bool]] = Field(
         (None, False),
-        description="include documents matching the given `event.original`/s.<br><br>"
-        "if the second element is True, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.<br>"
-        "if the second element is False, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).",
+        description="""include documents matching the given `event.original`.
+
+        if the second element is `True`, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.
+        if the second element is `False`, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).
+        """,
+        examples=[["*searchme*", False]],
     )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
 
     @override
     def __str__(self) -> str:
