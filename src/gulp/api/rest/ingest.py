@@ -2,12 +2,10 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
-from functools import wraps
 import json
 import os
-from typing import Annotated, Any, Dict, Optional, override
+from typing import Annotated, Optional, override
 
-from fastapi.routing import APIRoute
 import muty.crypto
 import muty.file
 import muty.jsend
@@ -16,7 +14,7 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import APIRouter, Body, Form, Header, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -366,43 +364,28 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
         r: Request,
         token: Annotated[
             str,
-            Header(
-                description=api_defs.API_DESC_INGEST_TOKEN,
-                example=api_defs.EXAMPLE_TOKEN,
-            ),
+            Depends(ServerUtils.param_token),
         ],
         operation_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_OPERATION_ID,
-                example=api_defs.EXAMPLE_OPERATION_ID,
-            ),
+            Depends(ServerUtils.param_operation_id),
         ],
         context_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_CONTEXT_ID,
-                example=api_defs.EXAMPLE_CONTEXT_ID,
-            ),
+            Depends(ServerUtils.param_context_id),
         ],
         index: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_INDEX,
-                example=api_defs.EXAMPLE_INDEX,
-            ),
+            Depends(ServerUtils.param_index),
         ],
         plugin: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_PLUGIN,
-                example=api_defs.EXAMPLE_PLUGIN,
-            ),
+            Depends(ServerUtils.param_plugin),
         ],
         ws_id: Annotated[
             str,
-            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
-        ] = None,
+            Depends(ServerUtils.param_ws_id),
+        ],
         file_total: Annotated[
             int,
             Query(
@@ -412,14 +395,10 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
         ] = 1,
         req_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
-            ),
+            Depends(ServerUtils.ensure_req_id),
         ] = None,
     ) -> JSONResponse:
-        # ensure a req_id exists
-        MutyLogger.get_instance().debug("---> ingest_file_handler")
-        req_id = GulpRestServer.ensure_req_id(req_id)
+        ServerUtils.dump_params(locals())
 
         try:
             # handle multipart request manually
@@ -590,24 +569,15 @@ by default, the `raw` plugin is used (**must be available**), but a different pl
     async def ingest_raw_handler(
         token: Annotated[
             str,
-            Header(
-                description=api_defs.API_DESC_INGEST_TOKEN,
-                example=api_defs.EXAMPLE_TOKEN,
-            ),
+            Depends(ServerUtils.param_token),
         ],
         operation_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_OPERATION_ID,
-                example=api_defs.EXAMPLE_OPERATION_ID,
-            ),
+            Depends(ServerUtils.param_operation_id),
         ],
         context_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_CONTEXT_ID,
-                example=api_defs.EXAMPLE_CONTEXT_ID,
-            ),
+            Depends(ServerUtils.param_context_id),
         ],
         source: Annotated[
             str,
@@ -618,38 +588,30 @@ by default, the `raw` plugin is used (**must be available**), but a different pl
         ],
         index: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_INDEX,
-                example=api_defs.EXAMPLE_INDEX,
-            ),
+            Depends(ServerUtils.param_index),
         ],
         ws_id: Annotated[
             str,
-            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
+            Depends(ServerUtils.param_ws_id),
         ],
         chunk: Annotated[
             list[GulpRawDocument],
             Body(description="chunk of raw JSON events to be ingested."),
         ],
         flt: Annotated[
-            GulpIngestionFilter, Body(description=api_defs.API_DESC_INGESTION_FILTER)
+            GulpIngestionFilter, Depends(ServerUtils.param_gulp_ingestion_flt)
         ] = None,
         plugin: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_PLUGIN,
-                example=api_defs.EXAMPLE_PLUGIN,
-            ),
+            Depends(ServerUtils.param_plugin),
         ] = "raw",
         plugin_params: Annotated[
             GulpPluginParameters,
-            Body(description=api_defs.API_DESC_PLUGIN_PARAMETERS),
+            Depends(ServerUtils.param_gulp_plugin_params),
         ] = None,
         req_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
-            ),
+            Depends(ServerUtils.ensure_req_id),
         ] = None,
     ) -> JSONResponse:
         # ensure a req_id exists
@@ -825,41 +787,27 @@ for further information, refer to `ingest_file` for the request and response int
         r: Request,
         token: Annotated[
             str,
-            Header(
-                description=api_defs.API_DESC_INGEST_TOKEN,
-                example=api_defs.EXAMPLE_TOKEN,
-            ),
+            Depends(ServerUtils.param_token),
         ],
         operation_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_OPERATION_ID,
-                example=api_defs.EXAMPLE_OPERATION_ID,
-            ),
+            Depends(ServerUtils.param_operation_id),
         ],
         context_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_CONTEXT_ID,
-                example=api_defs.EXAMPLE_CONTEXT_ID,
-            ),
+            Depends(ServerUtils.param_context_id),
         ],
         index: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_INDEX,
-                example=api_defs.EXAMPLE_INDEX,
-            ),
+            Depends(ServerUtils.param_index),
         ],
         ws_id: Annotated[
             str,
-            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
+            Depends(ServerUtils.param_ws_id),
         ],
         req_id: Annotated[
             str,
-            Query(
-                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
-            ),
+            Depends(ServerUtils.ensure_req_id),
         ] = None,
     ) -> JSONResponse:
         # ensure a req_id exists

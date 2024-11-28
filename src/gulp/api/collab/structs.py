@@ -161,10 +161,10 @@ class GulpCollabFilter(BaseModel):
         None, description="filter by the given object text (wildcard accepted).",
         example=["text1", "text2"]
     )
-    documents: Optional[list[GulpBasicDocument]] = Field(
+    documents: Optional[list[str]] = Field(
         None,
         description="filter by the given document ID/s in a CollabObj.docs list of GulpBasicDocument.",
-        example=["the_doc_id"],
+        example=["18b6332595d82048e31963e6960031a1"],
     )
     time_range: Optional[tuple[int, int]] = Field(
         None,

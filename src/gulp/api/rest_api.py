@@ -80,21 +80,6 @@ class GulpRestServer:
             muty.version.muty_version(),
         )
 
-    @staticmethod
-    def ensure_req_id(req_id: str = None) -> str:
-        """
-        Ensures a request ID is not None, either returns a new one.
-
-        Args:
-            req_id (str, optional): The request ID. Defaults to None.
-
-        Returns:
-            str: The request ID.
-        """
-        if req_id is None:
-            return muty.string.generate_unique()
-        return req_id
-
     async def _unload_extension_plugins(self) -> None:
         """
         unload extension plugins
@@ -197,10 +182,10 @@ class GulpRestServer:
     def _add_routers(self):
         from gulp.api.rest.ingest import router as ingest_router
         from gulp.api.rest.ws import router as ws_router
-
+        from gulp.api.rest.user import router as user_router
         self._app.include_router(ingest_router)
         self._app.include_router(ws_router)
-
+        self._app.include_router(user_router)
         """
         import gulp.api.rest.collab_utility
         import gulp.api.rest.db

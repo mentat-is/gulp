@@ -4,8 +4,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import re
 from typing import Annotated
-
-import muty.crypto
+from gulp.api.rest import defs as api_defs
 import muty.file
 import muty.jsend
 import muty.list
@@ -13,20 +12,15 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import APIRouter, Body, Header, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-from muty.jsend import JSendException, JSendResponse
-from pydantic import AfterValidator
+from muty.jsend import JSendResponse
 
-import gulp.api.collab_api as collab_api
 import gulp.plugin
-from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.user import GulpUser
-from gulp.api.collab.user_session import GulpUserSession
 from gulp.config import GulpConfig
-from gulp.structs import InvalidArgument
 
 router = APIRouter()
+
 
 def _pwd_regex_validator(value: str) -> str:
     """
@@ -43,6 +37,61 @@ def _pwd_regex_validator(value: str) -> str:
     return value
 
 
+router.put(
+    "/login",
+    response_model=JSendResponse,
+    tags=["user"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {
+                            "id": 1,
+                            "user_id": 1,
+                            "token": "6c40c48a-f504-48ac-93fc-63948ec0c9cf",
+                            "time_expire": 1707470710830,
+                            "data": None,
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="login on the platform.",
+    description="""
+an `user_session` object is created on the `collab` database to represent a logging user.
+
+the `user_session` object is associated with a `user` object, and has a `token` that is used to authenticate the user in the platform.
+
+the `token` is used in all other API calls to authenticate the user.
+
+related configuration parameters:
+
+- `debug_allow_insucure_passwords`: if set to `true`, the password regex is not enforced.
+- `debug_allow_any_token_as_admin`: if set to `true`, token check is skipped and an `admin` token is generated.
+- `token_ttl`: the time-to-live of the token in milliseconds.
+- `token_admin_ttl`: the time-to-live of the token in milliseconds for admin users.
+
+refer to `gulp_cfg_template.json` for more information.
+""",
+)
+async def login_handler(
+     username: Annotated[str, Query(description="username for authentication.", example="admin")],
+     password: Annotated[str, Query(description="password for authentication.", example="admin")],
+     req_id: Annotated[str, Query(description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID)] = None,
+) -> JSONResponse:
+        pass
+"""
+        # ensure a req_id exists
+        MutyLogger.get_instance().debug("---> ingest_file_handler")
+        req_id = GulpRestServer.ensure_req_id(req_id)
+"""    
+   
 # @_app.put(
 #     "/user_update",
 #     tags=["user"],

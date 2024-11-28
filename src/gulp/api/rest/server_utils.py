@@ -1,20 +1,25 @@
+import inspect
 import json
 import os
 import re
 import ssl
 from email.message import EmailMessage
-from typing import Optional, Tuple
+from typing import Annotated, Optional, Tuple
 
 import aiofiles
 import aiosmtplib
 import muty.crypto
 import muty.file
-from fastapi import Request
+import muty.string
+from fastapi import Body, Header, Query, Request
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from requests_toolbelt.multipart import decoder
-
+from fastapi import Depends
+from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
 from gulp.config import GulpConfig
+from gulp.api.rest import defs as api_defs
+from gulp.structs import GulpPluginParameters
 
 
 class GulpUploadResponse(BaseModel):
@@ -29,6 +34,216 @@ class GulpUploadResponse(BaseModel):
 
 
 class ServerUtils:
+    @staticmethod
+    def dump_params(params: dict) -> str:
+        """
+        Dumps the parameters dictionary as a string.
+
+        Args:
+            params (dict): The parameters dictionary.
+
+        Returns:
+            str: The string representation of the parameters.
+        """
+        caller_frame = inspect.currentframe().f_back
+        caller_name = caller_frame.f_code.co_name
+        MutyLogger.get_instance().debug(
+            "---> %s() params: %s" % (caller_name, json.dumps(params, indent=2))
+        )
+
+    def param_token(
+        token: Annotated[
+            str,
+            Header(description=api_defs.API_DESC_TOKEN, example=api_defs.EXAMPLE_TOKEN),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            token (str): The token.
+
+        Returns:
+            str: The token.
+        """
+        return token
+
+    def param_index(
+        index: Annotated[
+            int,
+            Query(description=api_defs.API_DESC_INDEX, example=api_defs.EXAMPLE_INDEX),
+        ]
+    ) -> int:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            index (int): The index.
+
+        Returns:
+            int: The index.
+        """
+        return index
+
+    @staticmethod
+    def param_operation_id(
+        operation_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_OPERATION_ID,
+                example=api_defs.EXAMPLE_OPERATION_ID,
+            ),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            operation_id (str): The operation ID.
+
+        Returns:
+            str: The operation ID.
+        """
+        return operation_id
+
+    @staticmethod
+    def param_context_id(
+        context_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_CONTEXT_ID,
+                example=api_defs.EXAMPLE_CONTEXT_ID,
+            ),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            context_id (str): The context ID.
+
+        Returns:
+            str: The context ID.
+        """
+        return context_id
+
+    @staticmethod
+    def param_plugin(
+        plugin: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_PLUGIN, example=api_defs.EXAMPLE_PLUGIN
+            ),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            plugin (str): The plugin.
+
+        Returns:
+            str: The plugin.
+        """
+        return plugin
+
+    @staticmethod
+    def param_ws_id(
+        ws_id: Annotated[
+            str,
+            Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            ws_id (str): The WS ID.
+
+        Returns:
+            str: The WS ID.
+        """
+        return ws_id
+
+    def param_gulp_ingestion_flt(
+        flt: Annotated[
+            GulpIngestionFilter,
+            Body(
+                description=api_defs.API_DESC_INGESTION_FILTER,
+            ),
+        ]
+    ) -> GulpIngestionFilter:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            flt (GulpIngestionFilter): The ingestion filter.
+
+        Returns:
+            GulpIngestionFilter: The ingestion filter.
+        """
+        return flt
+
+    def param_gulp_plugin_params(
+        plugin_params: Annotated[
+            GulpPluginParameters,
+            Body(
+                description=api_defs.API_DESC_PLUGIN_PARAMETERS,
+            ),
+        ]
+    ) -> GulpPluginParameters:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            plugin_params (GulpPluginParameters): The plugin parameters.
+
+        Returns:
+            GulpPluginParameters: The plugin parameters.
+        """
+        return plugin_params
+
+    def param_gulp_query_flt(
+        flt: Annotated[
+            GulpQueryFilter,
+            Body(
+                description=api_defs.API_DESC_QUERY_FILTER,
+            ),
+        ]
+    ) -> GulpQueryFilter:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            flt (GulpQueryFilter): The query filter.
+
+        Returns:
+            GulpQueryFilter: The query filter.
+        """
+        return flt
+
+    @staticmethod
+    def ensure_req_id(
+        req_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_REQ_ID, example=api_defs.EXAMPLE_REQ_ID
+            ),
+        ] = None
+    ) -> str:
+        """
+        Ensures a request ID is not None, either returns a new one.
+
+        Args:
+            req_id (str, optional): The request ID. Defaults to None.
+
+        Returns:
+            str: The request ID.
+        """
+        if req_id is None:
+            return muty.string.generate_unique()
+        return req_id
+
     @staticmethod
     async def send_mail(
         smtp_server: str,

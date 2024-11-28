@@ -33,11 +33,11 @@ API_DESC_PLUGIN_PARAMETERS = """plugin parameters.
 
 for additional parameters, refer to the plugin documentation.
 """
-API_DESC_INGESTION_FILTER = "ingestion filter."
-API_DESC_SIGMA_PLUGIN_PARAMS = "additional parameters for the sigma plugin."
-API_DESC_OPERATION_ID = (
-    "the id of an operation registered via operation_create() on the collab database"
+API_DESC_INGESTION_FILTER = "a filter to be used for ingestion."
+API_DESC_QUERY_FILTER = (
+    "a filter to be used for querying OpenSearch with common parameters."
 )
+API_DESC_SIGMA_PLUGIN_PARAMS = "additional parameters for the sigma plugin."
 API_DESC_GLYPH = "the id of a glyph registered via glyph_create() on the collab DB."
 API_DESC_HEADER_SIZE = "the size of the header in bytes."
 API_DESC_HEADER_CONTINUE_OFFSET = "the offset in the file to continue the upload from."
@@ -49,21 +49,6 @@ EXAMPLE_SOURCE_ID = "test_source"
 EXAMPLE_WS_ID = "test_ws"
 EXAMPLE_TOKEN = "test_token"
 EXAMPLE_REQ_ID = "test_req"
-EXAMPLE_INGESTION_FILTER = {
-    "filter": {"term": {"field1": "value1"}},
-    "limit": 10,
-    "skip": 0,
-    "sort": [{"field1": "asc"}],
-}
-EXAMPLE_INDEX_TEMPLATE = {
-    "example": {
-        "value": {
-            "index_patterns": ["testidx-*"],
-            "settings": {"number_of_shards": 1},
-            "mappings": {"properties": {"field1": {"type": "text"}}},
-        }
-    }
-}
 EXAMPLE_PLUGIN = "win_evtx"
 
 """

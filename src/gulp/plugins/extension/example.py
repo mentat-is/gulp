@@ -22,6 +22,7 @@ from gulp.api.rest.defs import (
     API_DESC_TOKEN,
     API_DESC_WS_ID,
 )
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -175,7 +176,7 @@ class Plugin(GulpPluginBase):
         ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
         req_id: Annotated[str, Query(description=API_DESC_REQ_ID)] = None,
     ) -> JSendResponse:
-        req_id = GulpRestServer.ensure_req_id()
+        req_id = ServerUtils.ensure_req_id(req_id)
 
         try:
             session = await GulpUserSession.check_token(token)
