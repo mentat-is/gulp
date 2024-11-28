@@ -1,10 +1,12 @@
 
 # Install From Sources
+
 [TOC]
 
 ## Using the setup script
 
 Installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
+
 ```bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
 chmod +x gulp_setup.sh
@@ -36,7 +38,6 @@ under `Desktop Integration->Item` are set to **white**, otherwise some text migh
 
 For larger resolutions, it is also suggested to set the screen resolution to higher DPIs (under `Graphics->Screen resolution`) to help with readibility the screen.
 
-
 ## Manual installation
 
 ### 1. Install OS dependencies
@@ -61,7 +62,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 ### 4. Create and enter virtualenv
 
 ~~~bash
-cd ./gulp
+cd ./repos/gulp
 python3 -m venv ./.venv
 source ./.venv/bin/activate
 ~~~
