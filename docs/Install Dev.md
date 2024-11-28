@@ -62,7 +62,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 ### 4. Create and enter virtualenv
 
 ~~~bash
-cd ./repos/gulp
+cd ./gulp
 python3 -m venv ./.venv
 source ./.venv/bin/activate
 ~~~
