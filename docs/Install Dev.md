@@ -61,7 +61,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 ### 4. Create and enter virtualenv
 
 ~~~bash
-cd ./repos/gulp
+cd ./gulp
 python3 -m venv ./.venv
 source ./.venv/bin/activate
 ~~~
@@ -74,8 +74,7 @@ rm -rf ~/.config/gulp
 mkdir -p ~/.config/gulp
 
 # copy template configuration, edit it in case
-cd ./repos/gulp
-copy ./template_cfg.json ~/.config/gulp_cfg.json
+cp ./gulp_cfg_template.json ~/.config/gulp_cfg.json
 
 # ensure data directories for postgresql and opensearch exists and are owned by the current user (NON ROOT)
 mkdir ./opensearch_data
@@ -88,15 +87,12 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-cd ./repos/gulp
-pip3 install -U -e . && pip3 install -U -e ../muty-python
+pip3 install -e . && pip3 install -e ../muty-python
 ~~~
 
 ### 7. Run
 
 ~~~bash
-cd ./repos/gulp
-
 # start postgresql and opensearch
 docker compose up -d
 
