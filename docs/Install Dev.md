@@ -74,7 +74,7 @@ source ./.venv/bin/activate
 rm -rf ~/.config/gulp
 mkdir -p ~/.config/gulp
 
-# copy template configuration, edit it in case
+# copy template configuration, edit it in case (pay attention to the debug options!)
 cp ./gulp_cfg_template.json ~/.config/gulp_cfg.json
 
 # ensure data directories for postgresql and opensearch exists and are owned by the current user (NON ROOT)
@@ -108,7 +108,6 @@ gulp --bind-to 0.0.0.0 8080 --reset-collab --reset-elastic testidx
 
 ~~~bash
 # check it ingests 98630 events (i.e. using elasticvue)
-cd ./repos/gulp
 TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~
 
