@@ -25,6 +25,7 @@ from muty.pydantic import (
     autogenerate_model_example,
     autogenerate_model_example_by_class,
 )
+from gulp.api.opensearch.structs import GulpRawDocument
 import gulp.api.rest.defs as api_defs
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
@@ -167,20 +168,6 @@ EXAMPLE_DONE_UPLOAD = {
     }
 }
 
-INGEST_FILE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "flt": {
-            "$ref": "#/components/schemas/GulpIngestionFilter",
-            "description": "Optional ingestion filter to restrict ingested data",
-        },
-        "plugin_params": {
-            "$ref": "#/components/schemas/GulpPluginParameters",
-            "description": "Optional plugin-specific parameters",
-        },
-    },
-}
-
 
 class GulpAPIIngest:
     """
@@ -282,7 +269,7 @@ class GulpAPIIngest:
         description="""
 **NOTE**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume.
 
-The following is an example CURL for the request, containing GulpIngestionFilter and GulpPluginParameters.
+The following is an example CURL for the request, with `GulpIngestionFilter` and `GulpPluginParameters`.
 
 Headers:
 * `size`: The total size of the file being uploaded
@@ -297,18 +284,18 @@ curl -v -X PUT "http://localhost:8080/ingest_file?index=testidx&token=&plugin=wi
     -F "f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx;type=application/octet-stream"
 ```
 
-the payload is a a `GulpIngestPayload`, which may contain the following fields:
+the payload is a `GulpIngestPayload`, which may contain the following fields:
 
 * `flt` (GulpIngestionFilter): the ingestion filter, to restrict ingestion to a subset of the data specifying a `time_range`
 * `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
 * `original_file_path` (str): the original file path, to indicate the original full path of the file being ingested on the machine where it was acquired from
 
-response's `data` is a `ChunkedUploadResponse`, which contains the following fields:
+response's `data` is a `GulpUploadResponse`, which contains the following fields:
 
 * `done` (bool): indicates whether the upload is complete
 * `continue_offset` (int): the offset of the next chunk to be uploaded, if `done` is `False`
 
-once the file is fully uploaded, this function returns a `pending` response and `STATS_UPDATE`, `DOCUMENTS_CHUNK` are streamed to the `ws_id` websocket until done.
+once the file is fully uploaded, this function returns a `pending` response and `GulpWsQueueDataType.STATS_UPDATE`, `GulpWsQueueDataType.DOCUMENTS_CHUNK` are streamed to the `ws_id` websocket until done.
 
 if the upload is interrupted, this API allows the upload resume `by sending a request with the same req_id`:
 
@@ -592,30 +579,12 @@ if the upload is interrupted, this API allows the upload resume `by sending a re
             200: EXAMPLE_DONE_UPLOAD,
         },
         description="""
-ingests a chunk of data using the `raw` plugin (**must be available**).
+ingests a chunk of `raw` data using.
 
-the `chunks`array is a list of raw JSON documents to be ingested, each with the following format:
+the `chunks` array is a list of `GulpRawDocument` containing the raw JSON documents to be ingested.
 
-```json
-{   // mandatory
-    "__metadata__": {
-        // mandatory, with a format supported by gulp
-        "timestamp": "2021-01-01T00:00:00Z"
-        // mandatory, the raw event as string
-        "event_original": "raw event content",
-        // optional, will be set to 0 if missing
-        "event_code": "something"
-    },
-    // any other key/value pairs here, will be ingested according to plugin_params.ignore_mapping:
-    "something": "value",
-    "something_else": "value",
-    "another_thing": 123,
-}
-```
-
-if `plugin_params.ignore_mapping` is set to `True`, the mapping (if specified) will be ignored and fields in the resulting GulpDocuments will be ingested as is.
-either, they will be prefixed with `gulp.unmapped`.
-            """,
+by default, the `raw` plugin is used (**must be available**), but a different plugin can be specified using the `plugin` parameter.
+""",
         summary="ingest a chunk of raw events.",
     )
     async def ingest_raw_handler(
@@ -659,7 +628,7 @@ either, they will be prefixed with `gulp.unmapped`.
             Query(description=api_defs.API_DESC_WS_ID, example=api_defs.EXAMPLE_WS_ID),
         ],
         chunk: Annotated[
-            list[dict],
+            list[GulpRawDocument],
             Body(description="chunk of raw JSON events to be ingested."),
         ],
         flt: Annotated[
@@ -838,13 +807,17 @@ either, they will be prefixed with `gulp.unmapped`.
             },
         },
         description="""
-**WARNING**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume: refer to `ingest_file` for the request and response specifications.
+**WARNING**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume.
 
-- the uploaded zip file **must include** a `metadata.json` describing the file/s Gulp is going to ingest and the specific plugin/s to be used: look at `GulpZipMetadataEntry` for the format.
+- the uploaded zip file **must include** a `metadata.json` with an array of `GulpZipMetadataEntry` to describe the zip content.
 
-- the json payload is a `GulpZipIngestPayload`, which allows to specify a GulpIngestionFilter to be applied to all files in the zip.
+```json
+[ GulpZipMetadataEntry, ... ]
+```
 
-for further information (headers, internals) refer to `ingest_file`.
+- the json payload is a `GulpZipIngestPayload`, which allows to specify a `GulpIngestionFilter` to be applied to all files in the zip.
+
+for further information, refer to `ingest_file` for the request and response internals.
 """,
         summary="ingest a zip containing multiple sources, possibly using multiple plugins.",
     )

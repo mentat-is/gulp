@@ -2,6 +2,8 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
+from ast import literal_eval
+import json
 import os
 import ssl
 
@@ -148,14 +150,18 @@ class GulpRestServer:
         """
         status_code = 500
         req_id = None
+        name = None
         if isinstance(ex, JSendException):
             req_id = ex.req_id
             if ex.status_code is not None:
                 status_code = ex.status_code
             if ex.ex is not None:
                 ex = ex.ex
-
-        if isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
+        elif isinstance(ex, RequestValidationError):
+            status_code = 400
+            ex = literal_eval(str(ex))
+            name = "RequestValidationError"
+        elif isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
             status_code = 404
         elif isinstance(ex, ValueError):
             status_code = 400
@@ -184,6 +190,7 @@ class GulpRestServer:
                     "body": body,
                 }
             },
+            name=name,
         )
         return JSONResponse(js, status_code=status_code)
 

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch.structs import GulpDocument, GulpRawDocument, GulpRawDocumentMetadata
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
 
@@ -62,14 +62,15 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: any, record_idx: int
+        self, record: GulpRawDocument, record_idx: int
     ) -> GulpDocument:
+        rec = GulpRawDocumentMetadata
         # get mandatory fields from metadata (metadata and the doc dictionary itself)
-        metadata: dict = record["metadata"]
-        doc: dict = record["doc"]
-        ts: str = metadata["@timestamp"]
-        original: str = metadata["event.original"]
-        event_code: str = metadata.get("event.code", "0")
+        metadata: GulpRawDocumentMetadata = record.metadata
+        doc: dict = record.doc
+        ts: str = metadata.timestamp
+        original: str = metadata.event_original
+        event_code: str = metadata.event_code
 
         mapping = self.selected_mapping()
         if mapping.model_extra.get("ignore_mapping", False):

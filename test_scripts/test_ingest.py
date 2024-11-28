@@ -36,12 +36,11 @@ from muty.log import MutyLogger
 # raw with mapping
 # 3 ingested, record 1.field2 mapping changed
 ./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
-"""
-
 
 # zip (with metadata.json), win_evtx and csv with mappings
 # 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
 # ./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
+"""
 def _parse_args():
     parser = argparse.ArgumentParser(
         description="Spawn n curl processes in parallel for file ingestion."
