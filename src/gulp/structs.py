@@ -31,7 +31,7 @@ class GulpPluginParameters(BaseModel):
 
     mapping_file: Optional[str] = Field(
         None,
-        examples=["mftecmd_csv.json"],
+        example="mftecmd_csv.json",
         description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
 
@@ -43,7 +43,7 @@ class GulpPluginParameters(BaseModel):
     mapping_id: Optional[str] = Field(
         None,
         description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
-        examples=["record"],
+        example="record",
     )
 
     @override
@@ -59,18 +59,18 @@ class GulpPluginAdditionalParameter(BaseModel):
     `name` may also be a key in the `GulpPluginParameters` object, to list additional parameters specific for the plugin.
     """
 
-    name: str = Field(..., description="option name.", examples=["ignore_mapping"])
+    name: str = Field(..., description="option name.", example="ignore_mapping")
     type: Literal["bool", "str", "int", "float", "dict", "list"] = Field(
-        ..., description="option type.", examples=["bool"]
+        ..., description="option type.", example="bool"
     )
     default_value: Optional[Any] = Field(
-        None, description="default value.", examples=[False]
+        None, description="default value.", example=False
     )
     desc: Optional[str] = Field(
-        None, description="option description.", examples=["test description."]
+        None, description="option description.", example="test description."
     )
     required: Optional[bool] = Field(
-        False, description="is the option required ?", examples=[True]
+        False, description="is the option required ?", example=True
     )
 
     @override
@@ -89,17 +89,17 @@ class GulpPluginSigmaSupport(BaseModel):
     backend: list[str] = Field(
         ...,
         description="one or more pysigma backend supported by the plugin.",
-        examples=["opensearch"],
+        example="opensearch",
     )
     pipelines: list[str] = Field(
         ...,
         description="one or more pysigma pipelines supported by the plugin.",
-        examples=["default"],
+        example="default",
     )
     output: list[str] = Field(
         ...,
         description="one or more output formats supported by the plugin. ",
-        examples=["dsl_lucene"],
+        example="dsl_lucene",
     )
 
     @override

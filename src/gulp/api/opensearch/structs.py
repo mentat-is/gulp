@@ -27,43 +27,43 @@ class GulpBasicDocument(BaseModel):
 
     id: Optional[str] = Field(
         None, description='"_id": the unique identifier of the document.', alias="_id",
-        examples=["1234567890abcdef1234567890abcdef"]
+        example="1234567890abcdef1234567890abcdef"
     )
     timestamp: Optional[str] = Field(
         None,
         description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
-        examples=["2021-01-01T00:00:00Z"],
+        example="2021-01-01T00:00:00Z",
     )
     gulp_timestamp: Optional[int] = Field(
         None,
         description='"@timestamp": document timestamp in nanoseconds from unix epoch',
         alias="gulp.timestamp",
-        examples=[1609459200000000000],
+        example=1609459200000000000,
     )
     invalid_timestamp: bool = Field(
         False,
         description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
         alias="gulp.timestamp_invalid",
-        examples=[False],
+        example=False,
     )
     operation_id: Optional[str] = Field(
         None,
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
-        examples=[api_defs.API_DESC_OPERATION_ID],
+        example=api_defs.API_DESC_OPERATION_ID,
     )
     context_id: Optional[str] = Field(
         None,
         description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
-        examples=[api_defs.API_DESC_CONTEXT_ID],
+        example=api_defs.API_DESC_CONTEXT_ID,
     )
     source_id: Optional[str] = Field(
         None,
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
-        examples=[api_defs.API_DESC_SOURCE_ID],
+        example=api_defs.API_DESC_SOURCE_ID,
     )
 
 
@@ -75,43 +75,43 @@ class GulpDocument(GulpBasicDocument):
         None,
         description='"log.file.path": the original log file name or path.',
         alias="log.file.path",
-        examples=["C:\\Windows\\System32\\winevt\\Logs\\Security.evtx"],
+        example="C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
     )
     agent_type: str = Field(
         None,
         description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
         alias="agent.type",
-        examples=[api_defs.API_DESC_PLUGIN],
+        example=api_defs.API_DESC_PLUGIN,
     )
     event_original: str = Field(
         None,
         description='"event.original": the original event as text.',
         alias="event.original",
-        examples=["raw event content"],
+        example="raw event content",
     )
     event_sequence: int = Field(
         0,
         description='"event.sequence": the sequence number of the document in the source.',
         alias="event.sequence",
-        examples=[1],
+        example=1,
     )
     event_code: Optional[str] = Field(
         "0",
         description='"event.code": the event code, "0" if missing.',
         alias="event.code",
-        examples=["1234"],
+        example="1234",
     )
     gulp_event_code: Optional[int] = Field(
         0,
         description='"gulp.event_code": "event.code" as integer.',
         alias="gulp.event_code",
-        examples=[1234],
+        example=1234,
     )
     event_duration: Optional[int] = Field(
         1,
         description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
         alias="event.duration",
-        examples=[1],
+        example=1,
     )
 
     @override
@@ -334,19 +334,19 @@ class GulpRawDocumentMetadata(BaseModel):
     timestamp: str = Field(
         ...,
         description="the document timestamp, in iso8601 format.",
-        examples=["2021-01-01T00:00:00Z"],
+        example="2021-01-01T00:00:00Z",
         alias="@timestamp"
     )
     event_original: str = Field(
         ...,
         description="the original event as text.",
-        examples=["raw event content"],
+        example="raw event content",
         alias="event.original"
     )
     event_code: Optional[str] = Field(
         "0",
         description="the event code, defaults to '0'.",
-        examples=["1234"],
+        example="1234",
         alias="event.code"
     )   
     
