@@ -35,7 +35,7 @@ dependencies = [
     "pySigma-backend-elasticsearch==1.1.3",
     "pySigma-backend-opensearch==1.0.3",
     "pySigma==0.11.14",
-    "python-multipart==0.0.9",
+    "python-multipart==0.0.18",
     "python-pip==1.1.1",
     "PyYAML==6.0.2",
     "requests_toolbelt==1.0.0",
