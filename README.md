@@ -86,7 +86,7 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 
 - [docker](<./docs/Install Docker.md>)
 - [install from sources](<./docs/Install Dev.md>)
-- [installing extra plugins](<./docs/Install Dev.md/#8_Installing_paid_plugins>)
+- [installing extra plugins](<./docs/Install Dev.md/#8-installing-paid-plugins>)
 
 ### Environment variables
 
