@@ -18,7 +18,7 @@ dependencies = [
     "charset-normalizer==3.3.2",
     "dotwiz==0.4.0",
     "elasticsearch[async]==8.15.1",
-    "evtx==0.8.6",
+    "evtx==0.8.8",
     "fastapi==0.115.5",
     "idna==3.10",
     "Jinja2==3.1.4",
