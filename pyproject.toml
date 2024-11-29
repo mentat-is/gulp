@@ -44,7 +44,7 @@ dependencies = [
     "sigma-cli==1.0.4",
     "sqlalchemy-dlock==0.6.1.post1",
     "sqlalchemy-utils==0.41.2",
-    "sqlalchemy[asyncio]==2.0.34",
+    "sqlalchemy[asyncio]==2.0.36",
     "starlette==0.41.2",
     "urllib3==2.2.3",
     "uvicorn==0.30.6",
