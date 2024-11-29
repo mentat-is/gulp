@@ -111,7 +111,7 @@ gulp --bind-to 0.0.0.0 8080 --reset-collab --reset-elastic testidx
 TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~
 
-### 8. Installing paid plugins
+### 8. Installing extra plugins
 
 plugins are just files, so it is enough to copy them in the correct directory under *GULP_INSTALL_DIR/plugins/DIR*, where *DIR* may be the one of the following:
 
