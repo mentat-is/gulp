@@ -351,13 +351,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             # MutyLogger.get_instance().debug("allowing access to object owner")
             return True
 
-        # check if the user is in the granted users or groups
+        # check if the user is in the granted groups
         if obj.granted_user_group_ids:
-            if obj.granted_user_group_ids:
-                for group in self.groups:
-                    if group.id in obj.granted_user_group_ids:
-                        # MutyLogger.get_instance().debug("allowing access to granted group")
-                        return True
+            for group in self.groups:
+                if group.id in obj.granted_user_group_ids:
+                    # MutyLogger.get_instance().debug("allowing access to granted group")
+                    return True
 
         # check if the user is in the granted users
         if obj.granted_user_ids and self.id in obj.granted_user_ids:

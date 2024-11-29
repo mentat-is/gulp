@@ -13,9 +13,10 @@ import muty.file
 import muty.string
 from fastapi import Body, Header, Query, Request
 from muty.log import MutyLogger
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 from requests_toolbelt.multipart import decoder
 from fastapi import Depends
+from gulp.api.collab.structs import GulpUserPermission
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
 from gulp.config import GulpConfig
 from gulp.api.rest import defs as api_defs
@@ -44,13 +45,147 @@ class ServerUtils:
 
         Returns:
             str: The string representation of the parameters.
-        """
+        """        
         caller_frame = inspect.currentframe().f_back
         caller_name = caller_frame.f_code.co_name
         MutyLogger.get_instance().debug(
             "---> %s() params: %s" % (caller_name, json.dumps(params, indent=2))
         )
 
+    @staticmethod
+    def _pwd_regex_validator(value: str) -> str:
+        """
+        Validates a password against the password regex.
+
+        Args:
+            value (str): The password to validate.
+
+        Returns:
+            str: The password if it is valid.
+        """
+        if GulpConfig.get_instance().debug_allow_insecure_passwords():
+            return value
+
+        if not re.match(api_defs.REGEX_CHECK_PASSWORD, value):
+            raise ValueError(
+                "Password must:\n"
+                "- Be 8-64 characters long\n"
+                "- Contain at least one uppercase letter\n"
+                "- Contain at least one lowercase letter\n"
+                "- Contain at least one number\n"
+                "- Contain at least one special character (!@#$%^&*()_+-)"
+            )
+        return value
+
+    @staticmethod
+    def _email_regex_validator(value: Optional[str]) -> Optional[str]:
+        """
+        Validates an email against the email regex.
+
+        Args:
+            value (Optional[str]): The email to validate.
+
+        Returns:
+            Optional[str]: The email if it is valid.
+        """
+        if value is None:
+            return None
+
+        if not bool(re.match(api_defs.REGEX_CHECK_EMAIL, value)):
+            raise ValueError(f"invalid email format: {value}")
+        return value
+
+    @staticmethod
+    def param_password(
+        password: Annotated[
+            str,
+            Query(description="the user password.", example="Password1!"),
+            AfterValidator(_pwd_regex_validator),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            password (str): The password.
+
+        Returns:
+            str: The password.
+        """
+        return password.strip()
+
+    @staticmethod
+    def param_optional_password(
+        password: Annotated[
+            Optional[str],
+            Query(description="the user password.", example="Password1!"),
+            AfterValidator(_pwd_regex_validator),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            password (str): The password.
+
+        Returns:
+            str: The password.
+        """
+        return password.strip() if password else None
+
+    def param_optional_permission(
+        permission: Annotated[
+            Optional[list[GulpUserPermission]],
+            Body(description="the user permission.", example='["read","edit"]'),
+        ] = None
+    ) -> list[GulpUserPermission]:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            permission (list[GulpUserPermission], optional): The permission. Defaults to None.
+
+        Returns:
+            list[GulpUserPermission]: The permission.
+        """
+        return permission
+
+    def param_permission(
+        permission: Annotated[
+            list[GulpUserPermission],
+            Body(description="the user permission.", example='["read","edit"]'),
+        ] = None
+    ) -> list[GulpUserPermission]:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            permission (list[GulpUserPermission], optional): The permission. Defaults to None.
+
+        Returns:
+            list[GulpUserPermission]: The permission, or READ if none
+        """
+        return permission or GulpUserPermission.READ
+
+    def param_email(
+        email: Annotated[
+            Optional[str],
+            Query(description="the user email.", example="user@mail.com"),
+            AfterValidator(_email_regex_validator),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            email (str): The email.
+
+        Returns:
+            str: The email.
+        """
+        return email.strip() if email else None
+
+    @staticmethod
     def param_token(
         token: Annotated[
             str,
@@ -66,8 +201,9 @@ class ServerUtils:
         Returns:
             str: The token.
         """
-        return token
+        return token.strip()
 
+    @staticmethod
     def param_glyph_id(
         glyph_id: Annotated[
             Optional[str],
@@ -88,6 +224,7 @@ class ServerUtils:
         """
         return glyph_id.strip() if glyph_id else None
 
+    @staticmethod
     def param_user_id(
         user_id: Annotated[
             str,
@@ -105,6 +242,7 @@ class ServerUtils:
         """
         return user_id.strip()
 
+    @staticmethod
     def param_optional_user_id(
         user_id: Annotated[
             Optional[str],
@@ -122,6 +260,7 @@ class ServerUtils:
         """
         return user_id.strip() if user_id else None
 
+    @staticmethod
     def param_index(
         index: Annotated[
             str,

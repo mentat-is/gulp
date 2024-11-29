@@ -15,6 +15,7 @@ from gulp.api.collab.structs import (
     T,
 )
 from gulp.config import GulpConfig
+from gulp.structs import ObjectNotFound
 
 if TYPE_CHECKING:
     from gulp.api.collab.user import GulpUser
@@ -122,10 +123,12 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             return await GulpUserSession._get_admin_session(sess)
 
         # get session
-        user_session: GulpUserSession = await GulpUserSession.get_by_id(
-            sess, id=token, throw_if_not_found=throw_on_no_permission
-        )
-
+        try:
+            user_session: GulpUserSession = await GulpUserSession.get_by_id(
+                sess, id=token, throw_if_not_found=throw_on_no_permission
+            )
+        except ObjectNotFound as ex:
+            raise ObjectNotFound('token "%s" not logged in' % (token))
         if not obj and not permission:
             # no permission or object provided, just return the session
             return user_session

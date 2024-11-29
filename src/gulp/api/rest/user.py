@@ -5,7 +5,11 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 import re
 from typing import Annotated, Optional
 from pydantic import AfterValidator
-from gulp.api.collab.structs import GulpUserPermission, MissingPermission
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpUserPermission,
+    MissingPermission,
+)
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -34,12 +38,33 @@ def _pwd_regex_validator(value: str) -> str:
 
     Args:
         value (str): The password to validate.
+
+    Returns:
+        str: The password if it is valid.
     """
     if GulpConfig.get_instance().debug_allow_insecure_passwords():
         return value
 
     r = re.match(api_defs.REGEX_CHECK_PASSWORD, value)
     assert r is not None, "password does not meet requirements."
+    return value
+
+
+def _email_regex_validator(value: Optional[str]) -> Optional[str]:
+    """
+    Validates an email against the email regex.
+
+    Args:
+        value (Optional[str]): The email to validate.
+
+    Returns:
+        Optional[str]: The email if it is valid.
+    """
+    if value is None:
+        return None
+
+    if not re.match(api_defs.REGEX_CHECK_EMAIL, value):
+        raise ValueError(f"invalid email format: {value}")
     return value
 
 
@@ -204,35 +229,34 @@ async def logout_handler(
     },
     summary="creates an user on the platform.",
     description="""
-    ## this API needs ADMIN permission
+    this API needs a token with `ADMIN` permission.
     """,
 )
 async def user_create_handler(
     token: Annotated[str, Depends(ServerUtils.param_token)],
     user_id: Annotated[
         str,
-        Depends(ServerUtils.param_user_id),
+        Query(
+            description="user id.",
+            pattern=api_defs.REGEX_CHECK_USERNAME,
+            example="user",
+        ),
     ],
     password: Annotated[
         str,
-        Query(
-            description="password for the new user",
-            annotation=Annotated[str, AfterValidator(_pwd_regex_validator)],
-        ),
+        Depends(ServerUtils.param_password),
     ],
     permission: Annotated[
         list[GulpUserPermission],
-        Body(
-            description="permission/s for the user, can be any combination of GulpUserPermission flags.",
-            example=[GulpUserPermission.READ, GulpUserPermission.EDIT],
-        ),
-    ] = [GulpUserPermission.READ],
+        Depends(ServerUtils.param_permission),
+    ],
     email: Annotated[
-        str, Query(description="email for the user.", example="user@mail.com")
+        str,
+        Depends(ServerUtils.param_email),
     ] = None,
     glyph_id: Annotated[str, Depends(ServerUtils.param_glyph_id)] = None,
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
-) -> JSendResponse:
+) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -278,6 +302,9 @@ async def user_create_handler(
         }
     },
     summary="deletes an existing user.",
+    description="""
+    this API needs a token with `ADMIN` permission.
+    """,
 )
 async def user_delete_handler(
     token: Annotated[str, Depends(ServerUtils.param_token)],
@@ -286,7 +313,7 @@ async def user_delete_handler(
         Depends(ServerUtils.param_user_id),
     ],
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
-) -> JSendResponse:
+) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         if user_id == "admin":
@@ -310,7 +337,7 @@ async def user_delete_handler(
         raise JSendException(ex=ex, req_id=req_id)
 
 
-@router.put(
+@router.patch(
     "/user_update",
     tags=["user"],
     response_model=JSendResponse,
@@ -343,7 +370,7 @@ async def user_delete_handler(
     },
     summary="updates an existing user on the platform.",
     description="""
-    ## this API needs ADMIN permission if `user_id` is set and different from the token `user_id`, or if `permission` is set.
+    this API needs ADMIN permission if `user_id` is set and different from the token `user_id`, or if `permission` is set.
         
     each of the other parameters are optional, but at least one of `password`, `permission`, `email` or `glyph_id` must be specified.
     """,
@@ -356,19 +383,19 @@ async def user_update_handler(
     user_id: Annotated[str, Depends(ServerUtils.param_optional_user_id)] = None,
     password: Annotated[
         str,
-        Query(
-            description="new user password.",
-            annotation=Annotated[str, AfterValidator(_pwd_regex_validator)],
-        ),
+        Depends(ServerUtils.param_optional_password),
     ] = None,
     permission: Annotated[
-        list[GulpUserPermission],
-        Body(description="new user permission."),
+        Optional[list[GulpUserPermission]],
+        Depends(ServerUtils.param_optional_permission),
     ] = None,
-    email: Annotated[str, Query(description="new user email.")] = None,
+    email: Annotated[
+        str,
+        Depends(ServerUtils.param_email),
+    ] = None,
     glyph_id: Annotated[str, Query(description="new user glyph id.")] = None,
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
-) -> JSendResponse:
+) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         if (
@@ -402,6 +429,7 @@ async def user_update_handler(
                     raise MissingPermission("only admin can update other users.")
                 await u.update(sess, d, user_session=s)
             else:
+                # use token user
                 u = s.user
                 await u.update(sess, d, user_session=s)
 
@@ -412,152 +440,153 @@ async def user_update_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.put(
-#     "/user_update",
-#     tags=["user"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701278479259,
-#                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-#                         "data": {
-#                             "id": 3,
-#                             "name": "ingest",
-#                             "pwd_hash": "6eb7f2ea8ffbb37f44d41bdc3382d193c3de752f89d5bafe7b85afc93a65c32b",
-#                             "glyph_id": 1,
-#                             "email": None,
-#                             "time_last_login": 1707735259672,
-#                             "permission": 8,
-#                         },
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="updates an existing user on the platform.",
-# )
+@router.get(
+    "/user_list",
+    tags=["user"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [
+                            {
+                                "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+                                "permission": ["admin", "read"],
+                                "glyph_id": "720fb3e5-06c2-4117-acf0-45d1fc07a983",
+                                "time_last_login": 1732914332045,
+                                "id": "admin",
+                                "type": "user",
+                                "owner_user_id": "admin",
+                                "granted_user_ids": [],
+                                "granted_user_group_ids": [],
+                                "time_created": 1732914331944,
+                                "time_updated": 1732914332084,
+                                "groups": [
+                                    {
+                                        "name": "test_group",
+                                        "glyph_id": None,
+                                        "permission": ["admin"],
+                                        "id": "d2eff6b2-394d-45b0-8f96-38536190de35",
+                                        "type": "user_group",
+                                        "owner_user_id": "admin",
+                                        "granted_user_ids": [],
+                                        "granted_user_group_ids": [],
+                                        "time_created": 1732914332098,
+                                        "time_updated": 1732914332098,
+                                    }
+                                ],
+                                "session": {
+                                    "user_id": "admin",
+                                    "time_expire": 0,
+                                    "id": "e9ed18b4-a3e2-453f-b346-e353f7993dd9",
+                                    "type": "user_session",
+                                    "owner_user_id": "admin",
+                                    "granted_user_ids": [],
+                                    "granted_user_group_ids": [],
+                                    "time_created": 1732914355640,
+                                    "time_updated": 1732914355640,
+                                },
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="list users.",
+)
+async def user_list_handler(
+    token: Annotated[str, Depends(ServerUtils.param_token)],
+    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+) -> JSONResponse:
+    # only admin can get users list
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+            users: list[GulpUser] = await GulpUser.get_by_filter(sess)
+            l = []
+            for u in users:
+                l.append(u.to_dict(nested=True, exclude_none=True))
+
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.post(
-#     "/user_list",
-#     tags=["user"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701278479259,
-#                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-#                         "data": [
-#                             {
-#                                 "id": 1,
-#                                 "name": "admin",
-#                                 "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-#                                 "glyph_id": 1,
-#                                 "email": None,
-#                                 "time_last_login": 1707735259570,
-#                                 "permission": 16,
-#                             },
-#                             {
-#                                 "id": 3,
-#                                 "name": "ingest",
-#                                 "pwd_hash": "6eb7f2ea8ffbb37f44d41bdc3382d193c3de752f89d5bafe7b85afc93a65c32b",
-#                                 "glyph_id": 1,
-#                                 "email": None,
-#                                 "time_last_login": 1707735259672,
-#                                 "permission": 8,
-#                             },
-#                         ],
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="lists available users, optionally using a filter.",
-#     description="available filters: id, name, limit, offset.",
-# )
-# async def user_list_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-#     flt: Annotated[GulpCollabFilter, Body()] = None,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp.utils.ensure_req_id(req_id)
-#     try:
-#         # only admin can list users
-#         await GulpUserSession.check_token(
-#             await collab_api.session(), token, GulpUserPermission.ADMIN
-#         )
-#         users = await GulpUser.get(await collab_api.session(), flt)
-#         l = []
-#         for u in users:
-#             l.append(u.to_dict())
+@router.get(
+    "/user_get_by_id",
+    tags=["user"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {
+                            "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+                            "permission": ["admin", "read"],
+                            "glyph_id": "9efd86fb-a5f7-41f7-80b7-f1d3358b417f",
+                            "time_last_login": 1732915710487,
+                            "id": "admin",
+                            "type": "user",
+                            "owner_user_id": "admin",
+                            "granted_user_ids": [],
+                            "granted_user_group_ids": [],
+                            "time_created": 1732915710390,
+                            "time_updated": 1732915710530,
+                            "groups": [
+                                {
+                                    "name": "test_group",
+                                    "glyph_id": None,
+                                    "permission": ["admin"],
+                                    "id": "27554397-4950-48e4-9bc1-7c7a87a5e5d5",
+                                    "type": "user_group",
+                                    "owner_user_id": "admin",
+                                    "granted_user_ids": [],
+                                    "granted_user_group_ids": [],
+                                    "time_created": 1732915710547,
+                                    "time_updated": 1732915710547,
+                                }
+                            ],
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get a single user.",
+)
+async def user_get_by_id(
+    token: Annotated[str, Depends(ServerUtils.param_token)],
+    user_id: Annotated[str, Depends(ServerUtils.param_user_id)],
+    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+) -> JSONResponse:
+    # check if token has permission over user_id
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token first
+            s = await GulpUserSession.check_token(sess, token)
 
-#         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            # get user
+            u = await GulpUser.get_by_id(sess, user_id)
 
+            # check if user has permission to access the object
+            if not s.user.is_admin() and s.user.id != u.id:
+                raise MissingPermission("only admin can get other users.")
 
-# @_app.get(
-#     "/user_get_by_id",
-#     tags=["user"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701278479259,
-#                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-#                         "data": {
-#                             "id": 1,
-#                             "name": "admin",
-#                             "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-#                             "glyph_id": 1,
-#                             "email": None,
-#                             "time_last_login": 1707735259570,
-#                             "permission": 16,
-#                         },
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="get an existing user.",
-# )
-# async def user_get_by_id_handler(
-#     token: Annotated[
-#         str,
-#         Header(
-#             description=gulp.structs.API_DESC_TOKEN
-#             + " (must be ADMIN if user_id != token.user_id)."
-#         ),
-#     ],
-#     user_id: Annotated[
-#         int, Query(description="if None, user_id is taken from token.user_id.")
-#     ] = None,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-
-#     req_id = gulp.utils.ensure_req_id(req_id)
-#     try:
-#         # check if token has permission over user_id
-#         u = GulpUser.check_token_owner(await collab_api.session(), token, user_id)
-#         user_id = u.id
-#         users = await GulpUser.get(
-#             await collab_api.session(), GulpCollabFilter(id=[user_id])
-#         )
-#         return JSONResponse(
-#             muty.jsend.success_jsend(req_id=req_id, data=users[0].to_dict())
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id, data=u.to_dict(nested=True, exclude_none=True)
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex

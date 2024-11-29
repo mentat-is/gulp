@@ -470,6 +470,12 @@ class GulpConfig:
         Returns whether to disable password validation when creating users.
         """
         n = False
+        if os.environ.get("GULP_INTEGRATION_TEST", None) is not None:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_allow_insecure_passwords disabled!"
+            )
+            return False
+
         if __debug__:
             n = self._config.get("debug_allow_insecure_passwords", False)
 

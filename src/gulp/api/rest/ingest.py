@@ -395,7 +395,9 @@ async def ingest_file_handler(
         Depends(ServerUtils.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params.pop("r")
+    ServerUtils.dump_params(params)
 
     try:
         # handle multipart request manually
@@ -801,7 +803,9 @@ async def ingest_zip_handler(
         Depends(ServerUtils.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params.pop("r")
+    ServerUtils.dump_params(params)
     file_path: str = None
     try:
         async with GulpCollab.get_instance().session() as sess:

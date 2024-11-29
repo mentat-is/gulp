@@ -975,7 +975,7 @@ class GulpOpenSearch:
             return js
         except KeyError:
             raise ObjectNotFound(
-                f'document with ID "{id}" not found in datastream={datastream} index {index_name}'
+                f'document with ID "{id}" not found in datastream={datastream} index={index_name}'
             )
 
     async def search_dsl(

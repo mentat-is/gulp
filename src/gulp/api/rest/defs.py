@@ -41,10 +41,10 @@ EXAMPLE_OPERATION_ID = "test_operation"
 EXAMPLE_CONTEXT_ID = "test_context"
 EXAMPLE_SOURCE_ID = "test_source"
 EXAMPLE_WS_ID = "test_ws"
-EXAMPLE_TOKEN = "42d8ee64-a37c-40c8-a27f-f736a1e87552"
+EXAMPLE_TOKEN = "token"
 EXAMPLE_REQ_ID = "test_req"
 EXAMPLE_PLUGIN = "win_evtx"
-EXAMPLE_GLYPH_ID = "985e4d64-afce-441d-86bb-145cc0fca8b6"
+EXAMPLE_GLYPH_ID = "glyph_id"
 
 """
 5-16 characters length
@@ -52,13 +52,15 @@ Only letters, numbers, underscore, dot, dash allowed
 """
 REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.-]).{4,16}$"
 
-"""
-8-32 characters length
-At least one uppercase letter
-At least one lowercase letter
-At least one digit
-At least one special character
-"""
 REGEX_CHECK_PASSWORD = (
-    "^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,32}$"
+    r"^(?=.*[A-Z])"  # At least one uppercase
+    r"(?=.*[a-z])"  # At least one lowercase
+    r"(?=.*[0-9])"  # At least one digit
+    r"(?=.*[!@#$%^&*()_+\-])"  # At least one special char
+    r"[A-Za-z0-9!@#$%^&*()_+\-]{8,64}"  # Length and allowed chars
+    r"$"
 )
+"""
+Email address
+"""
+REGEX_CHECK_EMAIL = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"

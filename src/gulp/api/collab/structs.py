@@ -336,11 +336,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     )
     granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
-        doc="The ids of the users who have been granted access to the object.",
+        doc="The ids of the users who have been granted access to the object If not set, all objects have access.",
     )
     granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
-        doc="The ids of the user groups who have been granted access to the object.",
+        doc="The ids of the user groups who have been granted access to the object. If not set, all groups have access.",
     )
     time_created: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -749,6 +749,17 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 data=data,
             )
 
+    def is_owner(self, user_id: str) -> bool:
+        """
+        check if the user is the owner of the object
+
+        Args:
+            user_id (str): The ID of the user to check.
+        Returns:
+            bool: True if the user is the owner, False otherwise.
+        """
+        return self.owner_user_id == user_id
+
     async def update(
         self,
         sess: AsyncSession,
@@ -861,9 +872,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         res = await sess.execute(stmt)
         c = res.scalar_one_or_none()
         if not c and throw_if_not_found:
-            raise ObjectNotFound(
-                f'{cls.__name__} with id "{id}" not found', cls.__name__, id
-            )
+            raise ObjectNotFound(f'{cls.__name__} with id "{id}" not found')
         return c
 
     @classmethod
