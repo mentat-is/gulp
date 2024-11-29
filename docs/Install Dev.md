@@ -118,7 +118,7 @@ plugins are just files, so it is enough to copy them in the correct directory un
   - `ingestion` for ingestion plugins
   - `query` for query plugins
   - `sigma` for sigma plugins
-    - `extension` for extension plugins
+  - `extension` for extension plugins
 
 ## 4. Troubleshoot
 
