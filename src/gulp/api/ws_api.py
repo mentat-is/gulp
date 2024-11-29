@@ -1,6 +1,6 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
 from typing import Any, Optional
@@ -45,11 +45,32 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     )
 
 
+class GulpWsError(StrEnum):
+    """
+    Used for "error_code" in GulpWsErrorPacket
+    """
+
+    OBJECT_NOT_FOUND = "Not Found"
+    MISSING_PERMISSION = "Forbidden"
+
+
+class GulpWsErrorPacket(BaseModel):
+    """
+    Represents an error on the websocket
+    """
+
+    error: str = Field(..., description="error on the websocket.")
+    error_code: Optional[str] = Field(None, description="optional error code.")
+    data: Optional[dict] = Field(None, description="optional error data")
+
+
 class GulpWsQueueDataType(StrEnum):
     """
     The type of data into the websocket queue.
     """
 
+    # GulpWsErrorPacket
+    WS_ERROR = "ws_error"
     # GulpCollabCreateUpdatePacket
     STATS_UPDATE = "stats_update"
     # GulpCollabCreateUpdatePacket
@@ -133,7 +154,7 @@ class GulpWsData(BaseModel):
         ..., description="The type of data carried by the websocket."
     )
     ws_id: str = Field(..., description="The WebSocket ID.")
-    user_id: str = Field(..., description="The user who issued the request.")
+    user_id: Optional[str] = Field(None, description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
         None,

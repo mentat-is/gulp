@@ -140,26 +140,29 @@ class GulpCollabFilter(BaseModel):
         example=["note", "highlight"],
     )
     operation_id: Optional[list[str]] = Field(
-        None, description="filter by the given operation/s.",example=["op1", "op2"]        
+        None, description="filter by the given operation/s.", example=["op1", "op2"]
     )
     context_id: Optional[list[str]] = Field(
-        None, description="filter by the given context/s.",
-        example=["ctx1", "ctx2"]
+        None, description="filter by the given context/s.", example=["ctx1", "ctx2"]
     )
     source_id: Optional[list[str]] = Field(
-        None, description="filter by the given source path/s or name/s.",
-        example=["src1", "src2"]        
+        None,
+        description="filter by the given source path/s or name/s.",
+        example=["src1", "src2"],
     )
     owner_user_id: Optional[list[str]] = Field(
-        None, description="filter by the given owner user id/s.",
-        example=["admin"]
+        None, description="filter by the given owner user id/s.", example=["admin"]
     )
-    tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.",
-                                      example=["tag1", "tag2"])
-    name: Optional[list[str]] = Field(None, description="filter by the given name/s.", example=["name1", "name2"])
+    tags: Optional[list[str]] = Field(
+        None, description="filter by the given tag/s.", example=["tag1", "tag2"]
+    )
+    name: Optional[list[str]] = Field(
+        None, description="filter by the given name/s.", example=["name1", "name2"]
+    )
     text: Optional[list[str]] = Field(
-        None, description="filter by the given object text (wildcard accepted).",
-        example=["text1", "text2"]
+        None,
+        description="filter by the given object text (wildcard accepted).",
+        example=["text1", "text2"],
     )
     documents: Optional[list[str]] = Field(
         None,
@@ -601,7 +604,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 private=private,
                 data=p.model_dump(),
             )
-
+        MutyLogger.get_instance().debug(
+            "created instance: %s" % (instance.to_dict(nested=True))
+        )
         return instance
 
     async def grant_group(self, sess: AsyncSession, group_id: str) -> None:
@@ -716,8 +721,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        from gulp.api.collab.user_session import GulpUserSession
-
         # query with lock
         stmt = (
             select(self.__class__)
@@ -726,7 +729,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         )
         result = await sess.execute(stmt)
         instance = result.scalar_one()
-        sess.delete(instance)
+        await sess.delete(instance)
         await sess.commit()
 
         if ws_id:
@@ -774,8 +777,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             updated_instance (T, optional): An already updated instance of the object, if set d is ignored. Defaults to None.
             **kwargs: Additional keyword arguments to set as attributes on the instance.
         """
-        from gulp.api.collab.user_session import GulpUserSession
-
         if updated_instance:
             # use updated_instance if provided
             instance = updated_instance
@@ -784,6 +785,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             stmt = (
                 select(self.__class__)
                 .filter(self.__class__.id == self.id)
+                .options(selectinload("*"))
                 .with_for_update()
             )
             result = await sess.execute(stmt)
@@ -803,19 +805,20 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         # update time
         instance.time_updated = muty.time.now_msec()
 
+        updated_dict = instance.to_dict(nested=True)
+
         # commit
         await sess.commit()
         await sess.refresh(instance)
-        # await sess.refresh(self)
 
-        MutyLogger.get_instance().debug("---> updated: %s" % (instance))
+        MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
 
         if ws_id:
             # notify the websocket of the collab object update
             if ws_data:
                 data = ws_data
             else:
-                data = instance.to_dict(exclude_none=True, nested=True)
+                data = updated_dict
                 p = GulpCollabCreateUpdatePacket(data=data)
             GulpSharedWsQueue.get_instance().put(
                 type=ws_queue_datatype,
@@ -848,8 +851,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        from gulp.api.collab.user_session import GulpUserSession
-
         stmt = (
             select(cls)
             .options(*cls._build_relationship_loading_options())
@@ -861,7 +862,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         c = res.scalar_one_or_none()
         if not c and throw_if_not_found:
             raise ObjectNotFound(
-                f"{cls.__name__} with id {id} not found", cls.__name__, id
+                f'{cls.__name__} with id "{id}" not found', cls.__name__, id
             )
         return c
 

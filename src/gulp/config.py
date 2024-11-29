@@ -411,18 +411,6 @@ class GulpConfig:
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
 
-    def multiprocessing_batch_size(self) -> int:
-        """
-        Returns the number of files to ingest per batch.
-        """
-        n = self._config.get("multiprocessing_batch_size", 0)
-        if not n:
-            n = multiprocessing.cpu_count()
-            MutyLogger.get_instance().warning(
-                "using default multiprocessing_batch_size(=number of cores)=%d" % (n)
-            )
-        return n
-
     def concurrency_max_tasks(self) -> int:
         """
         maximum number of concurrent coroutines per process which can be spawned by the API server

@@ -172,15 +172,15 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             if GulpUserPermission.READ not in d["permission"]:
                 d["permission"].append(GulpUserPermission.READ)
 
+        # update
+        await super().update(sess, d, **kwargs)
+
         # invalidate session for the user
         MutyLogger.get_instance().warning(
-            "password changed, deleting session for user_id=%s" % (self.id)
+            "updated user, invalidating session for user_id=%s" % (self.id)
         )
         await sess.delete(user_session)
         await sess.flush()
-
-        # update
-        return await super().update(sess, d, **kwargs)
 
     def is_admin(self) -> bool:
         """
@@ -217,6 +217,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Args:
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
+
         Returns:
             GulpUserSession: The created session object.
         """
@@ -225,11 +228,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         u: GulpUser = await GulpUser.get_by_id(sess, user_id)
         if u.session:
             # check if user has a session already, if so invalidate
-            MutyLogger.get_instance().debug(
-                "resetting previous session for user_id=%s" % (user_id)
+            MutyLogger.get_instance().warning(
+                "user %s was already logged in, resetting..." % (user_id)
             )
             await sess.delete(u.session)
             await sess.flush()
+            await sess.refresh(u)
 
         # check password
         if u.pwd_hash != muty.crypto.hash_sha256(password):
@@ -271,36 +275,40 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         u.time_last_login = muty.time.now_msec()
         sess.add(u)
         await sess.commit()
+        await sess.refresh(new_session)
         MutyLogger.get_instance().info(
             "user %s logged in, token=%s" % (u.id, new_session.id)
         )
         return new_session
 
     @staticmethod
-    async def logout(sess: AsyncSession, token: str, ws_id: str, req_id: str) -> None:
+    async def logout(
+        sess: AsyncSession, s: "GulpUserSession", ws_id: str, req_id: str
+    ) -> None:
         """
         Logs out the specified user by deleting the session.
+
         Args:
             sess (AsyncSession): The session to use.
-            token (str): The token of the user to log out.
-            ws_id (str, optional): The websocket ID. Defaults to None.
-            req_id (str, optional): The request ID. Defaults to None.
+            s: the GulpUserSession to log out
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
         Returns:
             None
         """
-        from gulp.api.collab.user_session import GulpUserSession
-
-        s: GulpUserSession = await GulpUserSession.get_by_id(sess, token)
-        MutyLogger.get_instance().info(
-            "token=%s, user=%s logged out" % (token, s.user_id)
-        )
-        p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
-        await s.delete(
-            ws_id=ws_id,
-            req_id=req_id,
-            ws_queue_datatype=GulpWsQueueDataType.USER_LOGOUT,
-            ws_data=p.model_dump(),
-        )
+        async with sess:
+            MutyLogger.get_instance().info(
+                "logging out token=%s, user=%s" % (s.id, s.user_id)
+            )
+            p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
+            await s.delete(
+                sess=sess,
+                user_id=s.user_id,
+                ws_id=ws_id,
+                req_id=req_id,
+                ws_queue_datatype=GulpWsQueueDataType.USER_LOGOUT,
+                ws_data=p.model_dump(),
+            )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """

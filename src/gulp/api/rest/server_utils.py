@@ -68,9 +68,63 @@ class ServerUtils:
         """
         return token
 
+    def param_glyph_id(
+        glyph_id: Annotated[
+            Optional[str],
+            Query(
+                description=api_defs.API_DESC_GLYPH_ID,
+                example=api_defs.EXAMPLE_GLYPH_ID,
+            ),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            glyph_id (str, optional): The glyph ID. Defaults to None
+
+        Returns:
+            str: The glyph ID.
+        """
+        return glyph_id.strip() if glyph_id else None
+
+    def param_user_id(
+        user_id: Annotated[
+            str,
+            Query(description="the user id.", example="admin"),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            user_id (str, optional): The user ID. Defaults to None
+
+        Returns:
+            str: The user ID.
+        """
+        return user_id.strip()
+
+    def param_optional_user_id(
+        user_id: Annotated[
+            Optional[str],
+            Query(description="the user id.", example="admin"),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            user_id (str, optional): The user ID. Defaults to None
+
+        Returns:
+            str: The user ID.
+        """
+        return user_id.strip() if user_id else None
+
     def param_index(
         index: Annotated[
-            int,
+            str,
             Query(description=api_defs.API_DESC_INDEX, example=api_defs.EXAMPLE_INDEX),
         ]
     ) -> int:
@@ -83,7 +137,7 @@ class ServerUtils:
         Returns:
             int: The index.
         """
-        return index
+        return index.strip()
 
     @staticmethod
     def param_operation_id(
@@ -104,7 +158,7 @@ class ServerUtils:
         Returns:
             str: The operation ID.
         """
-        return operation_id
+        return operation_id.strip()
 
     @staticmethod
     def param_context_id(
@@ -125,7 +179,7 @@ class ServerUtils:
         Returns:
             str: The context ID.
         """
-        return context_id
+        return context_id.strip()
 
     @staticmethod
     def param_plugin(
@@ -145,7 +199,7 @@ class ServerUtils:
         Returns:
             str: The plugin.
         """
-        return plugin
+        return plugin.strip()
 
     @staticmethod
     def param_ws_id(
@@ -163,64 +217,64 @@ class ServerUtils:
         Returns:
             str: The WS ID.
         """
-        return ws_id
+        return ws_id.strip()
 
     def param_gulp_ingestion_flt(
         flt: Annotated[
-            GulpIngestionFilter,
+            Optional[GulpIngestionFilter],
             Body(
                 description=api_defs.API_DESC_INGESTION_FILTER,
             ),
-        ]
+        ] = None
     ) -> GulpIngestionFilter:
         """
         used with fastapi Depends to provide API parameter
 
         Args:
-            flt (GulpIngestionFilter): The ingestion filter.
+            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None (empty filter).
 
         Returns:
             GulpIngestionFilter: The ingestion filter.
         """
-        return flt
+        return flt or GulpIngestionFilter()
 
     def param_gulp_plugin_params(
         plugin_params: Annotated[
-            GulpPluginParameters,
+            Optional[GulpPluginParameters],
             Body(
                 description=api_defs.API_DESC_PLUGIN_PARAMETERS,
             ),
-        ]
+        ] = None
     ) -> GulpPluginParameters:
         """
         used with fastapi Depends to provide API parameter
 
         Args:
-            plugin_params (GulpPluginParameters): The plugin parameters.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None(empty parameters).
 
         Returns:
             GulpPluginParameters: The plugin parameters.
         """
-        return plugin_params
+        return plugin_params or GulpPluginParameters()
 
     def param_gulp_query_flt(
         flt: Annotated[
-            GulpQueryFilter,
+            Optional[GulpQueryFilter],
             Body(
                 description=api_defs.API_DESC_QUERY_FILTER,
             ),
-        ]
+        ] = None
     ) -> GulpQueryFilter:
         """
         used with fastapi Depends to provide API parameter
 
         Args:
-            flt (GulpQueryFilter): The query filter.
+            flt (GulpQueryFilter, optional): The query filter. Defaults to None (empty filter).
 
         Returns:
             GulpQueryFilter: The query filter.
         """
-        return flt
+        return flt or GulpQueryFilter()
 
     @staticmethod
     def ensure_req_id(

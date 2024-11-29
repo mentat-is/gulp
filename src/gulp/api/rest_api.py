@@ -144,8 +144,13 @@ class GulpRestServer:
                 ex = ex.ex
         elif isinstance(ex, RequestValidationError):
             status_code = 400
-            ex = literal_eval(str(ex))
-            name = "RequestValidationError"
+            try:
+                # convert to dict
+                ex = literal_eval(str(ex))
+                name = "RequestValidationError"
+            except:
+                # fallback to string
+                ex = str(ex)
         elif isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
             status_code = 404
         elif isinstance(ex, ValueError):

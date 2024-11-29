@@ -51,19 +51,19 @@ class GulpBasicDocument(BaseModel):
         None,
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
-        example=api_defs.API_DESC_OPERATION_ID,
+        example=api_defs.EXAMPLE_OPERATION_ID
     )
     context_id: Optional[str] = Field(
         None,
         description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
-        example=api_defs.API_DESC_CONTEXT_ID,
+        example=api_defs.EXAMPLE_CONTEXT_ID,
     )
     source_id: Optional[str] = Field(
         None,
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
-        example=api_defs.API_DESC_SOURCE_ID,
+        example=api_defs.EXAMPLE_SOURCE_ID,
     )
 
 

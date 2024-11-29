@@ -975,7 +975,7 @@ class GulpOpenSearch:
             return js
         except KeyError:
             raise ObjectNotFound(
-                f"document with ID {id} not found in datastream={datastream} index {index_name}"
+                f'document with ID "{id}" not found in datastream={datastream} index {index_name}'
             )
 
     async def search_dsl(
@@ -1017,7 +1017,9 @@ class GulpOpenSearch:
         note_tags = options.model_extra.get("note_tags", None)
         note_glyph = options.model_extra.get("note_glyph", None)
         if sigma_create_notes and (not note_name or not sess):
-            raise ValueError("note_name and sess are both required for a sigma query when sigma_create_notes is set!")
+            raise ValueError(
+                "note_name and sess are both required for a sigma query when sigma_create_notes is set!"
+            )
 
         use_elasticsearch_api = False
         if el:
@@ -1101,6 +1103,8 @@ class GulpOpenSearch:
                 last=last,
                 search_after=search_after,
             )
+
+            # TODO: consider to send only a subset of the fields on the websocket
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=ws_id,

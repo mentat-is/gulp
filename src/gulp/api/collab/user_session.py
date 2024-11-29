@@ -123,7 +123,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
 
         # get session
         user_session: GulpUserSession = await GulpUserSession.get_by_id(
-            sess, id=token, permission=permission
+            sess, id=token, throw_if_not_found=throw_on_no_permission
         )
 
         if not obj and not permission:

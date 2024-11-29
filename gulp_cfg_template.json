@@ -26,11 +26,9 @@
   // bulk ingestion buffer size (higher=more memory usage, better ingestion performance, tune up/down if you have request timeouts during ingestion)
   "ingestion_buffer_size": 1000,
   // failed events in a file to consider the file ABORTED (0=disabled)
-  "ingestion_evt_failure_threshold": 0,
+  "ingestion_evt_failure_threshold": 5000,
   // how many seconds to wait for a connection during ingestion (default=60, tune up if you have request timeouts during ingestion)
   "ingestion_request_timeout": 180,
-  // for multiple queries/ingestions at once, limit the batch size used (default=0=number of cpu cores)
-  "multiprocessing_batch_size": 0,
   // client certificate password (not supported, ignored)
   "opensearch_client_cert_password": null,
   // this is the default, set to true only if your opensearch cluster has multiple nodes
@@ -61,16 +59,12 @@
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
-  // maximum number of notes to be created for a single SIGMA query (default=null=all)
-  "query_sigma_max_notes": 0,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
   "stats_ttl": 86400,
   // admin/impersonation token expiration seconds, default=10 min (600 seconds)
   "token_admin_ttl": 600,
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
-  // when notes on match are created for queries, how many notes to create at once (default=1000)
-  "ws_notes_on_match_batch_size": 1000,
   // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected clients: increment if you get clients disconnections, and also check client code if this happens too often.
   "ws_rate_limit_delay": 0.01
 }
