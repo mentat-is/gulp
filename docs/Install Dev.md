@@ -1,10 +1,12 @@
 
 # Install From Sources
+
 [TOC]
 
 ## Using the setup script
 
 Installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
+
 ```bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
 chmod +x gulp_setup.sh
@@ -36,7 +38,6 @@ under `Desktop Integration->Item` are set to **white**, otherwise some text migh
 
 For larger resolutions, it is also suggested to set the screen resolution to higher DPIs (under `Graphics->Screen resolution`) to help with readibility the screen.
 
-
 ## Manual installation
 
 ### 1. Install OS dependencies
@@ -44,8 +45,8 @@ For larger resolutions, it is also suggested to set the screen resolution to hig
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
-# ensure python is at least 3.12
-sudo pacman -S rust python docker docker-compose docker-buildx jq libpqxx git-lfs
+# tested with python 3.12, *may* work with 3.13....
+sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs
 ~~~
 
 ### 2. Clone repositories
@@ -61,8 +62,8 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 ### 4. Create and enter virtualenv
 
 ~~~bash
-cd ./repos/gulp
-python3 -m venv ./.venv
+cd ./gulp
+virtualenv --python=/usr/bin/python3.12 ./.venv
 source ./.venv/bin/activate
 ~~~
 
@@ -73,9 +74,8 @@ source ./.venv/bin/activate
 rm -rf ~/.config/gulp
 mkdir -p ~/.config/gulp
 
-# copy template configuration, edit it in case
-cd ./repos/gulp
-copy ./template_cfg.json ~/.config/gulp_cfg.json
+# copy template configuration, edit it in case (pay attention to the debug options!)
+cp ./gulp_cfg_template.json ~/.config/gulp_cfg.json
 ~~~
 
 ### 6. Install gulp
@@ -84,15 +84,12 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-cd ./repos/gulp
-pip3 install -U -e . && pip3 install -U -e ../muty-python
+pip3 install -e . && pip3 install -e ../muty-python
 ~~~
 
 ### 7. Run
 
 ~~~bash
-cd ./repos/gulp
-
 # start postgresql and opensearch
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose up -d
@@ -108,7 +105,6 @@ BIND_TO=0.0.0.0:8080 gulp --reset-collab --reset-elastic testidx
 
 ~~~bash
 # check it ingests 98630 events (i.e. using elasticvue)
-cd ./repos/gulp
 TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~

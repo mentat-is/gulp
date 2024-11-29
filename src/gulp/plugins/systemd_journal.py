@@ -23,7 +23,7 @@ muty.os.check_os(exclude=["windows", "darwin"])
 try:
     from systemd import journal
 except Exception:
-    muty.os.install_package("systemd-python")
+    muty.os.install_package("systemd-python==235")
     from systemd import journal
 
 
@@ -216,6 +216,9 @@ class Plugin(GulpPluginBase):
             fs = self._source_failed(fs, source, ex)
 
         # done
+        return await self._finish_ingestion(
+            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+        )
         return await self._finish_ingestion(
             index, source, req_id, client_id, ws_id, fs=fs, flt=flt
         )
