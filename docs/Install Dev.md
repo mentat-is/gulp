@@ -46,7 +46,7 @@ This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
 # tested with python 3.12, *may* work with 3.13....
-sudo pacman -S rust python=3.12.7-1 docker docker-compose docker-buildx jq libpqxx git-lfs
+sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs
 ~~~
 
 ### 2. Clone repositories
@@ -63,7 +63,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 
 ~~~bash
 cd ./gulp
-python3 -m venv python=/usr/bin/python3.12 ./.venv
+virtualenv --python=/usr/bin/python3.12 ./.venv
 source ./.venv/bin/activate
 ~~~
 
