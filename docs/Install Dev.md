@@ -59,7 +59,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 # note: git-lfs is used to track samples and .zip files in test_scripts
 ~~~
 
-### 4. Create and enter virtualenv
+### 3. Create and enter virtualenv
 
 ~~~bash
 cd ./gulp
@@ -67,7 +67,7 @@ virtualenv --python=/usr/bin/python3.12 ./.venv
 source ./.venv/bin/activate
 ~~~
 
-### 5. Prepare directories and configuration
+### 4. Prepare directories and configuration
 
 ~~~bash
 # create configuration directory (ensure its empty)
@@ -82,7 +82,7 @@ mkdir ./opensearch_data
 mkdir ./postgres_data
 ~~~
 
-### 6. Install gulp
+### 5. Install gulp
 
 install all packages as editable
 
@@ -91,7 +91,7 @@ install all packages as editable
 pip3 install -e . && pip3 install -e ../muty-python
 ~~~
 
-### 7. Run
+### 6. Run
 
 ~~~bash
 # start postgresql and opensearch
@@ -104,12 +104,21 @@ gulp --bind-to 0.0.0.0 8080 --reset-collab --reset-elastic testidx
 # gulp --bind-to 0.0.0.0 8080
 ~~~
 
-### 8. (Optional) Test
+### 7. (Optional) Test
 
 ~~~bash
 # check it ingests 98630 events (i.e. using elasticvue)
 TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
 ~~~
+
+### 8. Installing paid plugins
+
+plugins are just files, so it is enough to copy them in the correct directory under *GULP_INSTALL_DIR/plugins/DIR*, where *DIR* may be the one of the following:
+
+    - `ingestion` for ingestion plugins
+    - `query` for query plugins
+    - `sigma` for sigma plugins
+    - `extension` for extension plugins
 
 ## 4. Troubleshoot
 
