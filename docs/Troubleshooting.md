@@ -79,6 +79,9 @@ you either move the directory temporarly, [set it to user owned](#general), reco
 
 ### opensearch / elasticsearch
 
+- couple of errors about cannot connecting to opensearch **are normal if gulp is run immediately right after `docker compose up -d`**: no worries, it just notifies it is retrying to connect until it is up, it will retry for up to 2 minutes.
+  - **just wait a bit to allow full opensearch startup, the very first time it starts it may take up to ~1 minute...**
+
 - if you get errors like `failed to obtain node-lock` while booting OpenSearch, ensure that the data directory i.e. `./opensearch_data` is NOT owned by root and is writable (so, chown it again to your user in case).
 
 - error `elastic_transport.ConnectionTimeout: Connection timed out` usually means your opensearch istance is not keeping up with ingestion:

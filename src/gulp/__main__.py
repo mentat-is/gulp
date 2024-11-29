@@ -92,7 +92,9 @@ def main():
 
     # force INFO loglevel here, or fastapi would spit out unrelevant stuff at startup.
     # loglevel will be adjusted later to the desired level when GulpRestServer starts.
-    MutyLogger.get_instance("gulp", logger_file_path=logger_file_path, level=logging.DEBUG)
+    MutyLogger.get_instance(
+        "gulp", logger_file_path=logger_file_path, level=logging.DEBUG
+    )
 
     if __RUN_TESTS__:
         # test stuff
