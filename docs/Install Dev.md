@@ -115,9 +115,9 @@ TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win
 
 plugins are just files, so it is enough to copy them in the correct directory under *GULP_INSTALL_DIR/plugins/DIR*, where *DIR* may be the one of the following:
 
-    - `ingestion` for ingestion plugins
-    - `query` for query plugins
-    - `sigma` for sigma plugins
+  - `ingestion` for ingestion plugins
+  - `query` for query plugins
+  - `sigma` for sigma plugins
     - `extension` for extension plugins
 
 ## 4. Troubleshoot
