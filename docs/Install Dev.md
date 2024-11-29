@@ -45,8 +45,8 @@ For larger resolutions, it is also suggested to set the screen resolution to hig
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
-# ensure python is at least 3.12
-sudo pacman -S rust python docker docker-compose docker-buildx jq libpqxx git-lfs
+# tested with python 3.12, *may* work with 3.13....
+sudo pacman -S rust python=3.12.7-1 docker docker-compose docker-buildx jq libpqxx git-lfs
 ~~~
 
 ### 2. Clone repositories
@@ -63,7 +63,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 
 ~~~bash
 cd ./gulp
-python3 -m venv ./.venv
+python3 -m venv python=/usr/bin/python3.12 ./.venv
 source ./.venv/bin/activate
 ~~~
 
