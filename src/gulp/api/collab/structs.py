@@ -816,7 +816,6 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         # update time
         instance.time_updated = muty.time.now_msec()
-
         updated_dict = instance.to_dict(nested=True)
 
         # commit
@@ -953,7 +952,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         id: str = None,
         owner_id: str = None,
         ws_id: str = None,
-        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_CREATE,
+        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_UPDATE,
         ws_data: dict = None,
         req_id: str = None,
         **kwargs,

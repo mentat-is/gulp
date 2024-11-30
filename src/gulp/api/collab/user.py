@@ -179,6 +179,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         MutyLogger.get_instance().warning(
             "updated user, invalidating session for user_id=%s" % (self.id)
         )
+        
         await sess.delete(user_session)
         await sess.flush()
 

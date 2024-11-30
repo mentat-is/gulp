@@ -118,7 +118,7 @@ async def login_handler(
         str, Query(description="password for authentication.", example="admin")
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)]=None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -171,7 +171,7 @@ a `GulpUserLoginLogoutPacket` with `login: false` is sent on the `ws_id` websock
 async def logout_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -251,7 +251,7 @@ async def user_create_handler(
         Depends(APIDependencies.param_email_optional),
     ] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -308,7 +308,7 @@ async def user_delete_handler(
         str,
         Depends(APIDependencies.param_user_id),
     ],
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -392,7 +392,7 @@ async def user_update_handler(
         Depends(APIDependencies.param_email_optional),
     ] = None,
     glyph_id: Annotated[str, Query(description="new user glyph id.")] = None,
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -422,9 +422,11 @@ async def user_update_handler(
 
             if user_id:
                 # get user
-                u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+                u: GulpUser = await GulpUser.get_by_id(
+                    sess, user_id, with_for_update=True
+                )
                 if s.user_id != u.id and not s.user.is_admin():
-                    raise MissingPermission("only admin can update other users.")
+                    raise MissingPermission("only admin can update other users.")                
                 await u.update(sess, d, user_session=s)
             else:
                 # use token user
@@ -503,7 +505,7 @@ async def user_update_handler(
 )
 async def user_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     # only admin can get users list
     try:
@@ -569,7 +571,7 @@ async def user_list_handler(
 async def user_get_by_id(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
-    req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     # check if token has permission over user_id
     try:

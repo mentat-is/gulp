@@ -117,6 +117,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         """
         # MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
         if isinstance(permission, GulpUserPermission):
+            # allow single permission as string
             permission = [permission]
 
         if GulpConfig.get_instance().debug_allow_any_token_as_admin():
@@ -134,7 +135,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             return user_session
 
         if user_session.user.is_admin():
-            # admin user has all permissions
+            # admin user has all permissions, always allowed
             return user_session
 
         granted = False

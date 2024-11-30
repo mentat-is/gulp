@@ -33,12 +33,11 @@ class GulpUploadResponse(BaseModel):
         0, description="The offset of the next chunk to be uploaded, to resume."
     )
 
-
 class APIDependencies:
     """
     A class containing static methods to be used as dependencies in FastAPI API endpoints.
     """
-    
+
     @staticmethod
     def _strip_or_none(value: Optional[str]) -> Optional[str]:
         """
@@ -104,7 +103,7 @@ class APIDependencies:
         private: Annotated[
             Optional[bool],
             Body(description=api_defs.API_DESC_PRIVATE, example=False),
-        ] = False
+        ] = None
     ) -> bool:
         """
         used with fastapi Depends to provide API parameter
@@ -115,7 +114,9 @@ class APIDependencies:
         Returns:
             bool: The private flag.
         """
-        return private or False
+        if private is not None:
+            return private
+        return None
 
     @staticmethod
     def param_description_optional(
@@ -289,6 +290,24 @@ class APIDependencies:
             str: The email.
         """
         return APIDependencies._strip_or_none(email)
+
+    @staticmethod
+    def param_object_id(
+        object_id: Annotated[
+            str,
+            Query(description=api_defs.API_DESC_OBJECT_ID, example="the_id"),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            object_id (str, Query): The object ID.
+
+        Returns:
+            str: The object ID.
+        """
+        return APIDependencies._strip_or_none(object_id)
 
     @staticmethod
     def param_token(

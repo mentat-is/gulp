@@ -394,7 +394,7 @@ async def ingest_file_handler(
     ] = 1,
     req_id: Annotated[
         str,
-        Depends(ServerUtils.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -611,7 +611,7 @@ async def ingest_raw_handler(
     ] = None,
     req_id: Annotated[
         str,
-        Depends(ServerUtils.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
     # TODO: consider removing stats from raw ingestion...
@@ -808,7 +808,7 @@ async def ingest_zip_handler(
     ],
     req_id: Annotated[
         str,
-        Depends(ServerUtils.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
     params = locals()

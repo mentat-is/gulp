@@ -49,12 +49,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         req_id: str = None,
         **kwargs,
     ) -> None:
-        # ensure note have "docs" or "time_pin" set, not both
-        if self.docs and "time_pin" in d:
-            self.docs = None
-        if self.time_pin and "docs" in d:
-            self.time_pin = None
-
         # save old text
         old_text = self.text
         await super().update(
@@ -126,13 +120,12 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             req_id (str): the request id
             docs (list[dict]): the list of documents to create notes for
             name (str): the name of the notes
-            tags (list[str], optional): the tags to add to the notes. Defaults to None.
-            color (str, optional): the color of the notes. Defaults to None.
-            glyph_id (str, optional): the glyph id of the notes. Defaults to None.
+            tags (list[str], optional): the tags to add to the notes. Defaults to None (set to ["auto"]).
+            color (str, optional): the color of the notes. Defaults to None (use default).
+            glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
 
         Returns:
             the number of notes created
-
         """
         default_tags = ["auto"]
         if tags:
@@ -140,8 +133,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             tags = list(default_tags.union(tag.lower() for tag in tags))
         else:
             tags = list(default_tags)
-
-        color = color or "yellow"
 
         # create a note for each document
         notes = []
@@ -186,12 +177,12 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             )
 
             # operation is always the same
-            operation = notes[0].get("operation")
+            operation_id = notes[0].get("operation_id")
             GulpSharedWsQueue.get_instance().put(
                 GulpWsQueueDataType.COLLAB_UPDATE,
                 ws_id=ws_id,
                 user_id=user_id,
-                operation_id=operation,
+                operation_id=operation_id,
                 req_id=req_id,
                 data=notes,
             )
