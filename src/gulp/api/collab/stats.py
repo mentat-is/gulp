@@ -42,10 +42,14 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         doc="The status of the stats (done, ongoing, ...).",
     )
     time_expire: Mapped[Optional[int]] = mapped_column(
-        BIGINT, default=0, doc="The timestamp when the stats will expire."
+        BIGINT,
+        default=0,
+        doc="The timestamp when the stats will expire, in milliseconds from the unix epoch.",
     )
     time_finished: Mapped[Optional[int]] = mapped_column(
-        BIGINT, default=0, doc="The timestamp when the stats were completed."
+        BIGINT,
+        default=0,
+        doc="The timestamp when the stats were completed, in milliseconds from the unix epoch.",
     )
     errors: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
@@ -156,7 +160,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             object_data=object_data,
             id=req_id,
             ws_id=ws_id,
-            user_id=user_id,
+            owner_id=user_id,
             ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
             req_id=req_id,
         )

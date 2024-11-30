@@ -34,23 +34,27 @@ class GulpUploadResponse(BaseModel):
     )
 
 
-class ServerUtils:
+class APIDependencies:
+    """
+    A class containing static methods to be used as dependencies in FastAPI API endpoints.
+    """
+    
     @staticmethod
-    def dump_params(params: dict) -> str:
+    def _strip_or_none(value: Optional[str]) -> Optional[str]:
         """
-        Dumps the parameters dictionary as a string.
+        Strips a string, or returns None if the string is empty.
 
         Args:
-            params (dict): The parameters dictionary.
+            value (Optional[str]): The string to strip.
 
         Returns:
-            str: The string representation of the parameters.
-        """        
-        caller_frame = inspect.currentframe().f_back
-        caller_name = caller_frame.f_code.co_name
-        MutyLogger.get_instance().debug(
-            "---> %s() params: %s" % (caller_name, json.dumps(params, indent=2))
-        )
+            Optional[str]: The stripped string, or None.
+        """
+        if value:
+            v = value.strip()
+        else:
+            v = None
+        return v if v else None
 
     @staticmethod
     def _pwd_regex_validator(value: str) -> str:
@@ -96,6 +100,107 @@ class ServerUtils:
         return value
 
     @staticmethod
+    def param_private_optional(
+        private: Annotated[
+            Optional[bool],
+            Body(description=api_defs.API_DESC_PRIVATE, example=False),
+        ] = False
+    ) -> bool:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            private (bool, optional, Body): Whether the object is private. Defaults to None.
+
+        Returns:
+            bool: The private flag.
+        """
+        return private or False
+
+    @staticmethod
+    def param_description_optional(
+        description: Annotated[
+            Optional[str],
+            Body(
+                description="the object description.", example="this is a description"
+            ),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            description (str, optional, Body): The description. Defaults to None.
+
+        Returns:
+            str: The description.
+        """
+        return APIDependencies._strip_or_none(description)
+
+    @staticmethod
+    def param_display_name_optional(
+        name: Annotated[
+            Optional[str],
+            Query(description="the object display name.", example="object name"),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            name (str, optional, Query): The display name. Defaults to None.
+
+        Returns:
+            str: The name.
+        """
+        return APIDependencies._strip_or_none(name)
+
+    @staticmethod
+    def param_tags_optional(
+        tags: Annotated[
+            Optional[list[str]],
+            Body(
+                description="tags to be assigned to the object.",
+                example='["tag1","tag2"]',
+            ),
+        ] = None
+    ) -> list[str]:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            tags (list[str], optional, Body): The tags. Defaults to None.
+
+        Returns:
+            list[str]: The tags.
+        """
+        if tags:
+            # strip each tag, remove empty tags
+            tags = [tag.strip() for tag in tags if tag and tag.strip()]
+
+        return tags or []
+
+    @staticmethod
+    def param_color_optional(
+        color: Annotated[
+            Optional[str],
+            Query(
+                description="the color in #rrggbb or css-name format.", example="yellow"
+            ),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            color (str, optional, Query): The color. Defaults to None.
+
+        Returns:
+            str: The color.
+        """
+        return APIDependencies._strip_or_none(color)
+
+    @staticmethod
     def param_password(
         password: Annotated[
             str,
@@ -107,15 +212,15 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            password (str): The password.
+            password (str, Query): The password.
 
         Returns:
             str: The password.
         """
-        return password.strip()
+        return APIDependencies._strip_or_none(password)
 
     @staticmethod
-    def param_optional_password(
+    def param_password_optional(
         password: Annotated[
             Optional[str],
             Query(description="the user password.", example="Password1!"),
@@ -126,14 +231,14 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            password (str): The password.
+            password (str, optional, Query): The password. Defaults to None.
 
         Returns:
             str: The password.
         """
-        return password.strip() if password else None
+        return APIDependencies._strip_or_none(password)
 
-    def param_optional_permission(
+    def param_permission_optional(
         permission: Annotated[
             Optional[list[GulpUserPermission]],
             Body(description="the user permission.", example='["read","edit"]'),
@@ -143,7 +248,7 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            permission (list[GulpUserPermission], optional): The permission. Defaults to None.
+            permission (list[GulpUserPermission], optional, Body): The permission. Defaults to None.
 
         Returns:
             list[GulpUserPermission]: The permission.
@@ -160,14 +265,14 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            permission (list[GulpUserPermission], optional): The permission. Defaults to None.
+            permission (list[GulpUserPermission], optional, Body): The permission. Defaults to None.
 
         Returns:
-            list[GulpUserPermission]: The permission, or READ if none
+            list[GulpUserPermission]: The permission.
         """
-        return permission or GulpUserPermission.READ
+        return permission
 
-    def param_email(
+    def param_email_optional(
         email: Annotated[
             Optional[str],
             Query(description="the user email.", example="user@mail.com"),
@@ -178,12 +283,12 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            email (str): The email.
+            email (str, optional, Query): The email. Defaults to None.
 
         Returns:
             str: The email.
         """
-        return email.strip() if email else None
+        return APIDependencies._strip_or_none(email)
 
     @staticmethod
     def param_token(
@@ -196,15 +301,15 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            token (str): The token.
+            token (str, Header): The token.
 
         Returns:
             str: The token.
         """
-        return token.strip()
+        return APIDependencies._strip_or_none(token)
 
     @staticmethod
-    def param_glyph_id(
+    def param_glyph_id_optional(
         glyph_id: Annotated[
             Optional[str],
             Query(
@@ -217,12 +322,12 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            glyph_id (str, optional): The glyph ID. Defaults to None
+            glyph_id (str, optional, Query): The glyph ID. Defaults to None
 
         Returns:
             str: The glyph ID.
         """
-        return glyph_id.strip() if glyph_id else None
+        return APIDependencies._strip_or_none(glyph_id)
 
     @staticmethod
     def param_user_id(
@@ -235,15 +340,15 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            user_id (str, optional): The user ID. Defaults to None
+            user_id (str, Query): The user ID.
 
         Returns:
             str: The user ID.
         """
-        return user_id.strip()
+        return APIDependencies._strip_or_none(user_id)
 
     @staticmethod
-    def param_optional_user_id(
+    def param_user_id_optional(
         user_id: Annotated[
             Optional[str],
             Query(description="the user id.", example="admin"),
@@ -253,14 +358,55 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            user_id (str, optional): The user ID. Defaults to None
+            user_id (str, optional, Query): The user ID. Defaults to None
 
         Returns:
             str: The user ID.
         """
-        return user_id.strip() if user_id else None
+        return APIDependencies._strip_or_none(user_id)
 
     @staticmethod
+    def param_source_id(
+        source_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_SOURCE_ID,
+                example=api_defs.EXAMPLE_SOURCE_ID,
+            ),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            source_id (str, Query): The source ID.
+
+        Returns:
+            str: The source ID.
+        """
+        return APIDependencies._strip_or_none(source_id)
+
+    @staticmethod
+    def param_source_id_optional(
+        source: Annotated[
+            Optional[str],
+            Query(
+                description=api_defs.API_DESC_SOURCE_ID,
+                example=api_defs.EXAMPLE_SOURCE_ID,
+            ),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            source (str, optional, Query): The source. Defaults to None.
+
+        Returns:
+            str: The source.
+        """
+        return APIDependencies._strip_or_none(source)
+
     def param_index(
         index: Annotated[
             str,
@@ -271,12 +417,12 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            index (int): The index.
+            index (str, Query): The opensearch index.
 
         Returns:
             int: The index.
         """
-        return index.strip()
+        return APIDependencies._strip_or_none(index)
 
     @staticmethod
     def param_operation_id(
@@ -292,12 +438,12 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            operation_id (str): The operation ID.
+            operation_id (str, Query): The operation ID.
 
         Returns:
             str: The operation ID.
         """
-        return operation_id.strip()
+        return APIDependencies._strip_or_none(operation_id)
 
     @staticmethod
     def param_context_id(
@@ -313,12 +459,32 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            context_id (str): The context ID.
+            context_id (str, Query): The context ID.
 
         Returns:
             str: The context ID.
         """
-        return context_id.strip()
+        return APIDependencies._strip_or_none(context_id)
+
+    @staticmethod
+    def param_plugin_optional(
+        plugin: Annotated[
+            Optional[str],
+            Query(
+                description=api_defs.API_DESC_PLUGIN, example=api_defs.EXAMPLE_PLUGIN
+            ),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            plugin (str, optional, Query): The plugin. Defaults to None.
+
+        Returns:
+            str: The plugin.
+        """
+        return APIDependencies._strip_or_none(plugin)
 
     @staticmethod
     def param_plugin(
@@ -333,12 +499,12 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            plugin (str): The plugin.
+            plugin (str, Query): The plugin.
 
         Returns:
             str: The plugin.
         """
-        return plugin.strip()
+        return APIDependencies._strip_or_none(plugin)
 
     @staticmethod
     def param_ws_id(
@@ -351,14 +517,14 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            ws_id (str): The WS ID.
+            ws_id (str, Query): The WS ID.
 
         Returns:
             str: The WS ID.
         """
-        return ws_id.strip()
+        return APIDependencies._strip_or_none(ws_id)
 
-    def param_gulp_ingestion_flt(
+    def param_ingestion_flt_optional(
         flt: Annotated[
             Optional[GulpIngestionFilter],
             Body(
@@ -370,14 +536,14 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None (empty filter).
+            flt (GulpIngestionFilter, optional, Body): The ingestion filter. Defaults to empty(no) filter.
 
         Returns:
             GulpIngestionFilter: The ingestion filter.
         """
         return flt or GulpIngestionFilter()
 
-    def param_gulp_plugin_params(
+    def param_plugin_params_optional(
         plugin_params: Annotated[
             Optional[GulpPluginParameters],
             Body(
@@ -389,14 +555,14 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None(empty parameters).
+            plugin_params (GulpPluginParameters, optional, Body): The plugin parameters. Defaults to default parameters.
 
         Returns:
             GulpPluginParameters: The plugin parameters.
         """
         return plugin_params or GulpPluginParameters()
 
-    def param_gulp_query_flt(
+    def param_query_flt_optional(
         flt: Annotated[
             Optional[GulpQueryFilter],
             Body(
@@ -408,7 +574,7 @@ class ServerUtils:
         used with fastapi Depends to provide API parameter
 
         Args:
-            flt (GulpQueryFilter, optional): The query filter. Defaults to None (empty filter).
+            flt (GulpQueryFilter, optional, Body): The query filter. Defaults to empty(no) filter.
 
         Returns:
             GulpQueryFilter: The query filter.
@@ -425,7 +591,7 @@ class ServerUtils:
         ] = None
     ) -> str:
         """
-        Ensures a request ID is not None, either returns a new one.
+        Ensures a request ID is set, either generates it.
 
         Args:
             req_id (str, optional): The request ID. Defaults to None.
@@ -433,9 +599,28 @@ class ServerUtils:
         Returns:
             str: The request ID.
         """
-        if req_id is None:
+        if not req_id:
             return muty.string.generate_unique()
         return req_id
+
+
+class ServerUtils:
+    @staticmethod
+    def dump_params(params: dict) -> str:
+        """
+        Dumps the parameters dictionary as a string.
+
+        Args:
+            params (dict): The parameters dictionary.
+
+        Returns:
+            str: The string representation of the parameters.
+        """
+        caller_frame = inspect.currentframe().f_back
+        caller_name = caller_frame.f_code.co_name
+        MutyLogger.get_instance().debug(
+            "---> %s() params: %s" % (caller_name, json.dumps(params, indent=2))
+        )
 
     @staticmethod
     async def send_mail(

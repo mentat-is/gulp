@@ -134,5 +134,5 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             sess,
             object_data,
             id=muty.string.ensure_no_space_no_special(name),
-            user_id=user_id,
+            owner_id=user_id,
         )

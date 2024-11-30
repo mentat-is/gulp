@@ -66,7 +66,6 @@ class GulpBasicDocument(BaseModel):
         example=api_defs.EXAMPLE_SOURCE_ID,
     )
 
-
 class GulpDocument(GulpBasicDocument):
     """
     represents a Gulp document.

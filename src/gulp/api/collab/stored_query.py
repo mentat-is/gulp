@@ -90,6 +90,6 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
         return await super()._create(
             sess,
             object_data,
-            user_id=user_id,
+            owner_id=user_id,
             id=id,
         )

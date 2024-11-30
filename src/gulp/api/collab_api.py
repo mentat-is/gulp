@@ -372,7 +372,7 @@ class GulpCollab:
             # create user groups
             group: GulpUserGroup = await GulpUserGroup.create(
                 sess,
-                user_id=admin_user.id,
+                owner_id=admin_user.id,
                 name="test_group",
                 permission=[GulpUserPermission.ADMIN],
             )
@@ -414,27 +414,27 @@ class GulpCollab:
             # create other users
             guest_user = await GulpUser.create(
                 sess,
-                username="guest",
+                user_id="guest",
                 password="guest",
                 glyph_id=user_glyph.id,
             )
             editor_user = await GulpUser.create(
                 sess,
-                username="editor",
+                user_id="editor",
                 password="editor",
                 permission=PERMISSION_MASK_EDIT,
                 glyph_id=user_glyph.id,
             )
             ingest_user = await GulpUser.create(
                 sess,
-                username="ingest",
+                user_id="ingest",
                 password="ingest",
                 permission=PERMISSION_MASK_INGEST,
                 glyph_id=user_glyph.id,
             )
             power_user = await GulpUser.create(
                 sess,
-                username="power",
+                user_id="power",
                 password="power",
                 permission=PERMISSION_MASK_DELETE,
                 glyph_id=user_glyph.id,

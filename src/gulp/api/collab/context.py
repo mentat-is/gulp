@@ -78,11 +78,11 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         src: GulpSource = await GulpSource.get_first_by_filter(
             sess,
             flt=GulpCollabFilter(
-                name=[name],
-                operation_id=[self.operation_id],
-                context_id=[self.id],
+                names=[name],
+                operation_ids=[self.operation_id],
+                context_ids=[self.id],
             ),
-            throw_if_not_found=False
+            throw_if_not_found=False,
         )
         if src:
             MutyLogger.get_instance().info(
@@ -139,5 +139,5 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             sess,
             object_data,
             id=muty.string.ensure_no_space_no_special(name),
-            user_id=user_id,
+            owner_id=user_id,
         )

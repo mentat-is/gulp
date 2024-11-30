@@ -1,4 +1,3 @@
-
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -65,9 +64,7 @@ class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
         return await super()._create(
             sess,
             object_data,
-            user_id=user_id,
+            owner_id=user_id,
             ws_id=ws_id,
             req_id=req_id,
-            operation_id=operation_id,
-            private=private,
         )

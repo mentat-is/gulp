@@ -75,9 +75,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
         return await super()._create(
             sess,
             object_data,
-            user_id=user_id,
-            operation_id=operation_id,
+            owner_id=user_id,
             ws_id=ws_id,
             req_id=req_id,
-            private=private,
         )

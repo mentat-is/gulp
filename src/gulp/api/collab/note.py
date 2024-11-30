@@ -1,8 +1,7 @@
-from typing import Optional, Union, override
+from typing import Optional, override
 
-import muty.string
 from muty.log import MutyLogger
-from sqlalchemy import ForeignKey, Index, String, insert
+from sqlalchemy import BIGINT, ForeignKey, Index, String, insert
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -11,11 +10,9 @@ from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabObject,
     GulpCollabType,
-    GulpUserPermission,
     T,
 )
-from gulp.api.collab_api import GulpCollab
-from gulp.api.opensearch.structs import GulpBasicDocument, GulpDocument
+from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 
 
@@ -34,6 +31,10 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     docs: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
         JSONB, doc="One or more GulpBasicDocument associated with the note."
     )
+    time_pin: Mapped[Optional[int]] = mapped_column(
+        BIGINT,
+        doc="To pin the note to a specific time, in nanoseconds from the unix epoch.",
+    )
     text: Mapped[Optional[str]] = mapped_column(String, doc="The text of the note.")
 
     __table_args__ = (Index("idx_note_operation", "operation_id"),)
@@ -48,6 +49,14 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         req_id: str = None,
         **kwargs,
     ) -> None:
+        # ensure note have "docs" or "time_pin" set, not both
+        if "docs" in d and "time_pin" in d:
+            raise ValueError("cannot set both 'docs' and 'time_pin' in a note")
+        if self.docs and "time_pin" in d:
+            self.docs = None
+        if self.time_pin and "docs" in d:
+            self.time_pin = None
+
         # save old text
         old_text = self.text
         await super().update(
@@ -59,7 +68,46 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             old_text=old_text,
             **kwargs,
         )
-
+    
+    @override
+    @staticmethod
+    def build_dict(
+            operation_id: str,
+            context_id: str,
+            source_id: str,
+            glyph_id: str=None,
+            tags: list[str]=None,
+            color: str=None,
+            name: str=None,
+            description: str=None,
+            private: bool=False,
+            docs: list[GulpBasicDocument]=None,
+            time_pin: int=None,
+            text: str=None
+    ) -> dict:
+        if docs:
+            # convert the documents to dictionaries
+            docs = [
+                doc.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                for doc in docs
+            ]
+        return super().build_dict(
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            glyph_id=glyph_id,
+            tags=tags,
+            color=color,
+            name=name,
+            description=description,
+            private=private,
+            docs=docs,
+            time_pin=time_pin,
+            text=text,
+        )
+    
     @staticmethod
     async def bulk_create_from_documents(
         sess: AsyncSession,
@@ -83,7 +131,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             docs (list[dict]): the list of documents to create notes for
             name (str): the name of the notes
             tags (list[str], optional): the tags to add to the notes. Defaults to None.
-            color (str, optional): the color of the notes. Defaults to "yellow".
+            color (str, optional): the color of the notes. Defaults to None.
             glyph_id (str, optional): the glyph id of the notes. Defaults to None.
 
         Returns:
@@ -102,6 +150,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         # create a note for each document
         notes = []
         for doc in docs:
+            # associate the document with the note by creating a GulpBasicDocument object
             associated_doc = GulpBasicDocument(
                 id=doc.get("_id"),
                 timestamp=doc.get("@timestamp"),
@@ -111,24 +160,20 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 context_id=doc.get("gulp.context_id"),
                 source_id=doc.get("gulp.source_id"),
             )
-            object_data = {
-                "operation_id": associated_doc.operation_id,
-                "context_id": associated_doc.context_id,
-                "source_id": associated_doc.source_id,
-                "docs": [
-                    associated_doc.model_dump(
-                        by_alias=True, exclude_none=True, exclude_defaults=True
-                    )
-                ],
-                "glyph_id": glyph_id,
-                "color": color,
-                "name": name,
-                "tags": tags,
-            }
+            object_data = GulpNote.build_dict(
+                operation_id=associated_doc.operation_id,
+                context_id=associated_doc.context_id,
+                source_id=associated_doc.source_id,
+                glyph_id=glyph_id,
+                tags=tags,
+                color=color,
+                name=name,
+                docs=[associated_doc],
+            )
             note_dict = GulpCollabBase.build_object_dict(
                 object_data=object_data,
                 type=GulpCollabType.NOTE,
-                user_id=user_id,
+                owner_id=user_id,
             )
             notes.append(note_dict)
 
@@ -171,8 +216,9 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         name: str,
         context_id: str,
         source_id: str,
-        documents: list[GulpBasicDocument],
-        text: str,
+        docs: list[GulpBasicDocument] = None,
+        time_pin: int = None,
+        text: str = None,
         description: str = None,
         glyph_id: str = None,
         color: str = None,
@@ -180,7 +226,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         private: bool = False,
     ) -> T:
         """
-        Create a new note object on the collab database.
+        Creates a new note object on the collab database.
 
         Args:
             sess (AsyncSession): The database session to use.
@@ -191,23 +237,49 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             name (str): The display name of the note.
             context_id (str): The id of the context associated with the note.
             source_id (str): The id of the source associated with the note.
-            documents (list[GulpBasicDocument]): The list of GulpBasicDocument associated with the note.
-            text (str): The text of the note.
+            docs (list[GulpBasicDocument], optional): The documents associated with the note. Defaults to None.
+            time_pin (int, optional): The time pin of the note. Defaults to None.
+            text (str, optional): The text of the note. Defaults to None.
             description (str, optional): The description of the note. Defaults to None.
             glyph_id (str, optional): The id of the glyph associated with the note. Defaults to None.
-            color (str, optional): The color of the note. Defaults to yellow.
+            color (str, optional): The color of the note. Defaults to None.
             tags (list[str], optional): The tags associated with the note. Defaults to None.
             private (bool, optional): Whether the note is private or not. Defaults to False.
         Returns:
             the created note object
         """
+        object_data = GulpNote.build_dict(
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            glyph_id=glyph_id,
+            tags=tags,
+            color=color,
+            name=name,
+            description=description,
+            private=private,
+            docs=docs,
+            time_pin=time_pin,
+            text=text,
+        )
+        return await super().create(
+            sess,
+            object_data,
+            owner_id=user_id,
+            ws_id=ws_id,
+            req_id=req_id,
+        )        
         object_data = {
             "operation_id": operation_id,
             "context_id": context_id,
             "source_id": source_id,
-            "documents": documents,
+            "docs": [
+                doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                for doc in docs
+            ],
+            "time_pin": time_pin,
             "glyph_id": glyph_id,
-            "color": color or "yellow",
+            "color": color,
             "tags": tags,
             "name": name,
             "text": text,
@@ -218,9 +290,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         return await super()._create(
             sess,
             object_data,
-            operation_id=operation_id,
-            user_id=user_id,
+            owner_id=user_id,
             ws_id=ws_id,
             req_id=req_id,
-            private=private,
         )

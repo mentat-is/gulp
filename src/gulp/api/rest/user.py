@@ -4,9 +4,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import re
 from typing import Annotated, Optional
-from pydantic import AfterValidator
 from gulp.api.collab.structs import (
-    GulpCollabFilter,
     GulpUserPermission,
     MissingPermission,
 )
@@ -14,9 +12,8 @@ from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from muty.jsend import JSendException, JSendResponse
-from fastapi import Body, Depends
-from gulp.api.rest.server_utils import ServerUtils
-import muty.jsend
+from fastapi import Depends
+from gulp.api.rest.server_utils import APIDependencies, ServerUtils
 import muty.list
 import muty.log
 import muty.os
@@ -26,7 +23,6 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendResponse
 from gulp.api.rest import defs as api_defs
-import gulp.plugin
 from gulp.config import GulpConfig
 
 router = APIRouter()
@@ -116,12 +112,12 @@ refer to `gulp_cfg_template.json` for more information.
 async def login_handler(
     user_id: Annotated[
         str,
-        Depends(ServerUtils.param_user_id),
+        Depends(APIDependencies.param_user_id),
     ],
     password: Annotated[
         str, Query(description="password for authentication.", example="admin")
     ],
-    ws_id: Annotated[str, Depends(ServerUtils.param_ws_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -173,8 +169,8 @@ a `GulpUserLoginLogoutPacket` with `login: false` is sent on the `ws_id` websock
 """,
 )
 async def logout_handler(
-    token: Annotated[str, Depends(ServerUtils.param_token)],
-    ws_id: Annotated[str, Depends(ServerUtils.param_ws_id)],
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -229,11 +225,11 @@ async def logout_handler(
     },
     summary="creates an user on the platform.",
     description="""
-    this API needs a token with `ADMIN` permission.
+- `token` needs **admin** permission.
     """,
 )
 async def user_create_handler(
-    token: Annotated[str, Depends(ServerUtils.param_token)],
+    token: Annotated[str, Depends(APIDependencies.param_token)],
     user_id: Annotated[
         str,
         Query(
@@ -244,17 +240,17 @@ async def user_create_handler(
     ],
     password: Annotated[
         str,
-        Depends(ServerUtils.param_password),
+        Depends(APIDependencies.param_password),
     ],
     permission: Annotated[
         list[GulpUserPermission],
-        Depends(ServerUtils.param_permission),
+        Depends(APIDependencies.param_permission),
     ],
     email: Annotated[
         str,
-        Depends(ServerUtils.param_email),
+        Depends(APIDependencies.param_email_optional),
     ] = None,
-    glyph_id: Annotated[str, Depends(ServerUtils.param_glyph_id)] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -303,14 +299,14 @@ async def user_create_handler(
     },
     summary="deletes an existing user.",
     description="""
-    this API needs a token with `ADMIN` permission.
+- `token` needs **admin** permission.
     """,
 )
 async def user_delete_handler(
-    token: Annotated[str, Depends(ServerUtils.param_token)],
+    token: Annotated[str, Depends(APIDependencies.param_token)],
     user_id: Annotated[
         str,
-        Depends(ServerUtils.param_user_id),
+        Depends(APIDependencies.param_user_id),
     ],
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -370,28 +366,30 @@ async def user_delete_handler(
     },
     summary="updates an existing user on the platform.",
     description="""
-    this API needs ADMIN permission if `user_id` is set and different from the token `user_id`, or if `permission` is set.
-        
-    each of the other parameters are optional, but at least one of `password`, `permission`, `email` or `glyph_id` must be specified.
+- `token` needs **admin** permission if `user_id` is set and different from the token `user_id`, or if `permission` is set.
+    
+- `user_id` may not be set, in which case the target user is taken from `token`.
+
+- `password`, `permission`, `email`, `glyph_id` are optional, depending on what needs to be updated, and can be set independently (**but at least one must be set**).
     """,
 )
 async def user_update_handler(
     token: Annotated[
         str,
-        Depends(ServerUtils.param_token),
+        Depends(APIDependencies.param_token),
     ],
-    user_id: Annotated[str, Depends(ServerUtils.param_optional_user_id)] = None,
+    user_id: Annotated[str, Depends(APIDependencies.param_user_id_optional)] = None,
     password: Annotated[
         str,
-        Depends(ServerUtils.param_optional_password),
+        Depends(APIDependencies.param_password_optional),
     ] = None,
     permission: Annotated[
         Optional[list[GulpUserPermission]],
-        Depends(ServerUtils.param_optional_permission),
+        Depends(APIDependencies.param_permission_optional),
     ] = None,
     email: Annotated[
         str,
-        Depends(ServerUtils.param_email),
+        Depends(APIDependencies.param_email_optional),
     ] = None,
     glyph_id: Annotated[str, Query(description="new user glyph id.")] = None,
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
@@ -499,9 +497,12 @@ async def user_update_handler(
         }
     },
     summary="list users.",
+    description="""
+- `token` needs **admin** permission.
+    """,
 )
 async def user_list_handler(
-    token: Annotated[str, Depends(ServerUtils.param_token)],
+    token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
 ) -> JSONResponse:
     # only admin can get users list
@@ -566,8 +567,8 @@ async def user_list_handler(
     summary="get a single user.",
 )
 async def user_get_by_id(
-    token: Annotated[str, Depends(ServerUtils.param_token)],
-    user_id: Annotated[str, Depends(ServerUtils.param_user_id)],
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(ServerUtils.ensure_req_id)] = None,
 ) -> JSONResponse:
     # check if token has permission over user_id

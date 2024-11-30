@@ -29,8 +29,7 @@ from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.rest.server_utils import ServerUtils
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.rest.server_utils import APIDependencies, ServerUtils
 from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -252,7 +251,10 @@ async def _ingest_file_internal(
         200: EXAMPLE_DONE_UPLOAD,
     },
     description="""
-**NOTE**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume.
+
+- **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
+- if not present on the collab database, a context tied with `operation_id` with `id` set to `context_id` will be created.
+- if not present on the collab database, a source tied with `operation_id` and `context_id` with `name` set to the original file path will be created.
 
 ### internals
 
@@ -361,27 +363,27 @@ async def ingest_file_handler(
     r: Request,
     token: Annotated[
         str,
-        Depends(ServerUtils.param_token),
+        Depends(APIDependencies.param_token),
     ],
     operation_id: Annotated[
         str,
-        Depends(ServerUtils.param_operation_id),
+        Depends(APIDependencies.param_operation_id),
     ],
     context_id: Annotated[
         str,
-        Depends(ServerUtils.param_context_id),
+        Depends(APIDependencies.param_context_id),
     ],
     index: Annotated[
         str,
-        Depends(ServerUtils.param_index),
+        Depends(APIDependencies.param_index),
     ],
     plugin: Annotated[
         str,
-        Depends(ServerUtils.param_plugin),
+        Depends(APIDependencies.param_plugin),
     ],
     ws_id: Annotated[
         str,
-        Depends(ServerUtils.param_ws_id),
+        Depends(APIDependencies.param_ws_id),
     ],
     file_total: Annotated[
         int,
@@ -555,6 +557,9 @@ async def _ingest_raw_internal(
     description="""
 ingests a chunk of `raw` documents.
 
+- if not present on the collab database, a context tied with `operation_id` with `id` set to `context_id` will be created.
+- if not present on the collab database, a source tied with `operation_id` and `context_id` with `name` set to `source` will be created.
+
 ### plugin
 
 by default, the `raw` plugin is used (**must be available**), but a different plugin can be specified using the `plugin` parameter.
@@ -564,15 +569,15 @@ by default, the `raw` plugin is used (**must be available**), but a different pl
 async def ingest_raw_handler(
     token: Annotated[
         str,
-        Depends(ServerUtils.param_token),
+        Depends(APIDependencies.param_token),
     ],
     operation_id: Annotated[
         str,
-        Depends(ServerUtils.param_operation_id),
+        Depends(APIDependencies.param_operation_id),
     ],
     context_id: Annotated[
         str,
-        Depends(ServerUtils.param_context_id),
+        Depends(APIDependencies.param_context_id),
     ],
     source: Annotated[
         str,
@@ -583,32 +588,33 @@ async def ingest_raw_handler(
     ],
     index: Annotated[
         str,
-        Depends(ServerUtils.param_index),
+        Depends(APIDependencies.param_index),
     ],
     ws_id: Annotated[
         str,
-        Depends(ServerUtils.param_ws_id),
+        Depends(APIDependencies.param_ws_id),
     ],
     chunk: Annotated[
         list[GulpRawDocument],
         Body(description="a chunk of raw documents to be ingested."),
     ],
     flt: Annotated[
-        GulpIngestionFilter, Depends(ServerUtils.param_gulp_ingestion_flt)
+        GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional)
     ] = None,
     plugin: Annotated[
         str,
-        Depends(ServerUtils.param_plugin),
+        Depends(APIDependencies.param_plugin),
     ] = "raw",
     plugin_params: Annotated[
         GulpPluginParameters,
-        Depends(ServerUtils.param_gulp_plugin_params),
+        Depends(APIDependencies.param_plugin_params_optional),
     ] = None,
     req_id: Annotated[
         str,
         Depends(ServerUtils.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
+    # TODO: consider removing stats from raw ingestion...
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -758,8 +764,10 @@ async def _process_metadata_json(
         },
     },
     description="""
-**WARNING**: This function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume.
-
+- **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
+- if not present on the collab database, a context tied with `operation_id` with `id` set to `context_id` will be created.
+- if not present on the collab database, a source tied with `operation_id` and `context_id` with `name` set to the original file path will be created for each file in the zip.
+ 
 ### zip format
 
 the uploaded zip file **must include** a `metadata.json` with an array of `GulpZipMetadataEntry` to describe the zip content.
@@ -780,23 +788,23 @@ async def ingest_zip_handler(
     r: Request,
     token: Annotated[
         str,
-        Depends(ServerUtils.param_token),
+        Depends(APIDependencies.param_token),
     ],
     operation_id: Annotated[
         str,
-        Depends(ServerUtils.param_operation_id),
+        Depends(APIDependencies.param_operation_id),
     ],
     context_id: Annotated[
         str,
-        Depends(ServerUtils.param_context_id),
+        Depends(APIDependencies.param_context_id),
     ],
     index: Annotated[
         str,
-        Depends(ServerUtils.param_index),
+        Depends(APIDependencies.param_index),
     ],
     ws_id: Annotated[
         str,
-        Depends(ServerUtils.param_ws_id),
+        Depends(APIDependencies.param_ws_id),
     ],
     req_id: Annotated[
         str,

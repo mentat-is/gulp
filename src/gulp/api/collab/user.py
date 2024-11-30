@@ -85,7 +85,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     async def create(
         cls,
         sess: AsyncSession,
-        username: str,
+        user_id: str,
         password: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         email: str = None,
@@ -96,7 +96,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         Args:
             sess (AsyncSession): The database session.
-            username (str): The ID of the user to create.
+            user_id (str): The ID of the user to create.
             password (str): The password of the user to create.
             permission (list[GulpUserPermission], optional): The permission of the user to create. Defaults to [GulpUserPermission.READ].
             email (str, optional): The email of the user to create. Defaults to None.
@@ -118,7 +118,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         # set user_id to username (user owns itself)
         return await super()._create(
-            sess, id=username, object_data=object_data, user_id=username
+            sess, id=user_id, object_data=object_data, owner_id=user_id
         )
 
     async def check_user_update_permission(self, s: "GulpUserSession", d: dict) -> None:
@@ -264,7 +264,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             sess,
             object_data,
             ws_id=ws_id,
-            user_id=u.id,
+            owner_id=u.id,
             ws_queue_datatype=GulpWsQueueDataType.USER_LOGIN,
             ws_data=p.model_dump(),
             req_id=req_id,

@@ -77,7 +77,5 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
         return await super()._create(
             sess,
             object_data,
-            operation_id=operation_id,
-            context_id=context_id,
-            user_id=user_id,
+            owner_id=user_id,
         )

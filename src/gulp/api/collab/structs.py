@@ -131,40 +131,40 @@ class GulpCollabFilter(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    id: Optional[list[str]] = Field(
+    ids: Optional[list[str]] = Field(
         None, description="filter by the given id/s.", example=["id1", "id2"]
     )
-    type: Optional[list[GulpCollabType]] = Field(
+    types: Optional[list[GulpCollabType]] = Field(
         None,
         description="filter by the given type/s.",
         example=["note", "highlight"],
     )
-    operation_id: Optional[list[str]] = Field(
+    operation_ids: Optional[list[str]] = Field(
         None, description="filter by the given operation/s.", example=["op1", "op2"]
     )
-    context_id: Optional[list[str]] = Field(
+    context_ids: Optional[list[str]] = Field(
         None, description="filter by the given context/s.", example=["ctx1", "ctx2"]
     )
-    source_id: Optional[list[str]] = Field(
+    source_ids: Optional[list[str]] = Field(
         None,
         description="filter by the given source path/s or name/s.",
         example=["src1", "src2"],
     )
-    owner_user_id: Optional[list[str]] = Field(
+    owner_user_ids: Optional[list[str]] = Field(
         None, description="filter by the given owner user id/s.", example=["admin"]
     )
     tags: Optional[list[str]] = Field(
         None, description="filter by the given tag/s.", example=["tag1", "tag2"]
     )
-    name: Optional[list[str]] = Field(
+    names: Optional[list[str]] = Field(
         None, description="filter by the given name/s.", example=["name1", "name2"]
     )
-    text: Optional[list[str]] = Field(
+    texts: Optional[list[str]] = Field(
         None,
         description="filter by the given object text (wildcard accepted).",
         example=["text1", "text2"],
     )
-    documents: Optional[list[str]] = Field(
+    doc_ids: Optional[list[str]] = Field(
         None,
         description="filter by the given document ID/s in a CollabObj.docs list of GulpBasicDocument.",
         example=["18b6332595d82048e31963e6960031a1"],
@@ -230,26 +230,26 @@ class GulpCollabFilter(BaseModel):
             Select[Tuple]: the select query
         """
         q: Select = select(type)
-        if self.id:
-            q = q.filter(self._case_insensitive_or_ilike(type.id, self.id))
-        if self.type:
+        if self.ids:
+            q = q.filter(self._case_insensitive_or_ilike(type.id, self.ids))
+        if self.types:
             # match if equal to any in the list
-            q = q.filter(type.type.in_(self.type))
-        if self.operation_id and "operation_id" in type.columns:
+            q = q.filter(type.type.in_(self.types))
+        if self.operation_ids and "operation_id" in type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.operation_id, self.operation_id)
+                self._case_insensitive_or_ilike(type.operation_id, self.operation_ids)
             )
-        if self.context_id and "context_id" in type.columns:
+        if self.context_ids and "context_id" in type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.context_id, self.context_id)
+                self._case_insensitive_or_ilike(type.context_id, self.context_ids)
             )
-        if self.source_id and "source_id" in type.columns:
+        if self.source_ids and "source_id" in type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.source_id, self.source_id)
+                self._case_insensitive_or_ilike(type.source_id, self.source_ids)
             )
-        if self.owner_user_id and "owner_user_id" in type.columns:
+        if self.owner_user_ids and "owner_user_id" in type.columns:
             q = q = q.filter(
-                self._case_insensitive_or_ilike(type.owner_user_id, self.owner_user_id)
+                self._case_insensitive_or_ilike(type.owner_user_id, self.owner_user_ids)
             )
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
@@ -259,10 +259,10 @@ class GulpCollabFilter(BaseModel):
             else:
                 # at least one tag must match (OVERLAP operator)
                 q = q.filter(func.lower(type.tags).op("&&")(self.tags))
-        if self.name and "name" in type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(type.name, self.name))
-        if self.text and "text" in type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(type.text, self.text))
+        if self.names and "name" in type.columns:
+            q = q.filter(self._case_insensitive_or_ilike(type.name, self.names))
+        if self.texts and "text" in type.columns:
+            q = q.filter(self._case_insensitive_or_ilike(type.text, self.texts))
 
         if self.model_extra:
             # any extra k,v to filter on
@@ -270,17 +270,17 @@ class GulpCollabFilter(BaseModel):
                 if k in type.columns:
                     q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
 
-        if self.documents and "documents" in type.columns:
+        if self.doc_ids and "docs" in type.columns:
             if not self.time_range:
-                # filter by collabobj.documents id
-                lower_documents = [{"_id": doc_id.lower()} for doc_id in self.documents]
+                # filter by collabobj.docs _id
+                lower_documents = [{"_id": doc_id.lower()} for doc_id in self.doc_ids]
                 conditions = [
                     func.lower(type.documents).op("@>")([{"_id": doc_id}])
                     for doc_id in lower_documents
                 ]
                 q = q.filter(or_(*conditions))
             else:
-                # filter by time range on collabobj.documents["gulp.timestamp"]
+                # filter by time range on collabobj.docs gulp.timestamp
                 conditions = []
                 if self.time_range[0]:
                     conditions.append(
@@ -489,8 +489,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     def build_object_dict(
         object_data: dict,
         type: GulpCollabType,
+        owner_id: str,
         id: str = None,
-        user_id: str = None,
         **kwargs,
     ) -> dict:
         """
@@ -499,8 +499,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Args:
             object_data (dict): The data to create the object with.
             type (GulpCollabType): The type of the object.
+            owner_id (str): The ID of the user creating the object
             id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
-            user_id (str, optional): The ID of the user creating the object. Defaults to None.
             **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
 
         Returns:
@@ -527,7 +527,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         object_data["id"] = id
         object_data["time_created"] = time_created
         object_data["time_updated"] = time_created
-        object_data["owner_user_id"] = user_id or "admin"
+        object_data["owner_user_id"] = owner_id
         object_data["granted_user_group_ids"] = []
         object_data["granted_user_ids"] = []
         return object_data
@@ -538,10 +538,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession,
         object_data: dict,
         id: str = None,
-        operation_id: str = None,
-        private: bool = False,
         ws_id: str = None,
-        user_id: str = None,
+        owner_id: str = None,
         ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_UPDATE,
         ws_data: dict = None,
         req_id: str = None,
@@ -559,7 +557,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             operation_id (str, optional): The ID of the operation associated with the instance. Defaults to None.
             private (bool, optional): If True, the object is private. Defaults to False.
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
-            user_id (str, optional): The ID of the user making the request. Defaults to None.
+            owner_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
             ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
             ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
@@ -572,8 +570,13 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         if not object_data:
             object_data = {}
 
+        owner_id = owner_id or "admin"
         d = GulpCollabBase.build_object_dict(
-            object_data, type=cls.__gulp_collab_type__, id=id, user_id=user_id, **kwargs
+            object_data,
+            type=cls.__gulp_collab_type__,
+            owner_id=owner_id,
+            id=id,
+            **kwargs,
         )
         # create select statement with eager loading
         stmt = (
@@ -584,29 +587,27 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         result = await sess.execute(stmt)
         instance: GulpCollabBase = result.scalar_one()
-        sess.add(instance)
+        instance_dict = instance.to_dict(nested=True)
         await sess.commit()
-        await sess.refresh(instance)
+
         if ws_id:
             # notify the websocket of the collab object creation
             if ws_data:
                 data = ws_data
             else:
-                data = instance.to_dict(exclude_none=True)
+                data = instance_dict
 
             p = GulpCollabCreateUpdatePacket(data=data, created=True)
             GulpSharedWsQueue.get_instance().put(
                 ws_queue_datatype,
                 ws_id=ws_id,
-                user_id=user_id or "admin",
-                operation_id=operation_id,
+                user_id=owner_id,
+                operation_id=object_data.get("operation_id", None),
                 req_id=req_id,
-                private=private,
+                private=object_data.get("private", False),
                 data=p.model_dump(),
             )
-        MutyLogger.get_instance().debug(
-            "created instance: %s" % (instance.to_dict(nested=True))
-        )
+        MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
         return instance
 
     async def grant_group(self, sess: AsyncSession, group_id: str) -> None:
@@ -944,6 +945,47 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             return obj[0]
         return None
 
+    @classmethod
+    async def create(
+        cls,
+        sess: AsyncSession,
+        object_data: dict,
+        id: str = None,
+        owner_id: str = None,
+        ws_id: str = None,
+        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_CREATE,
+        ws_data: dict = None,
+        req_id: str = None,
+        **kwargs,
+    ) -> T:
+        """
+        create a new instance of the class
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            object_data (dict): The data to create the object with.
+            id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            owner_id (str, optional): The ID of the user creating the object. Defaults to None (admin user).
+            ws_id (str, optional): the websocket ID to send the data to. Defaults to None (do not send to websocket).
+            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_CREATE.
+            ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
+            req_id (str, optional): the ID of the request. Defaults to None.
+            **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
+        Returns:
+            T: The created instance of the class.
+        """
+        return await cls._create(
+            sess,
+            object_data=object_data,
+            id=id,
+            owner_id=owner_id,
+            ws_id=ws_id,
+            ws_queue_datatype=ws_queue_datatype,
+            ws_data=ws_data,
+            req_id=req_id,
+            **kwargs,
+        )
+
 
 class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
     """
@@ -985,6 +1027,44 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         Boolean,
         doc="If True, the object is private (only the owner can see it).",
     )
+
+    @staticmethod
+    def build_dict(
+        operation_id: str,
+        glyph_id: str = None,
+        tags: list[str] = None,
+        color: str = None,
+        name: str = None,
+        description: str = None,
+        private: bool = False,
+        **kwargs,
+    ) -> dict:
+        """
+        build a dictionary to create a new collaboration object
+
+        Args:
+            operation_id (str): The ID of the operation associated with the object.
+            glyph_id (str, optional): The ID of the glyph associated with the object. Defaults to None.
+            tags (list[str], optional): The tags associated with the object. Defaults to None.
+            color (str, optional): The color associated with the object. Defaults to None.
+            name (str, optional): The display name of the object. Defaults to None.
+            description (str, optional): The description of the object. Defaults to None.
+            private (bool, optional): If True, the object is private. Defaults to False.
+            **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
+        Returns:
+            dict: The dictionary to create the object with.
+        """
+        d = {
+            "operation_id": operation_id,
+            "glyph_id": glyph_id,
+            "tags": tags,
+            "color": color,
+            "name": name,
+            "description": description,
+            "private": private,
+        }
+        d.update(kwargs)
+        return d
 
     @override
     def __init__(self, *args, **kwargs):

@@ -55,7 +55,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
     async def create(
         cls,
         sess: AsyncSession,
-        user_id: str,
+        owner_id: str,
         name: str,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         glyph_id: str = None,
@@ -65,7 +65,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
 
         Args:
             sess (AsyncSession): The database session.
-            user_id (str): The ID of the user creating the group.
+            owner_id (str): The ID of the user creating the group.
             name (str): The name of the group.
             permission (list[GulpUserPermission], optional): The permission of the user. Defaults to [GulpUserPermission.READ].
             glyph_id (str): The ID of the glyph associated with the group.
@@ -81,7 +81,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         }
 
         # autogenerate id
-        return await super()._create(sess, object_data, user_id=user_id)
+        return await super()._create(sess, object_data, owner_id=owner_id)
 
     async def add_user(self, sess: AsyncSession, user_id: str) -> None:
         """

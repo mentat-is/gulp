@@ -18,9 +18,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     Represents a glyph object.
     """
 
-    name: Mapped[str] = mapped_column(
-        String, doc="Display name for the glyph."
-    )
+    name: Mapped[str] = mapped_column(String, doc="Display name for the glyph.")
     img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
@@ -58,7 +56,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
         return await super()._create(
             sess,
             object_data,
-            user_id=user_id,
+            owner_id=user_id,
         )
 
     @override

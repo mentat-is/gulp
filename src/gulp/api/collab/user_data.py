@@ -1,4 +1,3 @@
-
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,5 +43,5 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
         return await super()._create(
             sess,
             object_data,
-            user_id=user_id,
+            owner_id=user_id,
         )
