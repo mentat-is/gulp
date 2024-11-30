@@ -8,6 +8,9 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Header, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.structs import GulpUserPermission
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.server_utils import APIDependencies, ServerUtils
 
 
@@ -49,66 +52,73 @@ async def note_create_handler(
         Depends(APIDependencies.param_operation_id),
     ],
     context_id: Annotated[
-        str, 
+        str,
         Depends(APIDependencies.param_context_id),
     ],
     source_id: Annotated[
-        str, Depends(APIDependencies.param_source_id),
+        str,
+        Depends(APIDependencies.param_source_id),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    text: Annotated[str, Body(description="the text of the note.", example="this is a note")],
+    text: Annotated[
+        str, Body(description="the text of the note.", example="this is a note")
+    ],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)],
     time_pin: Annotated[
         int,
-        Query(description="timestamp to pin the note to."),
+        Query(
+            description="timestamp to pin the note to, in nanoseconds from the unix epoch, ignored if `docs` is set."
+        ),
+    ] = 0,
+    docs: Annotated[
+        list[GulpBasicDocument],
+        Body(
+            description="the documents associated with the note, ignored if `time_pin` is set."
+        ),
     ] = None,
-    events: Annotated[list[GulpAssociatedEvent], Body()] = None,
     tags: Annotated[
         list[str],
         Body(),
     ] = None,
-    glyph_id: Annotated[int, Query(description="glyph ID for the new note.")] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[
         str,
-        Query(
-            description='optional color in #rrggbb or css-name format, default is "green".'
-        ),
-    ] = "green",
-    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
-    level: Annotated[
-        GulpCollabLevel, Query(description=gulp.structs.API_DESC_COLLAB_LEVEL)
-    ] = GulpCollabLevel.DEFAULT,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
+        Depends(APIDependencies.param_color_optional),
+    ] = "yellow",
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-
     try:
-        if events is None and time_pin is None:
-            raise InvalidArgument("events and time_pin cannot be both None.")
-        if events is not None and time_pin is not None:
-            raise InvalidArgument("events and time_pin cannot be both set.")
+        if docs and time_pin:
+            raise ValueError("docs and time_pin cannot be both set.")
+        if not docs and not time_pin:
+            raise ValueError("either docs or time_pin must be set.")
 
-        # MutyLogger.get_instance().debug('events=%s' % (events))
-        o = await GulpCollabObject.create(
-            await collab_api.session(),
-            token,
-            req_id,
-            GulpCollabType.NOTE,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            name=name,
-            context=context,
-            src_file=src_file,
-            txt=text,
-            time_start=time_pin,
-            events=events,
-            glyph_id=glyph_id,
-            tags=tags,
-            data={"color": color},
-            private=private,
-            level=level,
-        )
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))
+        async with ServerUtils.get_collab_session() as sess:
+            # needs at least edit permission
+            s = await GulpUserSession.check_token(
+                sess, token, [GulpUserPermission.EDIT]
+            )
+
+            object_data = GulpNote.build_dict(
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                glyph_id=glyph_id,
+                tags=tags,
+                color=color,
+                name=name,
+                private=private,
+                docs=docs,
+                time_pin=time_pin,
+                text=text,
+            )
+            n: GulpNote = await GulpNote.create(
+                sess, object_data, owner_id=s.user_id, ws_id=ws_id, req_id=req_id
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=n.to_dict(exclude_none=True))
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
