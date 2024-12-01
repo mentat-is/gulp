@@ -142,13 +142,15 @@ class GulpRestServer:
                 status_code = ex.status_code
             if ex.ex is not None:
                 ex = ex.ex
-        
+
         if isinstance(ex, RequestValidationError):
             status_code = 400
             try:
                 # convert to dict
-                ex = literal_eval(str(ex))
+                # ex = literal_eval(str(ex))
+                ex = str(ex)
                 name = "RequestValidationError"
+
             except:
                 # fallback to string
                 ex = str(ex)
@@ -166,8 +168,15 @@ class GulpRestServer:
         try:
             body = await r.json()
         except:
-            # take the first 64 bytes of the body
-            body = str(await r.body())[:1024]
+            try:
+                # take the first 1k bytes of the body
+                body = await r.body()
+                body = str(body[:1024]) + "... (truncated)"
+            except:
+                body = None
+
+        if body and isinstance(body, bytes):
+            body = body.decode("utf-8")
 
         js = JSendResponse.error(
             req_id=req_id,
@@ -190,6 +199,9 @@ class GulpRestServer:
         from gulp.api.rest.ws import router as ws_router
         from gulp.api.rest.user import router as user_router
         from gulp.api.rest.note import router as note_router
+        from gulp.api.rest.db import router as db_router
+
+        self._app.include_router(db_router)
         self._app.include_router(ingest_router)
         self._app.include_router(ws_router)
         self._app.include_router(user_router)

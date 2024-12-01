@@ -55,6 +55,26 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         time_pin: int = None,
         text: str = None,
     ) -> dict:
+        """
+        builds a note dictionary, taking care of converting the documents to dictionaries
+
+        Args:
+            operation_id (str): the operation id
+            context_id (str): the context id
+            source_id (str): the source id
+            glyph_id (str, optional): the glyph id. Defaults to None.
+            tags (list[str], optional): the tags. Defaults to None.
+            color (str, optional): the color. Defaults to None.
+            name (str, optional): the name. Defaults to None.
+            description (str, optional): the description. Defaults to None.
+            private (bool, optional): whether the note is private. Defaults to False.
+            docs (list[GulpBasicDocument], optional): the documents. Defaults to None.
+            time_pin (int, optional): the time pin. Defaults to None.
+            text (str, optional): the text. Defaults to None.
+
+        Returns:
+            the note dictionary
+        """
         if docs:
             # convert the documents to dictionaries
             docs = [

@@ -16,7 +16,9 @@ from muty.log import MutyLogger
 from pydantic import AfterValidator, BaseModel, Field
 from requests_toolbelt.multipart import decoder
 from fastapi import Depends
-from gulp.api.collab.structs import GulpUserPermission
+from gulp.api.collab.structs import T, GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
 from gulp.config import GulpConfig
 from gulp.api.rest import defs as api_defs
@@ -32,6 +34,7 @@ class GulpUploadResponse(BaseModel):
     continue_offset: Optional[int] = Field(
         0, description="The offset of the next chunk to be uploaded, to resume."
     )
+
 
 class APIDependencies:
     """
@@ -103,7 +106,7 @@ class APIDependencies:
         private: Annotated[
             Optional[bool],
             Body(description=api_defs.API_DESC_PRIVATE, example=False),
-        ] = False
+        ] = None
     ) -> bool:
         """
         used with fastapi Depends to provide API parameter
@@ -114,7 +117,9 @@ class APIDependencies:
         Returns:
             bool: The private flag.
         """
-        return private or False
+        if private is not None:
+            return private
+        return None
 
     @staticmethod
     def param_description_optional(
@@ -597,6 +602,25 @@ class APIDependencies:
             GulpQueryFilter: The query filter.
         """
         return flt or GulpQueryFilter()
+
+    def param_collab_flt_optional(
+        flt: Annotated[
+            Optional[GulpCollabFilter],
+            Body(
+                description="the collab filter.",
+            ),
+        ] = None
+    ) -> GulpCollabFilter:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            flt (GulpCollabFilter, optional, Body): The collab filter. Defaults to empty(no) filter.
+
+        Returns:
+            GulpCollabFilter: The collab filter.
+        """
+        return flt or GulpCollabFilter()
 
     @staticmethod
     def ensure_req_id(

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy_utils import create_database, database_exists, drop_database
 
-from gulp.api.collab.structs import PERMISSION_MASK_INGEST, GulpCollabBase
+from gulp.api.collab.structs import GulpCollabBase
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -65,7 +65,7 @@ class GulpCollab:
         Args:
             expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
         """
-        if self._engine is not None:
+        if self._engine:
             await self._engine.dispose()
 
         self._engine = await self._create_engine()
@@ -316,6 +316,7 @@ class GulpCollab:
         from gulp.api.collab.structs import (
             PERMISSION_MASK_DELETE,
             PERMISSION_MASK_EDIT,
+            PERMISSION_MASK_INGEST,
             GulpCollabBase,
             GulpUserPermission,
         )

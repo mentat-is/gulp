@@ -496,8 +496,6 @@ class GulpOpenSearch:
             datastream_name(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
                 if it already exists, it will be deleted first.
             index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
-        Returns:
-            dict
         """
 
         # attempt to delete the datastream first, if it exists

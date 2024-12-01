@@ -94,7 +94,10 @@ class GulpWsAuthParameters(BaseModel):
     Parameters for authentication on the websocket
     """
 
-    token: str = Field(..., description="user token. 'monitor' is a special token used to also monitor users login/logout.")
+    token: str = Field(
+        ...,
+        description="user token. 'monitor' is a special token used to also monitor users login/logout.",
+    )
     ws_id: str = Field(..., description="The WebSocket ID.")
     operation_id: Optional[list[str]] = Field(
         None,
@@ -532,6 +535,7 @@ class GulpSharedWsQueue:
 
         if self._shared_q:
             # close first
+            MutyLogger.get_instance().debug("closing shared ws queue ...")
             self.close()
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")

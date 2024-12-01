@@ -52,6 +52,8 @@ class GulpProcess:
             # allow the main process to spawn worker processes
             self.process_pool: AioProcessPool = None
 
+            self._log_level: int = None
+            self._logger_file_path: str = None
             self._main_process = True
 
     @classmethod
@@ -135,7 +137,8 @@ class GulpProcess:
         """
         if self.process_pool:
             MutyLogger.get_instance().debug("closing mp pool...")
-            self.process_pool.close()        
+            self.process_pool.close()
+            await self.process_pool.join()
             self.process_pool.terminate()
             MutyLogger.get_instance().debug("mp pool closed!")
 
@@ -151,7 +154,7 @@ class GulpProcess:
 
         if self.process_pool:
             # close the worker process pool gracefully if it is already running
-            self.close_process_pool()
+            await self.close_process_pool()
 
         spawned_processes = self.mp_manager.Value(int, 0)
         num_workers = GulpConfig.get_instance().parallel_processes_max()
@@ -166,7 +169,7 @@ class GulpProcess:
             processes=num_workers,
             childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
             maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
-            initializer=GulpProcess._worker_initializer,
+            initializer=GulpProcess._worker_initializer,            
             initargs=(
                 spawned_processes,
                 lock,
@@ -202,11 +205,25 @@ class GulpProcess:
         # only in a worker process we're passed the queue by the process pool initializer
         self._main_process = q is None
         if self._main_process:
-            MutyLogger.get_instance().info("initializing main process...")
+            if self._log_level:
+                log_level = self._log_level
+                logger_file_path = self._logger_file_path
+                MutyLogger.get_instance().warning("reinitializing main process...")
+            else:
+                MutyLogger.get_instance().info("initializing main process...")
+                self._log_level = log_level
+                self._logger_file_path = logger_file_path
         else:
-            MutyLogger.get_instance("gulp-worker-%d" % (os.getpid()), logger_file_path=logger_file_path, level=log_level)
-            MutyLogger.get_instance().info("initializing worker process, q=%s ..." % (q))
-
+            # we must initialize mutylogger here
+            MutyLogger.get_instance(
+                "gulp-worker-%d" % (os.getpid()),
+                logger_file_path=logger_file_path,
+                level=log_level,
+            )
+            MutyLogger.get_instance().info(
+                "initializing worker process, q=%s ..." % (q)
+            )
+        
         # sys.path fix is needed to load plugins from the plugins directories correctly
         plugins_path = GulpConfig.get_instance().path_plugins()
         ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
@@ -223,6 +240,8 @@ class GulpProcess:
         GulpConfig.get_instance()
 
         # initializes executors
+        await self.close_coro_pool()
+        await self.close_thread_pool()
         self.coro_pool = AioCoroPool(GulpConfig.get_instance().concurrency_max_tasks())
         self.thread_pool = ThreadPoolExecutor()
 
