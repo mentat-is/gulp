@@ -170,72 +170,54 @@ async def note_update_handler(
     # we cannot have both docs and time_pin set
     if docs and time_pin:
         raise ValueError("docs and time_pin cannot be both set.")
-    async with GulpCollab.get_instance().session() as sess:
-        # get the note by id
-        n: GulpNote = await GulpNote.get_by_id(sess, note_id)
-        
-        # token needs at least edit permission
-        s = await GulpUserSession.check_token(
-            sess, token, [GulpUserPermission.EDIT], obj=n
-        )
-
-        # ensure only one is set
-        if time_pin:
-            n.docs = None
-            n.time_pin = time_pin
-        if docs:
-            n.docs = docs
-            n.time_pin = None
-            
-        if text:
-            n.text = text
-        if name:
-            n.name = name
-        if tags:
-            n.tags = tags
-        if glyph_id:
-            n.glyph_id = glyph_id
-        if color:
-            n.color = color
-        if private is not None:
-            n.private = private
-
-        # ensure note have "docs" or "time_pin" set, not both
-        if self.docs and "time_pin" in d:
-            self.docs = None
-        if self.time_pin and "docs" in d:
-            self.time_pin = None
     try:
-        #
-        if (
-            events is None
-            and text is None
-            and name is None
-            and tags is None
-            and glyph_id is None
-            and color is None
-            and private is None
-        ):
-            raise InvalidArgument(
-                "at least one of event_ids, text, name, glyph_id, tags, color, private must be set."
+        async with GulpCollab.get_instance().session() as sess:
+            # get the note by id
+            n: GulpNote = await GulpNote.get_by_id(sess, note_id, with_for_update=True)
+            
+            # token needs at least edit permission
+            s = await GulpUserSession.check_token(
+                sess, token, [GulpUserPermission.EDIT], obj=n
             )
 
-        o = await GulpCollabObject.update(
-            await collab_api.session(),
-            token,
-            req_id,
-            note_id,
-            ws_id,
-            name=name,
-            txt=text,
-            events=events,
-            glyph_id=glyph_id,
-            tags=tags,
-            data={"color": color} if color is not None else None,
-            type=GulpCollabType.NOTE,
-            private=private,
-        )
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))
+            # ensure only one is set
+            if time_pin:
+                n.docs = None
+                n.time_pin = time_pin
+            if docs:
+                n.docs = docs
+                n.time_pin = None
+
+            # save old text
+            old_text: str = None
+            if text and text != n.text:
+                old_text = n.text
+                n.text = text
+            if name and name != n.name:
+                n.name = name
+            if tags and tags != n.tags:
+                n.tags = tags
+            if glyph_id and glyph_id != n.glyph_id:
+                n.glyph_id = glyph_id
+            if color and color != n.color:
+                n.color = color
+            if private is not None and private != n.private:
+                n.private = private
+
+            # update
+            d = n.to_dict(exclude_none=True)
+            await n.update(
+                sess,
+                d=d,
+                ws_id=ws_id,
+                user_id=s.user_id,
+                req_id=req_id,
+                updated_instance=n,
+                old_text=old_text,
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=d)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 

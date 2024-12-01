@@ -793,7 +793,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             # use updated_instance if provided
             instance = updated_instance
         else:
-            # query with lock
+            # query our instance with lock
             stmt = (
                 select(self.__class__)
                 .filter(self.__class__.id == self.id)
@@ -807,12 +807,12 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             d.pop("id", None)
             for k, v in d.items():
                 # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
-                setattr(self, k, v)
+                setattr(instance, k, v)
 
-            # merge kwargs
-            for k, v in kwargs.items():
-                # MutyLogger.get_instance().debug(f"setattr from kwargs: {k}={v}")
-                setattr(self, k, v)
+        # merge kwargs
+        for k, v in kwargs.items():
+            # MutyLogger.get_instance().debug(f"setattr from kwargs: {k}={v}")
+            setattr(instance, k, v)
 
         # update time
         instance.time_updated = muty.time.now_msec()

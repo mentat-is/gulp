@@ -40,28 +40,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     __table_args__ = (Index("idx_note_operation", "operation_id"),)
 
     @override
-    async def update(
-        self,
-        sess: AsyncSession,
-        d: dict,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        **kwargs,
-    ) -> None:
-        # save old text
-        old_text = self.text
-        await super().update(
-            sess,
-            d,
-            ws_id=ws_id,
-            user_id=user_id,
-            req_id=req_id,
-            old_text=old_text,
-            **kwargs,
-        )
-
-    @override
     @staticmethod
     def build_dict(
         operation_id: str,

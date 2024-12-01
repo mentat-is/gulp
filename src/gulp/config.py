@@ -74,6 +74,18 @@ class GulpConfig:
         p = muty.file.safe_path_join(gulp_config_dir, "gulp_cfg.json")
         return p
 
+    def is_integration_test(self) -> bool:
+        """
+        Returns whether the integration test mode is enabled.
+        """
+        n = os.getenv("GULP_INTEGRATION_TEST", None)
+        if n:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug features disabled!"
+            )
+            
+        return n is not None
+
     @staticmethod
     async def check_copy_mappings_and_plugins_to_custom_directories():
         """
@@ -330,10 +342,7 @@ class GulpConfig:
         n = False
 
         if __debug__:
-            if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-                MutyLogger.get_instance().warning(
-                    "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_no_token_expiration disabled!"
-                )
+            if self.is_integration_test():
                 return False
 
             n = self._config.get("debug_no_token_expiration", False)
@@ -385,10 +394,7 @@ class GulpConfig:
         """
         n = False
         if __debug__:
-            if os.getenv("GULP_INTEGRATION_TEST", None) is not None:
-                MutyLogger.get_instance().warning(
-                    "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_allow_any_token_as_admin disabled!"
-                )
+            if self.is_integration_test():
                 return False
 
             n = self._config.get("debug_allow_any_token_as_admin", False)
@@ -470,10 +476,7 @@ class GulpConfig:
         Returns whether to disable password validation when creating users.
         """
         n = False
-        if os.environ.get("GULP_INTEGRATION_TEST", None) is not None:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug_allow_insecure_passwords disabled!"
-            )
+        if self.is_integration_test():
             return False
 
         if __debug__:

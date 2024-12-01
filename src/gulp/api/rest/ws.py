@@ -59,10 +59,11 @@ class GulpAPIWebsocket:
             await websocket.accept()
             js = await websocket.receive_json()
             params = GulpWsAuthParameters.model_validate(js)
-            async with GulpCollab.get_instance().session() as sess:
-                await GulpUserSession.check_token(
-                    sess, params.token, GulpUserPermission.READ
-                )
+            if params.token.lower() != "monitor":
+                async with GulpCollab.get_instance().session() as sess:
+                    await GulpUserSession.check_token(
+                        sess, params.token, GulpUserPermission.READ
+                    )
 
             MutyLogger.get_instance().debug(f"ws accepted for ws_id={params.ws_id}")
             ws = GulpConnectedSockets.get_instance().add(

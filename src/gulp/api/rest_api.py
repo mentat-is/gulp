@@ -142,7 +142,8 @@ class GulpRestServer:
                 status_code = ex.status_code
             if ex.ex is not None:
                 ex = ex.ex
-        elif isinstance(ex, RequestValidationError):
+        
+        if isinstance(ex, RequestValidationError):
             status_code = 400
             try:
                 # convert to dict

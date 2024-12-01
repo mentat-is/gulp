@@ -103,7 +103,7 @@ class APIDependencies:
         private: Annotated[
             Optional[bool],
             Body(description=api_defs.API_DESC_PRIVATE, example=False),
-        ] = None
+        ] = False
     ) -> bool:
         """
         used with fastapi Depends to provide API parameter
@@ -114,9 +114,7 @@ class APIDependencies:
         Returns:
             bool: The private flag.
         """
-        if private is not None:
-            return private
-        return None
+        return private or False
 
     @staticmethod
     def param_description_optional(

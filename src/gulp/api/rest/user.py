@@ -118,7 +118,7 @@ async def login_handler(
         str, Query(description="password for authentication.", example="admin")
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)]=None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -313,7 +313,7 @@ async def user_delete_handler(
     ServerUtils.dump_params(locals())
     try:
         if user_id == "admin":
-            raise ValueError('user "admin" cannot be deleted!')
+            raise MissingPermission('user "admin" cannot be deleted!')
 
         async with GulpCollab.get_instance().session() as sess:
             # only admin can delete users
@@ -410,6 +410,7 @@ async def user_update_handler(
             from gulp.api.collab.user_session import GulpUserSession
 
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+
             d = {}
             if password:
                 d["password"] = password
@@ -426,7 +427,7 @@ async def user_update_handler(
                     sess, user_id, with_for_update=True
                 )
                 if s.user_id != u.id and not s.user.is_admin():
-                    raise MissingPermission("only admin can update other users.")                
+                    raise MissingPermission("only admin can update other users.")
                 await u.update(sess, d, user_session=s)
             else:
                 # use token user
