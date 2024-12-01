@@ -23,6 +23,11 @@ def _parse_args():
         default="admin",
         help="Test mode - admin or guest user",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset gulp before running tests",
+    )
     return parser.parse_args()
 
 
@@ -94,6 +99,20 @@ class GulpUserTester:
         return (
             await self._make_request("PUT", "logout", params=params, token=token)
             is not None
+        )
+
+    async def reset_gulp(self) -> bool:
+        self.logger.info("Resetting gULP...")
+        """Reset gULP"""
+
+        # logging in as admin
+        params = {"user_id": "admin", "password": "admin", "ws_id": "test_ws"}
+        result = await self._make_request("PUT", "login", params=params)
+        token = result.get("token")
+
+        # reset
+        await self._make_request(
+            "POST", "gulp_reset", params={"index": "test_idx"}, token=token
         )
 
     async def create_user(
@@ -321,6 +340,9 @@ def main():
     tester = GulpUserTester(args.host)
 
     import asyncio
+
+    if args.reset:
+        asyncio.run(tester.reset_gulp())
 
     if args.mode == "admin":
         asyncio.run(tester.run_admin_tests())

@@ -483,6 +483,8 @@ class GulpSharedWsQueue:
     singleton class to manage adding data to the shared websocket queue
     """
 
+    _fill_task: asyncio.Task = None
+
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
 
@@ -538,9 +540,10 @@ class GulpSharedWsQueue:
             MutyLogger.get_instance().debug("closing shared ws queue ...")
             self.close()
 
+
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
         self._shared_q = mgr.Queue()
-        asyncio.create_task(self._fill_ws_queues_from_shared_queue())
+        self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
 
         return self._shared_q
 
@@ -594,8 +597,14 @@ class GulpSharedWsQueue:
             except Exception:
                 pass
 
-        self._shared_q.join()
+        self._shared_q.join()        
         MutyLogger.get_instance().debug("shared queue flush done.")
+
+        # and also kill the task
+        if self._fill_task:
+            b = self._fill_task.cancel()
+            MutyLogger.get_instance().debug("cancelling shared queue fill task done: %r" % (b))
+
 
     def put(
         self,

@@ -166,12 +166,12 @@ async def gulp_reset_handler(
             )
 
         # reset collab
-        # collab = GulpCollab.get_instance()
-        # await collab.init(force_recreate=True)
+        collab = GulpCollab.get_instance()
+        await collab.init(force_recreate=True)
 
         # reset data
-        # await GulpOpenSearch.get_instance().reinit()
-        # await GulpOpenSearch.get_instance().datastream_create(index)
+        await GulpOpenSearch.get_instance().reinit()
+        await GulpOpenSearch.get_instance().datastream_create(index)
 
         # restart the process pool
         await GulpProcess.get_instance().init_gulp_process()
