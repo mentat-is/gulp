@@ -158,7 +158,7 @@ class Plugin(GulpPluginBase):
         stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(sess, id=req_id)
         try:
             # initialize plugin
-            if plugin_params is None:
+            if not plugin_params:
                 plugin_params = GulpPluginParameters()
 
             # initialize plugin

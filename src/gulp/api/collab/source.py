@@ -40,42 +40,4 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
     )
 
     # composite primary key and contraints for operation_id and context_id (a source is unique for each operation and context)
-    __table_args__ = (PrimaryKeyConstraint("operation_id", "context_id", "id"),)
-
-    @classmethod
-    async def create(
-        cls,
-        sess: AsyncSession,
-        user_id: str,
-        operation_id: str,
-        context_id: str,
-        name: str,
-        color: str = None,
-        glyph_id: str = None,
-    ) -> T:
-        """
-        Create a new source object on the collab database.
-
-        Args:
-            sess (AsyncSession): The database session.
-            operation_id (str): The id of the operation associated with the source.
-            user_id (str): The id of the user creating the source.
-            context_id (str): The id of the context associated with the source.
-            name (str, optional): The display name of the source (i.e. log file name/path)
-            color (str, optional): The color of the context. Defaults to purple.
-            glyph (str, optional): The id of the glyph associated with the context. Defaults to None.
-        Returns:
-            T: The created context object
-        """
-        object_data = {
-            "operation_id": operation_id,
-            "context_id": context_id,
-            "name": name,
-            "color": color or "purple",
-            "glyph_id": glyph_id,
-        }
-        return await super()._create(
-            sess,
-            object_data,
-            owner_id=user_id,
-        )
+    # __table_args__ = (PrimaryKeyConstraint("operation_id", "context_id", "id"),)

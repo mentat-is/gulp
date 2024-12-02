@@ -89,7 +89,9 @@ async def note_create_handler(
     private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params["docs"] = "%d documents" % (len(docs) if docs else 0)
+    ServerUtils.dump_params(params)
     try:
         if docs and time_pin:
             raise ValueError("docs and time_pin cannot be both set.")
@@ -109,8 +111,7 @@ async def note_create_handler(
             time_pin=time_pin,
             text=text,
         )
-        d = await GulpCollabObject.create(
-            GulpNote,
+        d = await GulpNote.create(
             token,
             ws_id=ws_id,
             req_id=req_id,
@@ -144,7 +145,7 @@ async def note_create_handler(
 )
 async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    note_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     docs: Annotated[
         list[GulpBasicDocument],
@@ -166,29 +167,47 @@ async def note_update_handler(
     private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params["docs"] = "%d documents" % (len(docs) if docs else 0)
+    ServerUtils.dump_params(params)
+
     # we cannot have both docs and time_pin set
     if docs and time_pin:
         raise ValueError("docs and time_pin cannot be both set.")
     try:
         prev_text = None
+        prev_editor_id = None
+        prev_edit_time = None
+        previous_edits: list[dict] = []
         async with GulpCollab.get_instance().session() as sess:
-            # get the previous text of the note first
-            n: GulpNote = await GulpNote.get_by_id(sess, note_id, with_for_update=True)
+            # get previous note text and edits
+            n: GulpNote = await GulpNote.get_by_id(
+                sess, object_id, with_for_update=True
+            )
             prev_text: str = n.text
+            prev_editor_id: str = n.last_editor_id or n.owner_user_id
+            prev_edit_time: int = n.time_updated
+            previous_edits: list[dict] = n.previous
 
         # ensure only one in time_pin and docs is set
+        d = {}
         if time_pin:
             d["docs"] = None
             d["time_pin"] = time_pin
-        else:
+        if docs:
             d["docs"] = [
-                doc.model_dump(exclude_none=True, exclude_defaults=True) for doc in docs
+                doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True) for doc in docs
             ]
-            d["time_pin"] = None
+            d["time_pin"] = 0
         if text:
             # also save previous text
-            d["previous_text"] = prev_text
+            previous_edits.append(
+                {
+                    "editor_id": prev_editor_id,
+                    "edit_time": prev_edit_time,
+                    "text": prev_text,
+                }
+            )
             d["text"] = text
 
         d["name"] = name
@@ -196,10 +215,10 @@ async def note_update_handler(
         d["glyph_id"] = glyph_id
         d["color"] = color
         d["private"] = private
-        d = await GulpCollabObject.update_by_id(
-            GulpNote,
+        d["previous"] = previous_edits
+        d = await GulpNote.update_by_id(
             token,
-            note_id,
+            object_id,
             ws_id=ws_id,
             req_id=req_id,
             d=d,
@@ -232,20 +251,19 @@ async def note_update_handler(
 )
 async def note_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    note_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        await GulpCollabObject.delete_by_id(
-            GulpNote,
+        await GulpNote.delete_by_id(
             token,
-            note_id,
+            object_id,
             ws_id=ws_id,
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": note_id})
+        return JSendResponse.success(req_id=req_id, data={"id": object_id})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -273,16 +291,14 @@ async def note_delete_handler(
 )
 async def note_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    note_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpCollabObject.get_by_id(
-            GulpNote,
+        d = await GulpNote.get_by_id_wrapper(
             token,
-            note_id,
-            req_id=req_id,
+            object_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
@@ -320,13 +336,13 @@ async def note_list_handler(
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
+    ServerUtils.dump_params(params)
     try:
-        d = await GulpCollabObject.get_by_filter(
-            GulpNote,
+        d = await GulpNote.get_by_filter_wrapper(
             token,
             flt,
-            req_id=req_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:

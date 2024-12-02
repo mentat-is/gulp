@@ -123,6 +123,10 @@ class GulpDocumentsChunk(BaseModel):
         ...,
         description="the documents in a query or ingestion chunk.",
     )
+    num_docs: int = Field(
+        ...,
+        description="the number of documents in this chunk.",
+    )
     chunk_number: Optional[int] = Field(
         0,
         description="the chunk number (may not be available)",

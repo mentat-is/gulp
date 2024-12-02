@@ -22,11 +22,11 @@ class Plugin(GulpPluginBase):
     {
         "metadata": {
             # mandatory, with a format supported by gulp
-            "timestamp": "2021-01-01T00:00:00Z"
+            "@timestamp": "2021-01-01T00:00:00Z"
             # mandatory, the raw event as string
-            "event_original": "raw event content",
+            "event.original": "raw event content",
             # optional, will be set to 0 if missing
-            "event_code": "something"
+            "event.code": "something"
         },
         "doc" {
             # the document as key/value pairs, will be ingested according to plugin_params.ignore_mapping:
@@ -64,7 +64,6 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: GulpRawDocument, record_idx: int
     ) -> GulpDocument:
-        rec = GulpRawDocumentMetadata
         # get mandatory fields from metadata (metadata and the doc dictionary itself)
         metadata: GulpRawDocumentMetadata = record.metadata
         doc: dict = record.doc

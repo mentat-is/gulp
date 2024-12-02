@@ -13,6 +13,7 @@ from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, GulpRequestStatus, T
 from gulp.api.ws_api import GulpWsQueueDataType
 from gulp.config import GulpConfig
+from gulp.api.collab.context import GulpContext
 
 
 class RequestCanceledError(Exception):
@@ -152,7 +153,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         object_data = {
             "time_expire": time_expire,
             "operation_id": operation_id,
-            "context_id": context_id,
+            "context_id": GulpContext.make_context_id_key(operation_id, context_id),
             "source_total": source_total,
         }
         return await super()._create(
@@ -217,7 +218,16 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
         Args:
             sess (AsyncSession): The database session to use.
-            d (dict): The dictionary of values to update.
+            d (dict): The dictionary of values to update:
+                source_processed (int): The number of sources processed.
+                source_failed (int): The number of sources that failed.
+                records_failed (int): The number of records that failed.
+                records_skipped (int): The number of records that were skipped.
+                records_processed (int): The number of records that were processed.
+                records_ingested (int): The number of records that were ingested.
+                error (str|Exception|list[str]): The error message or exception that occurred.
+                status (GulpRequestStatus): The status of the stats.
+
             ws_id (str): The websocket ID.
             user_id (str): The user ID updating the stats.
             kwargs: Additional keyword arguments.
@@ -230,10 +240,9 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             GulpRequestStatus.FAILED,
         ]:
             # already processed, nothing to do
-            MutyLogger.get_instance().warning(
-                "request already set to %s, nothing to do" % (self.status)
-            )
-            return self
+            # MutyLogger.get_instance().warning("request already set to %s, nothing to do" % (self.status))
+            raise RequestCanceledError()
+            # return self
 
         # refresh stats from db first, use advisory lock here which is more
         # efficient than row-level lock with with_for_update

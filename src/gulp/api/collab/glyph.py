@@ -41,7 +41,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
         Args:
             sess (AsyncSession): The database session.
             user_id (str): The ID of the user creating the object.
-            img (bytes | str): The image data of the glyph as binary blob or file path.
+            img (bytes | str): The image data of the glyph as binary blob, or the image file path.
             name (str): The display name for the glyph.
             **kwargs: Arbitrary keyword arguments.
 
@@ -68,6 +68,6 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
         Returns:
             dict: A dictionary representation of the object, including base64 encoded "img".
         """
-        d = super().to_dict(**kwargs, exclude_none=True)
+        d = super().to_dict(**kwargs)
         d["img"] = base64.b64encode(self.img).decode()
         return d

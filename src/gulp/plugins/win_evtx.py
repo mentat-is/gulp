@@ -191,7 +191,7 @@ class Plugin(GulpPluginBase):
         )
         try:
             # initialize plugin
-            if not plugin_params:
+            if not plugin_params or plugin_params.is_empty():
                 plugin_params = GulpPluginParameters(mapping_file="windows.json")
             await self._initialize(plugin_params)
 

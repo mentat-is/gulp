@@ -148,7 +148,7 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw: dict, args
     if raw:
         # raw request
         url = f"{base_url}/ingest_raw"
-        params = f"operation_id={args.operation}&context_id={args.context}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}"
+        params = f"plugin=raw&operation_id={args.operation}&context_id={args.context}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}"
         command.extend(
             [
                 "-H",
@@ -216,14 +216,6 @@ def _run_tests(args):
         # wait for all processes to finish
         pool.close()
         pool.join()
-
-    # connect to the websocket
-    MutyLogger.get_instance().info("connecting to the websocket...")
-    command = [
-        "curl",
-        "-v",
-        f"http://{args.host}/ws?token={args.token}&ws_id={args.ws_id}",
-    ]
 
 
 def main():

@@ -35,13 +35,23 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         BIGINT,
         doc="To pin the note to a specific time, in nanoseconds from the unix epoch.",
     )
+    last_editor_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"),
+        doc="The ID of the last user who edited the note.",
+    )
     text: Mapped[Optional[str]] = mapped_column(String, doc="The text of the note.")
 
+    previous: Mapped[Optional[list[dict]]] = mapped_column(
+        JSONB,
+        doc="The previous edits made to the note.",
+        default_factory=list,
+    )
     __table_args__ = (Index("idx_note_operation", "operation_id"),)
 
     @override
-    @staticmethod
+    @classmethod
     def build_dict(
+        cls,
         operation_id: str,
         context_id: str,
         source_id: str,
@@ -94,6 +104,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             docs=docs,
             time_pin=time_pin,
             text=text,
+            previous=[],
         )
 
     @staticmethod
@@ -154,7 +165,9 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 color=color,
                 name=name,
                 docs=[associated_doc],
+                editor_id=user_id,
             )
+
             note_dict = GulpCollabBase.build_object_dict(
                 object_data=object_data,
                 type=GulpCollabType.NOTE,

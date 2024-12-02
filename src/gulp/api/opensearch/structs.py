@@ -14,6 +14,7 @@ import gulp.api.rest.defs as api_defs
 
 T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
+
 class GulpBasicDocument(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -21,22 +22,17 @@ class GulpBasicDocument(BaseModel):
         populate_by_name=True,
     )
 
-    """
-    a stripped down basic version of a Gulp document, used to associate documents with a note/link
-    """
-
-    id: Optional[str] = Field(
-        None, description='"_id": the unique identifier of the document.', alias="_id",
-        example="1234567890abcdef1234567890abcdef"
+    id: str = Field(
+        description='"_id": the unique identifier of the document.',
+        alias="_id",
+        example="1234567890abcdef1234567890abcdef",
     )
-    timestamp: Optional[str] = Field(
-        None,
+    timestamp: str = Field(
         description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
         example="2021-01-01T00:00:00Z",
     )
-    gulp_timestamp: Optional[int] = Field(
-        None,
+    gulp_timestamp: int = Field(
         description='"@timestamp": document timestamp in nanoseconds from unix epoch',
         alias="gulp.timestamp",
         example=1609459200000000000,
@@ -47,29 +43,28 @@ class GulpBasicDocument(BaseModel):
         alias="gulp.timestamp_invalid",
         example=False,
     )
-    operation_id: Optional[str] = Field(
-        None,
+    operation_id: str = Field(
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
-        example=api_defs.EXAMPLE_OPERATION_ID
+        example=api_defs.EXAMPLE_OPERATION_ID,
     )
-    context_id: Optional[str] = Field(
-        None,
+    context_id: str = Field(
         description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
         example=api_defs.EXAMPLE_CONTEXT_ID,
     )
-    source_id: Optional[str] = Field(
-        None,
+    source_id: str = Field(
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
         example=api_defs.EXAMPLE_SOURCE_ID,
     )
 
+
 class GulpDocument(GulpBasicDocument):
     """
     represents a Gulp document.
     """
+
     log_file_path: Optional[str] = Field(
         None,
         description='"log.file.path": the original log file name or path.',
@@ -117,7 +112,7 @@ class GulpDocument(GulpBasicDocument):
     @classmethod
     def model_json_schema(cls, *args, **kwargs):
         return autogenerate_model_example(cls, *args, **kwargs)
-    
+
     @staticmethod
     def ensure_timestamp(
         timestamp: str,
@@ -186,82 +181,81 @@ class GulpDocument(GulpBasicDocument):
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
             log_file_path (str, optional): The source log file path. Defaults to None.
-            
+
             **kwargs: Additional keyword arguments to be added as attributes.
                 - ignore_default_event_code (bool, optional): If True, do not use the default event code from the mapping. Defaults to False.
 
             Returns:
             None
         """
-
-        super().__init__()
-
         # replace alias keys in kwargs with their corresponding field names
         # (i.e. "event.code" -> "event_code")
         # this is needed to i.e. augment already existing documents
+
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
         mapping: GulpMapping = plugin_instance.selected_mapping()
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
-        
-        self.operation_id = operation_id
-        self.context_id = context_id
-        if mapping and mapping.agent_type:
-            # force agent type from mapping
-            self.agent_type = mapping.agent_type
-        else:
-            # default to plugin name
-            self.agent_type = plugin_instance.bare_filename
-        self.event_original = event_original
-        self.event_sequence = event_sequence
-        if mapping and mapping.event_code and not ignore_default_event_code:
-            # force event code from mapping
-            # MutyLogger.get_instance().debug('mapping.event_code = %s' % mapping.event_code)
-            self.event_code = mapping.event_code
-        else:
-            self.event_code = event_code
-        self.event_duration = event_duration
-        self.source_id = source_id
-        self.log_file_path = log_file_path
-        # add each kwargs as an attribute as-is (may contain event.code, @timestamp, and other fields previously set above, they will be overwritten)
-        # @timestamp may have been mapped and already checked for validity in plugin._process_key()
-        # if so, we will find it in the kwargs
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-        
-        # MutyLogger.get_instance().debug('doc event_code = %s, passed=%s' % (self.event_code, event_code))    
-        if not self.timestamp:
-            # use argument, timestamp has been directly passed by the plugin
-            self.timestamp = timestamp
 
-        # finally check if it's valid
-        self.timestamp, self.gulp_timestamp, invalid = GulpDocument.ensure_timestamp(
-            timestamp,
-            dayfirst=mapping.timestamp_dayfirst,
-            yearfirst=mapping.timestamp_yearfirst,
-            fuzzy=mapping.timestamp_fuzzy,
+        # Build initial data dict
+        data = {
+            "operation_id": operation_id,
+            "context_id": context_id,
+            # force agent type from mapping or default to plugin name
+            "agent_type": (
+                mapping.agent_type
+                if mapping and mapping.agent_type
+                else plugin_instance.bare_filename
+            ),
+            "event_original": event_original,
+            "event_sequence": event_sequence,
+            # force event code from mapping or default to event_code
+            "event_code": (
+                mapping.event_code
+                if mapping and mapping.event_code and not ignore_default_event_code
+                else event_code
+            ),
+            "event_duration": event_duration,
+            "source_id": source_id,
+            "log_file_path": log_file_path,
+            # add each kwargs as an attribute as-is (may contain event.code, @timestamp, and other fields previously set above, they will be overwritten)
+            # @timestamp may have been mapped and already checked for validity in plugin._process_key()
+            # if so, we will find it here...
+        }
+        data.update(kwargs)
+
+        # handle timestamp
+        if "timestamp" not in data:
+            # use timestamp from argument
+            data["timestamp"] = timestamp
+
+        # ensure timestamp is valid
+        ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
+            data["timestamp"],
+            dayfirst=mapping.timestamp_dayfirst if mapping else None,
+            yearfirst=mapping.timestamp_yearfirst if mapping else None,
+            fuzzy=mapping.timestamp_fuzzy if mapping else None,
         )
-        if invalid:
-            # invalid timestamp
-            self.invalid_timestamp = True
+        data["timestamp"] = ts
+        data["gulp_timestamp"] = ts_nanos
+        data["invalid_timestamp"] = invalid
 
         # add gulp_event_code (event code as a number)
-        self.gulp_event_code = (
-            int(self.event_code)
-            if self.event_code.isnumeric()
-            else muty.crypto.hash_xxh64_int(self.event_code)
+        data["gulp_event_code"] = (
+            int(data["event_code"])
+            if data["event_code"].isnumeric()
+            else muty.crypto.hash_xxh64_int(data["event_code"])
         )
 
         # id is a hash of the document
-        self.id = muty.crypto.hash_xxh128(
-            f"{self.event_original}{self.event_code}{self.event_sequence}"
+        data["id"] = muty.crypto.hash_xxh128(
+            f"{data['event_original']}{data['event_code']}{data['event_sequence']}"
         )
 
-        # finally check for consistency
-        GulpDocument.model_validate(self)
-        # MutyLogger.get_instance().debug(self.model_dump(by_alias=True, exclude='event_original'))
+        # initialize with complete data (and validate)
+        super().__init__(**data)
 
-    # def __repr__(self) -> str:
-    #    return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation_id={self.operation_id}, context_id={self.context_id}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, source_id={self.source_id}"
+    def __repr__(self) -> str:
+        return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation_id={self.operation_id}, context_id={self.context_id}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, source_id={self.source_id}"
 
     @override
     def model_dump(
@@ -310,7 +304,7 @@ class GulpDocumentFieldAliasHelper:
             dict: The fixed keyword arguments.
         """
         if not GulpDocumentFieldAliasHelper._alias_to_field_cache:
-            # initialize
+            # initialize on first call
             GulpDocumentFieldAliasHelper._alias_to_field_cache = {
                 field.alias: name
                 for name, field in GulpDocument.model_fields.items()
@@ -321,10 +315,12 @@ class GulpDocumentFieldAliasHelper:
             for k, v in kwargs.items()
         }
 
+
 class GulpRawDocumentMetadata(BaseModel):
     """
     metadata for a GulpRawDocument
     """
+
     model_config = ConfigDict(
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
@@ -334,28 +330,29 @@ class GulpRawDocumentMetadata(BaseModel):
         ...,
         description="the document timestamp, in iso8601 format.",
         example="2021-01-01T00:00:00Z",
-        alias="@timestamp"
+        alias="@timestamp",
     )
     event_original: str = Field(
         ...,
         description="the original event as text.",
         example="raw event content",
-        alias="event.original"
+        alias="event.original",
     )
     event_code: Optional[str] = Field(
         "0",
         description="the event code, defaults to '0'.",
         example="1234",
-        alias="event.code"
-    )   
-    
-class GulpRawDocument(BaseModel):    
+        alias="event.code",
+    )
+
+
+class GulpRawDocument(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
     )
-    
+
     metadata: GulpRawDocumentMetadata = Field(
         ...,
         description="the document metadata.",
@@ -365,8 +362,8 @@ class GulpRawDocument(BaseModel):
         ...,
         description="the document as key/value pairs, to generate the `GulpDocument` with.",
     )
+
     @override
     @classmethod
     def model_json_schema(cls, *args, **kwargs):
         return autogenerate_model_example(cls, *args, **kwargs)
-    

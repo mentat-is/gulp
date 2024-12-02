@@ -16,6 +16,7 @@ from sqlalchemy import (
     Select,
     String,
     Tuple,
+    and_,
     func,
     insert,
     inspect,
@@ -117,6 +118,15 @@ class GulpCollabType(StrEnum):
     SOURCE = "source"
     USER_GROUP = "user_group"
 
+    def __str__(self) -> str:
+        return self.value
+
+    def __repr__(self) -> str:
+        return f"'{str(self)}'"
+
+    def __json__(self) -> str:
+        return str(self)
+
 
 T = TypeVar("T", bound="GulpCollabBase")
 
@@ -165,10 +175,10 @@ class GulpCollabFilter(BaseModel):
     )
     doc_ids: Optional[list[str]] = Field(
         None,
-        description="filter by the given document ID/s in a CollabObj.docs list of GulpBasicDocument.",
+        description="filter by the given document ID/s in a CollabObject.docs list of GulpBasicDocument.",
         example=["18b6332595d82048e31963e6960031a1"],
     )
-    time_range: Optional[tuple[int, int]] = Field(
+    doc_time_range: Optional[tuple[int, int]] = Field(
         None,
         example=(1620000000000000000, 1620000000000000001),
         description="if set, a `gulp.timestamp` range [start, end] relative to CollabObject.docs, inclusive, in nanoseconds from unix epoch.",
@@ -270,38 +280,37 @@ class GulpCollabFilter(BaseModel):
                     q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
 
         if self.doc_ids and "docs" in type.columns:
-            if not self.time_range:
-                # filter by collabobj.docs _id
-                lower_documents = [{"_id": doc_id.lower()} for doc_id in self.doc_ids]
-                conditions = [
-                    func.lower(type.documents).op("@>")([{"_id": doc_id}])
-                    for doc_id in lower_documents
-                ]
+            if not self.doc_time_range:
+                # filter by collabobj.docs _id using standard JSONB operators
+                conditions = []
+                for doc_id in self.doc_ids:
+                    # Check if any document in the array has _id matching doc_id
+                    # Using -> to navigate JSONB array and ->> to extract text
+                    conditions.append(
+                        text("""EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(docs) AS doc 
+                            WHERE doc->>'_id' = :doc_id
+                        )""").bindparams(doc_id=doc_id.lower())
+                    )
                 q = q.filter(or_(*conditions))
             else:
                 # filter by time range on collabobj.docs gulp.timestamp
                 conditions = []
-                if self.time_range[0]:
+                if self.doc_time_range[0]:
                     conditions.append(
-                        f"(doc->>'gulp.timestamp')::bigint >= {self.time_range[0]}"
+                        text("""EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(docs) AS doc 
+                            WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) >= :start_time
+                        )""").bindparams(start_time=self.doc_time_range[0])
                     )
-                if self.time_range[1]:
+                if self.doc_time_range[1]:
                     conditions.append(
-                        f"(doc->>'gulp.timestamp')::bigint <= {self.time_range[1]}"
+                        text("""EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(docs) AS doc 
+                            WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) <= :end_time
+                        )""").bindparams(end_time=self.doc_time_range[1])
                     )
-
-                # use a raw query to filter for the above conditions
-                table_name = type.__tablename__
-                condition_str = " AND ".join(conditions)
-                raw_sql = f"""
-                EXISTS (
-                    SELECT 1
-                    FROM jsonb_array_elements({table_name}.documents) AS doc
-                    WHERE {condition_str}
-                )
-                """
-                q = q.filter(text(raw_sql))
-
+                q = q.filter(and_(*conditions))
         if self.limit:
             q = q.limit(self.limit)
         if self.offset:
@@ -586,7 +595,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         result = await sess.execute(stmt)
         instance: GulpCollabBase = result.scalar_one()
-        instance_dict = instance.to_dict(nested=True)
+        instance_dict = instance.to_dict(nested=True, exclude_none=True)
         await sess.commit()
 
         if ws_id:
@@ -817,7 +826,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
         # update time
         instance.time_updated = muty.time.now_msec()
-        updated_dict = instance.to_dict(nested=True)
+        updated_dict = instance.to_dict(nested=True, exclude_none=True)
 
         # commit
         await sess.commit()
@@ -849,6 +858,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         id: str,
         throw_if_not_found: bool = True,
         with_for_update: bool = False,
+        recursive: bool = False,
     ) -> T:
         """
         Asynchronously retrieves an object of the class type with the specified ID.
@@ -858,22 +868,22 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             id (str): The ID of the object to retrieve.
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
         Returns:
             T: The object with the specified ID or None if not found.
         Raises:
             ObjectNotFound: If the object with the specified ID is not found.
         """
-        stmt = (
-            select(cls)
-            .options(*cls._build_relationship_loading_options())
-            .filter(cls.id == id)
-        )
+        loading_options = cls._build_relationship_loading_options(recursive=recursive)
+
+        stmt = select(cls).options(*loading_options).filter(cls.id == id)
         if with_for_update:
             stmt = stmt.with_for_update()
         res = await sess.execute(stmt)
         c = res.scalar_one_or_none()
         if not c and throw_if_not_found:
             raise ObjectNotFound(f'{cls.__name__} with id "{id}" not found')
+
         return c
 
     @classmethod
@@ -1075,15 +1085,17 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         super().__init__(*args, **kwargs)
         MutyLogger.get_instance().debug("---> GulpCollabObject: " % (*args, kwargs))
 
-    @staticmethod
-    async def get_by_id(objclass: T, token: str, id: str) -> dict:
+    @classmethod
+    async def get_by_id_wrapper(
+        cls, token: str, id: str, with_for_update: bool = False
+    ) -> dict:
         """
-        helper to get an object by ID
+        helper to get an object by ID, handling session
 
         Args:
-            objclass (T): The class of the object to get.
             token (str): The user token.
             id (str): The ID of the object to get.
+            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
 
         Returns:
             dict: The object as a dictionary
@@ -1093,26 +1105,27 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             ObjectNotFound: If the object is not found.
         """
         from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user import GulpUserSession
+        from gulp.api.collab.user_session import GulpUserSession
 
         async with GulpCollab.get_instance().session() as sess:
-            n: objclass = await objclass.get_by_id(sess, id)
+            n: GulpCollabBase = await super().get_by_id(
+                sess, id, with_for_update=with_for_update
+            )
 
             # token needs at least read permission (or be the owner)
             await GulpUserSession.check_token(
                 sess, token, [GulpUserPermission.READ], obj=n
             )
-            return n.to_dict(exclude_None=True)
+            return n.to_dict(exclude_none=True)
 
-    @staticmethod
-    async def get_by_filter(
-        objclass: T, token: str, flt: GulpCollabFilter
+    @classmethod
+    async def get_by_filter_wrapper(
+        cls, token: str, flt: GulpCollabFilter
     ) -> list[dict]:
         """
-        helper to get objects by filter
+        helper to get objects by filter, handling session
 
         Args:
-            objclass (T): The class of the object to get.
             token (str): The user token.
             flt (GulpCollabFilter): The filter to apply to the query.
 
@@ -1120,31 +1133,30 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             list[dict]: The list of object dictionaries that match the filter criteria.
         """
         from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user import GulpUserSession
+        from gulp.api.collab.user_session import GulpUserSession
 
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
             s = await GulpUserSession.check_token(
                 sess, token, [GulpUserPermission.READ]
             )
-            objs = await objclass.get_by_filter(sess, flt)
+            objs = await super().get_by_filter(sess, flt)
             data = []
             for o in objs:
+                o: GulpCollabBase
                 # perform access checks on the object
                 if s.user.check_object_access(o):
-                    data.append(o.to_dict())
+                    data.append(o.to_dict(exclude_none=True))
 
+            print(data)
             return data
 
-    @staticmethod
-    async def delete_by_id(
-        objclass: T, token: str, id: str, ws_id: str, req_id: str
-    ) -> None:
+    @classmethod
+    async def delete_by_id(cls, token: str, id: str, ws_id: str, req_id: str) -> None:
         """
-        helper to delete an object by ID
+        helper to delete an object by ID, handling session
 
         Args:
-            objclass (T): The class of the object to delete.
             token (str): The user token.
             id (str): The ID of the object to delete.
             ws_id (str): The websocket ID.
@@ -1155,10 +1167,10 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             ObjectNotFoundError: If the object is not found.
         """
         from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user import GulpUserSession
+        from gulp.api.collab.user_session import GulpUserSession
 
         async with GulpCollab.get_instance().session() as sess:
-            n: T = await objclass.get_by_id(sess, id, with_for_update=True)
+            n: T = await super().get_by_id(sess, id, with_for_update=True)
 
             # token needs at least delete permission (or be the owner)
             s = await GulpUserSession.check_token(
@@ -1168,9 +1180,9 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             # delete
             await n.delete(sess, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
 
-    @staticmethod
+    @classmethod
     async def update_by_id(
-        objclass: T,
+        cls,
         token: str,
         id: str,
         ws_id: str,
@@ -1180,10 +1192,9 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         **kwargs,
     ) -> dict:
         """
-        helper to update an object by ID
+        helper to update an object by ID, handling session
 
         Args:
-            objclass (T): The class of the object to update.
             token (str): The user token.
             id (str): The ID of the object to update.
             ws_id (str): The websocket ID.
@@ -1200,13 +1211,13 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             MissingPermissionError: If the user does not have permission to update the object.
         """
         from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user import GulpUserSession
+        from gulp.api.collab.user_session import GulpUserSession
 
         async with GulpCollab.get_instance().session() as sess:
             if d and updated_instance:
                 raise ValueError("only one of d or updated_instance should be provided")
 
-            n: T = await objclass.get_by_id(sess, id, with_for_update=True)
+            n: GulpCollabBase = await super().get_by_id(sess, id, with_for_update=True)
 
             # token needs at least edit permission (or be the owner)
             s = await GulpUserSession.check_token(
@@ -1221,17 +1232,16 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
                 updated_instance=updated_instance,
                 **kwargs,
             )
-            return n.to_dict(exclude_None=True)
+            return n.to_dict(exclude_none=True)
 
-    @staticmethod
+    @classmethod
     async def create(
-        objclass: T, token: str, ws_id: str, req_id: str, object_data: dict
+        cls, token: str, ws_id: str, req_id: str, object_data: dict
     ) -> dict:
         """
-        helper to create a new object
+        helper to create a new object, handling session
 
         Args:
-            objclass (T): The class of the object to create.
             token (str): The user token.
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
@@ -1244,7 +1254,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             MissingPermissionError: If the user does not have permission to create the object.
         """
         from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user import GulpUserSession
+        from gulp.api.collab.user_session import GulpUserSession
 
         async with GulpCollab.get_instance().session() as sess:
 
@@ -1252,8 +1262,7 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             s = await GulpUserSession.check_token(
                 sess, token, [GulpUserPermission.EDIT]
             )
-
-            n: objclass = await objclass.create(
+            n: GulpCollabBase = await super()._create(
                 sess, object_data, owner_id=s.user_id, ws_id=ws_id, req_id=req_id
             )
-            return n.to_dict(exclude_None=True)
+            return n.to_dict(exclude_none=True)

@@ -54,7 +54,7 @@ class GulpIngestPayload(GulpBaseIngestPayload):
     model_config = ConfigDict(extra="allow")
 
     plugin_params: Optional[GulpPluginParameters] = Field(
-        GulpPluginParameters(), description="The plugin parameters."
+        None, description="The plugin parameters."
     )
     original_file_path: Optional[str] = Field(
         None, description="The original file path."
@@ -415,7 +415,7 @@ async def ingest_file_handler(
 
         # ensure payload is valid
         payload = GulpIngestPayload.model_validate(payload)
-
+        
         async with GulpCollab.get_instance().session() as sess:
             # check permission and get user id
             s = await GulpUserSession.check_token(
@@ -615,7 +615,12 @@ async def ingest_raw_handler(
     ] = None,
 ) -> JSONResponse:
     # TODO: consider removing stats from raw ingestion...
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params["chunk"] = [d.model_dump(exclude_none=True) for d in chunk]
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+
+    ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id

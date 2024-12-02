@@ -20,6 +20,10 @@ from gulp.api.collab.structs import GulpCollabBase
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
+TEST_CONTEXT_ID = "b0f0a84b3cc88bbc38ac1eb4fbdd89ee"
+TEST_SOURCE_ID = "a1c2709be232a1302d095af1e73014e7"
+TEST_OPERATION_ID = "test_operation"
+
 
 class GulpCollab:
     """
@@ -384,17 +388,19 @@ class GulpCollab:
             operation: GulpOperation = await GulpOperation.create(
                 sess,
                 user_id=admin_user.id,
-                name="test operation",
+                name="test_operation",
                 index="test_idx",
                 glyph_id=operation_glyph.id,
             )
 
             # add sources to context and context to operation
+            # test_context_id: b0f0a84b3cc88bbc38ac1eb4fbdd89ee
             ctx = await operation.add_context(
                 sess, user_id=admin_user.id, context_id="test_context"
             )
-            await ctx.add_source(sess, admin_user.id, "test source 1")
-            await ctx.add_source(sess, admin_user.id, "test source 2")
+            # test_source_id: a1c2709be232a1302d095af1e73014e7
+            await ctx.add_source(sess, admin_user.id, "test_source")
+            await ctx.add_source(sess, admin_user.id, "test_source_2")
 
             operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
             for op in operations:

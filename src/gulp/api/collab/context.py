@@ -48,7 +48,21 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     )
 
     # composite primary key
-    __table_args__ = (PrimaryKeyConstraint("operation_id", "id"),)
+    # __table_args__ = (PrimaryKeyConstraint("operation_id", "id"),)
+
+    @staticmethod
+    def make_context_id_key(operation_id: str, context_id: str) -> str:
+        """
+        Make a key for the context_id.
+
+        Args:
+            operation_id (str): The operation id.
+            context_id (str): The context id.
+
+        Returns:
+            str: The key.
+        """
+        return muty.crypto.hash_xxh128("%s%s" % (operation_id, context_id))
 
     async def add_source(
         self,
@@ -90,13 +104,19 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             )
             return src
 
-        # create new source
-        src = await GulpSource.create(
+        # create new source and link it to context
+        object_data = {
+            "operation_id": self.operation_id,
+            "context_id": self.id,
+            "name": name,
+            "color": "purple",
+        }
+        src_id = muty.crypto.hash_xxh128("%s%s%s" % (self.operation_id, self.id, name))
+        src = await GulpSource._create(
             sess,
-            user_id=user_id,
-            operation_id=self.operation_id,
-            context_id=self.id,
-            name=name,
+            object_data,
+            id=src_id,
+            owner_id=user_id,
         )
         await sess.refresh(self)
 
@@ -104,40 +124,3 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             f"source {src.id}, name={name} added to context {self.id}."
         )
         return src
-
-    @classmethod
-    async def create(
-        cls,
-        sess: AsyncSession,
-        user_id: str,
-        operation_id: str,
-        name: str,
-        color: str = None,
-        glyph_id: str = None,
-    ) -> T:
-        """
-        Create a new context object on the collab database.
-
-        Args:
-            sess (AsyncSession): The database session to use.
-            user_id (str): The id of the user creating the context.
-            operation_id (str): The id of the operation associated with the context.
-            name (str, optional): The display name of the context.
-            color (str, optional): The color of the context. Defaults to white.
-            glyph_id (str, optional): The id of the glyph associated with the context. Defaults to None.
-            **kwargs: Arbitrary keyword arguments.
-        Returns:
-            T: The created context object
-        """
-        object_data = {
-            "operation_id": operation_id,
-            "name": name,
-            "color": color or "white",
-            "glyph_id": glyph_id,
-        }
-        return await super()._create(
-            sess,
-            object_data,
-            id=muty.string.ensure_no_space_no_special(name),
-            owner_id=user_id,
-        )

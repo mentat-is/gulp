@@ -75,8 +75,9 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         )
 
         # check if context exists
+        id = GulpContext.make_context_id_key(self.id, context_id)
         ctx: GulpContext = await GulpContext.get_by_id(
-            sess, id=context_id, throw_if_not_found=False
+            sess, id=id, throw_if_not_found=False
         )
         if ctx:
             MutyLogger.get_instance().info(
@@ -85,11 +86,16 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             return ctx
 
         # create new context and link it to operation
-        ctx = await GulpContext.create(
+        object_data = {
+            "operation_id": self.id,
+            "name": context_id,
+            "color": "white",
+        }
+        ctx = await GulpContext._create(
             sess,
-            user_id,
-            operation_id=self.id,
-            name=context_id,
+            object_data,
+            id=id,
+            owner_id=user_id,
         )
         await sess.refresh(self)
         MutyLogger.get_instance().info(

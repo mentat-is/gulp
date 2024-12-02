@@ -1096,6 +1096,7 @@ class GulpOpenSearch:
             # build a GulpDocumentsChunk and send to websocket
             chunk = GulpDocumentsChunk(
                 docs=docs,
+                num_docs=len(docs),
                 chunk_number=chunk_num,
                 total_hits=total_hits,
                 last=last,

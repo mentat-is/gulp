@@ -3,9 +3,9 @@ from typing import TYPE_CHECKING, Optional
 import muty.string
 import muty.time
 from muty.log import MutyLogger
-from sqlalchemy import BIGINT, ForeignKey
+from sqlalchemy import BIGINT, ForeignKey, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload, joinedload
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
@@ -36,6 +36,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         "GulpUser",
         foreign_keys=[user_id],
         uselist=False,
+        lazy="joined",
     )
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -123,7 +124,6 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         if GulpConfig.get_instance().debug_allow_any_token_as_admin():
             return await GulpUserSession._get_admin_session(sess)
 
-        # get session
         try:
             user_session: GulpUserSession = await GulpUserSession.get_by_id(
                 sess, id=token, throw_if_not_found=throw_on_no_permission

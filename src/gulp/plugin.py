@@ -604,11 +604,15 @@ class GulpPluginBase(ABC):
             # send documents to the websocket
             chunk = GulpDocumentsChunk(
                 docs=ws_docs,
+                num_docs=len(ws_docs),
                 # wait for refresh is set only on the last chunk
                 last=wait_for_refresh,
                 chunk_number=self._chunks_ingested,
             )
             data = chunk.model_dump(exclude_none=True)
+            MutyLogger.get_instance().debug(
+                f"sending chunk of {len(ws_docs)} documents to ws {self._ws_id}"
+            )
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
@@ -740,7 +744,8 @@ class GulpPluginBase(ABC):
         self._original_file_path = original_file_path
         self._source_id = source_id
         MutyLogger.get_instance().debug(
-            f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
+                plugin_params={plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
         return GulpRequestStatus.ONGOING
 

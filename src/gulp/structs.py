@@ -50,6 +50,15 @@ class GulpPluginParameters(BaseModel):
     @classmethod
     def model_json_schema(cls, *args, **kwargs):
         return autogenerate_model_example(cls, *args, **kwargs)
+    
+    def is_empty(self) -> bool:
+        """
+        check if all parameters are None
+
+        Returns:
+            bool: True if all parameters are None, False otherwise
+        """
+        return all(v is None for v in self.model_dump().values())
 
 
 class GulpPluginAdditionalParameter(BaseModel):

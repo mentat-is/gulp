@@ -580,9 +580,9 @@ class APIDependencies:
             plugin_params (GulpPluginParameters, optional, Body): The plugin parameters. Defaults to default parameters.
 
         Returns:
-            GulpPluginParameters: The plugin parameters.
+            GulpPluginParameters: The plugin parameters or None if empty
         """
-        return plugin_params or GulpPluginParameters()
+        return plugin_params or None
 
     def param_query_flt_optional(
         flt: Annotated[
@@ -786,18 +786,18 @@ class ServerUtils:
 
         MutyLogger.get_instance().debug("headers=%s" % (r.headers))
 
-        # Parse request headers, continue_offset=0 (first chunk) is assumed if missing
+        # parse request headers, continue_offset=0 (first chunk) is assumed if missing
         continue_offset = int(r.headers.get("continue_offset", 0))
         total_file_size = int(r.headers["size"])
 
-        # Decode multipart data
+        # decode multipart data
         data = decoder.MultipartDecoder(await r.body(), r.headers["content-type"])
         json_part, file_part = data.parts[0], data.parts[1]
 
-        # Parse JSON payload
+        # parse JSON payload
         payload_dict = await _parse_payload(json_part.content) or {}
 
-        # Extract filename and prepare path
+        # extract filename and prepare path
         filename = _extract_filename(
             file_part.headers[b"Content-Disposition"].decode("utf-8")
         )
