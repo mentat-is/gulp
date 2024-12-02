@@ -133,11 +133,13 @@ T = TypeVar("T", bound="GulpCollabBase")
 
 class GulpCollabFilter(BaseModel):
     """
-    defines filter to be applied to all objects in the collaboration system
+    defines filter to be applied to all objects in the collaboration system.
 
-    allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
+    NOTE: filtering by basic types in `GulpCollabBase` and `GulpCollabObject` (for collab objects) is always supported.
+    other fields can be filtered only if they are present in the object model.
     """
 
+    # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
     model_config = ConfigDict(extra="allow")
 
     ids: Optional[list[str]] = Field(
@@ -175,16 +177,16 @@ class GulpCollabFilter(BaseModel):
     )
     doc_ids: Optional[list[str]] = Field(
         None,
-        description="filter by the given document ID/s in a CollabObject.docs list of GulpBasicDocument.",
+        description="filter by the given document ID/s in a `CollabObject.docs` list of `GulpBasicDocument` or in a `CollabObject.doc_ids` list of document IDs.",
         example=["18b6332595d82048e31963e6960031a1"],
     )
     doc_time_range: Optional[tuple[int, int]] = Field(
         None,
         example=(1620000000000000000, 1620000000000000001),
-        description="if set, a `gulp.timestamp` range [start, end] relative to CollabObject.docs, inclusive, in nanoseconds from unix epoch.",
+        description="if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObject.docs`, inclusive, in nanoseconds from unix epoch.",
     )
     private: Optional[bool] = Field(
-        False,
+        None,
         example=False,
         description="if True, return only private objects. Default=False (return all).",
     )
@@ -279,45 +281,55 @@ class GulpCollabFilter(BaseModel):
                 if k in type.columns:
                     q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
 
+        if self.doc_ids and "doc_ids" in type.columns:
+            # return all collab objects that have at least one document with _id in doc_ids
+            q = q.filter(q=q.filter(func.lower(type.doc_ids).op("&&")(self.doc_ids)))
         if self.doc_ids and "docs" in type.columns:
             if not self.doc_time_range:
-                # filter by collabobj.docs _id using standard JSONB operators
+                # returns all collab objects that have at least one document with _id in doc_ids
                 conditions = []
                 for doc_id in self.doc_ids:
-                    # Check if any document in the array has _id matching doc_id
-                    # Using -> to navigate JSONB array and ->> to extract text
+                    # check if any document in the array has _id matching doc_id
+                    # using -> to navigate JSONB array and ->> to extract text
                     conditions.append(
-                        text("""EXISTS (
+                        text(
+                            """EXISTS (
                             SELECT 1 FROM jsonb_array_elements(docs) AS doc 
                             WHERE doc->>'_id' = :doc_id
-                        )""").bindparams(doc_id=doc_id.lower())
+                        )"""
+                        ).bindparams(doc_id=doc_id.lower())
                     )
                 q = q.filter(or_(*conditions))
             else:
-                # filter by time range on collabobj.docs gulp.timestamp
+                # returns all collab objects that have at least one document with gulp.timestamp in doc_time_range
                 conditions = []
                 if self.doc_time_range[0]:
                     conditions.append(
-                        text("""EXISTS (
+                        text(
+                            """EXISTS (
                             SELECT 1 FROM jsonb_array_elements(docs) AS doc 
                             WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) >= :start_time
-                        )""").bindparams(start_time=self.doc_time_range[0])
+                        )"""
+                        ).bindparams(start_time=self.doc_time_range[0])
                     )
                 if self.doc_time_range[1]:
                     conditions.append(
-                        text("""EXISTS (
+                        text(
+                            """EXISTS (
                             SELECT 1 FROM jsonb_array_elements(docs) AS doc 
                             WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) <= :end_time
-                        )""").bindparams(end_time=self.doc_time_range[1])
+                        )"""
+                        ).bindparams(end_time=self.doc_time_range[1])
                     )
                 q = q.filter(and_(*conditions))
+
+        if self.private is not None and "private" in type.columns:
+            q = q.where(GulpCollabObject.private is True)
+
         if self.limit:
             q = q.limit(self.limit)
         if self.offset:
             q = q.offset(self.offset)
-        if self.private:
-            q = q.where(GulpCollabObject.private is True)
-
         if with_for_update:
             q = q.with_for_update()
         # MutyLogger.get_instance().debug(f"to_select_query: {q}")
@@ -363,6 +375,24 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         "polymorphic_identity": "collab_base",
         "polymorphic_on": "type",
     }
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        builds example of the model
+
+        Returns:
+            dict: the model example
+        """
+        return {
+            "id": "id1",
+            "type": cls.__tablename__,
+            "owner_user_id": "admin",
+            "granted_user_ids": ["user1"],
+            "granted_user_group_ids": ["group1"],
+            "time_created": 1620000000000000000,
+            "time_updated": 1620000000000000001,
+        }
 
     def __init_subclass__(
         cls, type: GulpCollabType | str, abstract: bool = False, **kwargs
@@ -1037,6 +1067,23 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         Boolean,
         doc="If True, the object is private (only the owner can see it).",
     )
+
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d.update(
+            {
+                "operation_id": "op1",
+                "glyph_id": "glyph1",
+                "tags": ["tag1", "tag2"],
+                "color": "#FF0000",
+                "name": "name1",
+                "description": "description1",
+                "private": False,
+            }
+        )
+        return d
 
     @staticmethod
     def build_dict(

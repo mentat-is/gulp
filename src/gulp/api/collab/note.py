@@ -5,12 +5,11 @@ from sqlalchemy import BIGINT, ForeignKey, Index, String, insert
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
-
+from muty.pydantic import autogenerate_model_example_by_class
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabObject,
     GulpCollabType,
-    T,
 )
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
@@ -47,6 +46,31 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         default_factory=list,
     )
     __table_args__ = (Index("idx_note_operation", "operation_id"),)
+
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d.update(
+            {
+                "context_id": "context_id",
+                "source_id": "source_id",
+                "docs": [
+                    [autogenerate_model_example_by_class(GulpBasicDocument)]
+                ],
+                "time_pin": 1234567890,
+                "last_editor_id": "last_editor_id",
+                "text": "note text",
+                "previous": [
+                    {
+                        "editor_id": "editor_id",
+                        "timestamp": 1234567890,
+                        "text": "previous note text",
+                    }
+                ],                
+            }
+        )
+        return d
 
     @override
     @classmethod

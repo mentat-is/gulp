@@ -1,36 +1,228 @@
 """
-This module contains the REST API for gULP (gui Universal Log Processor).
+gulp links rest api
 """
 
-from typing import Annotated
-
-import muty.crypto
-import muty.file
-import muty.jsend
-import muty.list
-import muty.log
-import muty.os
-import muty.string
-import muty.uploadfile
-from fastapi import APIRouter, Body, Header, Query
-from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-
-import gulp.api.collab_api as collab_api
-import gulp.api.rest.collab_utility as collab_utility
-import gulp.structs
-import gulp.plugin
-import gulp.utils
+from typing import Annotated
+from fastapi import APIRouter, Body, Depends, Query
+from fastapi.responses import JSONResponse
+from gulp.api.collab.link import GulpLink
 from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpCollabType,
 )
-from gulp.api.collab.structs import GulpCollabObject
+from gulp.api.rest.server_utils import (
+    APIDependencies,
+    ServerUtils,
+)
 
-_app: APIRouter = APIRouter()
+router: APIRouter = APIRouter()
 
 
-@_app.post(
+@router.post(
+    "/link_create",
+    tags=["link"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpLink.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="creates a link.",
+    description="""
+creates a link between a source document and one (or more) target documents.
+
+- `token` needs **edit** permission.
+- default `color` is `red`.
+""",
+)
+async def link_create_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    doc_id_from: Annotated[str, Query(description="the source document ID.")],
+    doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
+    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        object_data = GulpLink.build_dict(
+            operation_id=operation_id,
+            glyph_id=glyph_id,
+            tags=tags,
+            color=color or "red",
+            name=name,
+            private=private,
+            doc_id_from=doc_id_from,
+            doc_ids=doc_ids,
+        )
+        d = await GulpLink.create(
+            token,
+            ws_id=ws_id,
+            req_id=req_id,
+            object_data=object_data,
+        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.patch(
+    "/link_update",
+    tags=["link"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpLink.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="updates an existing link.",
+)
+async def link_update_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    doc_ids: Annotated[
+        list[str], Body(description="One or more target document IDs.")
+    ] = None,
+    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals)
+    if not any([doc_ids, name, tags, glyph_id, color, private]):
+        raise ValueError(
+            "At least one of doc_ids, name, tags, glyph_id, color, or private must be provided."
+        )
+    try:
+        d = {}
+        d["doc_ids"] = doc_ids
+
+        d["name"] = name
+        d["tags"] = tags
+        d["glyph_id"] = glyph_id
+        d["color"] = color
+        d["private"] = private
+        d = await GulpLink.update_by_id(
+            token,
+            object_id,
+            ws_id=ws_id,
+            req_id=req_id,
+            d=d,
+        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.delete(
+    "/link_delete",
+    tags=["link"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "obj_id"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes a link.",
+)
+async def link_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        await GulpLink.delete_by_id(
+            token,
+            object_id,
+            ws_id=ws_id,
+            req_id=req_id,
+        )
+        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.get(
+    "/link_get_by_id",
+    tags=["link"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpLink.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets a link.",
+)
+async def link_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        d = await GulpLink.get_by_id_wrapper(
+            token,
+            object_id,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.post(
     "/link_list",
     tags=["link"],
     response_model=JSendResponse,
@@ -44,7 +236,7 @@ _app: APIRouter = APIRouter()
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
                         "data": [
-                            "CollabObj",
+                            GulpLink.example(),
                         ],
                     }
                 }
@@ -52,246 +244,23 @@ _app: APIRouter = APIRouter()
         }
     },
     summary="list links, optionally using a filter.",
-    description="available filters: id, owner_id, events, operation_id, context, src_file, name, private_only, level, limit, offset",
+    description="",
 )
 async def link_list_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-    flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-    return await collab_utility.collabobj_list(token, req_id, GulpCollabType.LINK, flt)
-
-
-@_app.get(
-    "/link_get_by_id",
-    tags=["link"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"CollabObj"},
-                    }
-                }
-            }
-        }
-    },
-    summary="get link.",
-)
-async def link_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-    link_id: Annotated[int, Query(description="id of the link to be retrieved.")],
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-    return await collab_utility.collabobj_get_by_id(
-        token, req_id, GulpCollabType.LINK, link_id
-    )
-
-
-@_app.delete(
-    "/link_delete",
-    tags=["link"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"id": 1},
-                    }
-                }
-            }
-        }
-    },
-    summary="deletes a link.",
-)
-async def link_delete_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_DELETE_EDIT_TOKEN)],
-    link_id: Annotated[int, Query(description="id of the link to be deleted.")],
-    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-
-    req_id = gulp.utils.ensure_req_id(req_id)
-    return await collab_utility.collabobj_delete(
-        token, req_id, GulpCollabType.LINK, link_id, ws_id=ws_id
-    )
-
-
-@_app.put(
-    "/link_update",
-    tags=["link"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"CollabObj"},
-                    }
-                }
-            }
-        }
-    },
-    summary="updates an existing link.",
-    description="in `events` array (if set), each entry's `operation_id`, `context` and `src_file` are optional.",
-)
-async def link_update_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
-    link_id: Annotated[int, Query(description="id of the link to be updated.")],
-    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
-    events: Annotated[list[GulpAssociatedEvent], Body()] = None,
-    name: Annotated[str, Query(description="optional new name.")] = None,
-    description: Annotated[str, Body()] = None,
-    glyph_id: Annotated[
-        int, Query(description="optional new glyph ID for the link.")
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
     ] = None,
-    color: Annotated[
-        str, Query(description="optional new link color in #rrggbb or css-name format.")
-    ] = None,
-    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-
-    req_id = gulp.utils.ensure_req_id(req_id)
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
+    ServerUtils.dump_params(params)
     try:
-        if (
-            events is None
-            and name is None
-            and description is None
-            and glyph_id is None
-            and color is None
-        ):
-            raise InvalidArgument(
-                "at least one of events, name, description, glyph_id, color, private must be set."
-            )
-        data = {}
-        if color is not None:
-            data["color"] = color
-
-        if events is not None:
-            # FIXME: is this still needed ?
-            data["events"] = [e.to_dict() for e in events]
-
-        l = await GulpCollabObject.update(
-            await collab_api.session(),
+        d = await GulpLink.get_by_filter_wrapper(
             token,
-            req_id,
-            link_id,
-            ws_id,
-            name=name,
-            description=description,
-            events=events,
-            glyph_id=glyph_id,
-            data=data if len(data) > 0 else None,
-            type=GulpCollabType.LINK,
-            private=private,
+            flt,
         )
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l.to_dict()))
+        return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-@_app.post(
-    "/link_create",
-    tags=["link"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"CollabObj"},
-                    }
-                }
-            }
-        }
-    },
-    description="in `events` array, each entry's `operation_id`, `context` and `src_file` are optional.",
-    summary="creates a link between the source and one or more destination events.",
-)
-async def link_create_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_EDIT_TOKEN)],
-    operation_id: Annotated[
-        int, Query(description="operation to be associated with this link.")
-    ],
-    context: Annotated[
-        str, Query(description="context to be associated with this link.")
-    ],
-    src_file: Annotated[
-        str, Query(description="source file to be associated with this link.")
-    ],
-    src: Annotated[str, Query(description="id of the source GulpEvent.")],
-    ws_id: Annotated[str, Query(description=gulp.structs.API_DESC_WS_ID)],
-    events: Annotated[list[GulpAssociatedEvent], Body()],
-    name: Annotated[str, Query(description="name of the link.")] = None,
-    description: Annotated[str, Body()] = None,
-    glyph_id: Annotated[int, Query(description="glyph ID for the new link.")] = None,
-    color: Annotated[
-        str,
-        Query(
-            description='optional color in #rrggbb or css-name format, default is "red".'
-        ),
-    ] = "red",
-    private: Annotated[bool, Query(description=gulp.structs.API_DESC_PRIVATE)] = False,
-    level: Annotated[
-        GulpCollabLevel, Query(description=gulp.structs.API_DESC_COLLAB_LEVEL)
-    ] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-    data = {"color": color, "src": src}
-
-    # FIXME: is duplicating events into data still needed after the latest change ?
-    data["events"] = [e.to_dict() for e in events]
-    try:
-        l = await GulpCollabObject.create(
-            await collab_api.session(),
-            token,
-            req_id,
-            GulpCollabType.LINK,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            context=context,
-            src_file=src_file,
-            name=name,
-            description=description,
-            events=events,
-            glyph_id=glyph_id,
-            data=data,
-            private=private,
-            level=level,
-        )
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l.to_dict()))
-    except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-def router() -> APIRouter:
-    """
-    Returns this module api-router, to add it to the main router
-
-    Returns:
-        APIRouter: The APIRouter instance
-    """
-    global _app
-    return _app

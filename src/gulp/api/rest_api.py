@@ -200,12 +200,19 @@ class GulpRestServer:
         from gulp.api.rest.user import router as user_router
         from gulp.api.rest.note import router as note_router
         from gulp.api.rest.db import router as db_router
+        from gulp.api.rest.link import router as link_router
+        from gulp.api.rest.highlight import router as highlight_router
+        from gulp.api.rest.story import router as story_router
 
         self._app.include_router(db_router)
         self._app.include_router(ingest_router)
         self._app.include_router(ws_router)
         self._app.include_router(user_router)
         self._app.include_router(note_router)
+        self._app.include_router(link_router)
+        self._app.include_router(highlight_router)
+        self._app.include_router(story_router)
+        
         """
         import gulp.api.rest.collab_utility
         import gulp.api.rest.db

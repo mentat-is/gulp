@@ -1,19 +1,15 @@
 """
-This module contains the REST API for gULP (gui Universal Log Processor).
+gulp notes rest api
 """
 
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
 from typing import Annotated
-from fastapi import APIRouter, Body, Depends, Header, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpCollabObject,
-    GulpUserPermission,
 )
-from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.server_utils import (
@@ -37,19 +33,19 @@ router: APIRouter = APIRouter()
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"CollabObj"},
+                        "data": GulpNote.example(),
                     }
                 }
             }
         }
     },
-    summary="creates a note.",
+    summary="creates a note related to one (or more) documents, or pinned at a certain time.",
     description="""
-creates a note on the collab database.
+creates a note.
 
 - `token` needs **edit** permission.
-
-- a note can be pinned at a certain time (via the `time_pin` parameter) or associated with documents (via the `docs` parameter).    
+- a note can be pinned at a certain time via the `time_pin` parameter, or associated with one or more documents via the `docs` parameter.
+- default `color` is `yellow`.
 """,
 )
 async def note_create_handler(
@@ -92,12 +88,13 @@ async def note_create_handler(
     params = locals()
     params["docs"] = "%d documents" % (len(docs) if docs else 0)
     ServerUtils.dump_params(params)
-    try:
-        if docs and time_pin:
-            raise ValueError("docs and time_pin cannot be both set.")
-        if not docs and not time_pin:
-            raise ValueError("either docs or time_pin must be set.")
 
+    if docs and time_pin:
+        raise ValueError("docs and time_pin cannot be both set.")
+    if not docs and not time_pin:
+        raise ValueError("either docs or time_pin must be set.")
+
+    try:
         object_data = GulpNote.build_dict(
             operation_id=operation_id,
             context_id=context_id,
@@ -135,7 +132,7 @@ async def note_create_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"CollabObj"},
+                        "data": GulpNote.example(),
                     }
                 }
             }
@@ -174,6 +171,10 @@ async def note_update_handler(
     # we cannot have both docs and time_pin set
     if docs and time_pin:
         raise ValueError("docs and time_pin cannot be both set.")
+    if not any([docs, time_pin, text, name, tags, glyph_id, color, private]):
+        raise ValueError(
+            "at least one of docs, time_pin, text, name, tags, glyph_id, color, or private must be set."
+        )
     try:
         prev_text = None
         prev_editor_id = None
@@ -196,7 +197,8 @@ async def note_update_handler(
             d["time_pin"] = time_pin
         if docs:
             d["docs"] = [
-                doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True) for doc in docs
+                doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                for doc in docs
             ]
             d["time_pin"] = 0
         if text:
@@ -281,7 +283,7 @@ async def note_delete_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"CollabObj"},
+                        "data": GulpNote.example(),
                     }
                 }
             }
@@ -319,7 +321,7 @@ async def note_get_by_id_handler(
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
                         "data": [
-                            {"CollabObj"},
+                            GulpNote.example(),
                         ],
                     }
                 }
