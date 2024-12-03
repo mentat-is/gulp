@@ -18,7 +18,6 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     Represents a glyph object.
     """
 
-    name: Mapped[str] = mapped_column(String, doc="Display name for the glyph.")
     img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
@@ -27,7 +26,6 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     @classmethod
     def example(cls) -> dict:
         d = super().example()
-        d["name"] = "glyph_name"
         d["img"] = "base64_image_data"
         return d
 

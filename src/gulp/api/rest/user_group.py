@@ -1,16 +1,17 @@
 """
-gulp operations rest api
+gulp user groups managementrest api
 """
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.user_group import GulpUserGroup
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
 )
+from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import (
     APIDependencies,
@@ -23,8 +24,8 @@ router: APIRouter = APIRouter()
 
 
 @router.post(
-    "/operation_create",
-    tags=["operation"],
+    "/user_group_create",
+    tags=["user_group"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -35,18 +36,20 @@ router: APIRouter = APIRouter()
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": GulpOperation.example(),
+                        "data": GulpUserGroup.example(),
                     }
                 }
             }
         }
     },
-    summary="creates a operation.",
+    summary="creates a user group.",
     description="""
+an `user group` is a group of users sharing `permissions`: adding an user to an `user group` grants the user the same permissions of the group.
+
 - token needs `admin` permission.
 """,
 )
-async def operation_create_handler(
+async def user_group_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     name: Annotated[
         str,
@@ -75,7 +78,7 @@ async def operation_create_handler(
         "glyph_id": glyph_id,
     }
     try:
-        d = await GulpOperation.create(
+        d = await GulpUserGroup.create(
             token,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
@@ -89,8 +92,8 @@ async def operation_create_handler(
 
 
 @router.patch(
-    "/operation_update",
-    tags=["operation"],
+    "/user_group_update",
+    tags=["user_group"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -101,18 +104,18 @@ async def operation_create_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": GulpOperation.example(),
+                        "data": GulpUserGroup.example(),
                     }
                 }
             }
         }
     },
-    summary="updates an existing operation.",
+    summary="updates an existing user_group.",
     description="""
 - token needs `admin` permission.
 """,
 )
-async def operation_update_handler(
+async def user_group_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
@@ -141,7 +144,7 @@ async def operation_update_handler(
         d["index"] = index
         d["description"] = description
         d["glyph_id"] = glyph_id
-        d = await GulpOperation.update_by_id(
+        d = await GulpUserGroup.update_by_id(
             token,
             object_id,
             ws_id=None,  # do not propagate on the websocket
@@ -155,8 +158,8 @@ async def operation_update_handler(
 
 
 @router.delete(
-    "/operation_delete",
-    tags=["operation"],
+    "/user_group_delete",
+    tags=["user_group"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -173,12 +176,12 @@ async def operation_update_handler(
             }
         }
     },
-    summary="deletes a operation.",
+    summary="deletes a user_group.",
     description="""
 - token needs `admin` permission.
 """,
 )
-async def operation_delete_handler(
+async def user_group_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     delete_data: Annotated[
@@ -195,7 +198,7 @@ async def operation_delete_handler(
         if delete_data and not index:
             raise ValueError("If `delete_data` is set, `index` must be provided.")
 
-        await GulpOperation.delete_by_id(
+        await GulpUserGroup.delete_by_id(
             token,
             object_id,
             ws_id=None,  # do not propagate on the websocket
@@ -206,9 +209,9 @@ async def operation_delete_handler(
         if delete_data:
             # delete all data
             MutyLogger.get_instance().info(
-                f"deleting data related to operation_id={object_id} on index={index} ..."
+                f"deleting data related to user_group_id={object_id} on index={index} ..."
             )
-            await GulpOpenSearch.get_instance().delete_data_by_operation(
+            await GulpOpenSearch.get_instance().delete_data_by_user_group(
                 index, object_id
             )
 
@@ -218,8 +221,8 @@ async def operation_delete_handler(
 
 
 @router.get(
-    "/operation_get_by_id",
-    tags=["operation"],
+    "/user_group_get_by_id",
+    tags=["user_group"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -230,22 +233,22 @@ async def operation_delete_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": GulpOperation.example(),
+                        "data": GulpUserGroup.example(),
                     }
                 }
             }
         }
     },
-    summary="gets a operation.",
+    summary="gets a user_group.",
 )
-async def operation_get_by_id_handler(
+async def user_group_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpOperation.get_by_id_wrapper(
+        d = await GulpUserGroup.get_by_id_wrapper(
             token,
             object_id,
             nested=True,
@@ -256,8 +259,8 @@ async def operation_get_by_id_handler(
 
 
 @router.post(
-    "/operation_list",
-    tags=["operation"],
+    "/user_group_list",
+    tags=["user_group"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -269,17 +272,17 @@ async def operation_get_by_id_handler(
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
                         "data": [
-                            GulpOperation.example(),
+                            GulpUserGroup.example(),
                         ],
                     }
                 }
             }
         }
     },
-    summary="list operations, optionally using a filter.",
+    summary="list user_groups, optionally using a filter.",
     description="",
 )
-async def operation_list_handler(
+async def user_group_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
@@ -290,7 +293,7 @@ async def operation_list_handler(
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
     ServerUtils.dump_params(params)
     try:
-        d = await GulpOperation.get_by_filter_wrapper(
+        d = await GulpUserGroup.get_by_filter_wrapper(
             token,
             flt,
             nested=True,

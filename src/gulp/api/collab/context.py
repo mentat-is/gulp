@@ -35,20 +35,9 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         doc="The source/s associated with the context.",
     )
 
-    name: Mapped[Optional[str]] = mapped_column(
-        String, doc="The name of the context.", default=None
-    )
     color: Mapped[Optional[str]] = mapped_column(
         String, default="white", doc="The color of the context."
     )
-    glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"),
-        default=None,
-        doc="The glyph associated with the context.",
-    )
-
-    # composite primary key
-    # __table_args__ = (PrimaryKeyConstraint("operation_id", "id"),)
 
     @staticmethod
     def make_context_id_key(operation_id: str, context_id: str) -> str:
@@ -83,9 +72,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
 
         # acquire lock first
         lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{name}")
-        await sess.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-        )
+        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
         sess.add(self)
 
         # check if source exists

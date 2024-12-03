@@ -48,11 +48,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         default_factory=lambda: [GulpUserPermission.READ],
         doc="One or more permissions of the user.",
     )
-    glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"),
-        default=None,
-        doc="The glyph associated with the user.",
-    )
     email: Mapped[Optional[str]] = mapped_column(
         String, default=None, doc="The email of the user.", unique=True
     )
@@ -95,7 +90,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                 "pwd_hash": "hashed_password",
                 "groups": [GulpUserGroup.example()],
                 "permission": ["READ"],
-                "glyph_id": "glyph_id",
                 "email": "user@mail.com",
                 "time_last_login": 1234567890,
                 "session": GulpUserSession.example(),
@@ -138,7 +132,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "email": email,
             "glyph_id": glyph_id,
         }
-        
+
         # set user_id to username (user owns itself)
         return await super()._create(
             sess, id=user_id, object_data=object_data, owner_id=user_id

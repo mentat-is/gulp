@@ -34,18 +34,10 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
     Represents an user group in the gulp system.
     """
 
-    name: Mapped[Optional[str]] = mapped_column(
-        String, doc="The display name of the group."
-    )
     users: Mapped[list["GulpUser"]] = relationship(
         "GulpUser",
         secondary=GulpUserAssociations.table,
         lazy="selectin",
-    )
-    glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"),
-        doc="The glyph associated with the group.",
-        default=None,
     )
     permission: Mapped[Optional[list[GulpUserPermission]]] = mapped_column(
         MutableList.as_mutable(ARRAY(SQLEnum(GulpUserPermission))),
@@ -57,9 +49,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
     @classmethod
     def example(cls) -> dict:
         d = super().example()
-        d["name"] = "group_name"
         d["permission"] = [GulpUserPermission.READ]
-        d["glyph_id"] = "glyph_id"
         return d
 
     @classmethod

@@ -130,9 +130,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
         # acquire an advisory lock
         lock_id = muty.crypto.hash_xxh64_int(req_id)
-        await sess.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-        )
+        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
 
         # check if the stats already exist
         s: GulpIngestionStats = await cls.get_by_id(
@@ -247,9 +245,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         # refresh stats from db first, use advisory lock here which is more
         # efficient than row-level lock with with_for_update
         lock_id = muty.crypto.hash_xxh64_int(self.id)
-        await sess.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-        )
+        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
         await sess.refresh(self)
 
         # update

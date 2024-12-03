@@ -6,6 +6,7 @@ from muty.pydantic import autogenerate_model_example
 import muty.string
 import muty.time
 from muty.log import MutyLogger
+from psycopg import OperationalError
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     ARRAY,
@@ -35,6 +36,12 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy_mixins.serialize import SerializeMixin
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from gulp.api.ws_api import (
     GulpCollabCreateUpdatePacket,
@@ -370,6 +377,19 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         BIGINT,
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
+    glyph_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("glyph.id", ondelete="SET NULL"), doc="The glyph ID."
+    )
+    name: Mapped[Optional[str]] = mapped_column(
+        String, doc="The display name of the object."
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        String, doc="The description of the object."
+    )
+    private: Mapped[Optional[bool]] = mapped_column(
+        Boolean,
+        doc="If True, the object is private (only the owner can see it).",
+    )
 
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
@@ -392,6 +412,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             "granted_user_group_ids": ["group1"],
             "time_created": 1620000000000000000,
             "time_updated": 1620000000000000001,
+            "glyph_id": "glyph_id",
+            "name": "the object display name",
+            "description": "object description",
+            "private": False,
         }
 
     def __init_subclass__(
@@ -452,6 +476,35 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             return d
 
         return {k: v for k, v in d.items() if v is not None}
+
+    @staticmethod
+    def _create_retry_decorator():
+        # retry logic for database operations
+        return retry(
+            retry=retry_if_exception_type(OperationalError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            reraise=True,
+        )
+
+    @staticmethod
+    @_create_retry_decorator()
+    async def acquire_advisory_lock(sess: AsyncSession, lock_id: int) -> None:
+        """
+        Acquire an advisory lock, with retry logic.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            lock_id (int): The lock ID to acquire.
+        """
+        try:
+            await sess.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+            )
+        except OperationalError as e:
+            # Log the error
+            MutyLogger.get_instance().error(f"Failed to acquire advisory lock: {e}")
+            raise
 
     @staticmethod
     def _get_nested_relationships(model_class, seen=None):
@@ -567,6 +620,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         object_data["owner_user_id"] = owner_id
         object_data["granted_user_group_ids"] = []
         object_data["granted_user_ids"] = []
+        if not object_data.get("name", None):
+            # set the name to the id if not provided
+            object_data["name"] = id
         return object_data
 
     @classmethod
@@ -778,7 +834,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 user_id=user_id,
                 operation_id=getattr(self, "operation_id", None),
                 req_id=req_id,
-                private=getattr(self, "private", False),
+                private=self.private,
                 data=data,
             )
 
@@ -871,7 +927,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 user_id=user_id,
                 operation_id=data.get("operation_id", None),
                 req_id=req_id,
-                private=data.get("private", False),
+                private=self.private,
                 data=p.model_dump(),
             )
 
@@ -1194,7 +1250,9 @@ class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
 
 class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     """
-    base for all collaboration objects (notes, links, stories, highlights) related to an operation
+    base for all collaboration objects (notes, links, stories, highlights) related to an operation.
+
+    those objects are meant to be shared among users.
     """
 
     operation_id: Mapped[str] = mapped_column(
@@ -1204,25 +1262,12 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         ),
         doc="The id of the operation associated with the object.",
     )
-    glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"), doc="The glyph ID."
-    )
     tags: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
         doc="The tags associated with the object.",
     )
     color: Mapped[Optional[str]] = mapped_column(
         String, doc="The color associated with the object."
-    )
-    name: Mapped[Optional[str]] = mapped_column(
-        String, doc="The display name of the object."
-    )
-    description: Mapped[Optional[str]] = mapped_column(
-        String, doc="The description of the object."
-    )
-    private: Mapped[Optional[bool]] = mapped_column(
-        Boolean,
-        doc="If True, the object is private (only the owner can see it).",
     )
 
     @override
@@ -1232,12 +1277,8 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
         d.update(
             {
                 "operation_id": "op1",
-                "glyph_id": "glyph1",
                 "tags": ["tag1", "tag2"],
                 "color": "#FF0000",
-                "name": "name1",
-                "description": "description1",
-                "private": False,
             }
         )
         return d
@@ -1245,12 +1286,8 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
     @staticmethod
     def build_dict(
         operation_id: str,
-        glyph_id: str = None,
         tags: list[str] = None,
         color: str = None,
-        name: str = None,
-        description: str = None,
-        private: bool = False,
         **kwargs,
     ) -> dict:
         """
@@ -1258,24 +1295,16 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
 
         Args:
             operation_id (str): The ID of the operation associated with the object.
-            glyph_id (str, optional): The ID of the glyph associated with the object. Defaults to None.
             tags (list[str], optional): The tags associated with the object. Defaults to None.
             color (str, optional): The color associated with the object. Defaults to None.
-            name (str, optional): The display name of the object. Defaults to None.
-            description (str, optional): The description of the object. Defaults to None.
-            private (bool, optional): If True, the object is private. Defaults to False.
             **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
         Returns:
             dict: The dictionary to create the object with.
         """
         d = {
             "operation_id": operation_id,
-            "glyph_id": glyph_id,
             "tags": tags,
             "color": color,
-            "name": name,
-            "description": description,
-            "private": private,
         }
         d.update(kwargs)
         return d

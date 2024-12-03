@@ -220,7 +220,7 @@ class ConnectedSocket:
             tasks.update([send_task, receive_task])
 
             # Wait for first task to complete
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
 
             # Process completed task
             task = done.pop()
@@ -268,6 +268,18 @@ class ConnectedSocket:
             # this will raise WebSocketDisconnect when client disconnects
             await self.ws.receive_json()
 
+    async def put_message(self, msg: dict) -> None:
+        """
+        Puts a message into the websocket queue.
+
+        Args:
+            msg (dict): The message to put.
+        """
+        if self.q.qsize() > 1000:
+            # backpressure
+            await asyncio.sleep(0.1)
+        await self.q.put(msg)
+
     async def _send_loop(self) -> None:
         """
         sends messages from the queue
@@ -288,7 +300,7 @@ class ConnectedSocket:
                     if self.ws.client_state != WebSocketState.CONNECTED:
                         raise WebSocketDisconnect("client disconnected")
 
-                    # Send immediately
+                    # send immediately
                     await self.ws.send_json(item)
                     self.q.task_done()
                     await asyncio.sleep(ws_delay)
@@ -456,7 +468,7 @@ class GulpConnectedSockets:
 
             if cws.ws_id == d.ws_id:
                 # always relay to the ws async queue for the target websocket
-                await cws.q.put(
+                await cws.put_message(
                     d.model_dump(
                         exclude_none=True, exclude_defaults=True, by_alias=True
                     )
@@ -475,7 +487,7 @@ class GulpConnectedSockets:
                 if d.type not in [GulpWsQueueDataType.COLLAB_UPDATE]:
                     continue
 
-                await cws.q.put(
+                await cws.put_message(
                     d.model_dump(
                         exclude_none=True, exclude_defaults=True, by_alias=True
                     )
@@ -544,7 +556,6 @@ class GulpSharedWsQueue:
             MutyLogger.get_instance().debug("closing shared ws queue ...")
             self.close()
 
-
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
         self._shared_q = mgr.Queue()
         self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
@@ -560,6 +571,7 @@ class GulpSharedWsQueue:
         from gulp.api.rest_api import GulpRestServer
 
         MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
+        """
         while True:
             if GulpRestServer.get_instance().is_shutdown():
                 # server is shutting down, break the loop
@@ -584,6 +596,39 @@ class GulpSharedWsQueue:
                 # let's not busy wait...
                 await asyncio.sleep(1)
                 continue
+        """
+        try:
+            while not GulpRestServer.get_instance().is_shutdown():
+                # Process messages in batches
+                messages = []
+
+                # Quick non-blocking check for messages
+                while len(messages) < 100:  # Max batch size
+                    try:
+                        entry = self._shared_q.get_nowait()
+                        messages.append(entry)
+                        self._shared_q.task_done()
+                    except Empty:
+                        break
+
+                if messages:
+                    # Process batch of messages
+                    for entry in messages:
+                        cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
+                        if cws:
+                            await GulpConnectedSockets.get_instance().broadcast_data(
+                                entry
+                            )
+
+                    # Small delay between batches
+                    await asyncio.sleep(0.01)
+                else:
+                    # No messages, short sleep
+                    await asyncio.sleep(0.1)
+
+        except Exception as ex:
+            MutyLogger.get_instance().error(f"Error in fill task: {ex}")
+            raise
 
     def close(self) -> None:
         """
@@ -601,14 +646,15 @@ class GulpSharedWsQueue:
             except Exception:
                 pass
 
-        self._shared_q.join()        
+        self._shared_q.join()
         MutyLogger.get_instance().debug("shared queue flush done.")
 
         # and also kill the task
         if self._fill_task:
             b = self._fill_task.cancel()
-            MutyLogger.get_instance().debug("cancelling shared queue fill task done: %r" % (b))
-
+            MutyLogger.get_instance().debug(
+                "cancelling shared queue fill task done: %r" % (b)
+            )
 
     def put(
         self,
@@ -631,7 +677,7 @@ class GulpSharedWsQueue:
             req_id (str, optional): The request ID. Defaults to None.
             data (any, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.
-        """
+        """            
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=type,

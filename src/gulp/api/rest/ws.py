@@ -1,5 +1,3 @@
-import asyncio
-from typing import override
 
 from fastapi.websockets import WebSocketState
 import muty.jsend
@@ -11,13 +9,11 @@ import muty.time
 import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
-from starlette.endpoints import WebSocketEndpoint
 
 from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import (
-    ConnectedSocket,
     GulpConnectedSockets,
     GulpWsAuthParameters,
     GulpWsData,
@@ -25,7 +21,6 @@ from gulp.api.ws_api import (
     GulpWsErrorPacket,
     GulpWsQueueDataType,
 )
-from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
 

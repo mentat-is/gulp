@@ -45,6 +45,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         doc="The previous edits made to the note.",
         default_factory=list,
     )
+
+    # add an index on the operation_id for faster queries
     __table_args__ = (Index("idx_note_operation", "operation_id"),)
 
     @override

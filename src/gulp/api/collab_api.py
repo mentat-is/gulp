@@ -142,8 +142,11 @@ class GulpCollab:
         _engine = create_async_engine(
             url,
             echo=GulpConfig.get_instance().debug_collab(),
-            pool_timeout=30,
             connect_args=connect_args,
+            pool_pre_ping=True,  # Enables connection health checks
+            pool_recycle=3600,  # Recycle connections after 1 hour
+            max_overflow=10,  # Allow up to 10 additional connections
+            pool_timeout=30,  # Wait up to 30 seconds for available connection
         )
 
         MutyLogger.get_instance().info(

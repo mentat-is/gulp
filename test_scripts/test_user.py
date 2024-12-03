@@ -144,7 +144,7 @@ class GulpUserTester:
     ) -> bool:
         """Delete user"""
         self.logger.info(f"Deleting user {username}...")
-        params = {"user_id": username}
+        params = {"object_id": username}
         return (
             await self._make_request(
                 "DELETE",
@@ -167,7 +167,7 @@ class GulpUserTester:
     ) -> Optional[dict]:
         """Update user"""
         body = None
-        params = {"user_id": username}
+        params = {"object_id": username}
         if password:
             params["password"] = password
         if permission:
@@ -197,7 +197,7 @@ class GulpUserTester:
     ) -> Optional[dict]:
         self.logger.info(f"Getting user {username}...")
         """Get user details"""
-        params = {"user_id": username}
+        params = {"object_id": username}
         return await self._make_request(
             "GET",
             "user_get_by_id",

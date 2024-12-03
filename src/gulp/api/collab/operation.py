@@ -16,14 +16,9 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     Represents an operation in the gulp system.
     """
 
-    name: Mapped[str] = mapped_column(String, doc="The name of the operation.")
-
     index: Mapped[str] = mapped_column(
         String,
         doc="The gulp opensearch index to associate the operation with.",
-    )
-    description: Mapped[Optional[str]] = mapped_column(
-        String, doc="The description of the operation."
     )
 
     # multiple contexts can be associated with an operation
@@ -35,19 +30,11 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         doc="The context/s associated with the operation.",
     )
 
-    glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"),
-        doc="The glyph associated with the operation.",
-    )
-
     @override
     @classmethod
     def example(cls) -> dict:
         d = super().example()
-        d["name"] = "operation_name"
         d["index"] = "operation_index"
-        d["description"] = "operation_description"
-        d["glyph_id"] = "glyph_id"
         return d
     
     @override
@@ -80,9 +67,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         """
         # acquire lock first
         lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{context_id}")
-        await sess.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-        )
+        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
 
         # check if context exists
         id = GulpContext.make_context_id_key(self.id, context_id)

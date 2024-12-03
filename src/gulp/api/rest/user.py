@@ -355,7 +355,7 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_token),
     ],
-    user_id: Annotated[str, Depends(APIDependencies.param_user_id_optional)] = None,
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id_optional)] = None,
     password: Annotated[
         str,
         Depends(APIDependencies.param_password_optional),
@@ -398,10 +398,10 @@ async def user_update_handler(
             if glyph_id:
                 d["glyph_id"] = glyph_id
 
-            if user_id:
+            if object_id:
                 # get this user
                 u: GulpUser = await GulpUser.get_by_id(
-                    sess, user_id, with_for_update=True
+                    sess, object_id, with_for_update=True
                 )
                 if s.user_id != u.id and not s.user.is_admin():
                     raise MissingPermission("only admin can update other users.")
