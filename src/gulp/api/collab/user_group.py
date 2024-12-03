@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, override
 
 from muty.log import MutyLogger
 from sqlalchemy import ARRAY, Column, ForeignKey, String, Table
@@ -34,7 +34,9 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
     Represents an user group in the gulp system.
     """
 
-    name: Mapped[Optional[str]] = mapped_column(String, doc="The name of the group.")
+    name: Mapped[Optional[str]] = mapped_column(
+        String, doc="The display name of the group."
+    )
     users: Mapped[list["GulpUser"]] = relationship(
         "GulpUser",
         secondary=GulpUserAssociations.table,
@@ -50,6 +52,23 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         default_factory=lambda: [GulpUserPermission.READ],
         doc="One or more permissions of the user.",
     )
+
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d["name"] = "group_name"
+        d["permission"] = [GulpUserPermission.READ]
+        d["glyph_id"] = "glyph_id"
+        return d
+
+    @classmethod
+    def example_nested(cls) -> dict:
+        from gulp.api.collab.user import GulpUser
+
+        d = cls.example()
+        d["users"] = [GulpUser.example()]
+        return d
 
     @classmethod
     async def create(

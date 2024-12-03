@@ -41,6 +41,16 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     )
 
     @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d["name"] = "operation_name"
+        d["index"] = "operation_index"
+        d["description"] = "operation_description"
+        d["glyph_id"] = "glyph_id"
+        return d
+    
+    @override
     def to_dict(self, nested=False, **kwargs) -> dict:
         d = super().to_dict(nested=nested, **kwargs)
         if nested:
@@ -103,42 +113,3 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         )
         return ctx
 
-    @override
-    @classmethod
-    async def create(
-        cls,
-        sess: AsyncSession,
-        user_id: str,
-        name: str,
-        index: str,
-        description: str = None,
-        glyph_id: str = None,
-    ) -> T:
-        """
-        Create a new operation object on the collab database.
-
-        Args:
-            token (str): The authentication token (must have INGEST permission).
-            id (str, optional): The name of the operation (must be unique)
-            index (str, optional): The gulp opensearch index to associate the operation with.
-            name (str, optional): The display name for the operation. Defaults to id.
-            description (str, optional): The description of the operation. Defaults to None.
-            glyph_id (str, optional): The id of the glyph associated with the operation. Defaults to None.
-            kwargs: Arbitrary keyword arguments.
-
-        Returns:
-            The created operation object.
-        """
-        object_data = {
-            "index": index,
-            "name": name,
-            "description": description,
-            "glyph_id": glyph_id,
-        }
-
-        return await super()._create(
-            sess,
-            object_data,
-            id=muty.string.ensure_no_space_no_special(name),
-            owner_id=user_id,
-        )

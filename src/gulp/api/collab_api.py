@@ -375,22 +375,27 @@ class GulpCollab:
             )
 
             # create user groups
-            group: GulpUserGroup = await GulpUserGroup.create(
+            group: GulpUserGroup = await GulpUserGroup._create(
                 sess,
+                object_data={
+                    "name": "example group",
+                    "permission": [GulpUserPermission.ADMIN],
+                },
                 owner_id=admin_user.id,
-                name="test_group",
-                permission=[GulpUserPermission.ADMIN],
             )
             # add admin to group
             await group.add_user(sess, admin_user.id)
 
             # create default operation
-            operation: GulpOperation = await GulpOperation.create(
+            operation: GulpOperation = await GulpOperation._create(
                 sess,
-                user_id=admin_user.id,
-                name="test_operation",
-                index="test_idx",
-                glyph_id=operation_glyph.id,
+                object_data={
+                    "name": "example operation",
+                    "index": "test_idx",
+                    "glyph_id": operation_glyph.id,
+                },
+                id="test_operation",
+                owner_id=admin_user.id,
             )
 
             # add sources to context and context to operation

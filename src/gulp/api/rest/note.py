@@ -43,7 +43,7 @@ router: APIRouter = APIRouter()
     description="""
 creates a note.
 
-- `token` needs **edit** permission.
+- `token` needs `edit` permission.
 - a note can be pinned at a certain time via the `time_pin` parameter, or associated with one or more documents via the `docs` parameter.
 - default `color` is `yellow`.
 """,
@@ -89,12 +89,12 @@ async def note_create_handler(
     params["docs"] = "%d documents" % (len(docs) if docs else 0)
     ServerUtils.dump_params(params)
 
-    if docs and time_pin:
-        raise ValueError("docs and time_pin cannot be both set.")
-    if not docs and not time_pin:
-        raise ValueError("either docs or time_pin must be set.")
-
     try:
+        if docs and time_pin:
+            raise ValueError("docs and time_pin cannot be both set.")
+        if not docs and not time_pin:
+            raise ValueError("either docs or time_pin must be set.")
+
         object_data = GulpNote.build_dict(
             operation_id=operation_id,
             context_id=context_id,
@@ -139,6 +139,9 @@ async def note_create_handler(
         }
     },
     summary="updates an existing note.",
+    description="""
+- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+""",
 )
 async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -168,14 +171,14 @@ async def note_update_handler(
     params["docs"] = "%d documents" % (len(docs) if docs else 0)
     ServerUtils.dump_params(params)
 
-    # we cannot have both docs and time_pin set
-    if docs and time_pin:
-        raise ValueError("docs and time_pin cannot be both set.")
-    if not any([docs, time_pin, text, name, tags, glyph_id, color, private]):
-        raise ValueError(
-            "at least one of docs, time_pin, text, name, tags, glyph_id, color, or private must be set."
-        )
     try:
+        # we cannot have both docs and time_pin set
+        if docs and time_pin:
+            raise ValueError("docs and time_pin cannot be both set.")
+        if not any([docs, time_pin, text, name, tags, glyph_id, color, private]):
+            raise ValueError(
+                "at least one of docs, time_pin, text, name, tags, glyph_id, color, or private must be set."
+            )
         prev_text = None
         prev_editor_id = None
         prev_edit_time = None
@@ -250,6 +253,9 @@ async def note_update_handler(
         }
     },
     summary="deletes a note.",
+    description="""
+- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+""",
 )
 async def note_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

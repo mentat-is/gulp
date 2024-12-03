@@ -61,9 +61,10 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         default=0,
         doc="The time of the last login, in milliseconds from the unix epoch.",
     )
-    extra: Mapped[Optional[dict]] = mapped_column(
-        JSONB, default=None, doc="Arbitrary user properties."
-    )
+
+    # extra: Mapped[Optional[dict]] = mapped_column(
+    #     JSONB, default=None, doc="Arbitrary user properties."
+    # )
 
     session: Mapped[Optional["GulpUserSession"]] = relationship(
         "GulpUserSession",
@@ -81,6 +82,27 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         lazy="selectin",
         foreign_keys="[GulpUserData.user_id]",
     )
+
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        from gulp.api.collab.user_data import GulpUserData
+        from gulp.api.collab.user_group import GulpUserGroup
+        from gulp.api.collab.user_session import GulpUserSession
+        d = super().example()
+        d.update(
+            {
+                "pwd_hash": "hashed_password",
+                "groups": [GulpUserGroup.example()],
+                "permission": ["READ"],
+                "glyph_id": "glyph_id",
+                "email": "user@mail.com",
+                "time_last_login": 1234567890,
+                "session": GulpUserSession.example(),
+                "user_data": GulpUserData.example(),
+            }
+        )
+        return d
 
     @classmethod
     async def create(
@@ -173,7 +195,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     def is_admin(self) -> bool:
         """
-        Check if the user has admin permission.
+        Check if the user has admin permission (or is in an admin group).
 
         Returns:
             bool: True if the user has admin permission, False otherwise.
@@ -328,14 +350,20 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     def check_object_access(
         self,
         obj: GulpCollabBase,
-        always_allow_owner: bool = True,
         throw_on_no_permission: bool = False,
     ) -> bool:
         """
         Check if the user has permission to access the specified object.
+
+        the user has permission to access the object if:
+
+        - the user is an admin
+        - the user is the owner of the object
+        - the user is in the granted groups of the object (and the object is not private)
+        - the user is in the granted users of the object (and the object is not private)
+
         Args:
             obj (GulpCollabBase): The object to check against.
-            always_allow_owner (bool, optional): Whether to always allow the owner of the object to access it. Defaults to True.
             throw_on_no_permission (bool, optional): Whether to throw an exception if the user does not have permission. Defaults to False.
         Returns:
             bool: True if the user has permission to access the object, False otherwise.
@@ -345,25 +373,31 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             # MutyLogger.get_instance().debug("allowing access to admin")
             return True
 
+        # GulpCollabObjects can be private
+        is_private = hasattr(obj, "private") and obj.private
+        if is_private:
+            # MutyLogger.get_instance().debug("object is private")
+            pass
+
         # check if the user is the owner of the object
-        if obj.owner_user_id == self.id and always_allow_owner:
+        if obj.owner_user_id == self.id:
             # MutyLogger.get_instance().debug("allowing access to object owner")
             return True
 
         # check if the user is in the granted groups
-        if obj.granted_user_group_ids:
+        if obj.granted_user_group_ids and not is_private:
             for group in self.groups:
                 if group.id in obj.granted_user_group_ids:
                     # MutyLogger.get_instance().debug("allowing access to granted group")
                     return True
 
         # check if the user is in the granted users
-        if obj.granted_user_ids and self.id in obj.granted_user_ids:
+        if obj.granted_user_ids and self.id in obj.granted_user_ids and not is_private:
             # MutyLogger.get_instance().debug("allowing access to granted user")
             return True
 
         if throw_on_no_permission:
             raise MissingPermission(
-                f"User {self.id} does not have the required permissions to access the object {obj.id}."
+                f"User {self.id} does not have the required permissions to access the object {obj.id}, private={is_private}."
             )
         return False

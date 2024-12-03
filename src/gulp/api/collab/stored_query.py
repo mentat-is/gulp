@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, override
 
 from sigma.rule import SigmaRule
 from sqlalchemy import ARRAY, String
@@ -43,6 +43,21 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
         default=None,
     )
 
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d.update(
+            {
+                "name": "query_name",
+                "text": "the_query_as_text",
+                "tags": ["tag1", "tag2"],
+                "description": "query_description",
+                "glyph_id": "glyph_id",
+                "converted": "the_converted_query_as_text",
+            }
+        )
+        return d
     @classmethod
     async def create(
         cls,

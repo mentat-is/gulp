@@ -259,7 +259,10 @@ class GulpCollabTester:
 
         # reset
         await self._make_request(
-            "POST", "gulp_reset", params={"index": args.index}, token=token
+            "POST",
+            "gulp_reset",
+            params={"index": "test_idx", "restart_processes": False},
+            token=token,
         )
 
     async def run_note_tests(self, args):

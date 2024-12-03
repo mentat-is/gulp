@@ -3,7 +3,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -59,6 +59,12 @@ async def opensearch_init_handler(
         None,
         description="optional custom index template, for advanced usage only: see [here](https://opensearch.org/docs/latest/im-plugin/index-templates/)",
     ),
+    restart_processes: Annotated[
+        bool,
+        Query(
+            description="if true, the process pool is restarted as well.",
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -77,8 +83,9 @@ async def opensearch_init_handler(
 
         await GulpOpenSearch.get_instance().datastream_create(index, index_template=f)
 
-        # restart the process pool
-        await GulpProcess.get_instance().init_gulp_process()
+        if restart_processes:
+            # restart the process pool
+            await GulpProcess.get_instance().init_gulp_process()
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index}))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -112,6 +119,12 @@ async def opensearch_init_handler(
 )
 async def postgres_init_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
+    restart_processes: Annotated[
+        bool,
+        Query(
+            description="if true, the process pool is restarted as well.",
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -123,7 +136,9 @@ async def postgres_init_handler(
 
         collab = GulpCollab.get_instance()
         await collab.init(force_recreate=True)
-        await GulpProcess.get_instance().init_gulp_process()
+        if restart_processes:
+            # restart the process pool
+            await GulpProcess.get_instance().init_gulp_process()
         return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -156,6 +171,12 @@ async def postgres_init_handler(
 async def gulp_reset_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
+    restart_processes: Annotated[
+        bool,
+        Query(
+            description="if true, the process pool is restarted as well.",
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -173,9 +194,9 @@ async def gulp_reset_handler(
         await GulpOpenSearch.get_instance().reinit()
         await GulpOpenSearch.get_instance().datastream_create(index)
 
-        # restart the process pool
-        await GulpProcess.get_instance().init_gulp_process()
-
+        if restart_processes:
+            # restart the process pool
+            await GulpProcess.get_instance().init_gulp_process()
         return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

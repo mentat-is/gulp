@@ -1,3 +1,4 @@
+from typing import override
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,13 @@ class GulpUserData(GulpCollabBase, type=GulpCollabType.USER_DATA):
     data: Mapped[dict] = mapped_column(
         JSONB, doc="The data to be associated with user."
     )
+
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d["data"] = {"key1": "value1", "key2": 12345678}
+        return d
 
     @classmethod
     async def create(

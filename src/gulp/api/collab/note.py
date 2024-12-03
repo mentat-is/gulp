@@ -55,9 +55,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             {
                 "context_id": "context_id",
                 "source_id": "source_id",
-                "docs": [
-                    [autogenerate_model_example_by_class(GulpBasicDocument)]
-                ],
+                "docs": [[autogenerate_model_example_by_class(GulpBasicDocument)]],
                 "time_pin": 1234567890,
                 "last_editor_id": "last_editor_id",
                 "text": "note text",
@@ -67,7 +65,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                         "timestamp": 1234567890,
                         "text": "previous note text",
                     }
-                ],                
+                ],
             }
         )
         return d
@@ -167,7 +165,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         else:
             tags = list(default_tags)
 
-        # create a note for each document
+        # creates a list of notes, one for each document
         notes = []
         for doc in docs:
             # associate the document with the note by creating a GulpBasicDocument object
@@ -180,6 +178,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 context_id=doc.get("gulp.context_id"),
                 source_id=doc.get("gulp.source_id"),
             )
+
+            # add the note object dictionary
             object_data = GulpNote.build_dict(
                 operation_id=associated_doc.operation_id,
                 context_id=associated_doc.context_id,
@@ -192,9 +192,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 editor_id=user_id,
             )
 
-            note_dict = GulpCollabBase.build_object_dict(
+            note_dict = GulpNote.build_base_object_dict(
                 object_data=object_data,
-                type=GulpCollabType.NOTE,
                 owner_id=user_id,
             )
             notes.append(note_dict)

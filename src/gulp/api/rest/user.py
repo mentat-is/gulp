@@ -5,6 +5,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 import re
 from typing import Annotated, Optional
 from gulp.api.collab.structs import (
+    GulpCollabFilter,
     GulpUserPermission,
     MissingPermission,
 )
@@ -205,19 +206,7 @@ async def logout_handler(
                         "status": "success",
                         "timestamp_msec": 1732901220291,
                         "req_id": "test_req",
-                        "data": {
-                            "pwd_hash": "c48b4df565b0c96f84fedf18f26596ed40aa9f46f11021af7125d34d1d3acffe",
-                            "permission": ["read", "edit"],
-                            "email": "user@mail.com",
-                            "time_last_login": 0,
-                            "id": "pippo",
-                            "type": "user",
-                            "owner_user_id": "pippo",
-                            "granted_user_ids": [],
-                            "granted_user_group_ids": [],
-                            "time_created": 1732901220265,
-                            "time_updated": 1732901220265,
-                        },
+                        "data": GulpUser.example(),
                     }
                 }
             }
@@ -304,30 +293,30 @@ async def user_create_handler(
 )
 async def user_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    user_id: Annotated[
+    object_id: Annotated[
         str,
-        Depends(APIDependencies.param_user_id),
+        Depends(APIDependencies.param_object_id),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if user_id == "admin":
+        if object_id == "admin":
             raise MissingPermission('user "admin" cannot be deleted!')
 
-        async with GulpCollab.get_instance().session() as sess:
-            # only admin can delete users
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
-            user: GulpUser = await GulpUser.get_by_id(
-                sess, user_id, with_for_update=True
+        await GulpUser.delete_by_id(
+            token,
+            object_id,
+            ws_id=None,
+            req_id=req_id,
+            permission=[GulpUserPermission.ADMIN],
+        )
+        return JSONResponse(
+            JSendResponse.success(
+                req_id=req_id,
+                data={"user_id": object_id},
             )
-            await user.delete(sess)
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id,
-                    data={"user_id": user_id},
-                )
-            )
+        )
 
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)
@@ -346,19 +335,7 @@ async def user_delete_handler(
                         "status": "success",
                         "timestamp_msec": 1732908917521,
                         "req_id": "test_req",
-                        "data": {
-                            "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-                            "permission": ["edit", "read"],
-                            "glyph_id": "d17626f3-8593-47c4-b585-4878f1ba8681",
-                            "time_last_login": 1732908889572,
-                            "id": "admin",
-                            "type": "user",
-                            "owner_user_id": "admin",
-                            "granted_user_ids": [],
-                            "granted_user_group_ids": [],
-                            "time_created": 1732908889451,
-                            "time_updated": 1732908917383,
-                        },
+                        "data": GulpUser.example(),
                     }
                 }
             }
@@ -422,7 +399,7 @@ async def user_update_handler(
                 d["glyph_id"] = glyph_id
 
             if user_id:
-                # get user
+                # get this user
                 u: GulpUser = await GulpUser.get_by_id(
                     sess, user_id, with_for_update=True
                 )
@@ -454,46 +431,7 @@ async def user_update_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": [
-                            {
-                                "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-                                "permission": ["admin", "read"],
-                                "glyph_id": "720fb3e5-06c2-4117-acf0-45d1fc07a983",
-                                "time_last_login": 1732914332045,
-                                "id": "admin",
-                                "type": "user",
-                                "owner_user_id": "admin",
-                                "granted_user_ids": [],
-                                "granted_user_group_ids": [],
-                                "time_created": 1732914331944,
-                                "time_updated": 1732914332084,
-                                "groups": [
-                                    {
-                                        "name": "test_group",
-                                        "glyph_id": None,
-                                        "permission": ["admin"],
-                                        "id": "d2eff6b2-394d-45b0-8f96-38536190de35",
-                                        "type": "user_group",
-                                        "owner_user_id": "admin",
-                                        "granted_user_ids": [],
-                                        "granted_user_group_ids": [],
-                                        "time_created": 1732914332098,
-                                        "time_updated": 1732914332098,
-                                    }
-                                ],
-                                "session": {
-                                    "user_id": "admin",
-                                    "time_expire": 0,
-                                    "id": "e9ed18b4-a3e2-453f-b346-e353f7993dd9",
-                                    "type": "user_session",
-                                    "owner_user_id": "admin",
-                                    "granted_user_ids": [],
-                                    "granted_user_group_ids": [],
-                                    "time_created": 1732914355640,
-                                    "time_updated": 1732914355640,
-                                },
-                            }
-                        ],
+                        "data": [GulpUser.example()],
                     }
                 }
             }
@@ -501,23 +439,23 @@ async def user_update_handler(
     },
     summary="list users.",
     description="""
-- `token` needs **admin** permission.
+- `token` needs `admin` permission.
     """,
 )
 async def user_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
+    ServerUtils.dump_params(locals())
     # only admin can get users list
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
-            users: list[GulpUser] = await GulpUser.get_by_filter(sess)
-            l = []
-            for u in users:
-                l.append(u.to_dict(nested=True, exclude_none=True))
-
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+        d = await GulpUser.get_by_filter_wrapper(
+            token,
+            flt=GulpCollabFilter(),
+            permission=[GulpUserPermission.ADMIN],
+            nested=True,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -535,62 +473,25 @@ async def user_list_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {
-                            "pwd_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-                            "permission": ["admin", "read"],
-                            "glyph_id": "9efd86fb-a5f7-41f7-80b7-f1d3358b417f",
-                            "time_last_login": 1732915710487,
-                            "id": "admin",
-                            "type": "user",
-                            "owner_user_id": "admin",
-                            "granted_user_ids": [],
-                            "granted_user_group_ids": [],
-                            "time_created": 1732915710390,
-                            "time_updated": 1732915710530,
-                            "groups": [
-                                {
-                                    "name": "test_group",
-                                    "glyph_id": None,
-                                    "permission": ["admin"],
-                                    "id": "27554397-4950-48e4-9bc1-7c7a87a5e5d5",
-                                    "type": "user_group",
-                                    "owner_user_id": "admin",
-                                    "granted_user_ids": [],
-                                    "granted_user_group_ids": [],
-                                    "time_created": 1732915710547,
-                                    "time_updated": 1732915710547,
-                                }
-                            ],
-                        },
+                        "data": GulpUser.example(),
                     }
                 }
             }
         }
     },
     summary="get a single user.",
+    description="""
+- `token` needs `admin` permission to get users other than the token user.
+""",
 )
 async def user_get_by_id(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    # check if token has permission over user_id
+    ServerUtils.dump_params(locals())
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            # check token first
-            s = await GulpUserSession.check_token(sess, token)
-
-            # get user
-            u = await GulpUser.get_by_id(sess, user_id)
-
-            # check if user has permission to access the object
-            if not s.user.is_admin() and s.user.id != u.id:
-                raise MissingPermission("only admin can get other users.")
-
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data=u.to_dict(nested=True, exclude_none=True)
-                )
-            )
+        d = await GulpUser.get_by_id_wrapper(token, object_id, nested=True)
+        return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

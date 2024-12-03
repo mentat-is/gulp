@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from gulp.api.collab.story import GulpStory
 from gulp.api.collab.structs import (
     GulpCollabFilter,
+    GulpUserPermission,
 )
 from gulp.api.rest.server_utils import (
     APIDependencies,
@@ -41,7 +42,7 @@ router: APIRouter = APIRouter()
     description="""
 creates a story which groups multiple documents.
 
-- `token` needs **edit** permission.
+- `token` needs `edit` permission.
 - default `color` is `blue`.
 """,
 )
@@ -81,6 +82,7 @@ async def story_create_handler(
             ws_id=ws_id,
             req_id=req_id,
             object_data=object_data,
+            permission=[GulpUserPermission.EDIT],
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -106,7 +108,10 @@ async def story_create_handler(
             }
         }
     },
-    summary="updates an existing story",
+    summary="updates an existing story.",
+    description="""
+- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+""",
 )
 async def story_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -123,11 +128,11 @@ async def story_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
-    if not any([doc_ids, name, tags, glyph_id, color, private]):
-        raise ValueError(
-            "at least one of doc_ids, name, tags, glyph_id, color, private must be set."
-        )
     try:
+        if not any([doc_ids, name, tags, glyph_id, color, private]):
+            raise ValueError(
+                "at least one of doc_ids, name, tags, glyph_id, color, private must be set."
+            )
         d = {}
         d["doc_ids"] = doc_ids
         d["name"] = name
@@ -166,7 +171,10 @@ async def story_update_handler(
             }
         }
     },
-    summary="deletes a link.",
+    summary="deletes a story.",
+    description="""
+- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+""",
 )
 async def story_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -266,4 +274,3 @@ async def story_list_handler(
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
-

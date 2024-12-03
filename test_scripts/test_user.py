@@ -112,7 +112,7 @@ class GulpUserTester:
 
         # reset
         await self._make_request(
-            "POST", "gulp_reset", params={"index": "test_idx"}, token=token
+            "POST", "gulp_reset", params={"index": "test_idx", "restart_processes": False}, token=token
         )
 
     async def create_user(
@@ -318,6 +318,11 @@ class GulpUserTester:
                 email="mynewemail@email.com",
             )
             assert updated, "Details update failed"
+
+            # Guest should not be able to update his own permission
+            await self.update_user(
+                guest_token, "guest", permission=["read", "edit"], expected_status=401
+            )
 
             # Guest should not be able to update other users
             await self.update_user(

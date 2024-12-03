@@ -196,6 +196,7 @@ class GulpRestServer:
 
     def _add_routers(self):
         from gulp.api.rest.ingest import router as ingest_router
+        from gulp.api.rest.operation import router as operation_router
         from gulp.api.rest.ws import router as ws_router
         from gulp.api.rest.user import router as user_router
         from gulp.api.rest.note import router as note_router
@@ -205,6 +206,7 @@ class GulpRestServer:
         from gulp.api.rest.story import router as story_router
 
         self._app.include_router(db_router)
+        self._app.include_router(operation_router)
         self._app.include_router(ingest_router)
         self._app.include_router(ws_router)
         self._app.include_router(user_router)
@@ -212,7 +214,7 @@ class GulpRestServer:
         self._app.include_router(link_router)
         self._app.include_router(highlight_router)
         self._app.include_router(story_router)
-        
+
         """
         import gulp.api.rest.collab_utility
         import gulp.api.rest.db

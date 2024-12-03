@@ -523,20 +523,19 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 for rel in inspect(cls).relationships
             ]
 
-    @staticmethod
-    def build_object_dict(
+    @classmethod
+    def build_base_object_dict(
+        cls,
         object_data: dict,
-        type: GulpCollabType,
         owner_id: str,
         id: str = None,
         **kwargs,
     ) -> dict:
         """
-        build a dictionary to create a new object
+        build a dictionary to create a new base object
 
         Args:
             object_data (dict): The data to create the object with.
-            type (GulpCollabType): The type of the object.
             owner_id (str): The ID of the user creating the object
             id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
@@ -561,7 +560,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             if v:
                 object_data[k] = v
 
-        object_data["type"] = type
+        object_data["type"] = cls.__gulp_collab_type__
         object_data["id"] = id
         object_data["time_created"] = time_created
         object_data["time_updated"] = time_created
@@ -609,9 +608,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             object_data = {}
 
         owner_id = owner_id or "admin"
-        d = GulpCollabBase.build_object_dict(
+        d = cls.build_base_object_dict(
             object_data,
-            type=cls.__gulp_collab_type__,
             owner_id=owner_id,
             id=id,
             **kwargs,
@@ -648,7 +646,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
         return instance
 
-    async def grant_group(self, sess: AsyncSession, group_id: str) -> None:
+    async def grant_group_access(self, sess: AsyncSession, group_id: str) -> None:
         """
         grant a user group access to the object
 
@@ -670,7 +668,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 "User group %s already granted on object %s" % (group_id, self.id)
             )
 
-    async def ungrant_group(self, sess: AsyncSession, group_id: str) -> None:
+    async def ungrant_group_access(self, sess: AsyncSession, group_id: str) -> None:
         """
         remove a user group access to the object
 
@@ -692,7 +690,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 "User group %s not in granted list on object %s" % (group_id, self.id)
             )
 
-    async def grant_user(self, sess: AsyncSession, user_id: str) -> None:
+    async def grant_user_access(self, sess: AsyncSession, user_id: str) -> None:
         """
         grant a user access to the object
 
@@ -714,7 +712,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 "User %s already granted on object %s" % (user_id, self.id)
             )
 
-    async def ungrant_user(self, sess: AsyncSession, user_id: str) -> None:
+    async def ungrant_user_access(self, sess: AsyncSession, user_id: str) -> None:
         """
         remove a user access to the object
 
@@ -760,12 +758,8 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         Returns:
             None
         """
-        # query with lock
-        stmt = (
-            select(self.__class__)
-            .filter(self.__class__.id == self.id)
-            .with_for_update()
-        )
+        # query to get the instance
+        stmt = select(self.__class__).filter(self.__class__.id == self.id)
         result = await sess.execute(stmt)
         instance = result.scalar_one()
         await sess.delete(instance)
@@ -986,45 +980,208 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         return None
 
     @classmethod
-    async def create(
+    async def get_by_id_wrapper(
         cls,
-        sess: AsyncSession,
-        object_data: dict,
-        id: str = None,
-        owner_id: str = None,
-        ws_id: str = None,
-        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_UPDATE,
-        ws_data: dict = None,
-        req_id: str = None,
-        **kwargs,
-    ) -> T:
+        token: str,
+        id: str,
+        with_for_update: bool = False,
+        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        nested: bool = False,
+    ) -> dict:
         """
-        create a new instance of the class
+        helper to get an object by ID, handling session
 
         Args:
-            sess (AsyncSession): The database session to use.
-            object_data (dict): The data to create the object with.
-            id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
-            owner_id (str, optional): The ID of the user creating the object. Defaults to None (admin user).
-            ws_id (str, optional): the websocket ID to send the data to. Defaults to None (do not send to websocket).
-            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_CREATE.
-            ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
-            req_id (str, optional): the ID of the request. Defaults to None.
-            **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
+            token (str): The user token.
+            id (str): The ID of the object to get.
+            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
+            nested (bool, optional): If True, nested relationships will be loaded. Defaults to False.
+
         Returns:
-            T: The created instance of the class.
+            dict: The object as a dictionary
+
+        Raises:
+            MissingPermissionError: If the user does not have permission to read the object.
+            ObjectNotFound: If the object is not found.
         """
-        return await cls._create(
-            sess,
-            object_data=object_data,
-            id=id,
-            owner_id=owner_id,
-            ws_id=ws_id,
-            ws_queue_datatype=ws_queue_datatype,
-            ws_data=ws_data,
-            req_id=req_id,
-            **kwargs,
-        )
+        from gulp.api.collab_api import GulpCollab
+        from gulp.api.collab.user_session import GulpUserSession
+
+        async with GulpCollab.get_instance().session() as sess:
+            n: GulpCollabBase = await cls.get_by_id(
+                sess, id, with_for_update=with_for_update
+            )
+
+            # token needs at least read permission (or be the owner)
+            await GulpUserSession.check_token(sess, token, permission=permission, obj=n)
+            return n.to_dict(exclude_none=True, nested=nested)
+
+    @classmethod
+    async def get_by_filter_wrapper(
+        cls,
+        token: str,
+        flt: GulpCollabFilter,
+        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        nested: bool = False,
+    ) -> list[dict]:
+        """
+        helper to get objects by filter, handling session
+
+        Args:
+            token (str): The user token.
+            flt (GulpCollabFilter): The filter to apply to the query.
+            permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
+            nested (bool, optional): If True, nested relationships will be loaded. Defaults to False.
+        Returns:
+            list[dict]: The list of object dictionaries that match the filter criteria.
+        """
+        from gulp.api.collab_api import GulpCollab
+        from gulp.api.collab.user_session import GulpUserSession
+
+        async with GulpCollab.get_instance().session() as sess:
+            # token needs at least read permission
+            s = await GulpUserSession.check_token(sess, token, permission=permission)
+            objs = await cls.get_by_filter(sess, flt)
+            data = []
+            for o in objs:
+                o: GulpCollabBase
+                # perform access checks on the object
+                if s.user.check_object_access(o):
+                    data.append(o.to_dict(exclude_none=True, nested=nested))
+
+            return data
+
+    @classmethod
+    async def delete_by_id(
+        cls,
+        token: str,
+        id: str,
+        ws_id: str,
+        req_id: str,
+        permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
+    ) -> None:
+        """
+        helper to delete an object by ID, handling session
+
+        Args:
+            token (str): The user token.
+            id (str): The ID of the object to delete.
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
+            permission (list[GulpUserPermission], optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
+
+        Raises:
+            MissingPermissionError: If the user does not have permission to delete the object.
+            ObjectNotFoundError: If the object is not found.
+        """
+        from gulp.api.collab_api import GulpCollab
+        from gulp.api.collab.user_session import GulpUserSession
+
+        async with GulpCollab.get_instance().session() as sess:
+            n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
+
+            # token needs at least delete permission (or be the owner)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=n
+            )
+
+            # delete
+            await n.delete(sess, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
+
+    @classmethod
+    async def update_by_id(
+        cls,
+        token: str,
+        id: str,
+        ws_id: str,
+        req_id: str,
+        d: dict = None,
+        updated_instance: T = None,
+        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
+        **kwargs,
+    ) -> dict:
+        """
+        helper to update an object by ID, handling session
+
+        Args:
+            token (str): The user token.
+            id (str): The ID of the object to update.
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
+            d (dict, optional): The data to update the object with. Defaults to None.
+            updated_instance (T, optional): An already updated instance of the object. Defaults to None.
+            permission (list[GulpUserPermission], optional): The permission required to update the object. Defaults to GulpUserPermission.EDIT.
+            **kwargs: Additional keyword arguments to set as attributes on the instance.
+
+        Returns:
+            dict: The updated object as a dictionary.
+
+        Raises:
+            ValueError: If both d and updated_instance are provided.
+            MissingPermissionError: If the user does not have permission to update the object.
+        """
+        from gulp.api.collab_api import GulpCollab
+        from gulp.api.collab.user_session import GulpUserSession
+
+        async with GulpCollab.get_instance().session() as sess:
+            if d and updated_instance:
+                raise ValueError("only one of d or updated_instance should be provided")
+
+            n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
+
+            # token needs at least edit permission (or be the owner)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=n
+            )
+            await n.update(
+                sess,
+                d=d,
+                ws_id=ws_id,
+                user_id=s.user_id,
+                req_id=req_id,
+                updated_instance=updated_instance,
+                **kwargs,
+            )
+            return n.to_dict(exclude_none=True)
+
+    @classmethod
+    async def create(
+        cls,
+        token: str,
+        ws_id: str,
+        req_id: str,
+        object_data: dict,
+        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
+        id: str = None,
+    ) -> dict:
+        """
+        helper to create a new object, handling session
+
+        Args:
+            token (str): The user token.
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
+            object_data (dict): The data to create the object with.
+            permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.
+            id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+        Returns:
+            dict: The created object as a dictionary.
+
+        Raises:
+            MissingPermissionError: If the user does not have permission to create the object.
+        """
+        from gulp.api.collab_api import GulpCollab
+        from gulp.api.collab.user_session import GulpUserSession
+
+        async with GulpCollab.get_instance().session() as sess:
+
+            # check permission for creation
+            s = await GulpUserSession.check_token(sess, token, permission=permission)
+            n: GulpCollabBase = await cls._create(
+                sess, object_data, id=id, owner_id=s.user_id, ws_id=ws_id, req_id=req_id
+            )
+            return n.to_dict(exclude_none=True)
 
 
 class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
@@ -1131,185 +1288,3 @@ class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
             )
         super().__init__(*args, **kwargs)
         MutyLogger.get_instance().debug("---> GulpCollabObject: " % (*args, kwargs))
-
-    @classmethod
-    async def get_by_id_wrapper(
-        cls, token: str, id: str, with_for_update: bool = False
-    ) -> dict:
-        """
-        helper to get an object by ID, handling session
-
-        Args:
-            token (str): The user token.
-            id (str): The ID of the object to get.
-            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
-
-        Returns:
-            dict: The object as a dictionary
-
-        Raises:
-            MissingPermissionError: If the user does not have permission to read the object.
-            ObjectNotFound: If the object is not found.
-        """
-        from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user_session import GulpUserSession
-
-        async with GulpCollab.get_instance().session() as sess:
-            n: GulpCollabBase = await super().get_by_id(
-                sess, id, with_for_update=with_for_update
-            )
-
-            # token needs at least read permission (or be the owner)
-            await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.READ], obj=n
-            )
-            return n.to_dict(exclude_none=True)
-
-    @classmethod
-    async def get_by_filter_wrapper(
-        cls, token: str, flt: GulpCollabFilter
-    ) -> list[dict]:
-        """
-        helper to get objects by filter, handling session
-
-        Args:
-            token (str): The user token.
-            flt (GulpCollabFilter): The filter to apply to the query.
-
-        Returns:
-            list[dict]: The list of object dictionaries that match the filter criteria.
-        """
-        from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user_session import GulpUserSession
-
-        async with GulpCollab.get_instance().session() as sess:
-            # token needs at least read permission
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.READ]
-            )
-            objs = await super().get_by_filter(sess, flt)
-            data = []
-            for o in objs:
-                o: GulpCollabBase
-                # perform access checks on the object
-                if s.user.check_object_access(o):
-                    data.append(o.to_dict(exclude_none=True))
-
-            print(data)
-            return data
-
-    @classmethod
-    async def delete_by_id(cls, token: str, id: str, ws_id: str, req_id: str) -> None:
-        """
-        helper to delete an object by ID, handling session
-
-        Args:
-            token (str): The user token.
-            id (str): The ID of the object to delete.
-            ws_id (str): The websocket ID.
-            req_id (str): The request ID.
-
-        Raises:
-            MissingPermissionError: If the user does not have permission to delete the object.
-            ObjectNotFoundError: If the object is not found.
-        """
-        from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user_session import GulpUserSession
-
-        async with GulpCollab.get_instance().session() as sess:
-            n: T = await super().get_by_id(sess, id, with_for_update=True)
-
-            # token needs at least delete permission (or be the owner)
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.DELETE], obj=n
-            )
-
-            # delete
-            await n.delete(sess, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
-
-    @classmethod
-    async def update_by_id(
-        cls,
-        token: str,
-        id: str,
-        ws_id: str,
-        req_id: str,
-        d: dict = None,
-        updated_instance: T = None,
-        **kwargs,
-    ) -> dict:
-        """
-        helper to update an object by ID, handling session
-
-        Args:
-            token (str): The user token.
-            id (str): The ID of the object to update.
-            ws_id (str): The websocket ID.
-            req_id (str): The request ID.
-            d (dict, optional): The data to update the object with. Defaults to None.
-            updated_instance (T, optional): An already updated instance of the object. Defaults to None.
-            **kwargs: Additional keyword arguments to set as attributes on the instance.
-
-        Returns:
-            dict: The updated object as a dictionary.
-
-        Raises:
-            ValueError: If both d and updated_instance are provided.
-            MissingPermissionError: If the user does not have permission to update the object.
-        """
-        from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user_session import GulpUserSession
-
-        async with GulpCollab.get_instance().session() as sess:
-            if d and updated_instance:
-                raise ValueError("only one of d or updated_instance should be provided")
-
-            n: GulpCollabBase = await super().get_by_id(sess, id, with_for_update=True)
-
-            # token needs at least edit permission (or be the owner)
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.EDIT], obj=n
-            )
-            await n.update(
-                sess,
-                d=d,
-                ws_id=ws_id,
-                user_id=s.user_id,
-                req_id=req_id,
-                updated_instance=updated_instance,
-                **kwargs,
-            )
-            return n.to_dict(exclude_none=True)
-
-    @classmethod
-    async def create(
-        cls, token: str, ws_id: str, req_id: str, object_data: dict
-    ) -> dict:
-        """
-        helper to create a new object, handling session
-
-        Args:
-            token (str): The user token.
-            ws_id (str): The websocket ID.
-            req_id (str): The request ID.
-            object_data (dict): The data to create the object with.
-
-        Returns:
-            dict: The created object as a dictionary.
-
-        Raises:
-            MissingPermissionError: If the user does not have permission to create the object.
-        """
-        from gulp.api.collab_api import GulpCollab
-        from gulp.api.collab.user_session import GulpUserSession
-
-        async with GulpCollab.get_instance().session() as sess:
-
-            # token needs at least edit permission
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.EDIT]
-            )
-            n: GulpCollabBase = await super()._create(
-                sess, object_data, owner_id=s.user_id, ws_id=ws_id, req_id=req_id
-            )
-            return n.to_dict(exclude_none=True)

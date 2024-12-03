@@ -24,6 +24,14 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     )
 
     @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d["name"] = "glyph_name"
+        d["img"] = "base64_image_data"
+        return d
+
+    @override
     def __repr__(self) -> str:
         return super().__repr__() + f" img={self.img[:10]}[...]"
 

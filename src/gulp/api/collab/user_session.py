@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, override
 
 import muty.string
 import muty.time
@@ -43,6 +43,14 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         default=0,
         doc="The time when the session expires, in milliseconds from unix epoch.",
     )
+
+    @override
+    @classmethod
+    def example(cls) -> dict:
+        d = super().example()
+        d["user_id"] = "user_id"
+        d["time_expire"] = 0
+        return d
 
     @classmethod
     async def create(
@@ -92,22 +100,22 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         token: str,
         permission: list[GulpUserPermission] | GulpUserPermission = None,
         obj: Optional[GulpCollabBase] = None,
-        always_allow_owner: bool = True,
         throw_on_no_permission: bool = True,
     ) -> "GulpUserSession":
         """
         Check if the user represented by token is logged in and has the required permissions.
 
         - if both permission and obj are None, the function will return the user session without checking permissions.
-        - if obj is provided, the function will check the user permissions against the object to access it.
-        - if permission is provided, the function will check if the user has the required permissions.
+        - if user is an admin, the function will always grant access.
+        - first, if permission is provided, the function will check if the user has the required permission/s.
+        - then, if obj is provided, the function will check the user permissions against the object to access it.
+            - check GulpUser.check_object_access() for details.
 
         Args:
             sess (AsyncSession, optional): The database session to use. Defaults to None.
             token (str): The token representing the user's session.
             permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s) required to access the object. Defaults to None.
             obj (Optional[GulpCollabBase], optional): The object to check the permissions against, for access. Defaults to None.
-            always_allow_owner (bool, optional): If True, the owner of the object is always allowed to access it. Defaults to True.
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
 
         Returns:
@@ -130,6 +138,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             )
         except ObjectNotFound as ex:
             raise ObjectNotFound('token "%s" not logged in' % (token))
+
         if not obj and not permission:
             # no permission or object provided, just return the session
             return user_session
@@ -140,24 +149,26 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
 
         granted = False
 
+        # check if the user have the required permission first
+        if user_session.user.has_permission(permission):
+            granted = True
+
         if obj:
             # check the user permissions against the object
             if user_session.user.check_object_access(
                 obj,
-                always_allow_owner=always_allow_owner,
                 throw_on_no_permission=throw_on_no_permission,
             ):
                 granted = True
-
-        # check if the user has permission
-        if user_session.user.has_permission(permission):
-            granted = True
+            else:
+                # user cannot access the object
+                granted = False
 
         if granted:
             return user_session
 
         if throw_on_no_permission:
             raise MissingPermission(
-                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
+                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}."
             )
         return None

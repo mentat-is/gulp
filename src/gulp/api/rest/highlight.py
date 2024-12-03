@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from gulp.api.collab.highlight import GulpHighlight
 from gulp.api.collab.structs import (
     GulpCollabFilter,
+    GulpUserPermission,
 )
 from gulp.api.rest.server_utils import (
     APIDependencies,
@@ -41,7 +42,7 @@ router: APIRouter = APIRouter()
     description="""
 highlights a time range on a source.
 
-- `token` needs **edit** permission.
+- `token` needs `edit` permission.
 - default `color` is `green`.
 """,
 )
@@ -108,7 +109,10 @@ async def highlight_create_handler(
             }
         }
     },
-    summary="updates an existing highlight",
+    summary="updates an existing highlight.",
+    description="""
+- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+""",
 )
 async def highlight_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -128,11 +132,11 @@ async def highlight_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
-    if not any([time_range, name, tags, glyph_id, color, private]):
-        raise ValueError(
-            "at least one of time_range, name, tags, glyph_id, color, private must be set."
-        )
     try:
+        if not any([time_range, name, tags, glyph_id, color, private]):
+            raise ValueError(
+                "at least one of time_range, name, tags, glyph_id, color, private must be set."
+            )
         d = {}
         d["time_range"] = time_range
         d["name"] = name
@@ -171,7 +175,10 @@ async def highlight_update_handler(
             }
         }
     },
-    summary="deletes a link.",
+    summary="deletes an highlight.",
+    description="""
+- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+""",
 )
 async def highlight_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

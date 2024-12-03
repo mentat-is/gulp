@@ -142,6 +142,24 @@ class APIDependencies:
         return APIDependencies._strip_or_none(description)
 
     @staticmethod
+    def param_display_name(
+        name: Annotated[
+            str,
+            Query(description="the object display name.", example="object name"),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            name (str, Query): The display name.
+
+        Returns:
+            str: The name.
+        """
+        return APIDependencies._strip_or_none(name)
+
+    @staticmethod
     def param_display_name_optional(
         name: Annotated[
             Optional[str],
@@ -295,24 +313,6 @@ class APIDependencies:
         return APIDependencies._strip_or_none(email)
 
     @staticmethod
-    def param_object_id(
-        object_id: Annotated[
-            str,
-            Query(description=api_defs.API_DESC_OBJECT_ID, example="the_id"),
-        ]
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            object_id (str, Query): The object ID.
-
-        Returns:
-            str: The object ID.
-        """
-        return APIDependencies._strip_or_none(object_id)
-
-    @staticmethod
     def param_token(
         token: Annotated[
             str,
@@ -350,6 +350,42 @@ class APIDependencies:
             str: The glyph ID.
         """
         return APIDependencies._strip_or_none(glyph_id)
+
+    @staticmethod
+    def param_object_id(
+        object_id: Annotated[
+            str,
+            Query(description="the object ID.", example="object_id"),
+        ]
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            object_id (str, Query): The object ID.
+
+        Returns:
+            str: The object ID.
+        """
+        return APIDependencies._strip_or_none(object_id)
+
+    @staticmethod
+    def param_object_id_optional(
+        object_id: Annotated[
+            Optional[str],
+            Query(description="the object ID.", example="object_id"),
+        ] = None
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            object_id (str, optional, Query): The object ID. Defaults to None.
+
+        Returns:
+            str: The object ID.
+        """
+        return APIDependencies._strip_or_none(object_id)
 
     @staticmethod
     def param_user_id(
@@ -440,6 +476,23 @@ class APIDependencies:
 
         Args:
             index (str, Query): The opensearch index.
+
+        Returns:
+            int: The index.
+        """
+        return APIDependencies._strip_or_none(index)
+
+    def param_index_optional(
+        index: Annotated[
+            Optional[str],
+            Query(description=api_defs.API_DESC_INDEX, example=api_defs.EXAMPLE_INDEX),
+        ] = None
+    ) -> int:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            index (str, optional, Query): The opensearch index. Defaults to None.
 
         Returns:
             int: The index.

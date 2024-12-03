@@ -1,121 +1,32 @@
 """
-This module contains the REST API for gULP (gui Universal Log Processor).
+gulp operations rest api
 """
 
-from typing import Annotated
-
-import muty.crypto
-import muty.file
-import muty.jsend
-import muty.list
-import muty.log
-import muty.os
-import muty.string
-import muty.uploadfile
-from fastapi import APIRouter, Body, Header, Query
-from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
-from muty.log import MutyLogger
-
-import gulp.plugin
-import gulp.structs
-import gulp.utils
-from gulp.api import collab_api, opensearch_api
-from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.operation import Operation
-from gulp.api.collab.session import GulpUserSession
-from gulp.structs import InvalidArgument
-
-_app: APIRouter = APIRouter()
-
-
-@_app.delete(
-    "/operation_delete",
-    response_model=JSendResponse,
-    tags=["operation"],
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="deletes the specified operation.",
-    description="related *notes, highlights, links, stories, alerts* are deleted.<br>"
-    "related *clients* will have their `operation_id` cleared.<br><br>"
-    "if `recreate_operation` is set, the operation is recreated after deletion, and the returned `id` is the recreated operation id.",
+from typing import Annotated, Optional
+from fastapi import APIRouter, Body, Depends, Query
+from fastapi.responses import JSONResponse
+from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpUserPermission,
 )
-async def operation_delete_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
-    delete_data: Annotated[
-        bool, Query(description="delete related data on elasticsearch.")
-    ] = False,
-    recreate_operation: Annotated[
-        bool, Query(description="recreate operation after delete.")
-    ] = False,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.rest.server_utils import (
+    APIDependencies,
+    ServerUtils,
+)
+from muty.log import MutyLogger
+import muty.string
 
-    req_id = gulp.utils.ensure_req_id(req_id)
-    res_data = {"id": operation_id}
-    try:
-        # only admin can delete
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.ADMIN
-        )
-
-        # get operation
-        op: Operation = None
-        l = await Operation.get(
-            await collab_api.session(),
-            GulpCollabFilter(id=[operation_id]),
-        )
-        op = l[0]
-
-        # delete operation
-        await Operation.delete(await collab_api.session(), operation_id)
-
-        if delete_data is not None:
-            # we must also delete elasticsearch data
-            MutyLogger.get_instance().info(
-                "deleting data related to operation_id=%d ..." % (operation_id)
-            )
-            await opensearch_api.delete_data_by_operation(
-                opensearch_api.elastic(), op.index, operation_id
-            )
-
-        if recreate_operation:
-            # recreate operation
-            new_op = await Operation.create(
-                await collab_api.session(),
-                op.id,
-                op.index,
-                op.description,
-                op.glyph_id,
-                op.workflow_id,
-            )
-            res_data["id"] = new_op.id
-            MutyLogger.get_instance().info("recreated operation %s" % (new_op))
-    except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
-    return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=res_data))
+router: APIRouter = APIRouter()
 
 
-@_app.post(
+@router.post(
     "/operation_create",
-    response_model=JSendResponse,
     tags=["operation"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
@@ -123,57 +34,65 @@ async def operation_delete_handler(
                 "application/json": {
                     "example": {
                         "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                            "name": "testoperation",
-                            "description": "test",
-                            "glyph_id": 3,
-                            "workflow_id": None,
-                        },
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpOperation.example(),
                     }
                 }
             }
         }
     },
-    summary="creates an operation to use with the collaboration API.",
+    summary="creates a operation.",
+    description="""
+- token needs `admin` permission.
+""",
 )
 async def operation_create_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    name: Annotated[str, Query(description="the name of the operation.")],
-    index: Annotated[str, Query(description="the elasticsearch index to associate.")],
-    description: Annotated[str, Body()] = None,
-    glyph_id: Annotated[int, Query(description="optional glyph ID to assign.")] = None,
-    workflow_id: Annotated[
-        int, Query(description=gulp.structs.API_DESC_WORKFLOW_ID)
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    name: Annotated[
+        str,
+        Depends(APIDependencies.param_display_name),
+    ],
+    index: Annotated[
+        str,
+        Depends(APIDependencies.param_index),
+    ],
+    description: Annotated[
+        str,
+        Depends(APIDependencies.param_description_optional),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
+    glyph_id: Annotated[
+        str,
+        Depends(APIDependencies.param_glyph_id_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
 
-    req_id = gulp.utils.ensure_req_id(req_id)
+    d = {
+        "index": index,
+        "name": name,
+        "description": description,
+        "glyph_id": glyph_id,
+    }
     try:
-        # only admin can create
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.ADMIN
+        d = await GulpOperation.create(
+            token,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            object_data=d,
+            permission=[GulpUserPermission.ADMIN],
+            id=muty.string.ensure_no_space_no_special(name),
         )
-        o = await Operation.create(
-            await collab_api.session(),
-            name,
-            index,
-            description,
-            glyph_id,
-            workflow_id,
-        )
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@_app.put(
+@router.patch(
     "/operation_update",
-    response_model=JSendResponse,
     tags=["operation"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
@@ -181,60 +100,65 @@ async def operation_create_handler(
                 "application/json": {
                     "example": {
                         "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                            "name": "testoperation",
-                            "description": "test",
-                            "glyph_id": 3,
-                            "workflow_id": None,
-                        },
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpOperation.example(),
                     }
                 }
             }
         }
     },
     summary="updates an existing operation.",
+    description="""
+- token needs `admin` permission.
+""",
 )
 async def operation_update_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
-    description: Annotated[str, Body()] = None,
-    glyph_id: Annotated[int, Query(description="optional glyph ID to assign.")] = None,
-    workflow_id: Annotated[
-        int, Query(description=gulp.structs.API_DESC_WORKFLOW_ID)
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    index: Annotated[
+        str,
+        Depends(APIDependencies.param_index_optional),
     ] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-
-    req_id = gulp.utils.ensure_req_id(req_id)
+    description: Annotated[
+        str,
+        Depends(APIDependencies.param_description_optional),
+    ] = None,
+    glyph_id: Annotated[
+        str,
+        Depends(APIDependencies.param_glyph_id_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals)
     try:
-        if description is None and glyph_id is None and workflow_id is None:
-            raise InvalidArgument(
-                "at least one of description, glyph_id or workflow_id must be specified."
+        if not any([name, index, description, glyph_id]):
+            raise ValueError(
+                "At least one of name, index, description, or glyph_id must be provided."
             )
-
-        # only admin can update
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.ADMIN
+        d = {}
+        d["name"] = name
+        d["index"] = index
+        d["description"] = description
+        d["glyph_id"] = glyph_id
+        d = await GulpOperation.update_by_id(
+            token,
+            object_id,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            d=d,
+            permission=[GulpUserPermission.ADMIN],
         )
-        o = await Operation.update(
-            await collab_api.session(),
-            operation_id,
-            description,
-            glyph_id,
-            workflow_id,
-        )
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=o.to_dict()))
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@_app.post(
-    "/operation_list",
-    response_model=JSendResponse,
+@router.delete(
+    "/operation_delete",
     tags=["operation"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
@@ -242,96 +166,136 @@ async def operation_update_handler(
                 "application/json": {
                     "example": {
                         "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "obj_id"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes a operation.",
+    description="""
+- token needs `admin` permission.
+""",
+)
+async def operation_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    delete_data: Annotated[
+        Optional[bool],
+        Query(
+            description="delete related data on gulp collab and opensearch index (`index` must be provided)."
+        ),
+    ] = True,
+    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        if delete_data and not index:
+            raise ValueError("If `delete_data` is set, `index` must be provided.")
+
+        await GulpOperation.delete_by_id(
+            token,
+            object_id,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            permission=[GulpUserPermission.ADMIN],
+        )
+
+        if delete_data:
+            # delete all data
+            MutyLogger.get_instance().info(
+                f"deleting data related to operation_id={object_id} on index={index} ..."
+            )
+            await GulpOpenSearch.get_instance().delete_data_by_operation(
+                index, object_id
+            )
+
+        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.get(
+    "/operation_get_by_id",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpOperation.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets a operation.",
+)
+async def operation_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        d = await GulpOperation.get_by_id_wrapper(
+            token,
+            object_id,
+            nested=True,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.post(
+    "/operation_list",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
                         "data": [
-                            {
-                                "id": 1,
-                                "name": "testoperation",
-                                "description": "test",
-                                "glyph_id": 3,
-                                "workflow_id": None,
-                            }
+                            GulpOperation.example(),
                         ],
                     }
                 }
             }
         }
     },
-    description="available filters: name, id, index, limit, offset.",
-    summary="lists existing operations, optionally using a filter.",
+    summary="list operations, optionally using a filter.",
+    description="",
 )
 async def operation_list_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-    flt: Annotated[GulpCollabFilter, Body()] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
+    ServerUtils.dump_params(params)
     try:
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
+        d = await GulpOperation.get_by_filter_wrapper(
+            token,
+            flt,
+            nested=True,
         )
-        ops = await Operation.get(await collab_api.session(), flt)
-        oo = []
-        for o in ops:
-            oo.append(o.to_dict())
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=oo))
+        return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-@_app.get(
-    "/operation_get_by_id",
-    response_model=JSendResponse,
-    tags=["operation"],
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                            "name": "testoperation",
-                            "description": "test",
-                            "glyph_id": 3,
-                            "workflow_id": None,
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="get an operation.",
-)
-async def operation_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-    operation_id: Annotated[int, Query(description=gulp.structs.API_DESC_OPERATION)],
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-    try:
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
-        )
-        ops = await Operation.get(
-            await collab_api.session(), GulpCollabFilter(id=[operation_id])
-        )
-        op = ops[0]
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=op.to_dict()))
-    except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-def router() -> APIRouter:
-    """
-    Returns this module api-router, to add it to the main router
-
-    Returns:
-        APIRouter: The APIRouter instance
-    """
-    global _app
-    return _app
