@@ -1,36 +1,45 @@
 """
-This module contains the REST API for gULP (gui Universal Log Processor).
+gulp glyphs management rest api
 """
 
-from typing import Annotated
-
-import muty.crypto
-import muty.file
-import muty.jsend
-import muty.list
-import muty.log
-import muty.os
-import muty.string
-import muty.uploadfile
-from fastapi import APIRouter, Body, File, Header, Query, UploadFile
-from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
+from typing import Annotated, Optional
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import JSONResponse
+from gulp.api.collab.glyph import GulpGlyph
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpUserPermission,
+)
+from gulp.api.rest.server_utils import (
+    APIDependencies,
+    ServerUtils,
+)
 
-import gulp.api.collab_api as collab_api
-import gulp.structs
-import gulp.plugin
-import gulp.utils
-from gulp.api.collab.base import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.glyph import Glyph
-from gulp.api.collab.session import GulpUserSession
-
-_app: APIRouter = APIRouter()
+router: APIRouter = APIRouter()
 
 
-@_app.post(
+def _read_img_file(file: UploadFile) -> bytes:
+    """
+    reads the image file and returns the data as bytes.
+
+    also checks the file size, which must be less than 16kb.
+
+    Args:
+        file (UploadFile): the image file.
+
+    Returns:
+        bytes: the image data.
+    """
+    data = file.file.read()
+    if len(data) > 16 * 1024:
+        raise ValueError("The file size must be less than 16kb.")
+
+
+@router.post(
     "/glyph_create",
-    response_model=JSendResponse,
     tags=["glyph"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
@@ -38,42 +47,54 @@ _app: APIRouter = APIRouter()
                 "application/json": {
                     "example": {
                         "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                            "name": "testglyph",
-                            "img": "base64encodedimage",
-                        },
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpGlyph.example(),
                     }
                 }
             }
         }
     },
-    summary="creates a glyph to use with the collaboration API.",
+    summary="creates a glyph.",
+    description="""
+- token needs `edit` permission.
+- max `img` size is `16kb`, all common image file formats (.png, .jpg, ...) are accepted.
+""",
 )
 async def glyph_create_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    glyph: Annotated[UploadFile, File(description="the glyph file to be uploaded.")],
-    name: Annotated[str, Query(description="the name of the glyph.")] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    img: Annotated[UploadFile, File(description="an image file.")],
+    name: Annotated[
+        str,
+        Depends(APIDependencies.param_display_name_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+
     try:
-        data = glyph.file.read()
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.ADMIN
+        data = _read_img_file(img)
+        d = {
+            "name": name,
+            "img": data,
+        }
+
+        d = await GulpGlyph.create(
+            token,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            object_data=d,
+            permission=[GulpUserPermission.EDIT],
         )
-        g = await Glyph.create(await collab_api.session(), data, name)
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=g.to_dict()))
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@_app.put(
+@router.patch(
     "/glyph_update",
-    response_model=JSendResponse,
     tags=["glyph"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
@@ -81,132 +102,52 @@ async def glyph_create_handler(
                 "application/json": {
                     "example": {
                         "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                            "name": "testglyph",
-                            "img": "base64encodedimage",
-                        },
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpGlyph.example(),
                     }
                 }
             }
         }
     },
-    summary="updates a glyph.",
+    summary="updates an existing glyph.",
+    description="""
+- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+- max `img` size is `16kb`, all common image file formats (.png, .jpg, ...) are accepted.
+""",
 )
 async def glyph_update_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    glyph_id: Annotated[int, Query(description=gulp.structs.API_DESC_GLYPH)],
-    glyph: Annotated[UploadFile, File(description="the glyph file to be uploaded.")],
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    img: Annotated[Optional[UploadFile], File(description="an image file.")] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals)
     try:
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.ADMIN
+        if not any([name, img]):
+            raise ValueError("At least one of name or img must be provided.")
+        d = {}
+        d["name"] = name
+        if img:
+            data = _read_img_file(img)
+            d["img"] = data
+        d = await GulpGlyph.update_by_id(
+            token,
+            object_id,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            d=d,
         )
-        data = glyph.file.read()
-        glyph = await Glyph.update(await collab_api.session(), glyph_id, data)
-        return JSONResponse(
-            muty.jsend.success_jsend(req_id=req_id, data=glyph.to_dict())
-        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@_app.post(
-    "/glyph_list",
-    response_model=JSendResponse,
-    tags=["glyph"],
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": [
-                            {"id": 1, "name": "testglyph", "img": "base64encodedimage"}
-                        ],
-                    }
-                }
-            }
-        }
-    },
-    summary="list available glyphs, optionally using a filter.",
-    description="available filters: name, id, opt_basic_fields_only, limit, offset.",
-)
-async def glyph_list_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    flt: Annotated[GulpCollabFilter, Body] = None,
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-    try:
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
-        )
-        l = await Glyph.get(await collab_api.session(), flt)
-        ll = []
-        for g in l:
-            if isinstance(g, Glyph):
-                ll.append(g.to_dict())
-            else:
-                ll.append(g)
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=ll))
-    except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-@_app.get(
-    "/glyph_get_by_id",
-    response_model=JSendResponse,
-    tags=["glyph"],
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1707476531591,
-                        "req_id": "6108f2aa-d73c-41fa-8bd7-04e667edf0cc",
-                        "data": {
-                            "id": 1,
-                            "name": "testglyph",
-                            "img": "base64encodedimage",
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="get a glyph by id.",
-)
-async def glyph_get_by_id_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    glyph_id: Annotated[int, Query(description=gulp.structs.API_DESC_GLYPH)],
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-    req_id = gulp.utils.ensure_req_id(req_id)
-    try:
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.READ
-        )
-        l = await Glyph.get(await collab_api.session(), GulpCollabFilter(id=[glyph_id]))
-        g = l[0].to_dict()
-        return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=g))
-    except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-@_app.delete(
+@router.delete(
     "/glyph_delete",
-    response_model=JSendResponse,
     tags=["glyph"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
@@ -214,40 +155,113 @@ async def glyph_get_by_id_handler(
                 "application/json": {
                     "example": {
                         "status": "success",
-                        "timestamp_msec": 1701266243057,
-                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"id": 1},
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "obj_id"},
                     }
                 }
             }
         }
     },
     summary="deletes a glyph.",
+    description="""
+- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+""",
 )
 async def glyph_delete_handler(
-    token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-    glyph_id: Annotated[int, Query(description=gulp.structs.API_DESC_GLYPH)],
-    req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-) -> JSendResponse:
-
-    req_id = gulp.utils.ensure_req_id(req_id)
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
     try:
-        await GulpUserSession.check_token(
-            await collab_api.session(), token, GulpUserPermission.ADMIN
+        await GulpGlyph.delete_by_id(
+            token,
+            object_id,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
         )
-        await Glyph.delete(await collab_api.session(), glyph_id)
+        return JSendResponse.success(req_id=req_id, data={"id": object_id})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
-    return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data={"id": glyph_id}))
+
+@router.get(
+    "/glyph_get_by_id",
+    tags=["glyph"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpGlyph.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets a glyph.",
+)
+async def glyph_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        d = await GulpGlyph.get_by_id_wrapper(
+            token,
+            object_id,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-def router() -> APIRouter:
-    """
-    Returns this module api-router, to add it to the main router
-
-    Returns:
-        APIRouter: The APIRouter instance
-    """
-    global _app
-    return _app
+@router.post(
+    "/glyph_list",
+    tags=["glyph"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [
+                            GulpGlyph.example(),
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="list glyphs, optionally using a filter.",
+    description="",
+)
+async def glyph_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
+    ServerUtils.dump_params(params)
+    try:
+        d = await GulpGlyph.get_by_filter_wrapper(
+            token,
+            flt,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex

@@ -41,74 +41,62 @@ from muty.log import MutyLogger
 # 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
 # ./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
 """
+
+
 def _parse_args():
     parser = argparse.ArgumentParser(
         description="Spawn n curl processes in parallel for file ingestion."
     )
     parser.add_argument(
-        "--user",
-        help="User name and password",
-        metavar=("USERNAME", "PASSWORD"),
-        nargs=2,
-        default=["admin", "admin"],
+        "--username",
+        help="user name",
+        default="ingest",
+    )
+    parser.add_argument(
+        "--password",
+        help="user password",
+        default="ingest",
     )
     parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH")
     parser.add_argument(
         "--raw",
         help='a JSON file with raw data for the "raw" plugin, --path is ignored if this is set',
-        metavar="RAW_JSON",
     )
+    parser.add_argument("--host", default="localhost:8080", help="Gulp host")
     parser.add_argument(
-        "--host", default="localhost:8080", help="Gulp host", metavar="HOST:PORT"
-    )
-    parser.add_argument(
-        "--operation",
+        "--operation_id",
         default="test_operation",
         help="Gulp operation_id",
-        metavar="OPERATION_ID",
     )
     parser.add_argument(
-        "--context",
+        "--context_id",
         default="test_context",
         help="Gulp context_id",
-        metavar="CONTEXT_ID",
     )
     parser.add_argument(
         "--plugin",
         default="win_evtx",
         help="Plugin to be used, ignored if --raw is set or file is a zip",
-        metavar="PLUGIN",
     )
-    parser.add_argument(
-        "--ws_id", default="test_ws", help="Websocket id", metavar="WS_ID"
-    )
-    parser.add_argument(
-        "--req_id", default="test_req", help="Request id", metavar="REQ_ID"
-    )
-    parser.add_argument(
-        "--index", default="test_idx", help="Ingestion index", metavar="INDEX"
-    )
+    parser.add_argument("--ws_id", default="test_ws", help="Websocket id")
+    parser.add_argument("--req_id", default="test_req", help="Request id")
+    parser.add_argument("--index", default="test_idx", help="Ingestion index")
     parser.add_argument(
         "--flt",
         default=None,
         help="GulpIngestionFilter as JSON",
-        metavar="GULPINGESTIONFILTER",
     )
     parser.add_argument(
         "--plugin_params",
         default=None,
         help="GulpPluginParameters as JSON, ignored if ingesting a zip file (use metadata.json)",
-        metavar="GULPPLUGINPARAMETERS",
     )
-    parser.add_argument("--token", default=None, help="Gulp token", metavar="TOKEN")
     parser.add_argument(
         "--restart_from",
         type=int,
         default=0,
         help="Offset to continue upload from",
-        metavar="OFFSET",
     )
-    parser.add_argument("--test", action="store_true", help="run integration tests")
     return parser.parse_args()
 
 
@@ -148,7 +136,7 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw: dict, args
     if raw:
         # raw request
         url = f"{base_url}/ingest_raw"
-        params = f"plugin=raw&operation_id={args.operation}&context_id={args.context}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}"
+        params = f"plugin=raw&operation_id={args.operation_id}&context_id={args.context_id}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
         command.extend(
             [
                 "-H",
@@ -166,11 +154,12 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw: dict, args
 
         if is_zip:
             url = f"{base_url}/ingest_zip"
-            params = f"operation_id={args.operation}&context_id={args.context}&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}"
+            params = f"operation_id={args.operation_id}&context_id={args.context_id}&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
             file_type = "application/zip"
         else:
             url = f"{base_url}/ingest_file"
-            params = f"operation_id={args.operation}&context_id={args.context}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}"
+            params = f"operation_id={args.operation_id}&context_id={args.context_id}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&token={args.token}"
+
             file_type = "application/octet-stream"
 
         command.extend(
@@ -202,29 +191,9 @@ def _run_curl(file_path: str, file_total: int, raw: dict, args):
     subprocess.run(command)
 
 
-def _run_tests(args):
-    MutyLogger.get_instance().info("running integration tests...")
-
-    # get path relative to this file
-    path = os.path.join(os.path.dirname(__file__), "../samples/win_evtx")
-    files = muty.file.list_directory(path, recursive=True, files_only=True)
-
-    # spawn curl processes
-    with Pool() as pool:
-        _run_curl, [(file, len(files), None, args) for file in files]
-
-        # wait for all processes to finish
-        pool.close()
-        pool.join()
-
-
 def main():
     MutyLogger.get_instance("test_ingest", level=logging.DEBUG)
     args = _parse_args()
-
-    if args.test:
-        # run integration tests
-        return _run_tests(args)
 
     if args.path and args.raw:
         MutyLogger.get_instance().error("only one of --path or --raw can be set")
@@ -232,6 +201,22 @@ def main():
     if not args.path and not args.raw:
         MutyLogger.get_instance().error("either --path or --raw must be set")
         sys.exit(1)
+
+    # login first
+    login_command = [
+        "curl",
+        "-v",
+        "-X",
+        "PUT",
+        f"http://{args.host}/login?user_id={args.username}&password={args.password}&req_id={args.req_id}&ws_id={args.ws_id}",
+    ]
+    MutyLogger.get_instance().info(f"login command: {login_command}")
+    login_response = subprocess.run(login_command, capture_output=True)
+    if login_response.returncode != 0:
+        MutyLogger.get_instance().error("login failed")
+        sys.exit(1)
+    print(login_response.stdout)
+    args.token = json.loads(login_response.stdout)["data"]["token"]
 
     if args.path:
         path = os.path.abspath(os.path.expanduser(args.path))

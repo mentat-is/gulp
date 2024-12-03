@@ -32,7 +32,8 @@ class GulpConvertedSigma(BaseModel):
 
 class GulpSigmaQueryParameters(BaseModel):
     """
-    represents options for a sigma query.
+    represents options for a sigma query, to customize automatic note creation or to customize
+    the conversion using specific backend/pipeline/output format.
     """
 
     create_notes: bool = Field(
@@ -41,7 +42,7 @@ class GulpSigmaQueryParameters(BaseModel):
     )
     note_name: str = Field(
         None,
-        description="the name of the note to create on match, default=use sigma rule title",
+        description="the display name of the note to create on match, default=use sigma rule title",
     )
     note_tags: list[str] = Field(
         None,
@@ -51,7 +52,7 @@ class GulpSigmaQueryParameters(BaseModel):
         None,
         description="the color of the note to create, default=use notes default",
     )
-    note_glyph: str = Field(
+    note_glyph_id: str = Field(
         None,
         description="id of the glyph of the note to create, default=use glyphs default",
     )
@@ -69,55 +70,9 @@ class GulpSigmaQueryParameters(BaseModel):
     )
 
 
-class GulpQueryExternalParameters(BaseModel):
-    """
-    Parameters to query an external system.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    uri: str = Field(
-        ...,
-        description="the URI to use to query the external system.",
-    )
-    query: Any = Field(
-        ...,
-        description="the query to perform, format is specific to the external system and will be handled by the plugin implementing `query_external`.",
-    )
-
-    credentials: tuple[str,str] = Field(
-        None,
-        description="a tuple with the username and password to use to query the external system, may be None if set in the uri.",
-    )
-
-    options: Optional[Any] = Field(
-        None,
-        description="further options to pass to the external system, format is specific to the external system and will be handled by the plugin implementing `query_external`.",
-    )
-    loop: Optional[bool] = Field(
-        True,
-        description="if set, the query will be repeated in a loop until the external system returns no more results.",
-    )
-    sigma_parameters: Optional[GulpSigmaQueryParameters] = Field(
-        None,
-        description="if set, this is a sigma query and these are the additional parameters.",
-    )
-
-
 class GulpQueryAdditionalParameters(BaseModel):
     """
     additional options for a query.
-
-    may include the following extra fields in `model_extra`:
-        - sigma_parameters: GulpSigmaQueryParameter
-        - sigma_create_notes: bool: if set, this is a sigma query and indicates to create notes on match
-        - note_name: str: for sigma queries, the name of the note to create on match, mandatory if sigma is set.
-        - note_tags: list[str], optional: for sigma queries, the tags of the note to create
-        - note_color: str, optional: for sigma queries, the color of the note to create
-        - note_glyph: str, optional: for sigma queries, id of the glyph of the note to create.
-        - sigma_pipeline: str, optional: for sigma queries, the pipeline to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
-        - sigma_backend: str, optional: for sigma queries, the backend to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
-        - sigma_output_format: str, optional: for sigma queries, the output format to use when converting the sigma rule, must be implemented by `plugin` (default=plugin's default)
     """
 
     model_config = ConfigDict(extra="allow")
@@ -149,7 +104,20 @@ class GulpQueryAdditionalParameters(BaseModel):
     )
     sigma_parameters: Optional[GulpSigmaQueryParameters] = Field(
         None,
-        description="if set, this is a sigma query and these are the additional parameters.",
+        description="if set, this is a sigma query and these are the additional parameters (i.e. to create notes or choose a specific pipeline).",
+    )
+    external_uri: str = Field(
+        ...,
+        description="for external queries: the URI to use to query the external system.",
+    )
+    external_credentials: tuple[str, str] = Field(
+        None,
+        description="for external queries: a tuple with the username and password to use to query the external system, may be None if set in the uri.",
+    )
+
+    external_options: Optional[dict] = Field(
+        None,
+        description="for external queries: further options to pass to the external system, format is specific to the external system and will be handled by the plugin implementing `query_external`.",
     )
 
     def parse(self) -> dict:
@@ -203,7 +171,6 @@ class GulpQuery:
 
     @staticmethod
     async def query_raw(
-        sess: AsyncSession,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -212,12 +179,12 @@ class GulpQuery:
         flt: GulpQueryFilter = None,
         options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
+        sess: AsyncSession = None,
     ) -> None:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
 
         Args:
-            sess(AsyncSession): the database session
             user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
@@ -227,8 +194,8 @@ class GulpQuery:
             options(GulpQueryAdditionalParameters, optional): additional options to use
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
             user_id(str, optional): the user id of the requestor (default=use the token to get the user id)
+            sess(AsyncSession, optional): collab database session, used only if options.sigma_parameters.create_notes is set
         Raises:
-            MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
         """
         if not options:
@@ -251,7 +218,6 @@ class GulpQuery:
 
     @staticmethod
     async def query_gulp(
-        sess: AsyncSession,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -259,13 +225,14 @@ class GulpQuery:
         flt: GulpQueryFilter,
         options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
+        sess: AsyncSession = None,
     ) -> None:
         """
         Perform a query using the given filter and options, streaming GulpDocumentChunk results to the websocket.
+
         NOTE: calls `raw_query` with the filter converted to OpenSearch/Elasticsearch DSL.
 
         Args:
-            sess(AsyncSession): the database session
             user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
@@ -273,9 +240,9 @@ class GulpQuery:
             flt(GulpQueryFilter): the filter to use
             options(GulpQueryAdditionalParameters, optional): additional options to use
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
+            sess(AsyncSession, optional): collab database session, used only if options.sigma_parameters.create_notes is set
 
         Raises:
-            MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
         """
         if not options:
@@ -284,7 +251,6 @@ class GulpQuery:
 
         dsl = flt.to_opensearch_dsl()
         await GulpQuery.query_raw(
-            sess=sess,
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
@@ -292,6 +258,32 @@ class GulpQuery:
             index=index,
             options=options,
             el=el,
+            sess=sess,
+        )
+
+    @staticmethod
+    async def query_single(
+        index: str,
+        doc_id: str,
+        el: AsyncElasticsearch = None,
+    ) -> dict:
+        """
+        Perform a single document query using the given document id on gulp's opensearch/elasticsearch, and return the document as a GulpDocument dictionary.
+
+        Args:
+            req_id (str): the request id
+            index (str): the opensearch/elasticsearch index/datastream to target
+            doc_id (str): the document id to query
+            el (AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
+
+        Returns:
+            dict: the document as a GulpDocument dictionary
+
+        Raises:
+            ObjectNotFound: if the document is not found.
+        """
+        return await GulpOpenSearch.get_instance().query_single_document(
+            index, doc_id, el=el
         )
 
     @staticmethod
@@ -370,9 +362,11 @@ class GulpQuery:
             ObjectNotFound: if no document is found
         """
         if not options:
+            # use defaults
             options = GulpQueryAdditionalParameters()
 
         if not options.sigma_parameters:
+            # use defaults
             options.sigma_parameters = GulpSigmaQueryParameters()
 
         queries: list[GulpConvertedSigma] = GulpQuery.query_sigma_build(
@@ -406,7 +400,7 @@ class GulpQuery:
         user_id: str,
         req_id: str,
         ws_id: str,
-        id: str,
+        stored_query_id: str,
         index: str,
         flt: GulpQueryFilter = None,
         options: GulpQueryAdditionalParameters = None,
@@ -420,7 +414,7 @@ class GulpQuery:
             user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
-            id(str): the id of the stored query to use
+            stored_query_id(str): the id of the stored query to use
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
             options(GulpQueryAdditionalParameters, optional): additional options to use
@@ -431,25 +425,70 @@ class GulpQuery:
             ObjectNotFound: if no document is found
         """
         # get stored query by id
-        q: GulpStoredQuery = await GulpStoredQuery.get_by_id(sess, id)
+        q: GulpStoredQuery = await GulpStoredQuery.get_by_id(sess, stored_query_id)
         if not options:
             options = GulpQueryAdditionalParameters()
         options.sigma_parameters = None
 
-        if q.converted:
-            await GulpQuery.query_raw(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                dsl=json.loads(q.converted),
-                index=index,
-                flt=flt,
-                options=options,
-                el=el,
-            )
-        raise ValueError(
-            "query.converted is not set, stored query must be preprocessed first"
+        await GulpQuery.query_raw(
+            sess,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            dsl=json.loads(q.q),
+            index=index,
+            flt=flt,
+            options=options,
+            el=el,
+        )
+
+    @staticmethod
+    async def query_external_stored(
+        sess: AsyncSession,
+        user_id: str,
+        req_id: str,
+        ws_id: str,
+        plugin: str,
+        stored_query_id: str,
+        q_options: GulpQueryAdditionalParameters,
+        ingest_index: str = None,
+        operation_id: str = None,
+        context_id: str = None,
+        source: str = None,
+        plugin_params: GulpPluginParameters = None,
+    ) -> None:
+        """
+        a shortcut for query_external to use a stored query.
+
+        Args:
+            sess(AsyncSession): the database session
+            user_id(str): the user id of the requestor
+            req_id (str): the request id
+            ws_id (str): the websocket id
+            plugin(str): the plugin to use to query the external source, must implement `query_external`
+            stored_query_id (str): the id of the stored query to use
+            q_options (GulpQueryAdditionalParameters): additional options to use (uri, credentials, custom options, ...)
+            ingest_index(str, optional): if set, a gulp index to ingest the results to (to perform direct ingestion into gulp during query)
+            operation_id (str, optional): only used with `ingest_index`, the operation to associate with. Defaults to None.
+            context_id (str, optional): only used with `ingest_index`, the context to associate with. Defaults to None.
+            source (str, optional): only used with `ingest_index`, indicates the log source. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): plugin parameters
+        """
+        # get stored query by id
+        q: GulpStoredQuery = await GulpStoredQuery.get_by_id(sess, stored_query_id)
+        return await GulpQuery.query_external(
+            sess=sess,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            plugin=plugin,
+            q=q.q,
+            q_options=q_options,
+            ingest_index=ingest_index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source=source,
+            plugin_params=plugin_params,
         )
 
     @staticmethod
@@ -459,7 +498,8 @@ class GulpQuery:
         req_id: str,
         ws_id: str,
         plugin: str,
-        query: GulpQueryExternalParameters,
+        q: any,
+        q_options: GulpQueryAdditionalParameters,
         ingest_index: str = None,
         operation_id: str = None,
         context_id: str = None,
@@ -476,7 +516,8 @@ class GulpQuery:
             user_id(str): the user id of the requestor
             req_id (str): the request id
             ws_id (str): the websocket id
-            query (GulpExternalQuery): includes the query and all the necessary parameters to communicate with the external source
+            q (any): the query to use to query the external source
+            q_options (GulpQueryAdditionalParameters): additional options to use (uri, credentials, custom options, ...)
             plugin(str): the plugin to use to query the external source, must implement `query_external`
             ingest_index(str, optional): if set, a gulp index to ingest the results to (to perform direct ingestion into gulp during query)
             operation_id (str, optional): only used with `ingest_index`, the operation to associate with. Defaults to None.
@@ -494,13 +535,14 @@ class GulpQuery:
             p = await GulpPluginBase.load(plugin)
 
             # query
-            query.sigma_parameters = None
+            q_options.sigma_parameters = None
             await p.query_external(
                 sess=sess,
                 req_id=req_id,
                 ws_id=ws_id,
                 user_id=user_id,
-                query=query,
+                q=q,
+                q_options=q_options,
                 operation_id=operation_id,
                 context_id=context_id,
                 source=source,
@@ -513,10 +555,10 @@ class GulpQuery:
 
     @staticmethod
     async def query_external_single(
-        sess: AsyncSession,
         req_id: str,
         plugin: str,
-        query: GulpQueryExternalParameters,
+        q: any,
+        q_options: GulpQueryAdditionalParameters,
         plugin_params: GulpPluginParameters = None,
     ) -> dict:
         """
@@ -526,7 +568,8 @@ class GulpQuery:
             sess(AsyncSession): the database session
             req_id (str): the request id
             plugin (str): the plugin to use to query the external source, must implement `query_external_single`
-            query (GulpExternalQuery): set `query.query` to the `id` of the single document to query here.
+            q (any): set to the id of the single document to query on the external source, format is plugin dependent
+            q_options (GulpQueryAdditionalParameters): additional options to use (uri, credentials, custom options, ...)
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
@@ -545,10 +588,11 @@ class GulpQuery:
             p = await GulpPluginBase.load(plugin)
 
             # query
-            query.sigma_parameters = None
+            q.sigma_parameters = None
             return await p.query_external_single(
                 req_id=req_id,
-                query=query,
+                q=q,
+                q_options=q_options,
                 plugin_params=plugin_params,
             )
         finally:
@@ -563,7 +607,7 @@ class GulpQuery:
         ws_id: str,
         plugin: str,
         sigma: str,
-        query: GulpQueryExternalParameters,
+        q_options: GulpQueryAdditionalParameters,
         referenced_sigma: list[str] = None,
         ingest_index: str = None,
         operation_id: str = None,
@@ -583,7 +627,7 @@ class GulpQuery:
             ws_id (str): the websocket id
             plugin(str): the plugin to use to query the external source, must implement `query_external`
             sigma (str): the sigma rule YAML
-            query (GulpExternalQuery): includes the query and all the necessary parameters to communicate with the external source.
+            q_options (GulpQueryAdditionalParameters): additional options to use (uri, credentials, custom options, ...)
             referenced_sigma(list[str], optional): if any, each element is a sigma rule YAML referenced by `name` in the main sigma rule
             ingest_index(str, optional): if set, a gulp index to ingest the results to (to perform direct ingestion into gulp during query)
             operation_id (str, optional): only used with `ingest_index`, the operation to associate with. Defaults to None.
@@ -592,23 +636,24 @@ class GulpQuery:
         Notes:
             - implementers must call super().query_external first then _initialize().<br>
         """
-        if not query.sigma_parameters:
-            query.sigma_parameters = GulpSigmaQueryParameters()
+        if not q_options.sigma_parameters:
+            # use defaults
+            q_options.sigma_parameters = GulpSigmaQueryParameters()
 
         # convert sigma
         queries: list[GulpConvertedSigma] = await GulpQuery.query_sigma_build(
             sigma=sigma,
             plugin=plugin,
             referenced_sigma=referenced_sigma,
-            backend=query.sigma_parameters.backend,
-            pipeline=query.sigma_parameters.pipeline,
-            output_format=query.sigma_parameters.output_format,
+            backend=q_options.sigma_parameters.backend,
+            pipeline=q_options.sigma_parameters.pipeline,
+            output_format=q_options.sigma_parameters.output_format,
         )
 
-        # if ingesting to our index, by default sigma note creation is set unless explicitly set to False
+        # if we provide an index to ingest to, by default sigma note creation is set unless explicitly set to False
         if not ingest_index:
             # either, no ingestion=no notes
-            query.sigma_parameters.create_notes = False
+            q_options.sigma_parameters.create_notes = False
 
         try:
             # load plugin
@@ -619,15 +664,15 @@ class GulpQuery:
             # query
             for q in queries:
                 # perform queries
-                query.sigma_parameters.note_name = q.name
-                query.sigma_parameters.note_tags = q.tags
-                query.query = q.q
+                q_options.sigma_parameters.note_name = q.name
+                q_options.sigma_parameters.note_tags = q.tags
                 await p.query_external(
                     sess,
                     user_id=user_id,
                     req_id=req_id,
                     ws_id=ws_id,
-                    query=query,
+                    q=q.q,
+                    q_options=q_options,
                     operation_id=operation_id,
                     context_id=context_id,
                     source=source,

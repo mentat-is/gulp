@@ -354,18 +354,22 @@ class GulpCollab:
             admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
             # create glyphs
-            user_glyph = await GulpGlyph.create(
+            user_glyph = await GulpGlyph._create(
                 sess,
-                user_id=admin_user.id,
-                img=user_b,
-                name="user",
+                object_data={
+                    "name": "user",
+                    "img": user_b,
+                },
+                owner_id=admin_user.id,
             )
 
-            operation_glyph = await GulpGlyph.create(
+            operation_glyph = await GulpGlyph._create(
                 sess,
-                user_id=admin_user.id,
-                img=operation_b,
-                name="operation",
+                object_data={
+                    "name": "user",
+                    "img": operation_b,
+                },
+                owner_id=admin_user.id,
             )
 
             await admin_user.update(

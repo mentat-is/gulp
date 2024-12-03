@@ -21,9 +21,13 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
         String,
         doc="The query display name.",
     )
-    text: Mapped[str] = mapped_column(
+    q: Mapped[str] = mapped_column(
         String,
-        doc="The query in its original format, as string.",
+        doc="The query as string: it is intended to be a JSON object for gulp queries or an arbitrary string to be interpreted by the target plugin for external queries.",
+    )
+    text: Mapped[Optional[str]] = mapped_column(
+        String,
+        doc="The query in its original format (just for reference), as string.",
     )
     tags: Mapped[Optional[list[str]]] = mapped_column(
         ARRAY(String),
@@ -37,74 +41,15 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
         String,
         doc="ID of a glyph to associate with the query.",
     )
-    converted: Mapped[Optional[str]] = mapped_column(
-        String,
-        doc="The query converted in a format suitable for the target, as string.",
-        default=None,
-    )
 
     @override
     @classmethod
     def example(cls) -> dict:
         d = super().example()
-        d.update(
-            {
-                "name": "query_name",
-                "text": "the_query_as_text",
-                "tags": ["tag1", "tag2"],
-                "description": "query_description",
-                "glyph_id": "glyph_id",
-                "converted": "the_converted_query_as_text",
-            }
-        )
+        d["name"] = "query_name"
+        d["text"] = "the_original_query_as_string"
+        d["tags"] = ["tag1", "tag2"]
+        d["description"] = "query_description"
+        d["glyph_id"] = "glyph_id"
+        d["q"] = "the_query_ready_to_be_used_as_string"
         return d
-    @classmethod
-    async def create(
-        cls,
-        sess: AsyncSession,
-        user_id: str,
-        name: str,
-        text: str,
-        converted: any = None,
-        tags: list[str] = None,
-        description: str = None,
-        glyph_id: str = None,
-    ) -> T:
-        """
-        Create a new stored query object on the collab database.
-
-        Args:
-            sess (AsyncSession): The database session.
-            user_id (str): The ID of the user creating the object.
-            name (str): The query display name.
-            text (str): The query in its original format, as string.
-            converted (any, optional): The query converted in a format suitable for the target, as string. Defaults to None.
-            tags (list[str], optional): The tags associated with the query. Defaults to None.
-            description (str, optional): The description of the query. Defaults to None.
-            glyph_id (str, optional): ID of a glyph to associate with the query. Defaults to None.
-
-        Returns:
-            the created stored query object
-        """
-        object_data = {
-            "name": name,
-            "text": text,
-            "converted": converted,
-            "tags": tags,
-            "description": description,
-            "glyph_id": glyph_id,
-        }
-        if "sigma" in tags:
-            # take id from sigma rule
-            r = SigmaRule.from_yaml(text)
-            id = r.id
-        else:
-            # autogenerate
-            id = None
-
-        return await super()._create(
-            sess,
-            object_data,
-            owner_id=user_id,
-            id=id,
-        )

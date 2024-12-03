@@ -1,7 +1,7 @@
 import json
 import os
 from urllib.parse import urlparse
-
+from typing import TYPE_CHECKING
 import muty.crypto
 import muty.dict
 import muty.file
@@ -21,6 +21,9 @@ from gulp.api.opensearch.filters import (
 from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
+
+if TYPE_CHECKING:
+    from gulp.api.opensearch.query import GulpQueryAdditionalParameters
 
 
 class GulpOpenSearch:
@@ -941,39 +944,48 @@ class GulpOpenSearch:
         return {"total": hits, "aggregations": res["aggregations"]}
 
     async def query_single_document(
-        self, datastream: str, id: str, is_index: bool = False
+        self,
+        datastream: str,
+        id: str,
+        el: AsyncElasticsearch = None,
     ) -> dict:
         """
         Get a single event from OpenSearch.
 
         Args:
-            index (str): Name of the index (or datastream) to query
+            datastream (str): The name of the datastream or index to query
             id (str): The ID of the document to retrieve
-            is_index (bool, optional): Whether the datastream is an index or a datastream. Defaults to False (is a datastream).
-
+            el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
         Returns:
             dict: The query result.
 
         Raises:
             ObjectNotFound: If no results are found.
         """
-        if not is_index:
-            try:
-                res = await self._opensearch.indices.get_data_stream(name=datastream)
-                index_name = res["data_streams"][0]["indices"][0]["index_name"]
-            except (KeyError, IndexError):
-                raise ObjectNotFound(f"datastream or index not found: {datastream}")
-        else:
-            index_name = datastream
+        try:
+            # check if datastream is an index
+            if el:
+                res = await el.indices.get_data_stream(name=datastream)
+            else:
+                res = await self._opensearch.indices.get_data_stream(name=name)
+
+            # resolve to index
+            index = res["data_streams"][0]["indices"][0]["index_name"]
+        except Exception:
+            # datastream is actually an index
+            index = datastream
 
         try:
-            res = await self._opensearch.get(index=index_name, id=id)
+            if el:
+                res = await el.get(index=index, id=id)
+            else:
+                res = await self._opensearch.get(index=index, id=id)
             js = res["_source"]
             js["_id"] = res["_id"]
             return js
         except KeyError:
             raise ObjectNotFound(
-                f'document with ID "{id}" not found in datastream={datastream} index={index_name}'
+                f'document with ID "{id}" not found in datastream={datastream} index={index}'
             )
 
     async def search_dsl(
@@ -988,17 +1000,19 @@ class GulpOpenSearch:
         sess: AsyncSession = None,
     ) -> None:
         """
-        Executes a raw DSL query on OpenSearch and stream results on the websocket
+        Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
+
+        NOTE: in the end, all gulp **local** queries will be done through this function.
 
         Args:
-            sess (AsyncSession): SQLAlchemy session, used only with sigma queries when creating notes
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The request ID for the query
             ws_id (str, optional): The websocket ID to send the results to
             user_id (str, optional): The user ID performing the query
-            options (GulpQueryOptions, optional): Additional query options. Defaults to None.
+            options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
+            sess (AsyncSession, options): SQLAlchemy session, used only if options.sigma_parameters.create_notes is set. Defaults to None.
 
         Raises:
             ObjectNotFound: If no results are found.
@@ -1007,17 +1021,16 @@ class GulpOpenSearch:
         from gulp.api.opensearch.query import GulpQueryAdditionalParameters
 
         if not options:
+            # use defaults
             options = GulpQueryAdditionalParameters()
 
-        sigma_create_notes = options.model_extra.get("sigma_create_notes", True)
-        note_name = options.model_extra.get("note_name", None)
-        note_color = options.model_extra.get("note_color", None)
-        note_tags = options.model_extra.get("note_tags", None)
-        note_glyph = options.model_extra.get("note_glyph", None)
-        if sigma_create_notes and (not note_name or not sess):
-            raise ValueError(
-                "note_name and sess are both required for a sigma query when sigma_create_notes is set!"
-            )
+        if options.sigma_parameters:
+            if not options.sigma_parameters.create_notes and (
+                not options.sigma_parameters.note_name or not sess
+            ):
+                raise ValueError(
+                    "note_name and sess are both required for a sigma query when sigma_create_notes is set!"
+                )
 
         use_elasticsearch_api = False
         if el:
@@ -1027,7 +1040,7 @@ class GulpOpenSearch:
                 "search_dsl: using provided ElasticSearch client %s" % (el)
             )
 
-        parsed_options = options.parse()
+        parsed_options: dict = options.parse()
         processed: int = 0
         chunk_num: int = 0
         while True:
@@ -1093,26 +1106,27 @@ class GulpOpenSearch:
                 MutyLogger.get_instance().error("search_dsl: error=%s" % (ex))
                 raise ex
 
-            # build a GulpDocumentsChunk and send to websocket
-            chunk = GulpDocumentsChunk(
-                docs=docs,
-                num_docs=len(docs),
-                chunk_number=chunk_num,
-                total_hits=total_hits,
-                last=last,
-                search_after=search_after,
-            )
+            if ws_id:
+                # build a GulpDocumentsChunk and send to websocket
+                chunk = GulpDocumentsChunk(
+                    docs=docs,
+                    num_docs=len(docs),
+                    chunk_number=chunk_num,
+                    total_hits=total_hits,
+                    last=last,
+                    search_after=search_after,
+                )
 
-            # TODO: consider to send only a subset of the fields on the websocket
-            GulpSharedWsQueue.get_instance().put(
-                type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
-                ws_id=ws_id,
-                user_id=user_id,
-                req_id=req_id,
-                data=chunk.model_dump(exclude_none=True),
-            )
+                # TODO: consider to send only a subset of the fields on the websocket
+                GulpSharedWsQueue.get_instance().put(
+                    type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    req_id=req_id,
+                    data=chunk.model_dump(exclude_none=True),
+                )
 
-            if sigma_create_notes:
+            if options.sigma_parameters.sigma_create_notes:
                 # this is a sigma, auto-create a note for each of the matched document on collab db
                 GulpNote.bulk_create_from_documents(
                     sess,
@@ -1120,10 +1134,10 @@ class GulpOpenSearch:
                     ws_id=ws_id,
                     req_id=req_id,
                     docs=docs,
-                    name=note_name,
-                    tags=note_tags,
-                    color=note_color,
-                    glyph_id=note_glyph,
+                    name=options.sigma_parameters.note_name,
+                    tags=options.sigma_parameters.note_tags,
+                    color=options.sigma_parameters.note_color,
+                    glyph_id=options.sigma_parameters.note_glyph_id,
                 )
             if last or not options.loop:
                 break

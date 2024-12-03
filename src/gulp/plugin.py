@@ -32,7 +32,10 @@ from gulp.api.opensearch.filters import (
     GulpDocumentFilterResult,
     GulpIngestionFilter,
 )
-from gulp.api.opensearch.query import GulpConvertedSigma, GulpQueryExternalParameters
+from gulp.api.opensearch.query import (
+    GulpConvertedSigma,
+    GulpQueryAdditionalParameters,
+)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, GulpWsQueueDataType
@@ -434,7 +437,8 @@ class GulpPluginBase(ABC):
         user_id: str,
         req_id: str,
         ws_id: str,
-        query: GulpQueryExternalParameters,
+        q: any,
+        q_options: GulpQueryAdditionalParameters,
         operation_id: str = None,
         context_id: str = None,
         source: str = None,
@@ -453,7 +457,8 @@ class GulpPluginBase(ABC):
             req_id (str): the request id
             ws_id (str): the websocket id
             user (str): the user performing the query
-            query (GulpQueryExternalParameters): the query itself and any other parameter needed to perform the query on the external source.
+            q(any): the query to perform, format is plugin specific
+            q_options (GulpQueryAdditionalParameters): additional query options (uri, credentials, options for the external source)
             operation_id (str, optional): the operation to set on the documents. Defaults to None.
             context_id (str, optional): the context to set on the documents. Defaults to None.
             source (str, optional): the source to set on the documents. Defaults to None.
@@ -490,26 +495,27 @@ class GulpPluginBase(ABC):
             if not self._stats:
                 raise ValueError("stats must be set when ingest_index is set")
 
-            self._ingestion_enabled = True
-            self._query_create_notes = query.sigma_parameters.create_notes
-            if self._query_create_notes:
+            if q_options.sigma_parameters:
                 # this is a sigma query
-                self._note_name = query.sigma_parameters.note_name
-                self._note_color = query.sigma_parameters.note_color
-                self._note_tags = query.sigma_parameters.note_glyph
-                self._note_glyph = query.sigma_parameters.note_tags
+                self._query_create_notes = q_options.sigma_parameters.create_notes
+                self._note_name = q_options.sigma_parameters.note_name
+                self._note_color = q_options.sigma_parameters.note_color
+                self._note_tags = q_options.sigma_parameters.note_glyph_id
+                self._note_glyph = q_options.sigma_parameters.note_tags
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={operation_id}, ws_id={ws_id}, req_id={req_id}"
+            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={operation_id}, ws_id={ws_id}, req_id={req_id}, \
+                q={q}, q_options={q_options}, ingest_index={ingest_index}, plugin_params={plugin_params}"
         )
 
     async def query_external_single(
         self,
         req_id: str,
-        query: GulpQueryExternalParameters,
+        q: any,
+        q_options: GulpQueryAdditionalParameters,
         plugin_params: GulpPluginParameters = None,
     ) -> dict:
         """
@@ -517,7 +523,8 @@ class GulpPluginBase(ABC):
 
         Args:
             req_id (str): the request id
-            query (GulpExternalQuery): `query.query` must be set to the `id` of the single document to query here.
+            q (any): set to the id of the single document to query on the external source, format is plugin dependent
+            q_options (GulpQueryAdditionalParameters): additional query options (uri, credentials, options for the external source)
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
@@ -530,7 +537,7 @@ class GulpPluginBase(ABC):
             - implementers must call super().query_external first then _initialize().<br>
         """
         MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, req_id={req_id}, id_and_params={query}"
+            f"querying external source with plugin {self.name}, req_id={req_id}, q={q}, q_options={q_options}, plugin_params={plugin_params}"
         )
         return {}
 

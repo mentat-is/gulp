@@ -138,7 +138,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "email": email,
             "glyph_id": glyph_id,
         }
-
+        
         # set user_id to username (user owns itself)
         return await super()._create(
             sess, id=user_id, object_data=object_data, owner_id=user_id

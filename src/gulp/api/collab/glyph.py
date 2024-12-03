@@ -35,38 +35,6 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
     def __repr__(self) -> str:
         return super().__repr__() + f" img={self.img[:10]}[...]"
 
-    @classmethod
-    async def create(
-        cls,
-        sess: AsyncSession,
-        user_id: str,
-        img: bytes | str,
-        name: str,
-    ) -> T:
-        """
-        Create a new glyph object on the collab database.
-
-        Args:
-            sess (AsyncSession): The database session.
-            user_id (str): The ID of the user creating the object.
-            img (bytes | str): The image data of the glyph as binary blob, or the image file path.
-            name (str): The display name for the glyph.
-            **kwargs: Arbitrary keyword arguments.
-
-        Returns:
-            T: The created glyph object
-        """
-        if isinstance(img, str):
-            # load from file path
-            img = await muty.file.read_file_async(img)
-
-        object_data = {"img": img, "name": name}
-        return await super()._create(
-            sess,
-            object_data,
-            owner_id=user_id,
-        )
-
     @override
     def to_dict(self, **kwargs) -> dict:
         """
