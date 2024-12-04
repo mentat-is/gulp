@@ -1,7 +1,7 @@
 from typing import Optional, override
 
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, Column, ForeignKey, String, Table
+from sqlalchemy import ARRAY, Column, ForeignKey, Table
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,7 +11,6 @@ from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabType,
     GulpUserPermission,
-    T,
 )
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 

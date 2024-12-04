@@ -43,7 +43,7 @@ router: APIRouter = APIRouter()
     },
     summary="creates a operation.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def operation_create_handler(
@@ -109,7 +109,7 @@ async def operation_create_handler(
     },
     summary="updates an existing operation.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def operation_update_handler(
@@ -173,7 +173,7 @@ async def operation_update_handler(
     },
     summary="deletes a operation.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def operation_delete_handler(

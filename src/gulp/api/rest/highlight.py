@@ -111,7 +111,7 @@ async def highlight_create_handler(
     },
     summary="updates an existing highlight.",
     description="""
-- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+- `token` needs `edit` permission (or be the owner of the object, or admin) to update the object.
 """,
 )
 async def highlight_update_handler(
@@ -177,7 +177,7 @@ async def highlight_update_handler(
     },
     summary="deletes an highlight.",
     description="""
-- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+- `token` needs either to have `delete` permission, or be the owner of the object, or be an admin.
 """,
 )
 async def highlight_delete_handler(

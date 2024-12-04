@@ -45,7 +45,7 @@ router: APIRouter = APIRouter()
     description="""
 an `user group` is a group of users sharing `permissions`: adding an user to an `user group` grants the user the same permissions of the group.
 
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_create_handler(
@@ -113,7 +113,7 @@ async def user_group_create_handler(
     description="""
 this function only updates the group properties, to add or remove users use `add_user`, `remove_user`.
 
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_update_handler(
@@ -178,7 +178,7 @@ async def user_group_update_handler(
     summary="deletes a user_group.",
     description="""
 - users in the group are **not deleted**.
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_delete_handler(
@@ -221,7 +221,7 @@ async def user_group_delete_handler(
     },
     summary="gets a user_group.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_get_by_id_handler(
@@ -265,7 +265,7 @@ async def user_group_get_by_id_handler(
     },
     summary="list user groups, optionally using a filter.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_list_handler(
@@ -313,7 +313,7 @@ async def user_group_list_handler(
     },
     summary="adds an user to the user group.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_add_user_handler(
@@ -331,7 +331,9 @@ async def user_group_add_user_handler(
             )
 
             # get user group
-            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id, with_for_update=True)
+            group: GulpUserGroup = await GulpUserGroup.get_by_id(
+                sess, object_id, with_for_update=True
+            )
 
             # add user
             await group.add_user(sess, user_id)
@@ -366,7 +368,7 @@ async def user_group_add_user_handler(
     },
     summary="removes an user from the user group.",
     description="""
-- token needs `admin` permission.
+- `token` needs `admin` permission.
 """,
 )
 async def user_group_remove_user_handler(
@@ -384,7 +386,9 @@ async def user_group_remove_user_handler(
             )
 
             # get user group
-            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id, with_for_update=True)
+            group: GulpUserGroup = await GulpUserGroup.get_by_id(
+                sess, object_id, with_for_update=True
+            )
 
             # delete user
             await group.remove_user(sess, user_id)

@@ -28,12 +28,12 @@ class GulpBaseDocumentFilter(BaseModel):
 
     time_range: Optional[tuple[int | str, int | str, bool]] = Field(
         default=None,
-        example=[1609459200000, 1609545600000, False],
+        example=[1551385571023173120, 1551446406878338048, False],
         description="""
-        include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.
-        if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).
+include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.
+if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).
 
-        **for ingestion filtering, `gulp.timestamp` is always used (match against nanoseconds) and the third element is ignored**.
+**for ingestion filtering, `gulp.timestamp` is always used (match against nanoseconds) and the third element is ignored**.
         """,
     )
 
@@ -118,7 +118,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `_id`/s.",
-        example=["18b6332595d82048e31963e6960031a1"],        
+        example=["18b6332595d82048e31963e6960031a1"],
     )
     operation_id: Optional[list[str]] = Field(
         None,
@@ -128,12 +128,12 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     context_id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `gulp.context_id`/s.",
-        example=["test_context"],
+        example=["b0f0a84b3cc88bbc38ac1eb4fbdd89ee"],  # test_context
     )
     source_id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `gulp.source_id`/s.",
-        example=["311fdbfe-21c6-4e61-b44a-175bf15a18a5"],
+        example=["bf9540844e25ef9f6ec89982286235f2"],
     )
     event_code: Optional[list[str]] = Field(
         None,
@@ -141,7 +141,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         example=["5152"],
     )
     event_original: Optional[tuple[str, bool]] = Field(
-        (None, False),
+        None,
         description="""include documents matching the given `event.original`.
 
         if the second element is `True`, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.

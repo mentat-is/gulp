@@ -5,7 +5,6 @@ from elasticsearch import AsyncElasticsearch
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stored_query import GulpStoredQuery
-from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
     GulpQueryFilter,

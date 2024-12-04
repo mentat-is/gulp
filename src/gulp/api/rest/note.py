@@ -140,7 +140,7 @@ async def note_create_handler(
     },
     summary="updates an existing note.",
     description="""
-- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+- `token` needs `edit` permission (or be the owner of the object, or admin) to update the object.
 """,
 )
 async def note_update_handler(
@@ -254,7 +254,7 @@ async def note_update_handler(
     },
     summary="deletes a note.",
     description="""
-- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+- `token` needs either to have `delete` permission, or be the owner of the object, or be an admin.
 """,
 )
 async def note_delete_handler(

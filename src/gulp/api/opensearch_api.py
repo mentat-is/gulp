@@ -272,7 +272,7 @@ class GulpOpenSearch:
             )
             await self._opensearch.indices.delete_index_template(name=template_name)
         except Exception as e:
-            MutyLogger.get_instance().error("error deleting index template: %s" % (e))
+            MutyLogger.get_instance().warning("index template does not exist: %s" % (e))
 
     async def index_template_get(self, name: str) -> dict:
         """
@@ -499,7 +499,7 @@ class GulpOpenSearch:
             datastream_name(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
                 if it already exists, it will be deleted first.
             index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
-        
+
         Returns:
             dict: The response from the OpenSearch client after creating the datastream.
         """
@@ -691,7 +691,9 @@ class GulpOpenSearch:
 
         convert_script = """
             if (ctx._source['@timestamp'] != 0) {
-                ctx._source['@timestamp'] += params.nsec_offset;
+                def ts = ZonedDateTime.parse(ctx._source['@timestamp']);
+                def new_ts = ts.plusNanos(params.nsec_offset);
+                ctx._source['@timestamp'] = new_ts.toString();
                 ctx._source["gulp.timestamp"] += params.nsec_offset;
             }
         """

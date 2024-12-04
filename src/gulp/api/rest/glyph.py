@@ -57,7 +57,7 @@ def _read_img_file(file: UploadFile) -> bytes:
     },
     summary="creates a glyph.",
     description="""
-- token needs `edit` permission.
+- `token` needs `edit` permission.
 - max `img` size is `16kb`, all common image file formats (.png, .jpg, ...) are accepted.
 """,
 )
@@ -112,7 +112,7 @@ async def glyph_create_handler(
     },
     summary="updates an existing glyph.",
     description="""
-- token needs `edit` permission (or be the owner of the object, or admin) to update the object.
+- `token` needs `edit` permission (or be the owner of the object, or admin) to update the object.
 - max `img` size is `16kb`, all common image file formats (.png, .jpg, ...) are accepted.
 """,
 )
@@ -165,7 +165,7 @@ async def glyph_update_handler(
     },
     summary="deletes a glyph.",
     description="""
-- token needs either to have `delete` permission, or be the owner of the object, or be an admin.
+- `token` needs either to have `delete` permission, or be the owner of the object, or be an admin.
 """,
 )
 async def glyph_delete_handler(
