@@ -1282,3 +1282,7 @@ from gulp.api.rest.server_utils import (
 from gulp.structs import ObjectNotFound
 
 router: APIRouter = APIRouter()
+
+async def query_gulp(
+        
+)
