@@ -3,13 +3,15 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import IntEnum, StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
-from typing import Any, Optional
+from typing import Any, Optional, override
 
 import muty
 from fastapi import WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example
 from pydantic import BaseModel, ConfigDict, Field
 
+import gulp.api.rest.defs as api_defs
 from gulp.config import GulpConfig
 import asyncio
 from fastapi.websockets import WebSocketState
@@ -34,6 +36,40 @@ class GulpCollabDeletePacket(BaseModel):
     id: str = Field(..., description="The collab ID.")
 
 
+class GulpIngestSourceDonePacket(BaseModel):
+    """
+    to signal on the websocket that a source ingestion is done
+    """
+
+    model_config = ConfigDict(
+        # solves the issue of not being able to populate fields using field name instead of alias
+        populate_by_name=True,
+    )
+    source_id: str = Field(
+        ...,
+        description="The source ID.",
+        alias="gulp.source_id",
+        examples=[api_defs.EXAMPLE_SOURCE_ID],
+    )
+    context_id: str = Field(
+        ...,
+        description="The context ID.",
+        alias="gulp.context_id",
+        examples=[api_defs.EXAMPLE_CONTEXT_ID],
+    )
+    req_id: str = Field(
+        ..., description="The request ID.", examples=[api_defs.EXAMPLE_REQ_ID]
+    )
+    status: "GulpRequestStatus" = Field(
+        ..., description="The request status.", examples=["done"]
+    )
+
+    @override
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        return autogenerate_model_example(cls, *args, **kwargs)
+
+
 class GulpCollabCreateUpdatePacket(BaseModel):
     """
     Represents a create or update event.
@@ -52,6 +88,21 @@ class GulpWsError(StrEnum):
 
     OBJECT_NOT_FOUND = "Not Found"
     MISSING_PERMISSION = "Forbidden"
+
+
+class GulpRebaseDonePacket(BaseModel):
+    """
+    Represents a rebase done event on the websocket.
+    """
+
+    src_index: str = Field(..., description="The source index.")
+    dest_index: str = Field(..., description="The destination index.")
+    status: "GulpRequestStatus" = Field(
+        ..., description="The status of the rebase operation (done/failed)."
+    )
+    result: Optional[str | dict] = Field(
+        None, description="the error message, or successful rebase result."
+    )
 
 
 class GulpWsErrorPacket(BaseModel):
@@ -76,16 +127,17 @@ class GulpWsQueueDataType(StrEnum):
     # GulpCollabCreateUpdatePacket
     COLLAB_UPDATE = "collab_update"
     # GulpUserLoginLogoutPacket
-    USER_LOGIN = ("user_login",)
+    USER_LOGIN = "user_login"
     # GulpUserLoginLogoutPacket
-    USER_LOGOUT = ("user_logout",)
+    USER_LOGOUT = "user_logout"
     # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
     DOCUMENTS_CHUNK = "docs_chunk"
     # GulpCollabDeletePacket
     COLLAB_DELETE = "collab_delete"
-    # signal an ingest source operation is done
+    # GulpIngestSourceDonePacket to indicate a source has been ingested
     INGEST_SOURCE_DONE = "ingest_source_done"
     QUERY_DONE = "query_done"
+    # GulpRebaseDonePacket
     REBASE_DONE = "rebase_done"
 
 
@@ -571,39 +623,14 @@ class GulpSharedWsQueue:
         from gulp.api.rest_api import GulpRestServer
 
         MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
-        """
-        while True:
-            if GulpRestServer.get_instance().is_shutdown():
-                # server is shutting down, break the loop
-                break
-            # MutyLogger.get_instance().debug("running ws_q.get in executor ...")
-            try:
-                # get a GulpWsData entry from the shared multiprocessing queue
-                # entry = await loop.run_in_executor(pool, self._shared_q.get, True, 1)
-                entry = self._shared_q.get(timeout=1)
-                self._shared_q.task_done()
 
-                # find the websocket associated with this entry
-                cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
-                if not cws:
-                    # no websocket found for this entry, skip (this GulpWsData entry will be lost)
-                    continue
-
-                # broadcast
-                await GulpConnectedSockets.get_instance().broadcast_data(entry)
-
-            except Empty:
-                # let's not busy wait...
-                await asyncio.sleep(1)
-                continue
-        """
         try:
             while not GulpRestServer.get_instance().is_shutdown():
-                # Process messages in batches
+                # process messages in batches (100 per batch)
                 messages = []
 
-                # Quick non-blocking check for messages
-                while len(messages) < 100:  # Max batch size
+                # quick non-blocking check for messages
+                while len(messages) < 100:
                     try:
                         entry = self._shared_q.get_nowait()
                         messages.append(entry)
@@ -620,14 +647,14 @@ class GulpSharedWsQueue:
                                 entry
                             )
 
-                    # Small delay between batches
+                    # small delay between batches
                     await asyncio.sleep(0.01)
                 else:
-                    # No messages, short sleep
+                    # no messages, short sleep
                     await asyncio.sleep(0.1)
 
         except Exception as ex:
-            MutyLogger.get_instance().error(f"Error in fill task: {ex}")
+            MutyLogger.get_instance().error(f"error in fill task: {ex}")
             raise
 
     def close(self) -> None:
@@ -677,7 +704,7 @@ class GulpSharedWsQueue:
             req_id (str, optional): The request ID. Defaults to None.
             data (any, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.
-        """            
+        """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=type,

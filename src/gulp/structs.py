@@ -16,10 +16,6 @@ class ObjectNotFound(Exception):
     pass
 
 
-class IngestionFailed(Exception):
-    pass
-
-
 class GulpPluginParameters(BaseModel):
     """
     common parameters for a plugin, to be passed to ingest and query API.

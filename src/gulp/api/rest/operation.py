@@ -81,7 +81,7 @@ async def operation_create_handler(
             req_id=req_id,
             object_data=d,
             permission=[GulpUserPermission.ADMIN],
-            id=muty.string.ensure_no_space_no_special(name),
+            id=muty.string.ensure_no_space_no_special(name.lower()),
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -115,7 +115,6 @@ async def operation_create_handler(
 async def operation_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
     index: Annotated[
         str,
         Depends(APIDependencies.param_index_optional),
@@ -132,12 +131,11 @@ async def operation_update_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
     try:
-        if not any([name, index, description, glyph_id]):
+        if not any([index, description, glyph_id]):
             raise ValueError(
-                "At least one of name, index, description, or glyph_id must be provided."
+                "At least one of index, description, or glyph_id must be provided."
             )
         d = {}
-        d["name"] = name
         d["index"] = index
         d["description"] = description
         d["glyph_id"] = glyph_id

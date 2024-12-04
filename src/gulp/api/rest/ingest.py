@@ -30,7 +30,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.server_utils import APIDependencies, ServerUtils
-from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType, GulpIngestSourceDonePacket
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -91,40 +91,6 @@ class GulpZipMetadataEntry(BaseModel):
     plugin_params: Optional[GulpPluginParameters] = Field(
         GulpPluginParameters(), description="The plugin parameters."
     )
-
-
-class GulpIngestSourceDone(BaseModel):
-    """
-    to signal on the websocket that a source ingestion is done
-    """
-
-    model_config = ConfigDict(
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
-    )
-    source_id: str = Field(
-        ...,
-        description="The source ID.",
-        alias="gulp.source_id",
-        examples=[api_defs.EXAMPLE_SOURCE_ID],
-    )
-    context_id: str = Field(
-        ...,
-        description="The context ID.",
-        alias="gulp.context_id",
-        examples=[api_defs.EXAMPLE_CONTEXT_ID],
-    )
-    req_id: str = Field(
-        ..., description="The request ID.", examples=[api_defs.EXAMPLE_REQ_ID]
-    )
-    status: GulpRequestStatus = Field(
-        ..., description="The request status.", examples=["done"]
-    )
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
 
 
 router = APIRouter()
@@ -225,7 +191,7 @@ async def _ingest_file_internal(
                 ws_id=ws_id,
                 user_id=user_id,
                 operation_id=operation_id,
-                data=GulpIngestSourceDone(
+                data=GulpIngestSourceDonePacket(
                     source_id=source_id,
                     context_id=context_id,
                     req_id=req_id,
@@ -415,7 +381,7 @@ async def ingest_file_handler(
 
         # ensure payload is valid
         payload = GulpIngestPayload.model_validate(payload)
-        
+
         async with GulpCollab.get_instance().session() as sess:
             # check permission and get user id
             s = await GulpUserSession.check_token(
@@ -532,7 +498,7 @@ async def _ingest_raw_internal(
                 ws_id=ws_id,
                 user_id=user_id,
                 operation_id=operation_id,
-                data=GulpIngestSourceDone(
+                data=GulpIngestSourceDonePacket(
                     source_id=source_id,
                     context_id=context_id,
                     req_id=req_id,

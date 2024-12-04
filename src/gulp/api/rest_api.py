@@ -2,8 +2,6 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
-from ast import literal_eval
-import json
 import os
 import ssl
 
@@ -35,7 +33,7 @@ from gulp.api.ws_api import GulpSharedWsQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import ObjectNotFound
+from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 
 class GulpRestServer:
@@ -156,6 +154,8 @@ class GulpRestServer:
                 ex = str(ex)
         elif isinstance(ex, ObjectNotFound) or isinstance(ex, FileNotFoundError):
             status_code = 404
+        elif isinstance(ex, ObjectAlreadyExists):
+            status_code = 409
         elif isinstance(ex, ValueError):
             status_code = 400
         elif (
@@ -206,8 +206,8 @@ class GulpRestServer:
         from gulp.api.rest.story import router as story_router
         from gulp.api.rest.glyph import router as glyph_router
         from gulp.api.rest.stored_query import router as stored_query_router
-
-        # from gulp.api.rest.user_group import router as user_group_router
+        from gulp.api.rest.user_group import router as user_group_router
+        from gulp.api.rest.object_acl import router as object_acl_router
 
         self._app.include_router(db_router)
         self._app.include_router(operation_router)
@@ -220,8 +220,9 @@ class GulpRestServer:
         self._app.include_router(story_router)
         self._app.include_router(glyph_router)
         self._app.include_router(stored_query_router)
-        # self._app.include_router(user_group_router)
-
+        self._app.include_router(user_group_router)
+        self._app.include_router(object_acl_router)
+        
         """
         import gulp.api.rest.collab_utility
         import gulp.api.rest.db

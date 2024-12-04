@@ -13,6 +13,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
     T,
 )
+from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 
 class GulpUserAssociations:
@@ -60,45 +61,16 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         d["users"] = [GulpUser.example()]
         return d
 
-    @classmethod
-    async def create(
-        cls,
-        sess: AsyncSession,
-        owner_id: str,
-        name: str,
-        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
-        glyph_id: str = None,
-    ) -> T:
-        """
-        Creates a new user group.
-
-        Args:
-            sess (AsyncSession): The database session.
-            owner_id (str): The ID of the user creating the group.
-            name (str): The name of the group.
-            permission (list[GulpUserPermission], optional): The permission of the user. Defaults to [GulpUserPermission.READ].
-            glyph_id (str): The ID of the glyph associated with the group.
-
-        Returns:
-            The created user group.
-        """
-
-        object_data = {
-            "name": name,
-            "permission": permission,
-            "glyph_id": glyph_id,
-        }
-
-        # autogenerate id
-        return await super()._create(sess, object_data, owner_id=owner_id)
-
-    async def add_user(self, sess: AsyncSession, user_id: str) -> None:
+    async def add_user(
+        self, sess: AsyncSession, user_id: str, raise_if_already_exists: bool = True
+    ) -> None:
         """
         Adds a user to the group.
 
         Args:
             sess (AsyncSession): The session to use.
             user_id (str): The user id to add to the group.
+            raise_if_already_exists (bool): If True, raises an error if the user is already in the group.
         """
         from gulp.api.collab.user import GulpUser
 
@@ -114,14 +86,17 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
             MutyLogger.get_instance().info(
                 "User %s already in group %s" % (user_id, self.id)
             )
+            if raise_if_already_exists:
+                raise ObjectAlreadyExists("User %s already in group %s" % (user_id, self.id))
 
-    async def remove_user(self, sess: AsyncSession, user_id: str) -> None:
+    async def remove_user(self, sess: AsyncSession, user_id: str, raise_if_not_found: bool=True) -> None:
         """
         Removes a user from the group.
 
         Args:
             sess (AsyncSession): The session to use.
             user_id (str): The user id to remove from the group.
+            raise_if_not_found (bool): If True, raises an error if the user is not in the group.
         """
         from gulp.api.collab.user import GulpUser
 
@@ -135,8 +110,10 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
             )
         else:
             MutyLogger.get_instance().info(
-                "User %s not in group %s" % (user_id, self.id)
+                "User %s not in group %s" % (user_id, self.id)                
             )
+            if raise_if_not_found:
+                raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))
 
     def is_admin(self) -> bool:
         """

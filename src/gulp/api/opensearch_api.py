@@ -491,7 +491,7 @@ class GulpOpenSearch:
         except Exception as e:
             MutyLogger.get_instance().error("error deleting index template: %s" % (e))
 
-    async def datastream_create(self, name: str, index_template: str = None) -> None:
+    async def datastream_create(self, name: str, index_template: str = None) -> dict:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
@@ -499,6 +499,9 @@ class GulpOpenSearch:
             datastream_name(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
                 if it already exists, it will be deleted first.
             index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
+        
+        Returns:
+            dict: The response from the OpenSearch client after creating the datastream.
         """
 
         # attempt to delete the datastream first, if it exists
@@ -663,7 +666,7 @@ class GulpOpenSearch:
         self,
         index: str,
         dest_index: str,
-        msec_offset: int,
+        offset_msec: int,
         flt: GulpQueryFilter = None,
     ) -> dict:
         """
@@ -671,7 +674,7 @@ class GulpOpenSearch:
         Args:
             index (str): The source index name.
             dest_index (str): The destination index name.
-            msec_offset (int): The offset in milliseconds from unix epoch to adjust the '@timestamp' field.
+            offset_msec (int): The offset in milliseconds from unix epoch to adjust the '@timestamp' field.
             flt (GulpQueryFilter, optional): if set, it will be used to rebase only a subset of the documents. Defaults to None.
         Returns:
             dict: The response from the OpenSearch reindex operation.
@@ -679,7 +682,7 @@ class GulpOpenSearch:
         """
         MutyLogger.get_instance().debug(
             "rebase index %s to %s with offset=%d, flt=%s ..."
-            % (index, dest_index, msec_offset, flt)
+            % (index, dest_index, offset_msec, flt)
         )
         if not flt:
             flt = GulpQueryFilter()
@@ -700,7 +703,7 @@ class GulpOpenSearch:
                 "lang": "painless",
                 "source": convert_script,
                 "params": {
-                    "nsec_offset": msec_offset * muty.time.MILLISECONDS_TO_NANOSECONDS,
+                    "nsec_offset": offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS,
                 },
             },
         }

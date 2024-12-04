@@ -4,7 +4,7 @@ gulp user groups managementrest api
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from gulp.api.collab.user_group import GulpUserGroup
 from gulp.api.collab.structs import (
@@ -12,12 +12,11 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
 )
 from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import (
     APIDependencies,
     ServerUtils,
 )
-from muty.log import MutyLogger
 import muty.string
 
 router: APIRouter = APIRouter()
@@ -55,9 +54,9 @@ async def user_group_create_handler(
         str,
         Depends(APIDependencies.param_display_name),
     ],
-    index: Annotated[
-        str,
-        Depends(APIDependencies.param_index),
+    permission: Annotated[
+        list[GulpUserPermission],
+        Body(description="One or more permissions for the group."),
     ],
     description: Annotated[
         str,
@@ -72,9 +71,9 @@ async def user_group_create_handler(
     ServerUtils.dump_params(locals())
 
     d = {
-        "index": index,
         "name": name,
         "description": description,
+        "permission": permission,
         "glyph_id": glyph_id,
     }
     try:
@@ -84,7 +83,7 @@ async def user_group_create_handler(
             req_id=req_id,
             object_data=d,
             permission=[GulpUserPermission.ADMIN],
-            id=muty.string.ensure_no_space_no_special(name),
+            id=muty.string.ensure_no_space_no_special(name.lower()),
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -112,16 +111,17 @@ async def user_group_create_handler(
     },
     summary="updates an existing user_group.",
     description="""
+this function only updates the group properties, to add or remove users use `add_user`, `remove_user`.
+
 - token needs `admin` permission.
 """,
 )
 async def user_group_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    index: Annotated[
-        str,
-        Depends(APIDependencies.param_index_optional),
+    permission: Annotated[
+        Optional[list[GulpUserPermission]],
+        Body(description="One or more permissions for the group."),
     ] = None,
     description: Annotated[
         str,
@@ -135,13 +135,12 @@ async def user_group_update_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
     try:
-        if not any([name, index, description, glyph_id]):
+        if not any([permission, description, glyph_id]):
             raise ValueError(
-                "At least one of name, index, description, or glyph_id must be provided."
+                "At least one of description, glyph_id, or permission must be provided."
             )
         d = {}
-        d["name"] = name
-        d["index"] = index
+        d["permission"] = permission
         d["description"] = description
         d["glyph_id"] = glyph_id
         d = await GulpUserGroup.update_by_id(
@@ -178,26 +177,17 @@ async def user_group_update_handler(
     },
     summary="deletes a user_group.",
     description="""
+- users in the group are **not deleted**.
 - token needs `admin` permission.
 """,
 )
 async def user_group_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    delete_data: Annotated[
-        Optional[bool],
-        Query(
-            description="delete related data on gulp collab and opensearch index (`index` must be provided)."
-        ),
-    ] = True,
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if delete_data and not index:
-            raise ValueError("If `delete_data` is set, `index` must be provided.")
-
         await GulpUserGroup.delete_by_id(
             token,
             object_id,
@@ -205,16 +195,6 @@ async def user_group_delete_handler(
             req_id=req_id,
             permission=[GulpUserPermission.ADMIN],
         )
-
-        if delete_data:
-            # delete all data
-            MutyLogger.get_instance().info(
-                f"deleting data related to user_group_id={object_id} on index={index} ..."
-            )
-            await GulpOpenSearch.get_instance().delete_data_by_user_group(
-                index, object_id
-            )
-
         return JSendResponse.success(req_id=req_id, data={"id": object_id})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -240,6 +220,9 @@ async def user_group_delete_handler(
         }
     },
     summary="gets a user_group.",
+    description="""
+- token needs `admin` permission.
+""",
 )
 async def user_group_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -252,6 +235,7 @@ async def user_group_get_by_id_handler(
             token,
             object_id,
             nested=True,
+            permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
@@ -279,8 +263,10 @@ async def user_group_get_by_id_handler(
             }
         }
     },
-    summary="list user_groups, optionally using a filter.",
-    description="",
+    summary="list user groups, optionally using a filter.",
+    description="""
+- token needs `admin` permission.
+""",
 )
 async def user_group_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -297,7 +283,114 @@ async def user_group_list_handler(
             token,
             flt,
             nested=True,
+            permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.patch(
+    "/user_group_add_user",
+    tags=["user_group"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [
+                            GulpUserGroup.example(),
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="adds an user to the user group.",
+    description="""
+- token needs `admin` permission.
+""",
+)
+async def user_group_add_user_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check admin token
+            s = await GulpUserSession.check_token(
+                sess, token, permission=[GulpUserPermission.ADMIN]
+            )
+
+            # get user group
+            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id)
+
+            # add user
+            await group.add_user(sess, user_id)
+
+        return JSendResponse.success(
+            req_id=req_id, data=group.to_dict(nested=True, exclude_none=True)
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.patch(
+    "/user_group_remove_user",
+    tags=["user_group"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [
+                            GulpUserGroup.example(),
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="removes an user from the user group.",
+    description="""
+- token needs `admin` permission.
+""",
+)
+async def user_group_remove_user_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check admin token
+            s = await GulpUserSession.check_token(
+                sess, token, permission=[GulpUserPermission.ADMIN]
+            )
+
+            # get user group
+            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id)
+
+            # delete user
+            await group.remove_user(sess, user_id)
+
+        return JSendResponse.success(
+            req_id=req_id, data=group.to_dict(nested=True, exclude_none=True)
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

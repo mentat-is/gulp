@@ -49,7 +49,7 @@ from gulp.api.ws_api import (
     GulpSharedWsQueue,
     GulpWsQueueDataType,
 )
-from gulp.structs import ObjectNotFound
+from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 
 class SessionExpired(Exception):
@@ -363,11 +363,11 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
     )
     granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
-        doc="The ids of the users who have been granted access to the object If not set, all objects have access.",
+        doc="The ids of the users who have been granted access to the object. if not set(default), all objects have access.",
     )
     granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
-        doc="The ids of the user groups who have been granted access to the object. If not set, all groups have access.",
+        doc="The ids of the user groups who have been granted access to the object. if not set(default), all groups have access.",
     )
     time_created: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -702,7 +702,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
         return instance
 
-    async def grant_group_access(self, sess: AsyncSession, group_id: str) -> None:
+    async def add_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         """
         grant a user group access to the object
 
@@ -724,7 +724,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 "User group %s already granted on object %s" % (group_id, self.id)
             )
 
-    async def ungrant_group_access(self, sess: AsyncSession, group_id: str) -> None:
+    async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         """
         remove a user group access to the object
 
@@ -746,13 +746,16 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
                 "User group %s not in granted list on object %s" % (group_id, self.id)
             )
 
-    async def grant_user_access(self, sess: AsyncSession, user_id: str) -> None:
+    async def add_user_grant(
+        self, sess: AsyncSession, user_id: str, raise_if_already_granted: bool = True
+    ) -> None:
         """
         grant a user access to the object
 
         Args:
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to add.
+            raise_if_already_granted (bool): If True, raise an exception if the user is already granted access.
         Returns:
             None
         """
@@ -767,14 +770,21 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             MutyLogger.get_instance().warning(
                 "User %s already granted on object %s" % (user_id, self.id)
             )
+            if raise_if_already_granted:
+                raise ObjectAlreadyExists(
+                    f"User {user_id} already granted on object {self.id}"
+                )
 
-    async def ungrant_user_access(self, sess: AsyncSession, user_id: str) -> None:
+    async def remove_user_grant(
+        self, sess: AsyncSession, user_id: str, raise_if_not_found: bool = True
+    ) -> None:
         """
         remove a user access to the object
 
         Args:
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to remove.
+            raise_if_not_found (bool): If True, raise an exception if the user is not granted access.
         Returns:
             None
         """
@@ -789,6 +799,10 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             MutyLogger.get_instance().warning(
                 "User %s not in granted list on object %s" % (user_id, self.id)
             )
+            if raise_if_not_found:
+                raise ObjectNotFound(
+                    f"User {user_id} not in granted list on object {self.id}"
+                )
 
     async def delete(
         self,
