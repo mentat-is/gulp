@@ -22,11 +22,6 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
 
-from gulp.api.collab.structs import (
-    MissingPermission,
-    SessionExpired,
-    WrongUsernameOrPassword,
-)
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpSharedWsQueue
@@ -131,6 +126,12 @@ class GulpRestServer:
         """
         set error code 400 to generic bad requests
         """
+        from gulp.api.collab.structs import (
+            MissingPermission,
+            SessionExpired,
+            WrongUsernameOrPassword,
+        )
+
         status_code = 500
         req_id = None
         name = None
@@ -222,7 +223,7 @@ class GulpRestServer:
         self._app.include_router(stored_query_router)
         self._app.include_router(user_group_router)
         self._app.include_router(object_acl_router)
-        
+
         """
         import gulp.api.rest.collab_utility
         import gulp.api.rest.db

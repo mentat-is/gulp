@@ -1,4 +1,5 @@
 import asyncio
+import collections
 from concurrent.futures import ThreadPoolExecutor
 from enum import IntEnum, StrEnum
 from multiprocessing.managers import SyncManager
@@ -11,6 +12,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example
 from pydantic import BaseModel, ConfigDict, Field
 
+from gulp.api.collab.structs import GulpRequestStatus
 import gulp.api.rest.defs as api_defs
 from gulp.config import GulpConfig
 import asyncio
@@ -60,7 +62,7 @@ class GulpIngestSourceDonePacket(BaseModel):
     req_id: str = Field(
         ..., description="The request ID.", examples=[api_defs.EXAMPLE_REQ_ID]
     )
-    status: "GulpRequestStatus" = Field(
+    status: GulpRequestStatus = Field(
         ..., description="The request status.", examples=["done"]
     )
 
@@ -199,7 +201,7 @@ class GulpDocumentsChunk(BaseModel):
 
 class GulpWsData(BaseModel):
     """
-    data carried by the websocket ui->gulp
+    data carried by the websocket ui<->gulp
     """
 
     model_config = ConfigDict(
@@ -227,6 +229,39 @@ class GulpWsData(BaseModel):
     data: Optional[Any] = Field(None, description="The data carried by the websocket.")
 
 
+class WsQueueMessagePool:
+    """
+    message pool for the ws to reduce memory pressure and gc
+    """
+    def __init__(self, maxsize: int = 1000):
+        # preallocate message pool
+        self._pool = collections.deque(maxlen=maxsize)
+
+    def get(self) -> dict:
+        """
+        get a preallocated message from the pool
+
+        Returns:
+            dict: the message
+        """
+        try:
+            msg = self._pool.popleft()
+            return msg
+        except IndexError:
+            return {}
+
+    def put(self, msg: dict):
+        """
+        put a message back into the pool
+
+        Args:
+            msg (dict): the message to put back
+        """
+        # clear and put back
+        msg.clear()
+        self._pool.append(msg)
+
+
 class ConnectedSocket:
     """
     Represents a connected websocket.
@@ -250,6 +285,7 @@ class ConnectedSocket:
         """
         self.ws = ws
         self.ws_id = ws_id
+        self._msg_pool = WsQueueMessagePool()
         self.types = types
         self.operation_ids = operation_ids
 
@@ -330,11 +366,31 @@ class ConnectedSocket:
         if self.q.qsize() > 1000:
             # backpressure
             await asyncio.sleep(0.1)
-        await self.q.put(msg)
+
+        # use a slot from the pool
+        pooled_msg = self._msg_pool.get()
+        pooled_msg.update(msg)
+        await self.q.put(pooled_msg)
+
+    async def send_json(self, msg: dict, delay: float) -> None:
+        """
+        Sends a JSON message to the websocket.
+
+        Args:
+            msg (dict): The message to send.
+            delay (float): The delay to wait before sending the message.
+        """
+        await self.ws.send_json(msg)
+
+        # return msg to pool
+        self._msg_pool.put(msg)
+
+        # rate limit
+        await asyncio.sleep(delay)
 
     async def _send_loop(self) -> None:
         """
-        sends messages from the queue
+        send messages from the ws queue to the websocket
         """
         try:
             MutyLogger.get_instance().debug(f'starting ws "{self.ws_id}" loop ...')
@@ -342,20 +398,18 @@ class ConnectedSocket:
 
             while True:
                 try:
-                    # Single message processing with timeout
+                    # single message processing with timeout
                     item = await asyncio.wait_for(self.q.get(), timeout=0.1)
 
-                    # Check state before sending
+                    # check state before sending
                     if asyncio.current_task().cancelled():
                         raise asyncio.CancelledError()
-
                     if self.ws.client_state != WebSocketState.CONNECTED:
                         raise WebSocketDisconnect("client disconnected")
 
-                    # send immediately
-                    await self.ws.send_json(item)
+                    # send
+                    await self.send_json(item, ws_delay)
                     self.q.task_done()
-                    await asyncio.sleep(ws_delay)
 
                 except asyncio.TimeoutError:
                     if asyncio.current_task().cancelled():

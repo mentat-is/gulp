@@ -1,6 +1,6 @@
 import re
 from enum import StrEnum
-from typing import List, Optional, TypeVar, override
+from typing import List, Optional, TypeVar, override, TYPE_CHECKING
 
 from muty.pydantic import autogenerate_model_example
 import muty.string
@@ -43,12 +43,9 @@ from tenacity import (
     wait_exponential,
 )
 
-from gulp.api.ws_api import (
-    GulpCollabCreateUpdatePacket,
-    GulpCollabDeletePacket,
-    GulpSharedWsQueue,
-    GulpWsQueueDataType,
-)
+if TYPE_CHECKING:
+    from gulp.api.ws_api import GulpWsQueueDataType
+
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 
@@ -633,7 +630,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         id: str = None,
         ws_id: str = None,
         owner_id: str = None,
-        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_UPDATE,
+        ws_queue_datatype: "GulpWsQueueDataType" = None,
         ws_data: dict = None,
         req_id: str = None,
         **kwargs,
@@ -683,6 +680,15 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         await sess.commit()
 
         if ws_id:
+            from gulp.api.ws_api import (
+                GulpCollabCreateUpdatePacket,
+                GulpSharedWsQueue,
+                GulpWsQueueDataType,
+            )
+
+            if not ws_queue_datatype:
+                ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+
             # notify the websocket of the collab object creation
             if ws_data:
                 data = ws_data
@@ -809,7 +815,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         sess: AsyncSession,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_DELETE,
+        ws_queue_datatype: "GulpWsQueueDataType" = None,
         ws_data: dict = None,
         req_id: str = None,
     ) -> None:
@@ -836,6 +842,15 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         await sess.commit()
 
         if ws_id:
+            from gulp.api.ws_api import (
+                GulpCollabDeletePacket,
+                GulpSharedWsQueue,
+                GulpWsQueueDataType,
+            )
+
+            if not ws_queue_datatype:
+                ws_queue_datatype = GulpWsQueueDataType.COLLAB_DELETE
+
             # notify the websocket of the deletion
             if ws_data:
                 data = ws_data
@@ -869,7 +884,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         d: dict,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.COLLAB_UPDATE,
+        ws_queue_datatype: "GulpWsQueueDataType" = None,
         ws_data: dict = None,
         req_id: str = None,
         updated_instance: T = None,
@@ -929,6 +944,15 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
 
         if ws_id:
+            from gulp.api.ws_api import (
+                GulpCollabCreateUpdatePacket,
+                GulpSharedWsQueue,
+                GulpWsQueueDataType,
+            )
+
+            if not ws_queue_datatype:
+                ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+
             # notify the websocket of the collab object update
             if ws_data:
                 data = ws_data
