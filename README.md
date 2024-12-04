@@ -27,7 +27,7 @@ Gulp is a powerful software tool designed to streamline incident response and an
 ### Current features
 
 - **Data Ingestion Plugins**: Gulp can ingest data from a variety of sources, thanks to its versatile plugin system.
-- **OpenSearch and ECS**: Gulp is built on OpenSearch and uses the *Elasticsearch Common Scheme (ECS)* as its ingestion format, ensuring compatibility and ease of use.
+- **OpenSearch and ECS**: Gulp is built on OpenSearch and uses the _Elasticsearch Common Scheme (ECS)_ as its ingestion format, ensuring compatibility and ease of use.
 - **High-Speed Multiprocessing Engine**: Gulp's engine is designed for speed, offering fast ingestion and querying capabilities through multiprocessing.
 - **Query using SIGMA rules**: Gulp supports querying using Sigma Rules, allowing for easy, one-click queries with thousands of rules in parallel.
 - **Collaboration Platform**: Gulp includes a collaboration platform, enabling teams to work together on the same incident. Features include note-taking, highlighting, and link adding.
@@ -98,7 +98,7 @@ the following environment variables may be set to override configuration options
 - `PATH_MAPPING_FILES`: if set, will be used as path for the mapping files to be used by plugins (either, the default is `$INSTALLDIR/mapping_files`)
 - `PATH_INDEX_TEMPLATE`: if set, will be used as the path for the index template to be used when creating new indexes (either, [default](./src/gulp/api/mapping/index_template/template.json) is used)
 - `PATH_CERTS`: if set, overrides `path_certs` in the configuration (for HTTPS).
-- `ELASTIC_URL`: if set, overrides `elastic_url` in the configuration.
+- `OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration.
 - `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
 - `GULP_INTEGRATION_TEST`: **TEST ONLY**, this must be set to 1 during integration testing (i.e. client api) to disable debug features which may interfere.
 
@@ -109,7 +109,7 @@ to use HTTPS, the following certificates must be available:
 > client certificates for `opensearch` and `postgresql` are used if found, `opensearch` key password is not supported.
 
 - opensearch
-  - `elastic_verify_certs: false` may be used to skip server verification
+  - `opensearch_verify_certs: false` may be used to skip server verification
   - `$PATH_CERTS/opensearch-ca.pem`: path to the CA certificate for the Opensearch server
   - `$PATH_CERTS/opensearch.pem`: client certificate to connect to Opensearch server
   - `$PATH_CERTS/opensearch.key`: certificate key
@@ -131,45 +131,62 @@ to use HTTPS, the following certificates must be available:
 
 [with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
 
-#### Test ingestion
+#### Test
+
+> this is preliminary doc until proper test is setup!
+
+run gulp setting `GULP_INTEGRATION_TEST` environment variable first, websocket must be named `test_ws`.
 
 ```bash
-# ingest single file
-TEST_WS_ID="websocket_id" ./test_scripts/test_ingest.sh -p ./samples/win_evtx/Application_no_crc32.evtx
+GULP_INTEGRATION_TEST=1 gulp
 
-# ingest zip
-TEST_WS_ID="websocket_id" ./test_scripts/test_ingest.sh -p ./test_scripts/test_upload_with_metadata_json.zip
-
-# ingest with filter (GulpIngestFilter)
-TEST_WS_ID="websocket_id" TEST_INGESTION_FILTER='{"level":[2]}' ./test_scripts/test_ingest.sh -p ./test_scripts/test_upload_with_metadata_json.zip -f
-
-## multiple concurrent ingestion (using 2 target websockets)
-TEST_WS_ID="websocket_id1" TEST_TOKEN=80d5ed1e-c30f-4926-872d-92bcc5a2235d ./test_scripts/test_ingest.sh -p ./samples/win_evtx && TEST_WS_ID="websocket_id2" TEST_TOKEN=80d5ed1e-c30f-4926-872d-92bcc5a2235d TEST_CONTEXT=context2 TEST_OPERATION=testop2 ./test_scripts/test_ingest.sh -p ./samples/win_evtx
-
-# ingest with csv plugin without mapping file ("@timestamp" in the document is mandatory, so in one way or another we must know at least how to obtain a timestamp for ingested event)
-TEST_WS_ID="websocket_id" TEST_PLUGIN_PARAMS='{"timestamp_field": "UpdateTimestamp"}' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
-
-# ingest with csv plugin with mapping file
-TEST_WS_ID="websocket_id" TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "j"}' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
-
-# example overriding a configuration parameter (will stay overridden until gulp restarts)
-TEST_WS_ID="websocket_id" TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "j" }' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
-
-# ingest local directory (just for testing, not available in production code and not available when gulp runs in docker)
-TEST_WS_ID="websocket_id" ./test_scripts/test_ingest.sh -x -p ./samples/win_evtx
-
-# sample ingestion with filter
-TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211}' TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx -f
-
-# same as above, send filtered chunks on websocket but store data anyway on database (do not apply filter on-store)
-TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "store_all_documents": true}' TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx -f
+# or to start clean...
+GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
 ```
 
-> - for testing websocket, a browser extension i.e. [chrome websockets browser extension](https://chromewebstore.google.com/detail/browser-websocket-client/mdmlhchldhfnfnkfmljgeinlffmdgkjo) may be used.
->
->   - if TEST_WS_ID is not specified, ingestion happens anyway, but results are not broadcasted.
->
-> - resuming ingestion is supported **if the `req_id` parameter is the same across requests**.
+##### Ingestion
+
+```bash
+# win_evtx
+# 98633 records, 1 record failed, 1 skipped, 98631 ingested
+./test_scripts/test_ingest.py --path ./samples/win_evtx
+
+# csv without mapping
+# 10 records, 10 ingested
+./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mappings": { "test_mapping": { "timestamp_field": "Created0x10"}}}'
+
+# csv with mapping
+# 10 records, 44 ingested
+./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
+
+# raw
+# 3 ingested
+./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json
+
+# raw with mapping
+# 3 ingested, record 1.field2 mapping changed
+./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
+
+# zip (with metadata.json), win_evtx and csv with mappings
+# 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
+./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
+```
+
+##### Collaboration
+
+```bash
+# users
+./test_scripts/test_user.py --mode admin
+
+# reset first, then test as guest (cannot create users/update permissions/access other users)
+./test_scripts/test_user.py --mode guest --reset
+
+# notes
+./test_scripts/test_collab_obj.py --username editor --password editor
+
+# reset first, then this should fail (missing EDIT permission)
+./test_scripts/test_collab_obj.py --username gues --password guest --reset
+```
 
 ## Architecture
 
@@ -177,15 +194,15 @@ TEST_INGESTION_FILTER='{"start_msec":1475719436055, "end_msec": 1475719436211, "
 
 ## Clients
 
-### Web Client
+### Web UI
 
-If you want to use the web GUI visit it's repository [here](https://github.com/mentat-is/gulpui-web).
-It's still heavily under construction, so any contribution is highly appreciated!
-
-This is the intended official wanna-be client for gulp.
+get it [here](https://github.com/mentat-is/gulpui-web) !
 
 ### .NET Client
 
+deprecated, use [the web UI](https://github.com/mentat-is/gulpui-web) !
+
+<del>
 > [!IMPORTANT] ⚠ the .NET client is to be considered an internal-test version, this is the tool we use internally to testdrive the backend development.
 > It is not feature complete and far from being production ready :).
 > Feel free to open issues, but any contribution should go towards the new WIP [web client](https://github.com/mentat-is/gulpui-web)
@@ -197,11 +214,11 @@ To run the executable on Linux, follow these steps:
 1. start gulp backend with
 
 ~~~bash
-# add --reset-collab --reset-elastic indexname if reset/initialization is needed
+# add --reset-collab --reset-index indexname if reset/initialization is needed
 BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
-2. start the UI 
+2. start the UI
   
   on `arch linux (endeavouros)`, other OS should be similar (just package names changes, if any)
 
@@ -227,3 +244,4 @@ BIND_TO=0.0.0.0:8080 gulp
 - usage demo
 
   [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1349)
+</del>
