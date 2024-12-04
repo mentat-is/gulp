@@ -147,25 +147,21 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             # admin user has all permissions, always allowed
             return user_session
 
-        granted = False
-
-        # check if the user have the required permission first
-        if user_session.user.has_permission(permission):
-            granted = True
-
         if obj:
-            # check the user permissions against the object
+            # check if the user has access
             if user_session.user.check_object_access(
                 obj,
                 throw_on_no_permission=throw_on_no_permission,
             ):
-                granted = True
-            else:
-                # user cannot access the object
-                granted = False
-
-        if granted:
-            return user_session
+                # check if the user have the required permission
+                if user_session.user.has_permission(permission):
+                    # access granted
+                    return user_session
+        else:
+            # no object provided, check only the permission
+            if user_session.user.has_permission(permission):
+                # access granted
+                return user_session
 
         if throw_on_no_permission:
             raise MissingPermission(

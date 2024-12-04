@@ -53,6 +53,21 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         """
         return muty.crypto.hash_xxh128("%s%s" % (operation_id, context_id))
 
+    @staticmethod
+    def make_source_id_key(operation_id: str, context_id: str, source_id: str) -> str:
+        """
+        Make a key for the source_id.
+
+        Args:
+            operation_id (str): The operation id.
+            context_id (str): The context id.
+            source_id (str): The source id.
+
+        Returns:
+            str: The key.
+        """
+        return muty.crypto.hash_xxh128("%s%s%s" % (operation_id, context_id, source_id))
+
     async def add_source(
         self,
         sess: AsyncSession,
@@ -69,9 +84,10 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         Returns:
             GulpSource: the source added (or already existing), eager loaded
         """
+        src_id = GulpContext.make_source_id_key(self.operation_id, self.id, name)
 
         # acquire lock first
-        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{name}")
+        lock_id = muty.crypto.hash_xxh64_int(src_id)
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
         sess.add(self)
 
@@ -98,7 +114,6 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             "name": name,
             "color": "purple",
         }
-        src_id = muty.crypto.hash_xxh128("%s%s%s" % (self.operation_id, self.id, name))
         src = await GulpSource._create(
             sess,
             object_data,

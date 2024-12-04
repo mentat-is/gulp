@@ -153,7 +153,7 @@ async def note_update_handler(
     ] = None,
     time_pin: Annotated[
         int,
-        Body(
+        Query(
             description="timestamp to pin the note to, in nanoseconds from the unix epoch."
         ),
     ] = None,

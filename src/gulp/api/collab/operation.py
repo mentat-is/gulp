@@ -36,7 +36,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         d = super().example()
         d["index"] = "operation_index"
         return d
-    
+
     @override
     def to_dict(self, nested=False, **kwargs) -> dict:
         d = super().to_dict(nested=nested, **kwargs)
@@ -65,12 +65,13 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         Returns:
             GulpContext: the context added (or already existing), eager loaded
         """
+        id = GulpContext.make_context_id_key(self.id, context_id)
+
         # acquire lock first
-        lock_id = muty.crypto.hash_xxh64_int(f"{self.id}-{context_id}")
+        lock_id = muty.crypto.hash_xxh64_int(id)
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
 
         # check if context exists
-        id = GulpContext.make_context_id_key(self.id, context_id)
         ctx: GulpContext = await GulpContext.get_by_id(
             sess, id=id, throw_if_not_found=False
         )
@@ -97,4 +98,3 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             f"context {context_id} added to operation {self.id}."
         )
         return ctx
-

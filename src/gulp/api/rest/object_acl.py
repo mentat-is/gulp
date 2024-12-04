@@ -6,8 +6,11 @@ from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload, with_polymorphic
 from gulp.api.collab.structs import (
     GulpCollabBase,
+    GulpCollabType,
     MissingPermission,
 )
 from gulp.api.collab.note import GulpNote
@@ -17,18 +20,25 @@ from gulp.api.rest.server_utils import (
     APIDependencies,
     ServerUtils,
 )
+from gulp.structs import ObjectNotFound
 
 router: APIRouter = APIRouter()
 
 
 async def _modify_grants(
-    object_id: str, token: str, user_id: str, add: bool, group: bool
+    object_id: str,
+    object_type: GulpCollabType,
+    token: str,
+    user_id: str,
+    add: bool,
+    group: bool,
 ) -> GulpCollabBase:
     """
     modify grants for an object
 
     Args:
         object_id (str): the object id to modify
+        object_type (GulpCollabType): the object type
         token (str): the token of the user
         user_id (str): the user id to add or remove
         add (bool): add or remove
@@ -37,19 +47,25 @@ async def _modify_grants(
     Returns:
         GulpCollabBase: the modified object
     """
+    # map object type to class
+    obj_class = GulpCollabBase.object_type_to_class(object_type)
     async with GulpCollab.get_instance().session() as sess:
-        # get object
-        obj: GulpCollabBase = await GulpCollabBase.get_by_id(
+        obj: GulpCollabBase = await obj_class.get_by_id(
             sess, object_id, with_for_update=True
         )
+        if not obj:
+            raise ObjectNotFound(f"Object with id {object_id} not found")
 
         # get token session
         s = await GulpUserSession.check_token(
             sess,
             token,
         )
-        if not obj.owner_user_id == s.user_id or s.user.is_admin():
-            raise MissingPermission("only the owner or admin can modify object grants")
+        if not obj.is_owner(s.user_id) and not s.user.is_admin():
+            raise MissingPermission(
+                "only the owner or admin can modify object grants: user=%s, object owner %s"
+                % (s.user_id, obj.owner_user_id)
+            )
 
         if add:
             # add grant
@@ -95,12 +111,18 @@ async def _modify_grants(
 async def object_add_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    type: Annotated[
+        GulpCollabType,
+        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+    ],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        obj = _modify_grants(object_id, token, user_id, add=True, group=False)
+        obj = await _modify_grants(
+            object_id, type, token, user_id, add=True, group=False
+        )
         return JSendResponse.success(
             req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
         )
@@ -137,12 +159,18 @@ async def object_add_granted_user_handler(
 async def object_remove_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    type: Annotated[
+        GulpCollabType,
+        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+    ],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        obj = _modify_grants(object_id, token, user_id, add=False, group=False)
+        obj = await _modify_grants(
+            object_id, type, token, user_id, add=False, group=False
+        )
         return JSendResponse.success(
             req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
         )
@@ -179,12 +207,18 @@ async def object_remove_granted_user_handler(
 async def object_add_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    type: Annotated[
+        GulpCollabType,
+        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+    ],
     group_id: Annotated[str, Query(..., description="the group id to add.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        obj = _modify_grants(object_id, token, group_id, add=True, group=True)
+        obj = await _modify_grants(
+            object_id, type, token, group_id, add=True, group=True
+        )
         return JSendResponse.success(
             req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
         )
@@ -221,12 +255,18 @@ async def object_add_granted_group_handler(
 async def object_remove_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    type: Annotated[
+        GulpCollabType,
+        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+    ],
     group_id: Annotated[str, Query(..., description="the group id to remove.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        obj = _modify_grants(object_id, token, group_id, add=False, group=True)
+        obj = await _modify_grants(
+            object_id, type, token, group_id, add=False, group=True
+        )
         return JSendResponse.success(
             req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
         )

@@ -16,6 +16,7 @@ from muty.log import MutyLogger
 from pydantic import AfterValidator, BaseModel, Field
 from requests_toolbelt.multipart import decoder
 from fastapi import Depends
+from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import T, GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -336,7 +337,7 @@ class APIDependencies:
             Optional[str],
             Query(
                 description=api_defs.API_DESC_GLYPH_ID,
-                example=api_defs.EXAMPLE_GLYPH_ID,
+                example=None,
             ),
         ] = None
     ) -> str:
@@ -423,48 +424,6 @@ class APIDependencies:
         """
         return APIDependencies._strip_or_none(user_id)
 
-    @staticmethod
-    def param_source_id(
-        source_id: Annotated[
-            str,
-            Query(
-                description=api_defs.API_DESC_SOURCE_ID,
-                example=api_defs.EXAMPLE_SOURCE_ID,
-            ),
-        ]
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            source_id (str, Query): The source ID.
-
-        Returns:
-            str: The source ID.
-        """
-        return APIDependencies._strip_or_none(source_id)
-
-    @staticmethod
-    def param_source_id_optional(
-        source: Annotated[
-            Optional[str],
-            Query(
-                description=api_defs.API_DESC_SOURCE_ID,
-                example=api_defs.EXAMPLE_SOURCE_ID,
-            ),
-        ] = None
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            source (str, optional, Query): The source. Defaults to None.
-
-        Returns:
-            str: The source.
-        """
-        return APIDependencies._strip_or_none(source)
-
     def param_index(
         index: Annotated[
             str,
@@ -528,18 +487,49 @@ class APIDependencies:
                 description=api_defs.API_DESC_CONTEXT_ID,
                 example=api_defs.EXAMPLE_CONTEXT_ID,
             ),
-        ]
+        ],
+        operation_id: Annotated[str, Depends(param_operation_id)],
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        real context_id which is used by the API internally is a combination of operation_id and the provided context_id
 
         Args:
             context_id (str, Query): The context ID.
+            operation_id (str, Depends): The operation ID.
 
         Returns:
             str: The context ID.
         """
-        return APIDependencies._strip_or_none(context_id)
+        ctx_id = APIDependencies._strip_or_none(context_id)
+        ctx_id = GulpContext.make_context_id_key(operation_id, ctx_id)
+        return ctx_id
+
+    @staticmethod
+    def param_source_id(
+        source_id: Annotated[
+            str,
+            Query(
+                description=api_defs.API_DESC_SOURCE_ID,
+                example=api_defs.EXAMPLE_SOURCE_ID,
+            ),
+        ],
+        operation_id: Annotated[str, Depends(param_operation_id)],
+        context_id: Annotated[str, Depends(param_context_id)],
+    ) -> str:
+        """
+        real source_id which is used by the API internally is a combination of operation_id, context_id and the provided source_id
+
+        Args:
+            source_id (str, Query): The source ID.
+            operation_id (str, Depends): The operation ID.
+            context_id (str, Depends): The context ID.
+
+        Returns:
+            str: The source ID.
+        """
+        src_id = APIDependencies._strip_or_none(source_id)
+        src_id = GulpContext.make_source_id_key(operation_id, context_id, src_id)
+        return src_id
 
     @staticmethod
     def param_plugin_optional(

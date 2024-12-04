@@ -331,7 +331,7 @@ async def user_group_add_user_handler(
             )
 
             # get user group
-            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id)
+            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id, with_for_update=True)
 
             # add user
             await group.add_user(sess, user_id)
@@ -384,7 +384,7 @@ async def user_group_remove_user_handler(
             )
 
             # get user group
-            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id)
+            group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, object_id, with_for_update=True)
 
             # delete user
             await group.remove_user(sess, user_id)

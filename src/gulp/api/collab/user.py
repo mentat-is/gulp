@@ -84,6 +84,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         from gulp.api.collab.user_data import GulpUserData
         from gulp.api.collab.user_group import GulpUserGroup
         from gulp.api.collab.user_session import GulpUserSession
+
         d = super().example()
         d.update(
             {
@@ -195,14 +196,16 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             bool: True if the user has admin permission, False otherwise.
         """
         admin = GulpUserPermission.ADMIN in self.permission
-        if not admin and self.groups:
+        if admin:
+            return admin
+
+        if self.groups:
             # also check if the user is in an admin group
             for group in self.groups:
                 if group.is_admin():
-                    admin = True
-                    break
+                    return True
 
-        return admin
+        return False
 
     def logged_in(self) -> bool:
         """
@@ -338,8 +341,14 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         if self.is_admin():
             return True
 
-        # check if all permissions are present
-        return all([p in self.permission for p in permission])
+        has_permission = all([p in self.permission for p in permission])
+        if has_permission:
+            return True
+        if self.groups:
+            for group in self.groups:
+                if group.has_permission(permission):
+                    return True
+        return False
 
     def check_object_access(
         self,
@@ -347,10 +356,11 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         throw_on_no_permission: bool = False,
     ) -> bool:
         """
-        Check if the user has permission to access the specified object.
+        Check if the user has READ permission to access the specified object.
 
         the user has permission to access the object if:
 
+        - no granted users or groups are set (everyone has access)
         - the user is an admin
         - the user is the owner of the object
         - the user is in the granted groups of the object (and the object is not private)
@@ -376,6 +386,15 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         # check if the user is the owner of the object
         if obj.owner_user_id == self.id:
             # MutyLogger.get_instance().debug("allowing access to object owner")
+            return True
+
+        if (
+            not obj.granted_user_group_ids
+            and not obj.granted_user_ids
+            and not is_private
+        ):
+            # no granted users or groups, allow access
+            # MutyLogger.get_instance().debug("allowing access to object without granted users or groups")
             return True
 
         # check if the user is in the granted groups

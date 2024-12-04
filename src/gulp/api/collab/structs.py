@@ -107,6 +107,7 @@ class GulpCollabType(StrEnum):
     defines the types in the collab database
     """
 
+    GENERIC_OBJECT = "collab_obj"
     NOTE = "note"
     HIGHLIGHT = "highlight"
     STORY = "story"
@@ -340,10 +341,12 @@ class GulpCollabFilter(BaseModel):
         return q
 
 
-class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMixin):
+class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMixin):
     """
     base for everything on the collab database
     """
+
+    __abstract__ = True
 
     id: Mapped[str] = mapped_column(
         String,
@@ -390,7 +393,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
 
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
-        "polymorphic_on": "type",
+        "polymorphic_on": type,
     }
 
     @classmethod
@@ -878,6 +881,48 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         """
         return self.owner_user_id == user_id
 
+    def is_granted_user(self, user_id: str) -> bool:
+        """
+        check if the user is granted access to the object
+
+        Args:
+            user_id (str): The ID of the user to check.
+        Returns:
+            bool: True if the user is granted access, False otherwise.
+        """
+        return user_id in self.granted_user_ids
+
+    def is_granted_group(self, group_id: str) -> bool:
+        """
+        check if the user group is granted access to the object
+
+        Args:
+            group_id (str): The ID of the user group to check.
+        Returns:
+            bool: True if the user group is granted access, False otherwise.
+        """
+        return group_id in self.granted_user_group_ids
+
+    @staticmethod
+    def object_type_to_class(collab_type: GulpCollabType) -> T:
+        """
+        get the class of the given type
+
+        Args:
+            collab_type (GulpCollabType): The type of the object.
+        Returns:
+            Type: The class of the object.
+
+        Raises:
+            ValueError: If the class is not found.
+        """
+        subclasses = GulpCollabBase.__subclasses__()
+        subclasses.extend(GulpCollabObject.__subclasses__())
+        for cls in subclasses:
+            if cls.__gulp_collab_type__ == collab_type:
+                return cls
+        raise ValueError(f"no class found for type {collab_type}")
+
     async def update(
         self,
         sess: AsyncSession,
@@ -1001,7 +1046,7 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
         c = res.scalar_one_or_none()
         if not c and throw_if_not_found:
             raise ObjectNotFound(f'{cls.__name__} with id "{id}" not found')
-
+        
         return c
 
     @classmethod
@@ -1278,15 +1323,9 @@ class GulpCollabBase(MappedAsDataclass, AsyncAttrs, DeclarativeBase, SerializeMi
             return n.to_dict(exclude_none=True)
 
 
-class GulpCollabConcreteBase(GulpCollabBase, type="collab_base"):
-    """
-    Concrete base class for GulpCollabBase to ensure a table is created.
-    """
-
-    pass
-
-
-class GulpCollabObject(GulpCollabBase, type="collab_obj", abstract=True):
+class GulpCollabObject(
+    GulpCollabBase, type=GulpCollabType.GENERIC_OBJECT, abstract=True
+):
     """
     base for all collaboration objects (notes, links, stories, highlights) related to an operation.
 

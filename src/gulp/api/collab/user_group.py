@@ -75,7 +75,8 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         from gulp.api.collab.user import GulpUser
 
         user = await GulpUser.get_by_id(sess, id=user_id)
-        if user not in self.users:
+        existing_users = [u.id for u in self.users]
+        if user_id not in existing_users:
             self.users.append(user)
             await sess.commit()
             await sess.refresh(user)
@@ -87,9 +88,13 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
                 "User %s already in group %s" % (user_id, self.id)
             )
             if raise_if_already_exists:
-                raise ObjectAlreadyExists("User %s already in group %s" % (user_id, self.id))
+                raise ObjectAlreadyExists(
+                    "User %s already in group %s" % (user_id, self.id)
+                )
 
-    async def remove_user(self, sess: AsyncSession, user_id: str, raise_if_not_found: bool=True) -> None:
+    async def remove_user(
+        self, sess: AsyncSession, user_id: str, raise_if_not_found: bool = True
+    ) -> None:
         """
         Removes a user from the group.
 
@@ -101,7 +106,8 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         from gulp.api.collab.user import GulpUser
 
         user = await GulpUser.get_by_id(sess, id=user_id)
-        if user in self.users:
+        existing_users = [u.id for u in self.users]
+        if user_id in existing_users:
             self.users.remove(user)
             await sess.commit()
             await sess.refresh(self)
@@ -110,7 +116,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
             )
         else:
             MutyLogger.get_instance().info(
-                "User %s not in group %s" % (user_id, self.id)                
+                "User %s not in group %s" % (user_id, self.id)
             )
             if raise_if_not_found:
                 raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))

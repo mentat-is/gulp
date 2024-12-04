@@ -59,7 +59,10 @@ class GulpCollab:
             self._collab_sessionmaker = None
 
     async def init(
-        self, force_recreate: bool = False, expire_on_commit: bool = False
+        self,
+        force_recreate: bool = False,
+        expire_on_commit: bool = False,
+        main_process: bool = False,
     ) -> None:
         """
         initializes the collab database connection (create the engine and configure it) in the singleton instance.
@@ -67,7 +70,9 @@ class GulpCollab:
         if called on an already initialized instance, the existing engine is disposed and a new one is created.
 
         Args:
+            force_recreate (bool, optional): whether to drop and recreate the database. Defaults to False.
             expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
+            main_process (bool, optional): whether this is the main process. Defaults to False.
         """
         if self._engine:
             await self._engine.dispose()
@@ -79,10 +84,10 @@ class GulpCollab:
 
         if force_recreate:
             await self._ensure_setup(
-                force_recreate=True, expire_on_commit=expire_on_commit
+                force_recreate=True, expire_on_commit=expire_on_commit, main_process=main_process
             )
         else:
-            await self._ensure_setup(expire_on_commit=expire_on_commit)
+            await self._ensure_setup(expire_on_commit=expire_on_commit, main_process=main_process)
 
     async def _create_engine(self) -> AsyncEngine:
         """
@@ -253,8 +258,7 @@ class GulpCollab:
         MutyLogger.get_instance().debug(
             "setting up stats and tokens expiration with pg_cron ..."
         )
-
-        async with self.session() as sess:
+        async with self._collab_sessionmaker() as sess:
             # create pg_cron extension
             await sess.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
 
@@ -263,7 +267,7 @@ class GulpCollab:
                     """
                 CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
                 BEGIN
-                    DELETE FROM stats_ingestion WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
+                    DELETE FROM ingestion_stats WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
                 END;
                 $$ LANGUAGE plpgsql;
             """
@@ -275,7 +279,7 @@ class GulpCollab:
                     """
                 CREATE OR REPLACE FUNCTION delete_expired_tokens_rows() RETURNS void AS $$
                 BEGIN
-                    DELETE FROM session WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
+                    DELETE FROM user_session WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
                 END;
                 $$ LANGUAGE plpgsql;
             """
@@ -487,7 +491,7 @@ class GulpCollab:
         return all(row)
 
     async def _ensure_setup(
-        self, force_recreate: bool = False, expire_on_commit: bool = False
+        self, force_recreate: bool = False, expire_on_commit: bool = False, main_process: bool = False
     ) -> None:
         """
         ensure the collab database is set up and ready to use.
@@ -496,6 +500,7 @@ class GulpCollab:
             force_recreate (bool, optional): Whether to drop and recreate the database. Defaults to False.
             expire_on_commit (bool, optional): Whether to expire sessions returned by session() on commit. Defaults to False, ignored if force_recreate is not set
                 and the database already exist
+            main_process (bool, optional): Whether this is the main process. Defaults to False.
         Returns:
             None
         Raises:
@@ -537,6 +542,9 @@ class GulpCollab:
                         MutyLogger.get_instance().info(
                             "collab database exists and tables are ok."
                         )
+                        if main_process:
+                            # setup expirations in the main process only (to avoid multiple cron jobs)
+                            await self._setup_collab_expirations()
                         self._setup_done = True
                         return
 
