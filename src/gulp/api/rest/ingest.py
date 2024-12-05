@@ -20,7 +20,6 @@ from muty.pydantic import (
     autogenerate_model_example_by_class,
 )
 from gulp.api.opensearch.structs import GulpRawDocument
-import gulp.api.rest.defs as api_defs
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
@@ -29,8 +28,13 @@ from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.rest.server_utils import APIDependencies, ServerUtils
-from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType, GulpIngestSourceDonePacket
+from gulp.api.rest.server_utils import ServerUtils
+from gulp.api.rest.structs import APIDependencies
+from gulp.api.ws_api import (
+    GulpSharedWsQueue,
+    GulpWsQueueDataType,
+    GulpIngestSourceDonePacket,
+)
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -77,16 +81,14 @@ class GulpZipMetadataEntry(BaseModel):
     metadata entry for ingest_zip
     """
 
-    plugin: str = Field(
-        ..., description="The plugin to use.", examples=[api_defs.EXAMPLE_PLUGIN]
-    )
+    plugin: str = Field(..., description="The plugin to use.", example="win_evtx")
     files: list[str] = Field(
-        ..., description="The files to ingest.", examples=["file1.evtx"]
+        ..., description="The files to ingest.", example="file1.evtx"
     )
     original_path: Optional[str] = Field(
         None,
         description="The original base path where `files` are taken from.",
-        examples=["c:\\logs"],
+        example="c:\\logs",
     )
     plugin_params: Optional[GulpPluginParameters] = Field(
         GulpPluginParameters(), description="The plugin parameters."
@@ -95,7 +97,7 @@ class GulpZipMetadataEntry(BaseModel):
 
 router = APIRouter()
 
-EXAMPLE_INCOMPLETE_UPLOAD = {
+_EXAMPLE_INCOMPLETE_UPLOAD = {
     "content": {
         "application/json": {
             "example": {
@@ -112,7 +114,7 @@ EXAMPLE_INCOMPLETE_UPLOAD = {
     "description": "The upload is incomplete, send another chunk from the `continue_offset`.",
 }
 
-EXAMPLE_DONE_UPLOAD = {
+_EXAMPLE_DONE_UPLOAD = {
     "content": {
         "application/json": {
             "example": {
@@ -123,6 +125,27 @@ EXAMPLE_DONE_UPLOAD = {
         }
     }
 }
+
+_DESC_HEADER_SIZE = "the size of the header in bytes."
+_DESC_HEADER_CONTINUE_OFFSET = "the offset in the file to continue the upload from."
+
+_DESC_CONTEXT_NAME = """
+`name` of a `context` object.
+
+a `context` is a group of `sources` in the collab database, and is always referred to an `operation`.
+
+- if not yet present, a `context` with `id=SHA1(operation_id+context_name)` and `name`=`context_id` will be created on the collab database.
+"""
+
+_EXAMPLE_CONTEXT_NAME = "test_context"
+
+_DESC_SOURCE_NAME = """
+`name` of a `source` object in the collab database, to identify the documents source (i.e. file name/path).
+
+- it is always referred to an `operation` and a `context`.
+- if not yet present, a `source` with id=SHA1(operation_id+context_id+source_name)` will be created on the collab database.
+"""
+_EXAMPLE_SOURCE_NAME = "test_source"
 
 
 async def _ingest_file_internal(
@@ -213,26 +236,19 @@ async def _ingest_file_internal(
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
-        100: EXAMPLE_INCOMPLETE_UPLOAD,
-        200: EXAMPLE_DONE_UPLOAD,
+        100: _EXAMPLE_INCOMPLETE_UPLOAD,
+        200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
 
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
-- if not present on the collab database, a context tied with `operation_id` with `id` set to `context_id` will be created.
-- if not present on the collab database, a source tied with `operation_id` and `context_id` with `name` set to the original file path will be created.
 
 ### internals
 
 The following is an example CURL for the request:
 
 ```bash
-curl -v -X POST "http://localhost:8080/ingest_file?index=testidx&token=&plugin=win_evtx&client_id=1&operation_id=1&context=testcontext&req_id=2fe81cdf-5f0a-482e-a5b2-74684c6e05fb&sync=0&ws_id=the_ws_id" \
--k \
--H "size: 69632" \
--H "continue_offset: 0" \
--F "payload={\"flt\":{},\"plugin_params\":{}};type=application/json" \
--F "f=@/home/valerino/repos/gulp/samples/win_evtx/new-user-security.evtx;type=application/octet-stream"
+curl -v -X POST http://localhost:8080/ingest_file?operation_id=test_operation&context_name=test_context&index=test_idx&plugin=win_evtx&ws_id=test_ws&req_id=test_req&file_total=1&token=6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H content-type: multipart/form-data -H token: 6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H size: 69632 -H continue_offset: 0 -F payload={"flt": {}, "plugin_params": {}, "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx"}; type=application/json -F f=@/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx;type=application/octet-stream
 ```
 
 the request have the following headers:
@@ -275,7 +291,7 @@ once the upload is complete, this function returns a `pending` response and the 
                 "in": "header",
                 "required": True,
                 "schema": {"type": "integer"},
-                "description": api_defs.API_DESC_HEADER_SIZE,
+                "description": _DESC_HEADER_SIZE,
                 "example": 69632,
             },
             {
@@ -284,7 +300,7 @@ once the upload is complete, this function returns a `pending` response and the 
                 "required": False,
                 "default": 0,
                 "schema": {"type": "integer"},
-                "description": api_defs.API_DESC_HEADER_CONTINUE_OFFSET,
+                "description": _DESC_HEADER_CONTINUE_OFFSET,
                 "example": 0,
             },
         ],
@@ -335,9 +351,9 @@ async def ingest_file_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    context_id: Annotated[
+    context_name: Annotated[
         str,
-        Depends(APIDependencies.param_context_id),
+        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
     ],
     index: Annotated[
         str,
@@ -366,11 +382,11 @@ async def ingest_file_handler(
     params = locals()
     params.pop("r")
     ServerUtils.dump_params(params)
-    
+
     try:
         # handle multipart request manually
         file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_id=context_id, req_id=req_id
+            r=r, operation_id=operation_id, context_name=context_name
         )
         if not result.done:
             # must continue upload with a new chunk
@@ -393,7 +409,7 @@ async def ingest_file_handler(
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
 
             ctx: GulpContext = await operation.add_context(
-                sess, user_id=user_id, context_id=context_id
+                sess, user_id=user_id, name=context_name
             )
 
             src: GulpSource = await ctx.add_source(
@@ -409,7 +425,7 @@ async def ingest_file_handler(
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            context_id=context_id,
+            context_id=ctx.id,
             source_id=src.id,
             index=index,
             plugin=plugin,
@@ -517,14 +533,11 @@ async def _ingest_raw_internal(
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
-        100: EXAMPLE_INCOMPLETE_UPLOAD,
-        200: EXAMPLE_DONE_UPLOAD,
+        100: _EXAMPLE_INCOMPLETE_UPLOAD,
+        200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
 ingests a chunk of `raw` documents.
-
-- if not present on the collab database, a context tied with `operation_id` with `id` set to `context_id` will be created.
-- if not present on the collab database, a source tied with `operation_id` and `context_id` with `name` set to `source` will be created.
 
 ### plugin
 
@@ -541,9 +554,9 @@ async def ingest_raw_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    context_id: Annotated[
+    context_name: Annotated[
         str,
-        Depends(APIDependencies.param_context_id),
+        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
     ],
     source: Annotated[
         str,
@@ -598,7 +611,7 @@ async def ingest_raw_handler(
             # create (and associate) context and source on the collab db, if they do not exist
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             ctx: GulpContext = await operation.add_context(
-                sess, user_id=user_id, context_id=context_id
+                sess, user_id=user_id, name=context_name
             )
             src: GulpSource = await ctx.add_source(
                 sess,
@@ -613,7 +626,7 @@ async def ingest_raw_handler(
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,
-            context_id=context_id,
+            context_id=ctx.id,
             source_id=src.id,
             index=index,
             chunk=chunk,
@@ -694,7 +707,7 @@ async def _process_metadata_json(
                 "in": "header",
                 "required": True,
                 "schema": {"type": "integer"},
-                "description": api_defs.API_DESC_HEADER_SIZE,
+                "description": _DESC_HEADER_SIZE,
                 "example": 69632,
             },
             {
@@ -703,7 +716,7 @@ async def _process_metadata_json(
                 "required": False,
                 "default": 0,
                 "schema": {"type": "integer"},
-                "description": api_defs.API_DESC_HEADER_CONTINUE_OFFSET,
+                "description": _DESC_HEADER_CONTINUE_OFFSET,
                 "example": 0,
             },
         ],
@@ -736,8 +749,6 @@ async def _process_metadata_json(
     },
     description="""
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
-- if not present on the collab database, a context tied with `operation_id` with `id` set to `context_id` will be created.
-- if not present on the collab database, a source tied with `operation_id` and `context_id` with `name` set to the original file path will be created for each file in the zip.
  
 ### zip format
 
@@ -765,9 +776,9 @@ async def ingest_zip_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    context_id: Annotated[
+    context_name: Annotated[
         str,
-        Depends(APIDependencies.param_context_id),
+        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
     ],
     index: Annotated[
         str,
@@ -798,12 +809,12 @@ async def ingest_zip_handler(
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
 
             ctx: GulpContext = await operation.add_context(
-                sess, user_id=user_id, context_id=context_id
+                sess, user_id=user_id, name=context_name
             )
 
         # handle multipart request manually
         file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_id=context_id, req_id=req_id
+            r=r, operation_id=operation_id, context_name=context_name
         )
         if not result.done:
             # must continue upload with a new chunk
@@ -838,7 +849,7 @@ async def ingest_zip_handler(
                 req_id=req_id,
                 ws_id=ws_id,
                 operation_id=operation_id,
-                context_id=context_id,
+                context_id=ctx.id,
                 source_id=src.id,
                 index=index,
                 plugin=f.model_extra.get("plugin"),

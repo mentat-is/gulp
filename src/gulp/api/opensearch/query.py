@@ -91,7 +91,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         1000,
         gt=1,
         le=10000,
-        description="for pagination, the maximum number of documents to return in a chunk, default=1000 (None=return up to 10000 documents).",
+        description="for pagination, the maximum number of documents to return **per chunk**, default=1000 (None=return up to 10000 documents per chunk).",
     )
     search_after: Optional[list[int | str]] = Field(
         None,

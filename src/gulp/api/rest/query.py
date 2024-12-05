@@ -1275,14 +1275,70 @@ from gulp.api.collab.structs import (
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.query import GulpQueryAdditionalParameters
 from gulp.api.rest.server_utils import (
-    APIDependencies,
     ServerUtils,
 )
+from gulp.api.rest.structs import APIDependencies
+from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
 
 router: APIRouter = APIRouter()
 
-async def query_gulp(
-        
+
+@router.post(
+    "/query_gulp",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="the default query.",
+    description="""
+    query Gulp's OpenSearch with filter.
+
+    - this API returns `pending` and results are streamed to the `ws_id` websocket.
+    - queries are run in the background using tasks in worker processes.
+""",
 )
+async def query_gulp(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
+    q_params: Annotated[
+        GulpQueryAdditionalParameters,
+        Depends(APIDependencies.param_query_additional_parameters_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["q_params"] = q_params.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        # spawn a task which runs the ingestion in a worker process
+        async def worker_coro(kwds: dict):
+            await GulpProcess.get_instance().process_pool.apply(
+                _ingest_raw_internal, kwds=kwds
+            )
+
+        await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+
+        # and return pending
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)

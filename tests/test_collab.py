@@ -37,8 +37,6 @@ async def init():
 @pytest.mark.asyncio
 class TestCollab:
     async def test_context(self, init):
-        # c = GulpContext("test_context")
-
         return
 
     async def test_note(self, init):

@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from muty.pydantic import autogenerate_model_example
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
-import gulp.api.rest.defs as api_defs
+from gulp.api.rest.test_values import (
+    TEST_CONTEXT_ID,
+    TEST_OPERATION_ID,
+    TEST_SOURCE_ID,
+)
 
 T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
@@ -46,17 +50,17 @@ class GulpBasicDocument(BaseModel):
     operation_id: str = Field(
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
-        example=api_defs.EXAMPLE_OPERATION_ID,
+        example=TEST_OPERATION_ID,
     )
     context_id: str = Field(
         description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
-        example=api_defs.EXAMPLE_CONTEXT_ID,
+        example=TEST_CONTEXT_ID,
     )
     source_id: str = Field(
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
-        example=api_defs.EXAMPLE_SOURCE_ID,
+        example=TEST_SOURCE_ID,
     )
 
 
@@ -75,7 +79,7 @@ class GulpDocument(GulpBasicDocument):
         None,
         description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
         alias="agent.type",
-        example=api_defs.API_DESC_PLUGIN,
+        example="win_evtx",
     )
     event_original: str = Field(
         None,

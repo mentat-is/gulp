@@ -4,6 +4,12 @@ from typing import Optional, override
 from pydantic import BaseModel, ConfigDict, Field
 from muty.pydantic import autogenerate_model_example
 
+from gulp.api.rest.test_values import (
+    TEST_CONTEXT_ID,
+    TEST_OPERATION_ID,
+    TEST_SOURCE_ID,
+)
+
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = [
     "_id",
@@ -123,17 +129,24 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     operation_id: Optional[list[str]] = Field(
         None,
         description="include documents  matching the given `gulp.operation_id`/s.",
-        example=["test_operation"],
+        example=[TEST_OPERATION_ID],
     )
     context_id: Optional[list[str]] = Field(
         None,
-        description="include documents matching the given `gulp.context_id`/s.",
-        example=["b0f0a84b3cc88bbc38ac1eb4fbdd89ee"],  # test_context
+        description="""
+include documents matching the given `gulp.context_id`/s.
+
+- this must be set to the *real context_id* as on the collab database, calculated as *SHA1(operation_id+context_id)*.
+""",
+        example=[TEST_CONTEXT_ID],
     )
     source_id: Optional[list[str]] = Field(
         None,
-        description="include documents matching the given `gulp.source_id`/s.",
-        example=["bf9540844e25ef9f6ec89982286235f2"],
+        description="""
+include documents matching the given `gulp.source_id`/s.
+- this must be set to the *real source_id* as on the collab database, calculated as *SHA1(operation_id+context_id+source_id)*.
+""",
+        example=[TEST_SOURCE_ID],
     )
     event_code: Optional[list[str]] = Field(
         None,

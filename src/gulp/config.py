@@ -211,7 +211,7 @@ class GulpConfig:
         if p is None:
             p = self._config.get("bind_to", None)
             if p is None:
-                MutyLogger.get_instance().warning("bind_to not set, using default!")
+                MutyLogger.get_instance().debug("bind_to not set, using default!")
                 p = "0.0.0.0:8080"
 
         MutyLogger.get_instance().debug("bind_to: %s" % (p))
@@ -228,7 +228,7 @@ class GulpConfig:
         n = self._config.get("index_template_default_total_fields_limit", None)
         if not n:
             n = 10000
-            MutyLogger.get_instance().warning("using default total fields limit")
+            MutyLogger.get_instance().debug("using default total fields limit")
 
         MutyLogger.get_instance().debug(
             "index_template_default_total_fields_limit: %d" % (n)
@@ -242,7 +242,7 @@ class GulpConfig:
         n = self._config.get("index_template_default_refresh_interval", None)
         if n:
             n = "5s"
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "using default refresh interval for index template"
             )
 
@@ -286,7 +286,7 @@ class GulpConfig:
         n = self._config.get("token_ttl", None)
         if not n:
             n = 604800
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "using default number of seconds for token expiration=%d (%f days)"
                 % (n, n / 86400)
             )
@@ -299,7 +299,7 @@ class GulpConfig:
         n = self._config.get("token_admin_ttl", None)
         if not n:
             n = 600
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "using default number of seconds for admin token expiration=%d (%f days)"
                 % (n, n / 86400)
             )
@@ -312,7 +312,7 @@ class GulpConfig:
         n = self._config.get("documents_chunk_size", None)
         if not n:
             n = 1000
-            # MutyLogger.get_instance().warning("using default chunk size=%d" % (n))
+            # MutyLogger.get_instance().debug("using default documents_chunk_size=%d" % (n))
         return n
 
     def ingestion_evt_failure_threshold(self) -> int:
@@ -359,7 +359,7 @@ class GulpConfig:
         n = self._config.get("stats_ttl", None)
         if n is None:
             n = 86400
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "using default number of seconds for stats expiration=%d (%d days)"
                 % (n, n / 86400)
             )
@@ -428,7 +428,7 @@ class GulpConfig:
         n = self._config.get("concurrency_max_tasks", 0)
         if not n:
             n = 16
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "using default number of tasks per process=%d" % (n)
             )
         return n
@@ -455,7 +455,7 @@ class GulpConfig:
         n = self._config.get("parallel_processes_max", 0)
         if not n:
             n = multiprocessing.cpu_count()
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "using default number of processes for ingestion (=number of cores=%d)."
                 % (n)
             )
@@ -640,7 +640,7 @@ class GulpConfig:
             # try configuration
             p = self._config.get("path_certs", None)
             if not p:
-                MutyLogger.get_instance().warning('"path_certs" is not set !')
+                MutyLogger.get_instance().debug('"path_certs" is not set !')
                 return None
 
         pp = os.path.expanduser(p)

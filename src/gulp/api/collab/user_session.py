@@ -76,23 +76,28 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         """
         from gulp.api.collab.user import GulpUser
 
+        # first acquire an advisory lock for admin session creation
+        # use a consistent lock ID for admin session management
+        ADMIN_SESSION_LOCK_ID = 1
+        await GulpCollabBase.acquire_advisory_lock(sess, ADMIN_SESSION_LOCK_ID)
+
         # the "admin" user always exists
         admin_user: GulpUser = await GulpUser.get_by_id(sess, id="admin")
         if admin_user.session:
             # already exists
             return admin_user.session
-        else:
-            # create a new admin session
-            object_data = {"user_id": admin_user.id, "time_expire": 0}
-            admin_session: GulpUserSession = await GulpUserSession._create(
-                sess,
-                object_data=object_data,
-                owner_id=admin_user.id,
-            )
-            MutyLogger.get_instance().warning(
-                "created new admin session: %s" % (admin_session.to_dict())
-            )
-            return admin_session
+
+        # create a new admin session
+        object_data = {"user_id": admin_user.id, "time_expire": 0}
+        admin_session: GulpUserSession = await GulpUserSession._create(
+            sess,
+            object_data=object_data,
+            owner_id=admin_user.id,
+        )
+        MutyLogger.get_instance().warning(
+            "created new admin session: %s" % (admin_session.to_dict())
+        )
+        return admin_session
 
     @staticmethod
     async def check_token(
@@ -101,6 +106,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         permission: list[GulpUserPermission] | GulpUserPermission = None,
         obj: Optional[GulpCollabBase] = None,
         throw_on_no_permission: bool = True,
+        enforce_owner: bool = False,
     ) -> "GulpUserSession":
         """
         Check if the user represented by token is logged in and has the required permissions.
@@ -117,6 +123,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s) required to access the object. Defaults to None.
             obj (Optional[GulpCollabBase], optional): The object to check the permissions against, for access. Defaults to None.
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions. Defaults to True.
+            enforce_owner (bool, optional): If True, the user must be the owner of the object to access it (or administrator). Defaults to False.
 
         Returns:
             GulpUserSession: The user session object (includes GulpUser object).
@@ -125,6 +132,10 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             MissingPermission: If the user does not have the required permissions.
         """
         # MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
+        if not permission:
+            # assume read permission if not provided
+            permission = [GulpUserPermission.READ]
+
         if isinstance(permission, GulpUserPermission):
             # allow single permission as string
             permission = [permission]
@@ -136,7 +147,8 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             user_session: GulpUserSession = await GulpUserSession.get_by_id(
                 sess, id=token, throw_if_not_found=throw_on_no_permission
             )
-        except ObjectNotFound as ex:
+            # MutyLogger.get_instance().debug("got user session for token %s: %s" % (token, user_session.to_dict()))
+        except ObjectNotFound:
             raise ObjectNotFound('token "%s" not logged in' % (token))
 
         if not obj and not permission:
@@ -152,9 +164,12 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             if user_session.user.check_object_access(
                 obj,
                 throw_on_no_permission=throw_on_no_permission,
+                enforce_owner=enforce_owner,
             ):
-                # check if the user have the required permission
-                if user_session.user.has_permission(permission):
+                # check if the user have the required permission (owner always have permission)
+                if user_session.user.has_permission(permission) or obj.is_owner(
+                    user_session.user.id
+                ):
                     # access granted
                     return user_session
         else:
@@ -165,6 +180,6 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
 
         if throw_on_no_permission:
             raise MissingPermission(
-                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}."
+                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.owner_user_id if obj else None}."
             )
         return None

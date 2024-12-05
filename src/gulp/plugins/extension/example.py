@@ -8,21 +8,15 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import Header, Query
+from fastapi import Header, Query, Depends
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpIngestionStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.defs import (
-    API_DESC_CONTEXT_ID,
-    API_DESC_OPERATION_ID,
-    API_DESC_REQ_ID,
-    API_DESC_TOKEN,
-    API_DESC_WS_ID,
-)
 from gulp.api.rest.server_utils import ServerUtils
+from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -170,11 +164,11 @@ class Plugin(GulpPluginBase):
 
     async def example_extension_handler(
         self,
-        token: Annotated[str, Header(description=API_DESC_TOKEN)],
-        operation_id: Annotated[str, Query(description=API_DESC_OPERATION_ID)],
-        context_id: Annotated[str, Query(description=API_DESC_CONTEXT_ID)],
-        ws_id: Annotated[str, Query(description=API_DESC_WS_ID)],
-        req_id: Annotated[str, Query(description=API_DESC_REQ_ID)] = None,
+        token: Annotated[str, Depends(APIDependencies.param_token)],
+        operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+        context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+        ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+        req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
     ) -> JSendResponse:
         req_id = ServerUtils.ensure_req_id(req_id)
 

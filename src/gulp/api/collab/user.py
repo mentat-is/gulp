@@ -245,7 +245,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         # check password
         if u.pwd_hash != muty.crypto.hash_sha256(password):
-            raise WrongUsernameOrPassword("wrong password for use_id=%s" % (user_id))
+            raise WrongUsernameOrPassword("wrong password for user_id=%s" % (user_id))
 
         # get expiration time
         if GulpConfig.get_instance().debug_no_token_expiration():
@@ -353,6 +353,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     def check_object_access(
         self,
         obj: GulpCollabBase,
+        enforce_owner: bool = False,
         throw_on_no_permission: bool = False,
     ) -> bool:
         """
@@ -363,11 +364,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         - no granted users or groups are set (everyone has access)
         - the user is an admin
         - the user is the owner of the object
-        - the user is in the granted groups of the object (and the object is not private)
-        - the user is in the granted users of the object (and the object is not private)
+        - the user is in the granted groups of the object
+        - the user is in the granted users of the object
 
         Args:
             obj (GulpCollabBase): The object to check against.
+            enforce_owner (bool, optional): Whether to enforce that the user is the owner of the object (or administrator). Defaults to False.
             throw_on_no_permission (bool, optional): Whether to throw an exception if the user does not have permission. Defaults to False.
         Returns:
             bool: True if the user has permission to access the object, False otherwise.
@@ -384,9 +386,16 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             pass
 
         # check if the user is the owner of the object
-        if obj.owner_user_id == self.id:
+        if obj.is_owner(self.id):
             # MutyLogger.get_instance().debug("allowing access to object owner")
             return True
+
+        if enforce_owner:
+            if throw_on_no_permission:
+                raise MissingPermission(
+                    f"User {self.id} is not the owner of the object {obj.id}."
+                )
+            return False
 
         if (
             not obj.granted_user_group_ids
@@ -413,4 +422,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             raise MissingPermission(
                 f"User {self.id} does not have the required permissions to access the object {obj.id}, private={is_private}."
             )
+        MutyLogger.get_instance().debug(
+            f"User {self.id} does not have the required permissions to access the object {obj.id}, granted_user_ids={obj.granted_user_ids}, granted_group_ids={obj.granted_user_group_ids}, requestor_user_id={self.id}"
+        )
         return False

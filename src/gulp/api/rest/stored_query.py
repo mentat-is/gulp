@@ -12,11 +12,12 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
 )
 from gulp.api.rest.server_utils import (
-    APIDependencies,
     ServerUtils,
 )
 from sigma.rule import SigmaRule
 from muty.log import MutyLogger
+
+from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
 

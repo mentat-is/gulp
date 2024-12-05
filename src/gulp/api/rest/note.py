@@ -13,9 +13,9 @@ from gulp.api.collab.structs import (
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.server_utils import (
-    APIDependencies,
     ServerUtils,
 )
+from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
 

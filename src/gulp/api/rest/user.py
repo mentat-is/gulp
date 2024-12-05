@@ -14,7 +14,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from muty.jsend import JSendException, JSendResponse
 from fastapi import Depends
-from gulp.api.rest.server_utils import APIDependencies, ServerUtils
+from gulp.api.rest.server_utils import ServerUtils
 import muty.list
 import muty.log
 import muty.os
@@ -23,46 +23,11 @@ import muty.uploadfile
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendResponse
-from gulp.api.rest import defs as api_defs
+from gulp.api.rest.structs import REGEX_CHECK_USERNAME, APIDependencies
+from gulp.api.rest.test_values import TEST_REQ_ID
 from gulp.config import GulpConfig
 
 router = APIRouter()
-
-
-def _pwd_regex_validator(value: str) -> str:
-    """
-    Validates a password against the password regex.
-
-    Args:
-        value (str): The password to validate.
-
-    Returns:
-        str: The password if it is valid.
-    """
-    if GulpConfig.get_instance().debug_allow_insecure_passwords():
-        return value
-
-    r = re.match(api_defs.REGEX_CHECK_PASSWORD, value)
-    assert r is not None, "password does not meet requirements."
-    return value
-
-
-def _email_regex_validator(value: Optional[str]) -> Optional[str]:
-    """
-    Validates an email against the email regex.
-
-    Args:
-        value (Optional[str]): The email to validate.
-
-    Returns:
-        Optional[str]: The email if it is valid.
-    """
-    if value is None:
-        return None
-
-    if not re.match(api_defs.REGEX_CHECK_EMAIL, value):
-        raise ValueError(f"invalid email format: {value}")
-    return value
 
 
 @router.put(
@@ -205,7 +170,7 @@ async def logout_handler(
                     "example": {
                         "status": "success",
                         "timestamp_msec": 1732901220291,
-                        "req_id": "test_req",
+                        "req_id": TEST_REQ_ID,
                         "data": GulpUser.example(),
                     }
                 }
@@ -222,8 +187,12 @@ async def user_create_handler(
     user_id: Annotated[
         str,
         Query(
-            description="user id.",
-            pattern=api_defs.REGEX_CHECK_USERNAME,
+            description="""
+the new user id.
+
+- `user_id` must be unique
+""",
+            pattern=REGEX_CHECK_USERNAME,
             example="user",
         ),
     ],
@@ -293,20 +262,20 @@ async def user_create_handler(
 )
 async def user_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[
+    user_id: Annotated[
         str,
-        Depends(APIDependencies.param_object_id),
+        Depends(APIDependencies.param_user_id),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if object_id == "admin":
+        if user_id == "admin":
             raise MissingPermission('user "admin" cannot be deleted!')
 
         await GulpUser.delete_by_id(
             token,
-            object_id,
+            user_id,
             ws_id=None,
             req_id=req_id,
             permission=[GulpUserPermission.ADMIN],
@@ -314,7 +283,7 @@ async def user_delete_handler(
         return JSONResponse(
             JSendResponse.success(
                 req_id=req_id,
-                data={"user_id": object_id},
+                data={"user_id": user_id},
             )
         )
 
@@ -334,7 +303,7 @@ async def user_delete_handler(
                     "example": {
                         "status": "success",
                         "timestamp_msec": 1732908917521,
-                        "req_id": "test_req",
+                        "req_id": TEST_REQ_ID,
                         "data": GulpUser.example(),
                     }
                 }
@@ -343,10 +312,8 @@ async def user_delete_handler(
     },
     summary="updates an existing user on the platform.",
     description="""
-- `token` needs **admin** permission if `user_id` is set and different from the token `user_id`, or if `permission` is set.
+- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
     
-- `user_id` may not be set, in which case the target user is taken from `token`.
-
 - `password`, `permission`, `email`, `glyph_id` are optional, depending on what needs to be updated, and can be set independently (**but at least one must be set**).
     """,
 )
@@ -355,7 +322,7 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_token),
     ],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id_optional)] = None,
+    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     password: Annotated[
         str,
         Depends(APIDependencies.param_password_optional),
@@ -398,18 +365,11 @@ async def user_update_handler(
             if glyph_id:
                 d["glyph_id"] = glyph_id
 
-            if object_id:
-                # get this user
-                u: GulpUser = await GulpUser.get_by_id(
-                    sess, object_id, with_for_update=True
-                )
-                if s.user_id != u.id and not s.user.is_admin():
-                    raise MissingPermission("only admin can update other users.")
-                await u.update(sess, d, user_session=s)
-            else:
-                # use token user
-                u = s.user
-                await u.update(sess, d, user_session=s)
+            # get the user to be updated
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id, with_for_update=True)
+            if s.user_id != u.id and not s.user.is_admin():
+                raise MissingPermission("only admin can update other users.")
+            await u.update(sess, d, user_session=s)
 
             return JSONResponse(
                 JSendResponse.success(req_id=req_id, data=u.to_dict(exclude_none=True))
@@ -486,12 +446,12 @@ async def user_list_handler(
 )
 async def user_get_by_id(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpUser.get_by_id_wrapper(token, object_id, nested=True)
+        d = await GulpUser.get_by_id_wrapper(token, user_id, nested=True)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

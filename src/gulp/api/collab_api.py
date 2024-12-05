@@ -17,12 +17,14 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy_utils import create_database, database_exists, drop_database
 
 from gulp.api.collab.structs import GulpCollabBase
+from gulp.api.rest.test_values import (
+    TEST_CONTEXT_NAME,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
+    TEST_SOURCE_NAME,
+)
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
-
-TEST_CONTEXT_ID = "b0f0a84b3cc88bbc38ac1eb4fbdd89ee"
-TEST_SOURCE_ID = "a1c2709be232a1302d095af1e73014e7"
-TEST_OPERATION_ID = "test_operation"
 
 
 class GulpCollab:
@@ -84,10 +86,14 @@ class GulpCollab:
 
         if force_recreate:
             await self._ensure_setup(
-                force_recreate=True, expire_on_commit=expire_on_commit, main_process=main_process
+                force_recreate=True,
+                expire_on_commit=expire_on_commit,
+                main_process=main_process,
             )
         else:
-            await self._ensure_setup(expire_on_commit=expire_on_commit, main_process=main_process)
+            await self._ensure_setup(
+                expire_on_commit=expire_on_commit, main_process=main_process
+            )
 
     async def _create_engine(self) -> AsyncEngine:
         """
@@ -182,10 +188,11 @@ class GulpCollab:
         Returns:
             None
         """
-        MutyLogger.get_instance().warning(
+        MutyLogger.get_instance().debug(
             "shutting down collab database engine and invalidate existing connections ..."
         )
         await self._engine.dispose()
+        MutyLogger.get_instance().debug("collab database engine shut down.")
         self._setup_done = False
         self._engine = None
         self._collab_sessionmaker = None
@@ -388,6 +395,7 @@ class GulpCollab:
             # create user groups
             group: GulpUserGroup = await GulpUserGroup._create(
                 sess,
+                id="administrators",
                 object_data={
                     "name": "example group",
                     "permission": [GulpUserPermission.ADMIN],
@@ -402,21 +410,20 @@ class GulpCollab:
                 sess,
                 object_data={
                     "name": "example operation",
-                    "index": "test_idx",
+                    "index": TEST_INDEX,
                     "glyph_id": operation_glyph.id,
                 },
-                id="test_operation",
+                id=TEST_OPERATION_ID,
                 owner_id=admin_user.id,
             )
 
             # add sources to context and context to operation
-            # test_context_id: b0f0a84b3cc88bbc38ac1eb4fbdd89ee
-            ctx = await operation.add_context(
-                sess, user_id=admin_user.id, context_id="test_context"
+            ctx: GulpContext = await operation.add_context(
+                sess,
+                user_id=admin_user.id,
+                name=TEST_CONTEXT_NAME,
             )
-            # test_source_id: a1c2709be232a1302d095af1e73014e7
-            await ctx.add_source(sess, admin_user.id, "test_source")
-            await ctx.add_source(sess, admin_user.id, "test_source_2")
+            await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
 
             operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
             for op in operations:
@@ -491,7 +498,10 @@ class GulpCollab:
         return all(row)
 
     async def _ensure_setup(
-        self, force_recreate: bool = False, expire_on_commit: bool = False, main_process: bool = False
+        self,
+        force_recreate: bool = False,
+        expire_on_commit: bool = False,
+        main_process: bool = False,
     ) -> None:
         """
         ensure the collab database is set up and ready to use.

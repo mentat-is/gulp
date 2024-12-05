@@ -1,7 +1,6 @@
 import asyncio
 import collections
-from concurrent.futures import ThreadPoolExecutor
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
 from typing import Any, Optional, override
@@ -13,7 +12,11 @@ from muty.pydantic import autogenerate_model_example
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.collab.structs import GulpRequestStatus
-import gulp.api.rest.defs as api_defs
+from gulp.api.rest.test_values import (
+    TEST_CONTEXT_ID,
+    TEST_REQ_ID,
+    TEST_SOURCE_ID,
+)
 from gulp.config import GulpConfig
 import asyncio
 from fastapi.websockets import WebSocketState
@@ -48,22 +51,19 @@ class GulpIngestSourceDonePacket(BaseModel):
         populate_by_name=True,
     )
     source_id: str = Field(
-        ...,
-        description="The source ID.",
+        description="The source ID in the collab database.",
         alias="gulp.source_id",
-        examples=[api_defs.EXAMPLE_SOURCE_ID],
+        example=TEST_SOURCE_ID,
     )
     context_id: str = Field(
         ...,
-        description="The context ID.",
+        description="The context ID in the collab database.",
         alias="gulp.context_id",
-        examples=[api_defs.EXAMPLE_CONTEXT_ID],
+        example=TEST_CONTEXT_ID,
     )
-    req_id: str = Field(
-        ..., description="The request ID.", examples=[api_defs.EXAMPLE_REQ_ID]
-    )
+    req_id: str = Field(..., description="The request ID.", example=TEST_REQ_ID)
     status: GulpRequestStatus = Field(
-        ..., description="The request status.", examples=["done"]
+        ..., description="The request status.", example=GulpRequestStatus.DONE
     )
 
     @override
@@ -233,6 +233,7 @@ class WsQueueMessagePool:
     """
     message pool for the ws to reduce memory pressure and gc
     """
+
     def __init__(self, maxsize: int = 1000):
         # preallocate message pool
         self._pool = collections.deque(maxlen=maxsize)
@@ -288,6 +289,8 @@ class ConnectedSocket:
         self._msg_pool = WsQueueMessagePool()
         self.types = types
         self.operation_ids = operation_ids
+        self.send_task = None
+        self.receive_task = None
 
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
@@ -296,16 +299,16 @@ class ConnectedSocket:
         """
         Runs the websocket loop with optimized task management and cleanup
         """
-        tasks = set()
+        tasks: list[asyncio.Task] = []
         try:
             # Create tasks with names for better debugging
-            send_task = asyncio.create_task(
+            self.send_task = asyncio.create_task(
                 self._send_loop(), name=f"send_loop_{self.ws_id}"
             )
-            receive_task = asyncio.create_task(
+            self.receive_task = asyncio.create_task(
                 self._receive_loop(), name=f"receive_loop_{self.ws_id}"
             )
-            tasks.update([send_task, receive_task])
+            tasks.extend([self.send_task, self.receive_task])
 
             # Wait for first task to complete
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
@@ -327,9 +330,12 @@ class ConnectedSocket:
             # ensure cleanup happens even if cancelled
             await asyncio.shield(self._cleanup_tasks(tasks))
 
-    async def _cleanup_tasks(self, tasks: set) -> None:
+    async def _cleanup_tasks(self, tasks: list[asyncio.Task]) -> None:
         """
-        Clean up tasks with proper cancellation handling
+        clean up tasks with proper cancellation handling
+
+        Args:
+            tasks (list): the tasks to clean up
         """
         for task in tasks:
             if not task.done():
@@ -528,24 +534,19 @@ class GulpConnectedSockets:
         MutyLogger.get_instance().warning(f"no websocket found for ws_id={ws_id}")
         return None
 
-    async def wait_all_close(self) -> None:
+    async def cancel_all(self) -> None:
         """
         Waits for all active websockets to close.
         """
-        while len(self._sockets) > 0:
-            MutyLogger.get_instance().debug(
-                "waiting for active websockets to close ..."
-            )
-            await asyncio.sleep(1)
-        MutyLogger.get_instance().debug("all active websockets closed!")
-
-    async def close_all(self) -> None:
-        """
-        Closes all active websockets.
-        """
+        # cancel all tasks
         for _, cws in self._sockets.items():
-            await self.remove(cws.ws, flush=True)
-        MutyLogger.get_instance().debug("all active websockets closed!")
+            MutyLogger.get_instance().debug("canceling ws %s..." % (cws.ws_id))
+            cws.receive_task.cancel()
+            cws.send_task.cancel()
+            await cws
+        MutyLogger.get_instance().debug(
+            "all active websockets closed, len=%d!" % (len(self._sockets))
+        )
 
     async def broadcast_data(self, d: GulpWsData):
         """
@@ -706,6 +707,8 @@ class GulpSharedWsQueue:
                 else:
                     # no messages, short sleep
                     await asyncio.sleep(0.1)
+
+            MutyLogger.get_instance().debug("asyncio queue fill task terminated!")
 
         except Exception as ex:
             MutyLogger.get_instance().error(f"error in fill task: {ex}")

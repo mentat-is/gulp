@@ -3,6 +3,7 @@ gulp user groups managementrest api
 """
 
 from muty.jsend import JSendException, JSendResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated, Optional
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
@@ -14,12 +15,53 @@ from gulp.api.collab.structs import (
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import (
-    APIDependencies,
     ServerUtils,
 )
 import muty.string
 
+from gulp.api.rest.structs import APIDependencies
+
 router: APIRouter = APIRouter()
+
+
+async def _add_remove_user(
+    sess: AsyncSession,
+    token: str,
+    group_id: str,
+    user_id: str,
+    add: bool,
+) -> GulpUserGroup:
+    """
+    add or remove an user from a group
+
+    Args:
+        sess (AsyncSession): sqlalchemy session
+        token (str): admin token
+        group_id (str): group id
+        user_id (str): user id
+        add (bool): add or remove
+
+    Returns:
+        GulpUserGroup: the updated group
+    """
+
+    # check admin token
+    await GulpUserSession.check_token(
+        sess, token, permission=[GulpUserPermission.ADMIN]
+    )
+
+    # get user group
+    group: GulpUserGroup = await GulpUserGroup.get_by_id(
+        sess, group_id, with_for_update=True
+    )
+
+    # add/remove user
+    if add:
+        await group.add_user(sess, user_id)
+    else:
+        await group.remove_user(sess, user_id)
+
+    return group
 
 
 @router.post(
@@ -118,7 +160,7 @@ this function only updates the group properties, to add or remove users use `add
 )
 async def user_group_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
     permission: Annotated[
         Optional[list[GulpUserPermission]],
         Body(description="One or more permissions for the group."),
@@ -145,7 +187,7 @@ async def user_group_update_handler(
         d["glyph_id"] = glyph_id
         d = await GulpUserGroup.update_by_id(
             token,
-            object_id,
+            group_id,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
             d=d,
@@ -183,19 +225,22 @@ async def user_group_update_handler(
 )
 async def user_group_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
+        if group_id.lower() == "administrators":
+            raise ValueError("cannot delete the administrators group.")
+
         await GulpUserGroup.delete_by_id(
             token,
-            object_id,
+            group_id,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
             permission=[GulpUserPermission.ADMIN],
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": group_id})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -226,14 +271,14 @@ async def user_group_delete_handler(
 )
 async def user_group_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpUserGroup.get_by_id_wrapper(
             token,
-            object_id,
+            group_id,
             nested=True,
             permission=[GulpUserPermission.ADMIN],
         )
@@ -318,29 +363,17 @@ async def user_group_list_handler(
 )
 async def user_group_add_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check admin token
-            s = await GulpUserSession.check_token(
-                sess, token, permission=[GulpUserPermission.ADMIN]
+            obj = await _add_remove_user(sess, token, group_id, user_id, add=True)
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
-
-            # get user group
-            group: GulpUserGroup = await GulpUserGroup.get_by_id(
-                sess, object_id, with_for_update=True
-            )
-
-            # add user
-            await group.add_user(sess, user_id)
-
-        return JSendResponse.success(
-            req_id=req_id, data=group.to_dict(nested=True, exclude_none=True)
-        )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -373,28 +406,16 @@ async def user_group_add_user_handler(
 )
 async def user_group_remove_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check admin token
-            s = await GulpUserSession.check_token(
-                sess, token, permission=[GulpUserPermission.ADMIN]
+            obj = await _add_remove_user(sess, token, group_id, user_id, add=False)
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
-
-            # get user group
-            group: GulpUserGroup = await GulpUserGroup.get_by_id(
-                sess, object_id, with_for_update=True
-            )
-
-            # delete user
-            await group.remove_user(sess, user_id)
-
-        return JSendResponse.success(
-            req_id=req_id, data=group.to_dict(nested=True, exclude_none=True)
-        )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

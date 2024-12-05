@@ -24,6 +24,15 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.rest.test_values import (
+    TEST_CONTEXT_NAME,
+    TEST_CONTEXT_ID,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
+    TEST_SOURCE_NAME,
+    TEST_SOURCE_ID,
+    TEST_WS_ID,
+)
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
@@ -33,11 +42,11 @@ _opt_samples_dir = os.path.expanduser(_opt_samples_dir)
 _opt_reset = os.environ.get("GULP_RESET", False)
 _opt_index = os.environ.get("GULP_INDEX", "testidx")
 _opt_gulp_integration_test = os.environ.get("GULP_INTEGRATION_TEST", False)
-_operation_id = "test_operation"
-_context_id = "test_context"
-_source_id = "test_source_1"
-_test_req_id = "test_req_id"
-_test_ws_id = "test_ws_id"
+_operation_id = TEST_OPERATION_ID
+_context_id = TEST_CONTEXT_NAME
+_source_id = TEST_SOURCE_NAME
+_test_req_id = TEST_REQ_ID
+_test_ws_id = TEST_WS_ID
 _guest_user = "guest"
 _admin_user = "admin"
 
@@ -434,8 +443,8 @@ async def test_bulk_insert():
             "_id": "1",
             "@timestamp": "2016-11-17T16:54:58.794249+00:00",
             "gulp.timestamp": 1479401698794248960,
-            "gulp.operation_id": "test_operation",
-            "gulp.context_id": "test_context",
+            "gulp.operation_id": TEST_OPERATION_ID,
+            "gulp.context_id": TEST_CONTEXT_ID,
             "agent.type": "mftecmd",
             "event.original": "...",
             "event.sequence": 0,
@@ -443,7 +452,7 @@ async def test_bulk_insert():
             "gulp.event_code": 14872615,
             "event.duration": 1,
             "gulp.log_file_path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
-            "gulp.source_id": "test_source_1",
+            "gulp.source_id": TEST_SOURCE_ID,
             "gulp.unmapped.SequenceNumber": "1",
             "gulp.unmapped.InUse": "True",
             "gulp.unmapped.ParentEntryNumber": "5",
@@ -456,8 +465,8 @@ async def test_bulk_insert():
             "_id": "2",
             "@timestamp": "2016-11-17T17:54:58.794249+00:00",
             "gulp.timestamp": 1479401798794248960,
-            "gulp.operation_id": "test_operation",
-            "gulp.context_id": "test_context",
+            "gulp.operation_id": TEST_OPERATION_ID,
+            "gulp.context_id": TEST_CONTEXT_ID,
             "agent.type": "mftecmd",
             "event.original": "...",
             "event.sequence": 0,
@@ -465,7 +474,7 @@ async def test_bulk_insert():
             "gulp.event_code": 14872615,
             "event.duration": 1,
             "gulp.log_file_path": "/home/valerino/repos/gulp/samples/mftecmd/sample_record.csv",
-            "gulp.source_id": "test_source_2",
+            "gulp.source_id": TEST_SOURCE_ID,
             "gulp.unmapped.SequenceNumber": "1",
             "gulp.unmapped.InUse": "True",
             "gulp.unmapped.ParentEntryNumber": "5",

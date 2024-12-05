@@ -24,7 +24,8 @@ from opensearchpy import RequestError
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpSharedWsQueue
+from gulp.api.rest.test_values import TEST_INDEX
+from gulp.api.ws_api import GulpConnectedSockets, GulpSharedWsQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -398,7 +399,7 @@ class GulpRestServer:
         first_run: bool = False
         if self._check_first_run():
             # first run, create index
-            self._reset_index = "test_idx"
+            self._reset_index = TEST_INDEX
             self._reset_collab = True
             first_run = True
             MutyLogger.get_instance().warning(
@@ -443,6 +444,7 @@ class GulpRestServer:
         await self._unload_extension_plugins()
 
         # close shared ws and process pool
+        await GulpConnectedSockets.get_instance().cancel_all()
         GulpSharedWsQueue.get_instance().close()
         await GulpProcess.get_instance().close_process_pool()
 
@@ -454,7 +456,7 @@ class GulpRestServer:
         await GulpProcess.get_instance().close_coro_pool()
         await GulpProcess.get_instance().close_thread_pool()
 
-        MutyLogger.get_instance().debug("everything shut down, we can gracefully exit.")
+        MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
 
     def _delete_first_run_file(self) -> None:
         """

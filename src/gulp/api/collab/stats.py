@@ -151,7 +151,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         object_data = {
             "time_expire": time_expire,
             "operation_id": operation_id,
-            "context_id": GulpContext.make_context_id_key(operation_id, context_id),
+            "context_id": context_id,  # GulpContext.make_context_id_key(operation_id, context_id),
             "source_total": source_total,
         }
         return await super()._create(

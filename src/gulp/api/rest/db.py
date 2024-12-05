@@ -17,7 +17,8 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.rest.server_utils import APIDependencies, ServerUtils
+from gulp.api.rest.server_utils import ServerUtils
+from gulp.api.rest.structs import APIDependencies
 from gulp.api.ws_api import GulpRebaseDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.process import GulpProcess
 

@@ -13,11 +13,12 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import (
-    APIDependencies,
     ServerUtils,
 )
 from muty.log import MutyLogger
 import muty.string
+
+from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
 

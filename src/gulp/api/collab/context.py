@@ -40,33 +40,35 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     )
 
     @staticmethod
-    def make_context_id_key(operation_id: str, context_id: str) -> str:
+    def make_context_id_key(operation_id: str, context_name: str) -> str:
         """
         Make a key for the context_id.
 
         Args:
             operation_id (str): The operation id.
-            context_id (str): The context id.
+            context_id (str): The context name.
 
         Returns:
             str: The key.
         """
-        return muty.crypto.hash_xxh128("%s%s" % (operation_id, context_id))
+        return muty.crypto.hash_sha1("%s%s" % (operation_id, context_name.lower()))
 
     @staticmethod
-    def make_source_id_key(operation_id: str, context_id: str, source_id: str) -> str:
+    def make_source_id_key(operation_id: str, context_id: str, source_name: str) -> str:
         """
         Make a key for the source_id.
 
         Args:
             operation_id (str): The operation id.
             context_id (str): The context id.
-            source_id (str): The source id.
+            source_name (str): The source name.
 
         Returns:
             str: The key.
         """
-        return muty.crypto.hash_xxh128("%s%s%s" % (operation_id, context_id, source_id))
+        return muty.crypto.hash_sha1(
+            "%s%s%s" % (operation_id, context_id, source_name.lower())
+        )
 
     async def add_source(
         self,
@@ -80,7 +82,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         Args:
             sess (AsyncSession): The session to use.
             user_id (str): The id of the user adding the source.
-            name (str): The name of the source.
+            name (str): The name of the source (may be file name, path, etc...)
         Returns:
             GulpSource: the source added (or already existing), eager loaded
         """

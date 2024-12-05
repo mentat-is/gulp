@@ -50,10 +50,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         return d
 
     async def add_context(
-        self,
-        sess: AsyncSession,
-        user_id: str,
-        context_id: str,
+        self, sess: AsyncSession, user_id: str, name: str
     ) -> GulpContext:
         """
         Add a context to the operation, or return the context if already added.
@@ -61,11 +58,11 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         Args:
             sess (AsyncSession): The session to use.
             user_id (str): The id of the user adding the context.
-            context_id (str): The id of the context.
+            name (str): The name of the context.
         Returns:
             GulpContext: the context added (or already existing), eager loaded
         """
-        id = GulpContext.make_context_id_key(self.id, context_id)
+        id = GulpContext.make_context_id_key(self.id, name)
 
         # acquire lock first
         lock_id = muty.crypto.hash_xxh64_int(id)
@@ -77,14 +74,14 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         )
         if ctx:
             MutyLogger.get_instance().info(
-                f"context {context_id} already added to operation {self.id}."
+                f"context {name} already added to operation {self.id}."
             )
             return ctx
 
         # create new context and link it to operation
         object_data = {
             "operation_id": self.id,
-            "name": context_id,
+            "name": name,
             "color": "white",
         }
         ctx = await GulpContext._create(
@@ -94,7 +91,5 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             owner_id=user_id,
         )
         await sess.refresh(self)
-        MutyLogger.get_instance().info(
-            f"context {context_id} added to operation {self.id}."
-        )
+        MutyLogger.get_instance().info(f"context {name} added to operation {self.id}.")
         return ctx
