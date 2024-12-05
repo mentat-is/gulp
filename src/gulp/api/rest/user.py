@@ -13,7 +13,7 @@ from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from muty.jsend import JSendException, JSendResponse
-from fastapi import Depends
+from fastapi import Body, Depends
 from gulp.api.rest.server_utils import ServerUtils
 import muty.list
 import muty.log
@@ -335,7 +335,14 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_email_optional),
     ] = None,
-    glyph_id: Annotated[str, Query(description="new user glyph id.")] = None,
+    user_data: Annotated[
+        dict,
+        Body(
+            description="user data to set.",
+            example={"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]},
+        ),
+    ] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -345,9 +352,10 @@ async def user_update_handler(
             and permission is None
             and email is None
             and glyph_id is None
+            and user_data is None
         ):
             raise ValueError(
-                "at least one of password, permission, email or glyph_id must be specified."
+                "at least one of password, permission, email, user_data or glyph_id must be specified."
             )
 
         async with GulpCollab.get_instance().session() as sess:
@@ -364,6 +372,8 @@ async def user_update_handler(
                 d["email"] = email
             if glyph_id:
                 d["glyph_id"] = glyph_id
+            if user_data:
+                d["user_data"] = user_data
 
             # get the user to be updated
             u: GulpUser = await GulpUser.get_by_id(sess, user_id, with_for_update=True)

@@ -9,7 +9,6 @@ from fastapi.responses import JSONResponse
 from gulp.api.collab.highlight import GulpHighlight
 from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpUserPermission,
 )
 from gulp.api.rest.server_utils import (
     ServerUtils,
@@ -64,6 +63,7 @@ async def highlight_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -82,6 +82,7 @@ async def highlight_create_handler(
             ws_id=ws_id,
             req_id=req_id,
             object_data=object_data,
+            private=private,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

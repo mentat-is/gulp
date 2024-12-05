@@ -11,7 +11,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_REQ_ID,
@@ -77,7 +77,13 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     Represents a create or update event.
     """
 
-    data: dict = Field(..., description="The created or updated data.")
+    data: list | dict = Field(..., description="The created or updated data.")
+    bulk: Optional[bool] = Field(
+        default=False, description="If the event is a bulk event (data is a list)."
+    )
+    bulk_type: Optional[GulpCollabType] = Field(
+        None, description="The type of the bulk event."
+    )
     created: Optional[bool] = Field(
         default=False, description="If the event is a create event."
     )
@@ -150,16 +156,19 @@ class GulpWsAuthParameters(BaseModel):
 
     token: str = Field(
         ...,
-        description="user token. 'monitor' is a special token used to also monitor users login/logout.",
+        description="""user token. 
+        
+        - `monitor` is a special token used to also monitor users login/logout.
+    """,
     )
-    ws_id: str = Field(..., description="The WebSocket ID.")
+    ws_id: str = Field(..., description="the WebSocket ID.")
     operation_id: Optional[list[str]] = Field(
         None,
-        description="The operation/s this websocket is registered to receive data for, defaults to None(=all).",
+        description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
     )
     type: Optional[list[GulpWsQueueDataType]] = Field(
         None,
-        description="The GulpWsData.type this websocket is registered to receive, defaults to None(=all).",
+        description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
     )
 
 
@@ -221,6 +230,10 @@ class GulpWsData(BaseModel):
         None,
         description="The operation this data belongs to.",
         alias="gulp.operation_id",
+    )
+    private: Optional[bool] = Field(
+        False,
+        description="If the data is private, only the websocket `ws_id` receives it.",
     )
     data: Optional[Any] = Field(None, description="The data carried by the websocket.")
 
@@ -544,6 +557,51 @@ class GulpConnectedSockets:
             "all active websockets closed, len=%d!" % (len(self._sockets))
         )
 
+    async def _route_message(
+        self, data: GulpWsData, client_ws: ConnectedSocket
+    ) -> None:
+        """
+        routes the message to the target websocket
+
+        the message is routed only if:
+
+        - the message type is in the target websocket types AND
+        - the message operation_id is in the target websocket operation_ids AND
+        - private messages are only routed to the target websocket
+        - collab updates are only relayed to other websockets
+
+        Args:
+            data (GulpWsData): The data to route.
+            client_ws (ConnectedSocket): The target websocket.
+
+        """
+        # if types is set, only route if it matches
+        if client_ws.types and data.type not in client_ws.types:
+            MutyLogger.get_instance().warning(
+                f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, types={client_ws.types}"
+            )
+            return
+
+        # if operation_id is set, only route if it matches
+        if client_ws.operation_ids and data.operation_id not in client_ws.operation_ids:
+            MutyLogger.get_instance().warning(
+                f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, operation_ids={client_ws.operation_ids}"
+            )
+            return
+
+        # private messages are only routed to the target websocket
+        if data.private and client_ws.ws_id != data.ws_id:
+            MutyLogger.get_instance().warning(
+                f"skipping private entry type={data.type} for ws_id={client_ws.ws_id}"
+            )
+            return
+
+        # send the message
+        message = data.model_dump(
+            exclude_none=True, exclude_defaults=True, by_alias=True
+        )
+        await client_ws.put_message(message)
+
     async def broadcast_data(self, d: GulpWsData):
         """
         broadcasts data to all connected websockets
@@ -552,40 +610,7 @@ class GulpConnectedSockets:
             d (GulpWsData): The data to broadcast.
         """
         for _, cws in self._sockets.items():
-            if cws.types:
-                # check types
-                if d.type not in cws.types:
-                    MutyLogger.get_instance().warning(
-                        "skipping entry type=%s for ws_id=%s, cws.types=%s"
-                        % (d.type, cws.ws_id, cws.types)
-                    )
-                    continue
-            if cws.operation_ids:
-                # check operation/s
-                if d.operation_id not in cws.operation_ids:
-                    MutyLogger.get_instance().warning(
-                        "skipping entry type=%s for ws_id=%s, cws.operation_id=%s"
-                        % (d.type, cws.ws_id, cws.operation_ids)
-                    )
-                    continue
-
-            if cws.ws_id == d.ws_id:
-                # always relay to the ws async queue for the target websocket
-                await cws.put_message(
-                    d.model_dump(
-                        exclude_none=True, exclude_defaults=True, by_alias=True
-                    )
-                )
-            else:
-                # only relay collab updates to other ws
-                if d.type not in [GulpWsQueueDataType.COLLAB_UPDATE]:
-                    continue
-
-                await cws.put_message(
-                    d.model_dump(
-                        exclude_none=True, exclude_defaults=True, by_alias=True
-                    )
-                )
+            await self._route_message(d, cws)
 
 
 class GulpSharedWsQueue:
@@ -735,6 +760,7 @@ class GulpSharedWsQueue:
         operation_id: str = None,
         req_id: str = None,
         data: Any = None,
+        private: bool = False,
     ) -> None:
         """
         Adds data to the shared queue.
@@ -746,6 +772,7 @@ class GulpSharedWsQueue:
             operation (str, optional): The operation.
             req_id (str, optional): The request ID. Defaults to None.
             data (any, optional): The data. Defaults to None.
+            private (bool, optional): If the data is private. Defaults to False.
         """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
@@ -754,6 +781,7 @@ class GulpSharedWsQueue:
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,
+            private=private,
             data=data,
         )
         if self._shared_q and ws_id:

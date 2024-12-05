@@ -68,6 +68,7 @@ async def glyph_create_handler(
         str,
         Depends(APIDependencies.param_display_name_optional),
     ] = None,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -85,6 +86,7 @@ async def glyph_create_handler(
             req_id=req_id,
             object_data=d,
             permission=[GulpUserPermission.EDIT],
+            private=private,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

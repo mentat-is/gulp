@@ -12,7 +12,11 @@ from gulp.api.collab.structs import (
     GulpCollabType,
 )
 from gulp.api.opensearch.structs import GulpBasicDocument
-from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import (
+    GulpCollabCreateUpdatePacket,
+    GulpSharedWsQueue,
+    GulpWsQueueDataType,
+)
 
 
 class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
@@ -139,6 +143,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         tags: list[str] = None,
         color: str = None,
         glyph_id: str = None,
+        private: bool = False,
     ) -> int:
         """
         creates a note for each document in the list, using bulk insert
@@ -153,6 +158,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             tags (list[str], optional): the tags to add to the notes. Defaults to None (set to ["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
             glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
+            private (bool, optional): whether the notes are private. Defaults to False.
 
         Returns:
             the number of notes created
@@ -194,6 +200,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             note_dict = GulpNote.build_base_object_dict(
                 object_data=object_data,
                 owner_id=user_id,
+                private=private,
             )
             notes.append(note_dict)
 
@@ -211,13 +218,16 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
             # operation is always the same
             operation_id = notes[0].get("operation_id")
+            data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
+                data=notes, bulk=True, bulk_type=GulpCollabType.NOTE, created=True
+            )
             GulpSharedWsQueue.get_instance().put(
                 GulpWsQueueDataType.COLLAB_UPDATE,
                 ws_id=ws_id,
                 user_id=user_id,
                 operation_id=operation_id,
                 req_id=req_id,
-                data=notes,
+                data=data,
             )
             MutyLogger.get_instance().debug(
                 "sent %d notes on the websocket %s " % (len(notes), ws_id)

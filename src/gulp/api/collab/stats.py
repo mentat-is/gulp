@@ -1,10 +1,10 @@
-from typing import Optional, Tuple, override
+from typing import Optional, override
 
 import muty.crypto
 import muty.log
 import muty.time
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, text
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -13,7 +13,6 @@ from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, GulpRequestStatus, T
 from gulp.api.ws_api import GulpWsQueueDataType
 from gulp.config import GulpConfig
-from gulp.api.collab.context import GulpContext
 
 
 class RequestCanceledError(Exception):
@@ -209,7 +208,6 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         d: dict,
         ws_id: str,
         user_id: str,
-        **kwargs,
     ) -> None:
         """
         Update the stats.
@@ -228,7 +226,6 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
 
             ws_id (str): The websocket ID.
             user_id (str): The user ID updating the stats.
-            kwargs: Additional keyword arguments.
 
         Returns:
             T: The updated stats.
@@ -278,7 +275,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         if status:
             self.status = status
 
-        msg = f"---> update: ws_id={ws_id}, d={d}, kwargs={kwargs}"
+        msg = f"---> update: ws_id={ws_id}, d={d}"
         if error:
             MutyLogger.get_instance().error(msg)
         else:
@@ -344,7 +341,6 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
             req_id=self.id,
             updated_instance=self,
-            **kwargs,
         )
 
         if self.status == GulpRequestStatus.CANCELED:

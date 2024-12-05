@@ -390,17 +390,21 @@ class GulpCollabTester:
         password: Optional[str] = None,
         permission: Optional[list[str]] = None,
         email: Optional[str] = None,
+        user_data: Optional[dict] = None,
         expected_status: int = 200,
     ) -> Optional[dict]:
         """Update user"""
-        body = None
+        body = {}
         params = {"user_id": username}
         if password:
             params["password"] = password
         if permission:
-            body = permission
+            body["permission"] = permission
         if email:
             params["email"] = email
+        if user_data:
+            body["user_data"] = user_data
+
         return await self._make_request(
             "PATCH",
             "user_update",
@@ -948,12 +952,19 @@ class GulpCollabTester:
                 test_user,
                 permission=["read", "edit"],
                 email="updated@example.com",
+                user_data={
+                    "hello": "world",
+                },
             )
             assert updated, "User update failed"
             assert await self._verify_user_exists(
                 admin_token,
                 test_user,
-                {"email": "updated@example.com", "permission": ["read", "edit"]},
+                {
+                    "email": "updated@example.com",
+                    "permission": ["read", "edit"],
+                    "user_data": {"hello": "world"},
+                },
             ), "Update verification failed"
 
             # test user deletion

@@ -250,7 +250,7 @@ class GulpPluginBase(ABC):
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
 
-        # for external query plugins
+        # additional options
         self._ingestion_enabled: bool = True
         self._stats_enabled: bool = True
         self._query_create_notes: bool = False
@@ -258,6 +258,7 @@ class GulpPluginBase(ABC):
         self._note_color: str = None
         self._note_tags: list[str] = None
         self._note_glyph: str = None
+        self._note_private: bool = False
 
     @abstractmethod
     def display_name(self) -> str:
@@ -502,6 +503,7 @@ class GulpPluginBase(ABC):
                 self._note_color = q_options.sigma_parameters.note_color
                 self._note_tags = q_options.sigma_parameters.note_glyph_id
                 self._note_glyph = q_options.sigma_parameters.note_tags
+                self._note_private = q_options.sigma_parameters.note_private
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
@@ -641,6 +643,7 @@ class GulpPluginBase(ABC):
                     tags=self._note_tags,
                     color=self._note_color,
                     glyph_id=self._note_glyph,
+                    private=self._note_private,
                 )
 
         return len(ingested_docs), skipped

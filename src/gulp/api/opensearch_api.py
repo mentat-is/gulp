@@ -1144,6 +1144,7 @@ class GulpOpenSearch:
                     tags=options.sigma_parameters.note_tags,
                     color=options.sigma_parameters.note_color,
                     glyph_id=options.sigma_parameters.note_glyph_id,
+                    private=options.sigma_parameters.note_private,
                 )
             if last or not options.loop:
                 break

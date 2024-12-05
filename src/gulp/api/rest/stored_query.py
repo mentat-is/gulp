@@ -68,6 +68,7 @@ async def stored_query_create_handler(
         str, Depends(APIDependencies.param_description_optional)
     ] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -91,7 +92,7 @@ async def stored_query_create_handler(
                 )
 
         d = await GulpStoredQuery.create(
-            token, req_id=req_id, object_data=object_data, id=q_id
+            token, req_id=req_id, object_data=object_data, id=q_id, private=private
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

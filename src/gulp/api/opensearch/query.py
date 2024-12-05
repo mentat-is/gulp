@@ -41,19 +41,23 @@ class GulpSigmaQueryParameters(BaseModel):
     )
     note_name: str = Field(
         None,
-        description="the display name of the note to create on match, default=use sigma rule title",
+        description="the display name of the notes to create on match, default=use sigma rule title",
     )
     note_tags: list[str] = Field(
         None,
-        description='the tags of the note to create, default=["auto"]',
+        description='the tags of the notes to create on match, default=["auto"]',
     )
     note_color: str = Field(
         None,
-        description="the color of the note to create, default=use notes default",
+        description="the color of the notes to create on match, default=use notes default",
     )
     note_glyph_id: str = Field(
         None,
-        description="id of the glyph of the note to create, default=use glyphs default",
+        description="id of the glyph of the notes to create on match, default=use glyphs default",
+    )
+    note_private: bool = Field(
+        False,
+        description="if set, the notes to create on match are private, default=False",
     )
     pipeline: str = Field(
         None,

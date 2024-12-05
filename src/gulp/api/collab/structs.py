@@ -594,7 +594,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         object_data: dict,
         owner_id: str,
         id: str = None,
-        **kwargs,
+        private: bool = False,
     ) -> dict:
         """
         build a dictionary to create a new base object
@@ -603,7 +603,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             object_data (dict): The data to create the object with.
             owner_id (str): The ID of the user creating the object
             id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
-            **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
+            private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to False.
 
         Returns:
             dict: The dictionary to create the object with
@@ -619,11 +619,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # set the time created
         time_created = muty.time.now_msec()
 
-        # remove None values and merge with kwargs
+        # remove None values
         object_data = {k: v for k, v in object_data.items() if v is not None}
-        for k, v in kwargs.items():
-            if v:
-                object_data[k] = v
 
         object_data["type"] = cls.__gulp_collab_type__
         object_data["id"] = id
@@ -632,6 +629,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         object_data["owner_user_id"] = owner_id
         object_data["granted_user_group_ids"] = []
         object_data["granted_user_ids"] = []
+        if private:
+            # set the object as private
+            object_data["granted_user_ids"].append(owner_id)
+
         if not object_data.get("name", None):
             # set the name to the id if not provided
             object_data["name"] = id
@@ -648,7 +649,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_queue_datatype: "GulpWsQueueDataType" = None,
         ws_data: dict = None,
         req_id: str = None,
-        **kwargs,
+        private: bool = False,
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -665,7 +666,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
             ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
-            **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
+            private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to False.
         Returns:
             T: The created instance of the class.
         Raises:
@@ -679,7 +680,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             object_data,
             owner_id=owner_id,
             id=id,
-            **kwargs,
         )
         # create select statement with eager loading
         stmt = (
@@ -717,6 +717,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 operation_id=object_data.get("operation_id", None),
                 req_id=req_id,
                 data=p.model_dump(),
+                private=private,
             )
         MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
         return instance
@@ -994,7 +995,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_data: dict = None,
         req_id: str = None,
         updated_instance: T = None,
-        **kwargs,
     ) -> None:
         """
         updates the object, also updating the websocket if required.
@@ -1010,7 +1010,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_data (dict, optional): data to send to the websocket. Defaults to the updated object.
             req_id (str, optional): The ID of the request. Defaults to None.
             updated_instance (T, optional): An already updated instance of the object, if set d is ignored. Defaults to None.
-            **kwargs: Additional keyword arguments to set as attributes on the instance.
         """
         if updated_instance:
             # use updated_instance if provided
@@ -1033,11 +1032,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 if v is not None and getattr(instance, k, None) != v:
                     # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
                     setattr(instance, k, v)
-
-        # merge kwargs
-        for k, v in kwargs.items():
-            # MutyLogger.get_instance().debug(f"setattr from kwargs: {k}={v}")
-            setattr(instance, k, v)
 
         # update time
         instance.time_updated = muty.time.now_msec()
@@ -1309,7 +1303,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         d: dict = None,
         updated_instance: T = None,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
-        **kwargs,
     ) -> dict:
         """
         helper to update an object by ID, handling session
@@ -1351,7 +1344,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 user_id=s.user_id,
                 req_id=req_id,
                 updated_instance=updated_instance,
-                **kwargs,
             )
             return n.to_dict(exclude_none=True)
 
@@ -1364,6 +1356,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         object_data: dict,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         id: str = None,
+        private: bool = False,
     ) -> dict:
         """
         helper to create a new object, handling session
@@ -1375,6 +1368,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             object_data (dict): The data to create the object with.
             permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.
             id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            private (bool, optional): If True, the object will be private. Defaults to False.
         Returns:
             dict: The created object as a dictionary.
 
@@ -1389,7 +1383,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # check permission for creation
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             n: GulpCollabBase = await cls._create(
-                sess, object_data, id=id, owner_id=s.user_id, ws_id=ws_id, req_id=req_id
+                sess,
+                object_data,
+                id=id,
+                owner_id=s.user_id,
+                ws_id=ws_id,
+                req_id=req_id,
+                private=private,
             )
             return n.to_dict(exclude_none=True)
 

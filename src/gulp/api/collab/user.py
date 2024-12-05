@@ -24,7 +24,6 @@ from gulp.api.ws_api import GulpUserLoginLogoutPacket, GulpWsQueueDataType
 from gulp.config import GulpConfig
 
 if TYPE_CHECKING:
-    from gulp.api.collab.user_data import GulpUserData
     from gulp.api.collab.user_group import GulpUserGroup
     from gulp.api.collab.user_session import GulpUserSession
 
@@ -69,19 +68,13 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         foreign_keys="[GulpUserSession.user_id]",
     )
 
-    user_data: Mapped[Optional["GulpUserData"]] = relationship(
-        "GulpUserData",
-        cascade="all,delete-orphan",
-        uselist=False,
-        default=None,
-        lazy="selectin",
-        foreign_keys="[GulpUserData.user_id]",
+    user_data: Mapped[Optional[dict]] = mapped_column(
+        JSONB, default=None, doc="Arbitrary user data."
     )
 
     @override
     @classmethod
     def example(cls) -> dict:
-        from gulp.api.collab.user_data import GulpUserData
         from gulp.api.collab.user_group import GulpUserGroup
         from gulp.api.collab.user_session import GulpUserSession
 
@@ -94,7 +87,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                 "email": "user@mail.com",
                 "time_last_login": 1234567890,
                 "session": GulpUserSession.example(),
-                "user_data": GulpUserData.example(),
+                "user_data": {"key": "value", "key2": 1234},
             }
         )
         return d
@@ -145,7 +138,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         sess: AsyncSession,
         d: dict,
         user_session: "GulpUserSession",
-        **kwargs,
     ) -> None:
         # special checks for permission and password
         #
@@ -178,7 +170,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                 d["permission"].append(GulpUserPermission.READ)
 
         # update
-        await super().update(sess, d, **kwargs)
+        await super().update(sess, d)
 
         # invalidate session for the user
         MutyLogger.get_instance().warning(
@@ -391,10 +383,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
                 )
             return False
 
-        if (
-            not obj.granted_user_group_ids
-            and not obj.granted_user_ids
-        ):
+        if not obj.granted_user_group_ids and not obj.granted_user_ids:
             # no granted users or groups, allow access
             # MutyLogger.get_instance().debug("allowing access to object without granted users or groups")
             return True
