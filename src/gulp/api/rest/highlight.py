@@ -64,7 +64,6 @@ async def highlight_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -75,7 +74,6 @@ async def highlight_create_handler(
             tags=tags,
             color=color or "green",
             name=name,
-            private=private,
             source_id=source_id,
             time_range=time_range,
         )
@@ -128,14 +126,13 @@ async def highlight_update_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
     try:
-        if not any([time_range, name, tags, glyph_id, color, private]):
+        if not any([time_range, name, tags, glyph_id, color]):
             raise ValueError(
-                "at least one of time_range, name, tags, glyph_id, color, private must be set."
+                "at least one of time_range, name, tags, glyph_id, color must be set."
             )
         d = {}
         d["time_range"] = time_range
@@ -143,7 +140,6 @@ async def highlight_update_handler(
         d["tags"] = tags
         d["glyph_id"] = glyph_id
         d["color"] = color
-        d["private"] = private
         d = await GulpHighlight.update_by_id(
             token,
             object_id,

@@ -379,12 +379,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             # MutyLogger.get_instance().debug("allowing access to admin")
             return True
 
-        # GulpCollabObjects can be private
-        is_private = hasattr(obj, "private") and obj.private
-        if is_private:
-            # MutyLogger.get_instance().debug("object is private")
-            pass
-
         # check if the user is the owner of the object
         if obj.is_owner(self.id):
             # MutyLogger.get_instance().debug("allowing access to object owner")
@@ -400,27 +394,26 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         if (
             not obj.granted_user_group_ids
             and not obj.granted_user_ids
-            and not is_private
         ):
             # no granted users or groups, allow access
             # MutyLogger.get_instance().debug("allowing access to object without granted users or groups")
             return True
 
         # check if the user is in the granted groups
-        if obj.granted_user_group_ids and not is_private:
+        if obj.granted_user_group_ids:
             for group in self.groups:
                 if group.id in obj.granted_user_group_ids:
                     # MutyLogger.get_instance().debug("allowing access to granted group")
                     return True
 
         # check if the user is in the granted users
-        if obj.granted_user_ids and self.id in obj.granted_user_ids and not is_private:
+        if obj.granted_user_ids and self.id in obj.granted_user_ids:
             # MutyLogger.get_instance().debug("allowing access to granted user")
             return True
 
         if throw_on_no_permission:
             raise MissingPermission(
-                f"User {self.id} does not have the required permissions to access the object {obj.id}, private={is_private}."
+                f"User {self.id} does not have the required permissions to access the object {obj.id}."
             )
         MutyLogger.get_instance().debug(
             f"User {self.id} does not have the required permissions to access the object {obj.id}, granted_user_ids={obj.granted_user_ids}, granted_group_ids={obj.granted_user_group_ids}, requestor_user_id={self.id}"

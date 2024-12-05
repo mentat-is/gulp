@@ -82,7 +82,6 @@ async def note_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -103,7 +102,6 @@ async def note_create_handler(
             tags=tags,
             color=color or "yellow",
             name=name,
-            private=private,
             docs=docs,
             time_pin=time_pin,
             text=text,
@@ -164,7 +162,6 @@ async def note_update_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -175,9 +172,9 @@ async def note_update_handler(
         # we cannot have both docs and time_pin set
         if docs and time_pin:
             raise ValueError("docs and time_pin cannot be both set.")
-        if not any([docs, time_pin, text, name, tags, glyph_id, color, private]):
+        if not any([docs, time_pin, text, name, tags, glyph_id, color]):
             raise ValueError(
-                "at least one of docs, time_pin, text, name, tags, glyph_id, color, or private must be set."
+                "at least one of docs, time_pin, text, name, tags, glyph_id, color must be set."
             )
         prev_text = None
         prev_editor_id = None
@@ -219,7 +216,6 @@ async def note_update_handler(
         d["tags"] = tags
         d["glyph_id"] = glyph_id
         d["color"] = color
-        d["private"] = private
         d["previous"] = previous_edits
         d = await GulpNote.update_by_id(
             token,

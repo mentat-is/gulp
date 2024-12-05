@@ -116,28 +116,6 @@ class APIDependencies:
         return value
 
     @staticmethod
-    def param_private_optional(
-        private: Annotated[
-            Optional[bool],
-            Body(
-                description="sets the object as private, so only the *owner* `user_id` and administrators can access it.",
-            ),
-        ] = None
-    ) -> bool:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            private (bool, optional, Body): Whether the object is private. Defaults to None.
-
-        Returns:
-            bool: The private flag.
-        """
-        if private is not None:
-            return private
-        return None
-
-    @staticmethod
     def param_description_optional(
         description: Annotated[
             Optional[str],

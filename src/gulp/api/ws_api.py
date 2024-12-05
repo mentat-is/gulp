@@ -222,10 +222,6 @@ class GulpWsData(BaseModel):
         description="The operation this data belongs to.",
         alias="gulp.operation_id",
     )
-    private: Optional[bool] = Field(
-        False,
-        description="If the data is private(=only ws=ws_id can receive it).",
-    )
     data: Optional[Any] = Field(None, description="The data carried by the websocket.")
 
 
@@ -581,15 +577,6 @@ class GulpConnectedSockets:
                     )
                 )
             else:
-                # not the target websocket
-                if d.private:
-                    # do not broadcast private data
-                    MutyLogger.get_instance().warning(
-                        "skipping entry type=%s for ws_id=%s, private=True"
-                        % (d.type, cws.ws_id)
-                    )
-                    continue
-
                 # only relay collab updates to other ws
                 if d.type not in [GulpWsQueueDataType.COLLAB_UPDATE]:
                     continue
@@ -748,7 +735,6 @@ class GulpSharedWsQueue:
         operation_id: str = None,
         req_id: str = None,
         data: Any = None,
-        private: bool = False,
     ) -> None:
         """
         Adds data to the shared queue.
@@ -760,7 +746,6 @@ class GulpSharedWsQueue:
             operation (str, optional): The operation.
             req_id (str, optional): The request ID. Defaults to None.
             data (any, optional): The data. Defaults to None.
-            private (bool, optional): If the data is private. Defaults to False.
         """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
@@ -769,7 +754,6 @@ class GulpSharedWsQueue:
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,
-            private=private,
             data=data,
         )
         if self._shared_q and ws_id:

@@ -208,11 +208,6 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 - cannot be used with `time_pin_range` or `doc_ids`.
 """,
     )
-    private: Optional[bool] = Field(
-        None,
-        example=False,
-        description="if True, return only private objects. Default=False (return all).",
-    )
     limit: Optional[int] = Field(
         None,
         example=10,
@@ -353,9 +348,6 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 )
             q = q.filter(and_(*conditions))
 
-        if self.private is not None and "private" in type.columns:
-            q = q.where(GulpCollabObject.private is True)
-
         if self.limit:
             q = q.limit(self.limit)
         if self.offset:
@@ -411,10 +403,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     description: Mapped[Optional[str]] = mapped_column(
         String, doc="The description of the object."
     )
-    private: Mapped[Optional[bool]] = mapped_column(
-        Boolean,
-        doc="If True, the object is private (only the owner can see it).",
-    )
 
     __mapper_args__ = {
         "polymorphic_identity": "collab_base",
@@ -440,7 +428,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "glyph_id": "glyph_id",
             "name": "the object display name",
             "description": "object description",
-            "private": False,
         }
 
     def __init_subclass__(
@@ -673,7 +660,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             object_data (dict): The data to create the object with.
             id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             operation_id (str, optional): The ID of the operation associated with the instance. Defaults to None.
-            private (bool, optional): If True, the object is private. Defaults to False.
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
             owner_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
             ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
@@ -730,7 +716,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 user_id=owner_id,
                 operation_id=object_data.get("operation_id", None),
                 req_id=req_id,
-                private=object_data.get("private", False),
                 data=p.model_dump(),
             )
         MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
@@ -891,7 +876,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 user_id=user_id,
                 operation_id=getattr(self, "operation_id", None),
                 req_id=req_id,
-                private=self.private,
                 data=data,
             )
 
@@ -928,6 +912,22 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         return group_id in self.granted_user_group_ids
 
+    def is_private(self) -> bool:
+        """
+        check if the object is private (only the owner or admin can see it)
+
+        Returns:
+            bool: True if the object is private, False otherwise.
+        """
+        # private object = only owner or admin can see it
+        if (
+            self.granted_user_ids
+            and len(self.granted_user_ids) == 1
+            and self.granted_user_ids[0] == self.owner_user_id
+        ):
+            return True
+        return False
+
     async def make_private(self, sess: AsyncSession) -> None:
         """
         make the object private (only the owner or admin can see it)
@@ -938,8 +938,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
-        # private object = only owner can see it
-        await self.add_user_grant(sess, self.owner_user_id)
+
+        # private object = only owner or admin can see it
+        self.granted_user_ids = [self.owner_user_id]
         await sess.commit()
         await sess.refresh(self)
         MutyLogger.get_instance().info(
@@ -1070,7 +1071,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 user_id=user_id,
                 operation_id=data.get("operation_id", None),
                 req_id=req_id,
-                private=self.private,
                 data=p.model_dump(),
             )
 
@@ -1252,7 +1252,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 else:
                     MutyLogger.get_instance().warning(
                         "User %s does not have permission to access object: %s"
-                        % (s.user.id, json.dumps(o.to_dict(exclude_none=True, nested=nested), indent=2))
+                        % (
+                            s.user.id,
+                            json.dumps(
+                                o.to_dict(exclude_none=True, nested=nested), indent=2
+                            ),
+                        )
                     )
 
             return data

@@ -59,7 +59,6 @@ async def link_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -70,7 +69,6 @@ async def link_create_handler(
             tags=tags,
             color=color or "red",
             name=name,
-            private=private,
             doc_id_from=doc_id_from,
             doc_ids=doc_ids,
         )
@@ -117,14 +115,13 @@ async def link_update_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
     try:
-        if not any([doc_ids, name, tags, glyph_id, color, private]):
+        if not any([doc_ids, name, tags, glyph_id, color]):
             raise ValueError(
-                "At least one of doc_ids, name, tags, glyph_id, color, or private must be provided."
+                "At least one of doc_ids, name, tags, glyph_id, color must be provided."
             )
         d = {}
         d["doc_ids"] = doc_ids
@@ -133,7 +130,6 @@ async def link_update_handler(
         d["tags"] = tags
         d["glyph_id"] = glyph_id
         d["color"] = color
-        d["private"] = private
         d = await GulpLink.update_by_id(
             token,
             object_id,

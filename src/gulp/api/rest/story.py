@@ -60,7 +60,6 @@ async def story_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -74,7 +73,6 @@ async def story_create_handler(
             tags=tags,
             color=color or "blue",
             name=name,
-            private=private,
             doc_ids=doc_ids,
         )
         d = await GulpStory.create(
@@ -124,14 +122,13 @@ async def story_update_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals)
     try:
-        if not any([doc_ids, name, tags, glyph_id, color, private]):
+        if not any([doc_ids, name, tags, glyph_id, color]):
             raise ValueError(
-                "at least one of doc_ids, name, tags, glyph_id, color, private must be set."
+                "at least one of doc_ids, name, tags, glyph_id, color must be set."
             )
         d = {}
         d["doc_ids"] = doc_ids
@@ -139,7 +136,6 @@ async def story_update_handler(
         d["tags"] = tags
         d["glyph_id"] = glyph_id
         d["color"] = color
-        d["private"] = private
         d = await GulpStory.update_by_id(
             token,
             object_id,

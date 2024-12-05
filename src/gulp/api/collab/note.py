@@ -84,7 +84,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         color: str = None,
         name: str = None,
         description: str = None,
-        private: bool = False,
         docs: list[GulpBasicDocument] = None,
         time_pin: int = None,
         text: str = None,
@@ -101,7 +100,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             color (str, optional): the color. Defaults to None.
             name (str, optional): the name. Defaults to None.
             description (str, optional): the description. Defaults to None.
-            private (bool, optional): whether the note is private. Defaults to False.
             docs (list[GulpBasicDocument], optional): the documents. Defaults to None.
             time_pin (int, optional): the time pin. Defaults to None.
             text (str, optional): the text. Defaults to None.
@@ -124,7 +122,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             color=color,
             name=name,
             description=description,
-            private=private,
             docs=docs,
             time_pin=time_pin,
             text=text,
