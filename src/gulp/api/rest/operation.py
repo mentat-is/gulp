@@ -235,7 +235,9 @@ async def operation_delete_handler(
             }
         }
     },
-    summary="gets a operation.",
+    summary="gets an operation.",
+    description="""
+"""
 )
 async def operation_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -276,7 +278,8 @@ async def operation_get_by_id_handler(
         }
     },
     summary="list operations, optionally using a filter.",
-    description="",
+    description="""
+""",
 )
 async def operation_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

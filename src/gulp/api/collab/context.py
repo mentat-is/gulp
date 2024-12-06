@@ -104,7 +104,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             throw_if_not_found=False,
         )
         if src:
-            MutyLogger.get_instance().info(
+            MutyLogger.get_instance().debug(
                 f"source {src.id}, name={name} already exists in context {self.id}."
             )
             return src

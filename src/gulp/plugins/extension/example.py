@@ -73,6 +73,7 @@ class Plugin(GulpPluginBase):
         req_id: str,
         **kwargs,
     ) -> dict:
+        # this runs in a task in a worker process
         MutyLogger.get_instance().error(
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
@@ -81,6 +82,7 @@ class Plugin(GulpPluginBase):
             GulpWsQueueDataType.COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,
+            operation_id=operation_id,
             user_id="dummy",
             data={"hello": "world"},
         )
@@ -95,6 +97,7 @@ class Plugin(GulpPluginBase):
         req_id: str,
         **kwargs,
     ):
+        # this runs in the main process
         MutyLogger.get_instance().error(
             "IN MAIN PROCESS, for user_id=%s, operation_id=%s, context_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, context_id, ws_id, req_id)
@@ -124,7 +127,7 @@ class Plugin(GulpPluginBase):
             tasks.append(
                 GulpProcess.get_instance().process_pool.apply(
                     self._run_in_worker,
-                    (user_id, operation_id, context_id, ws_id, req_id),
+                    (user_id, operation_id, ws_id, req_id),
                 )
             )
 
@@ -170,17 +173,16 @@ class Plugin(GulpPluginBase):
         ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
         req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
     ) -> JSendResponse:
-        req_id = ServerUtils.ensure_req_id(req_id)
-
         try:
-            session = await GulpUserSession.check_token(token)
+            async with GulpCollab.get_instance().session() as sess:
+                s = await GulpUserSession.check_token(sess, token)
 
-            # spawn coroutine in the main process, will run asap
-            coro = self._example_task(
-                session.user_id, operation_id, context_id, ws_id, req_id
-            )
-            await GulpProcess.get_instance().coro_pool.spawn(coro)
-            return muty.jsend.pending_jsend(req_id=req_id)
+                # spawn coroutine in the main process, will run asap
+                coro = self._example_task(
+                    s.user_id, operation_id, context_id, ws_id, req_id
+                )
+                await GulpProcess.get_instance().coro_pool.spawn(coro)
+                return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex
 

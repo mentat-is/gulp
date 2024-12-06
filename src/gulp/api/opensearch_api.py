@@ -653,8 +653,8 @@ class GulpOpenSearch:
 
         if skipped != 0:
             # NOTE: bulk_docs/2 is because the bulk_docs is a list of tuples (create, doc)
-            MutyLogger.get_instance().error(
-                "**NOT AN ERROR** %d skipped, %d failed in this bulk ingestion of %d documents !"
+            MutyLogger.get_instance().debug(
+                "%d skipped, %d failed in this bulk ingestion of %d documents !"
                 % (skipped, failed, len(bulk_docs) / 2)
             )
         if failed > 0:

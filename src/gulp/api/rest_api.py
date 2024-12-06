@@ -210,6 +210,7 @@ class GulpRestServer:
         from gulp.api.rest.stored_query import router as stored_query_router
         from gulp.api.rest.user_group import router as user_group_router
         from gulp.api.rest.object_acl import router as object_acl_router
+        from gulp.api.rest.utility import router as utility_router
 
         self._app.include_router(db_router)
         self._app.include_router(operation_router)
@@ -224,6 +225,7 @@ class GulpRestServer:
         self._app.include_router(stored_query_router)
         self._app.include_router(user_group_router)
         self._app.include_router(object_acl_router)
+        self._app.include_router(utility_router)
 
         """
         import gulp.api.rest.collab_utility
@@ -386,9 +388,6 @@ class GulpRestServer:
         """
         fastapi lifespan handler
         """
-        MutyLogger.get_instance(
-            "gulp", logger_file_path=self._logger_file_path, level=self._log_level
-        )
         MutyLogger.get_instance().info("gULP main server process is starting!")
         main_process = GulpProcess.get_instance()
 

@@ -24,32 +24,6 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 
-"""
-# win_evtx
-# 98633 records, 1 record failed, 1 skipped, 98631 ingested
-./test_scripts/test_ingest.py --path ./samples/win_evtx
-
-# csv without mapping
-# 10 records, 10 ingested
-./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mappings": { "test_mapping": { "timestamp_field": "Created0x10"}}}'
-
-# csv with mapping
-# 10 records, 44 ingested
-./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
-
-# raw
-# 3 ingested
-./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json
-
-# raw with mapping
-# 3 ingested, record 1.field2 mapping changed
-./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
-
-# zip (with metadata.json), win_evtx and csv with mappings
-# 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
-# ./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
-"""
-
 
 def _parse_args():
     parser = argparse.ArgumentParser(

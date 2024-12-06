@@ -76,6 +76,12 @@ class Plugin(GulpPluginBase):
         return "1.0"
 
     @override
+    async def _augment_documents(self, docs: list[dict]) -> list[dict]:
+        for doc in docs:
+            doc["augmented"] = True
+        return docs
+
+    @override
     async def _record_to_gulp_document(
         self, record: GulpDocument, record_idx: int
     ) -> GulpDocument:
@@ -109,7 +115,7 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
             return GulpRequestStatus.FAILED
 
-        # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
+        # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         return await lower.ingest_file(
             sess=sess,
             stats=stats,

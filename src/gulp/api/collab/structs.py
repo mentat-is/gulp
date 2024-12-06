@@ -499,6 +499,19 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             reraise=True,
         )
 
+    @classmethod
+    async def release_advisory_lock(cls, sess: AsyncSession, lock_id: int) -> None:
+        """
+        release an advisory lock
+
+        Args:
+            session (AsyncSession): The database session to use.
+            lock_id (int): The lock ID to release.
+        """
+        await sess.execute(
+            text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id}
+        )
+
     @staticmethod
     @_create_retry_decorator()
     async def acquire_advisory_lock(sess: AsyncSession, lock_id: int) -> None:
@@ -677,9 +690,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         owner_id = owner_id or "admin"
         d = cls.build_base_object_dict(
-            object_data,
-            owner_id=owner_id,
-            id=id,
+            object_data, owner_id=owner_id, id=id, private=private
         )
         # create select statement with eager loading
         stmt = (
@@ -716,7 +727,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 user_id=owner_id,
                 operation_id=object_data.get("operation_id", None),
                 req_id=req_id,
-                data=p.model_dump(),
+                data=p.model_dump(exclude_none=True, exclude_defaults=True),
                 private=private,
             )
         MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
@@ -1036,10 +1047,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # update time
         instance.time_updated = muty.time.now_msec()
         updated_dict = instance.to_dict(nested=True, exclude_none=True)
+        private = instance.is_private()
 
         # commit
         await sess.commit()
-        await sess.refresh(instance)
 
         MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
 
@@ -1065,7 +1076,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 user_id=user_id,
                 operation_id=data.get("operation_id", None),
                 req_id=req_id,
-                data=p.model_dump(),
+                data=p.model_dump(exclude_none=True, exclude_defaults=True),
+                private=private,
             )
 
     @classmethod

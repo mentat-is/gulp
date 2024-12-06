@@ -170,6 +170,11 @@ GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
 # zip (with metadata.json), win_evtx and csv with mappings
 # 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
 ./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
+
+# stacked plugin
+# will set every document duration to 9999, and also set augmented=True (postprocessing chunk with _augment_documents)
+./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin stacked_example --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
+
 ```
 
 ##### Collaboration

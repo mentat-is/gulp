@@ -12,12 +12,17 @@ from evtx import PyEvtxParser
 from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
+from gulp.api.collab.stats import (
+    GulpIngestionStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters, GulpPluginSigmaSupport
+from muty.log import MutyLogger
 
 # needs the following backends for sigma support (add others if needed)
 muty.os.check_and_install_package("pysigma-backend-elasticsearch", "1.1.3")
@@ -208,8 +213,13 @@ class Plugin(GulpPluginBase):
                 doc_idx += 1
                 try:
                     await self.process_record(rr, doc_idx, flt)
-                except RequestCanceledError:
+                except RequestCanceledError as ex:
+                    MutyLogger.get_instance().exception(ex)
                     break
+                except SourceCanceledError as ex:
+                    await self._source_failed(ex)
+                    break
+
         except Exception as ex:
             await self._source_failed(ex)
         finally:

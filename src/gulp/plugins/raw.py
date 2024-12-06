@@ -1,12 +1,19 @@
 from typing import override
 
-import muty.xml
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
+from muty.log import MutyLogger
+from gulp.api.collab.stats import (
+    GulpIngestionStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import GulpDocument, GulpRawDocument, GulpRawDocumentMetadata
+from gulp.api.opensearch.structs import (
+    GulpDocument,
+    GulpRawDocument,
+    GulpRawDocumentMetadata,
+)
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
 
@@ -141,7 +148,11 @@ class Plugin(GulpPluginBase):
 
                 try:
                     await self.process_record(rr, doc_idx, flt)
-                except RequestCanceledError:
+                except RequestCanceledError as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    break
+                except SourceCanceledError as ex:
+                    await self._source_failed(ex)
                     break
         except Exception as ex:
             await self._source_failed(ex)

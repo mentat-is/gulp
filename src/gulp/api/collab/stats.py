@@ -23,6 +23,14 @@ class RequestCanceledError(Exception):
     pass
 
 
+class SourceCanceledError(Exception):
+    """
+    Raised when a source is aborted (by API or in case of too many failures).
+    """
+
+    pass
+
+
 class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
     """
     Represents the statistics for an ingestion operation.
@@ -227,23 +235,20 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             ws_id (str): The websocket ID.
             user_id (str): The user ID updating the stats.
 
-        Returns:
-            T: The updated stats.
         """
-        if self.status in [
-            GulpRequestStatus.CANCELED,
-            GulpRequestStatus.FAILED,
-        ]:
-            # already processed, nothing to do
-            # MutyLogger.get_instance().warning("request already set to %s, nothing to do" % (self.status))
-            raise RequestCanceledError()
-            # return self
-
         # refresh stats from db first, use advisory lock here which is more
         # efficient than row-level lock with with_for_update
         lock_id = muty.crypto.hash_xxh64_int(self.id)
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
         await sess.refresh(self)
+
+        if self.status in [
+            GulpRequestStatus.CANCELED,
+            GulpRequestStatus.FAILED,
+            GulpRequestStatus.DONE,
+        ]:
+            # nothing to do, request is already done
+            raise RequestCanceledError()
 
         # update
         self.source_processed += d.get("source_processed", 0)
@@ -295,23 +300,6 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             )
             self.status = GulpRequestStatus.FAILED
 
-        # check threshold
-        failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
-        if (
-            failure_threshold > 0
-            and self.type == GulpCollabType.INGESTION_STATS
-            and (
-                self.records_failed >= failure_threshold
-                or self.records_skipped >= failure_threshold
-            )
-        ):
-            # too many failures, abort
-            MutyLogger.get_instance().error(
-                "TOO MANY FAILURES req_id=%s (failed=%d, threshold=%d), aborting ingestion!"
-                % (self.id, self.source_failed, failure_threshold)
-            )
-            self.status = GulpRequestStatus.CANCELED
-
         if self.status == GulpRequestStatus.DONE:
             # if no records were processed and some failed, set to FAILED
             if self.records_processed == 0 and self.records_failed > 0:
@@ -322,14 +310,15 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             GulpRequestStatus.FAILED,
             GulpRequestStatus.DONE,
         ]:
-            self.time_finished = muty.time.now_msec()
-            MutyLogger.get_instance().debug(
-                'request "%s" COMPLETED with status=%s' % (self.id, self.status)
-            )
             # print the time it took to complete the request, in seconds
-            MutyLogger.get_instance().debug(
-                "*** TOTAL TIME TOOK by request %s: %s seconds ***"
-                % (self.id, (self.time_finished - self.time_created) / 1000)
+            self.time_finished = muty.time.now_msec()
+            MutyLogger.get_instance().info(
+                'REQUEST TIME INFO: request "%s" COMPLETED with status=%s, TOTAL TIME: %d seconds'
+                % (
+                    self.id,
+                    self.status,
+                    (self.time_finished - self.time_created) / 1000,
+                )
             )
 
         # update the instance (will update websocket too)
@@ -342,7 +331,3 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             req_id=self.id,
             updated_instance=self,
         )
-
-        if self.status == GulpRequestStatus.CANCELED:
-            MutyLogger.get_instance().error('request "%s" set to CANCELED' % (self.id))
-            raise RequestCanceledError()

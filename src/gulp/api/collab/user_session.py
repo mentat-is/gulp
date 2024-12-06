@@ -94,9 +94,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             object_data=object_data,
             owner_id=admin_user.id,
         )
-        MutyLogger.get_instance().warning(
-            "created new admin session: %s" % (admin_session.to_dict())
-        )
+        # MutyLogger.get_instance().debug("created new admin session: %s" % (admin_session.to_dict()))
         return admin_session
 
     @staticmethod

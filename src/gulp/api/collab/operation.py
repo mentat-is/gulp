@@ -73,7 +73,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             sess, id=id, throw_if_not_found=False
         )
         if ctx:
-            MutyLogger.get_instance().info(
+            MutyLogger.get_instance().debug(
                 f"context {name} already added to operation {self.id}."
             )
             return ctx
