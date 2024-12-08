@@ -1,0 +1,53 @@
+{
+    "gulp_query": [
+        {
+            // total_hits: 89
+            "flt": {
+                "time_range": [
+                    1551385571023173000,
+                    1551446406878338000,
+                    false
+                ],
+                "query_string_parameters": {
+                    "analyze_wildcard": true,
+                    "default_field": "_id"
+                },
+                "agent_type": [
+                    "win_evtx"
+                ]
+            },
+            "options": {
+                "sort": {
+                    "@timestamp": "asc",
+                    "_id": "asc",
+                    "event.sequence": "asc"
+                },
+                "fields": "*",
+                "limit": 1000,
+                "loop": true
+            }
+        },
+        {
+            // total_hits: 98631
+            "flt": {
+                "query_string_parameters": {
+                    "analyze_wildcard": true,
+                    "default_field": "_id"
+                },
+                "agent_type": [
+                    "win_evtx"
+                ]
+            },
+            "options": {
+                "sort": {
+                    "@timestamp": "asc",
+                    "_id": "asc",
+                    "event.sequence": "asc"
+                },
+                "fields": "*",
+                "limit": 1000,
+                "loop": true
+            }
+        }
+    ]
+}
