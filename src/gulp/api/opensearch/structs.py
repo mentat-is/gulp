@@ -7,7 +7,7 @@ import muty.string
 import muty.time
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from muty.pydantic import autogenerate_model_example
+from muty.pydantic import autogenerate_model_example, autogenerate_model_example_by_class
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.rest.test_values import (
@@ -111,6 +111,16 @@ class GulpDocument(GulpBasicDocument):
         alias="event.duration",
         example=1,
     )
+
+    @classmethod
+    def example(cls) -> dict:
+        """
+        builds example of the model
+
+        Returns:
+            dict: the model example
+        """
+        return autogenerate_model_example_by_class(cls)
 
     @override
     @classmethod

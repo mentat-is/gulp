@@ -70,7 +70,10 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
 
     storage_ignore_filter: Optional[bool] = Field(
         False,
-        description="on filtering during ingestion, websocket receives filtered results while OpenSearch stores all documents anyway (default=False=both OpenSearch and websocket receives the filtered results).",
+        description="""
+if set, websocket receives filtered results while OpenSearch stores unfiltered (=all) documents.
+default is False (both OpenSearch and websocket receives the filtered results).
+""",
     )
 
     @override
@@ -173,6 +176,9 @@ include documents matching the given `gulp.source_id`/s.
         return super().__str__()
 
     def _query_string_build_or_clauses(self, field: str, values: list) -> str:
+        if not values:
+            return ""
+
         qs = "("
         for v in values:
             """
@@ -199,11 +205,12 @@ include documents matching the given `gulp.source_id`/s.
         qs = f"{field}: {v}"
         return qs
 
-    def _query_string_build_gte_clause(self, field: str, v: int | str) -> str:
+    def _query_string_build_gte_clause(self, field: str, v: int) -> str:
+        if isinstance(v, str):
         qs = f"{field}: >={v}"
         return qs
 
-    def _query_string_build_lte_clause(self, field: str, v: int | str) -> str:
+    def _query_string_build_lte_clause(self, field: str, v: int) -> str:
         qs = f"{field}: <={v}"
         return qs
 
@@ -236,7 +243,9 @@ include documents matching the given `gulp.source_id`/s.
         """
 
         def _build_clauses():
-            clauses = []
+            clauses: list[str] = []
+            range_q = {}
+
             if self.agent_type:
                 clauses.append(
                     self._query_string_build_or_clauses("agent.type", self.agent_type)
@@ -263,8 +272,7 @@ include documents matching the given `gulp.source_id`/s.
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
             if self.event_original:
                 # check for full text search or keyword search
-                event_original = self.event_original[0]
-                fts = event_original[1] or False
+                event_original, fts = self.event_original
                 field = "event.original.text" if fts else "event.original"
                 clauses.append(
                     self._query_string_build_eq_clause(field, event_original)
@@ -294,10 +302,14 @@ include documents matching the given `gulp.source_id`/s.
                 # extra fields
                 for k, v in self.model_extra.items():
                     clauses.append(self._query_string_build_or_clauses(k, v))
+
+            # only return non-empty clauses
+            clauses = [c for c in clauses if c and c.strip()]
+            # print(clauses)
             return clauses
 
-        d = self.model_dump(exclude_none=True)
-        qs = "*" if not d else " AND ".join(filter(None, _build_clauses())) or "*"
+        #d = self.model_dump(exclude_none=True, exclude_defaults=True)
+        qs = " AND ".join(filter(None, _build_clauses())) or "*"
 
         # default_field: _id below is an attempt to fix "field expansion matches too many fields"
         # https://discuss.elastic.co/t/no-detection-of-fields-in-query-string-query-strings-results-in-field-expansion-matches-too-many-fields/216137/2
@@ -360,6 +372,7 @@ include documents matching the given `gulp.source_id`/s.
         """
         return not any(
             [
+                self.time_range,
                 self.agent_type,
                 self.id,
                 self.operation_id,
@@ -367,7 +380,6 @@ include documents matching the given `gulp.source_id`/s.
                 self.source_id,
                 self.event_code,
                 self.event_original,
-                self.time_range,
                 self.model_extra,
             ]
         )

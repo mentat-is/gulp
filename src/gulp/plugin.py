@@ -42,7 +42,11 @@ from gulp.api.opensearch.query import (
 )
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import (
+    GulpDocumentsChunkPacket,
+    GulpSharedWsQueue,
+    GulpWsQueueDataType,
+)
 from gulp.config import GulpConfig
 from gulp.structs import (
     GulpPluginAdditionalParameter,
@@ -617,7 +621,7 @@ class GulpPluginBase(ABC):
         ]
         if ws_docs:
             # send documents to the websocket
-            chunk = GulpDocumentsChunk(
+            chunk = GulpDocumentsChunkPacket(
                 docs=ws_docs,
                 num_docs=len(ws_docs),
                 # wait for refresh is set only on the last chunk
@@ -874,7 +878,6 @@ class GulpPluginBase(ABC):
             list[dict]: the augmented documents
         """
         return docs
-        
 
     async def _record_to_gulp_documents_wrapper(
         self,
@@ -1287,7 +1290,9 @@ class GulpPluginBase(ABC):
                 self._docs_buffer = await self._augment_documents(self._docs_buffer)
 
                 # then upper (stacked)
-                self._docs_buffer = await self._upper_augment_documents_fun(self._docs_buffer)
+                self._docs_buffer = await self._upper_augment_documents_fun(
+                    self._docs_buffer
+                )
             else:
                 # call our augment_documents
                 self._docs_buffer = await self._augment_documents(self._docs_buffer)

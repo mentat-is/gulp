@@ -41,6 +41,20 @@ class GulpCollabDeletePacket(BaseModel):
     id: str = Field(..., description="The collab ID.")
 
 
+class GulpQueryDonePacket(BaseModel):
+    """
+    Represents a query done event on the websocket.
+    """
+
+    req_id: str = Field(..., description="The request ID.")
+    status: GulpRequestStatus = Field(
+        ..., description="The status of the query operation (done/failed)."
+    )
+    total_hits: Optional[int] = Field(
+        None, description="The total number of hits for the query."
+    )
+
+
 class GulpIngestSourceDonePacket(BaseModel):
     """
     to signal on the websocket that a source ingestion is done
@@ -144,6 +158,7 @@ class GulpWsQueueDataType(StrEnum):
     COLLAB_DELETE = "collab_delete"
     # GulpIngestSourceDonePacket to indicate a source has been ingested
     INGEST_SOURCE_DONE = "ingest_source_done"
+    # GulpQueryDonePacket
     QUERY_DONE = "query_done"
     # GulpRebaseDonePacket
     REBASE_DONE = "rebase_done"
@@ -172,7 +187,7 @@ class GulpWsAuthParameters(BaseModel):
     )
 
 
-class GulpDocumentsChunk(BaseModel):
+class GulpDocumentsChunkPacket(BaseModel):
     """
     Represents a chunk of GulpDocument dictionaries returned by a query or sent during ingestion.
 
@@ -202,7 +217,7 @@ class GulpDocumentsChunk(BaseModel):
         False,
         description="is this the last chunk of a query response ? (may not be available).",
     )
-    search_after: Optional[dict] = Field(
+    search_after: Optional[list] = Field(
         None,
         description="to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
     )

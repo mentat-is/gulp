@@ -82,13 +82,12 @@ class GulpQueryAdditionalParameters(BaseModel):
 
     sort: Optional[dict[str, GulpSortOrder]] = Field(
         default={"@timestamp": "asc", "_id": "asc", "event.sequence": "asc"},
-        max_length=1,
         description="how to sort results, default=sort by ascending `@timestamp`.",
     )
-    fields: Optional[list[str]] = Field(
+    fields: Optional[list[str]|str] = Field(
         default=QUERY_DEFAULT_FIELDS,
         description="the set of fields to include in the returned documents.<br>"
-        "default=`%s` (which are forcefully included anyway), use `None` to return all fields."
+        "default=`%s` (which are forcefully included anyway), use `*` to return all fields."
         % (QUERY_DEFAULT_FIELDS),
     )
     limit: Optional[int] = Field(
@@ -97,9 +96,15 @@ class GulpQueryAdditionalParameters(BaseModel):
         le=10000,
         description="for pagination, the maximum number of documents to return **per chunk**, default=1000 (None=return up to 10000 documents per chunk).",
     )
-    search_after: Optional[list[int | str]] = Field(
+    search_after: Optional[list] = Field(
         None,
-        description="to use pagination driven by the client: this is the last value returned as `search_after` from the previous query, to be used as start offset. Ignored if `loop` is set.",
+        description="""
+for pagination, this should be set to the `search_after` returned by the previous call. 
+
+- check [OpenSearch documentation](https://opensearch.org/docs/latest/search-plugins/searching-data/paginate/#the-search_after-parameter).
+
+- ignored if `loop` is set.
+""",
     )
     loop: Optional[bool] = Field(
         True,
@@ -110,7 +115,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         description="if set, this is a sigma query and these are the additional parameters (i.e. to create notes or choose a specific pipeline).",
     )
     external_uri: str = Field(
-        ...,
+        None,
         description="for external queries: the URI to use to query the external system.",
     )
     external_credentials: tuple[str, str] = Field(
@@ -144,7 +149,7 @@ class GulpQueryAdditionalParameters(BaseModel):
                 n["sort"].append({"event.sequence": {"order": v}})
 
         # fields to be returned
-        if self.fields:
+        if self.fields and self.fields != '*':
             # only return these fields (must always include the defaults)
             for f in QUERY_DEFAULT_FIELDS:
                 if f not in self.fields:
@@ -177,10 +182,10 @@ class GulpQuery:
         user_id: str,
         req_id: str,
         ws_id: str,
-        dsl: dict,
+        q: dict,
         index: str,
         flt: GulpQueryFilter = None,
-        options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
         sess: AsyncSession = None,
     ) -> None:
@@ -191,75 +196,30 @@ class GulpQuery:
             user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
-            dsl(dict): the dsl query in OpenSearch/Elasticsearch DSL language to use
+            q(dict): the dsl query in OpenSearch/Elasticsearch DSL language to use
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
-            options(GulpQueryAdditionalParameters, optional): additional options to use
+            q_options(GulpQueryAdditionalParameters, optional): additional options to use
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
             user_id(str, optional): the user id of the requestor (default=use the token to get the user id)
             sess(AsyncSession, optional): collab database session, used only if options.sigma_parameters.create_notes is set
         Raises:
             ObjectNotFound: if no document is found
         """
-        if not options:
-            options = GulpQueryAdditionalParameters()
+        if not q_options:
+            q_options = GulpQueryAdditionalParameters()
 
-        if flt:
+        if flt and not flt.is_empty():
             # merge with filter
-            dsl = flt.merge_to_opensearch_dsl(dsl)
+            q = flt.merge_to_opensearch_dsl(q)
 
         await GulpOpenSearch.get_instance().search_dsl(
             index=index,
-            q=dsl,
+            q=q,
             req_id=req_id,
             ws_id=ws_id,
             user_id=user_id,
-            options=options,
-            el=el,
-            sess=sess,
-        )
-
-    @staticmethod
-    async def query_gulp(
-        user_id: str,
-        req_id: str,
-        ws_id: str,
-        index: str,
-        flt: GulpQueryFilter,
-        options: GulpQueryAdditionalParameters = None,
-        el: AsyncElasticsearch = None,
-        sess: AsyncSession = None,
-    ) -> None:
-        """
-        Perform a query using the given filter and options, streaming GulpDocumentChunk results to the websocket.
-
-        NOTE: calls `raw_query` with the filter converted to OpenSearch/Elasticsearch DSL.
-
-        Args:
-            user_id(str): the user id of the requestor
-            req_id(str): the request id
-            ws_id(str): the websocket id
-            index(str): the opensearch/elasticsearch index/datastream to target
-            flt(GulpQueryFilter): the filter to use
-            options(GulpQueryAdditionalParameters, optional): additional options to use
-            el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
-            sess(AsyncSession, optional): collab database session, used only if options.sigma_parameters.create_notes is set
-
-        Raises:
-            ObjectNotFound: if no document is found
-        """
-        if not options:
-            options = GulpQueryAdditionalParameters()
-        options.sigma_parameters = None
-
-        dsl = flt.to_opensearch_dsl()
-        await GulpQuery.query_raw(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            dsl=dsl,
-            index=index,
-            options=options,
+            q_options=q_options,
             el=el,
             sess=sess,
         )
@@ -340,7 +300,7 @@ class GulpQuery:
         index: str,
         referenced_sigma: list[str] = None,
         flt: GulpQueryFilter = None,
-        options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
     ) -> None:
         """
@@ -357,43 +317,43 @@ class GulpQuery:
             index(str): the gulp's opensearch/elasticsearch index/datastream to target
             referenced_sigma(list[str], optional): if any, each element is a sigma rule YAML referenced by `name` in the main sigma rule
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
-            options(GulpQueryAdditionalParameters, optional): additional options to use, refer to `GulpQueryAdditionalParameters` for more details about sigma rule options
+            q_options(GulpQueryAdditionalParameters, optional): additional options to use, refer to `GulpQueryAdditionalParameters` for more details about sigma rule options
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
 
         Raises:
             MissingPermission: if the token is invalid or the user has no permission
             ObjectNotFound: if no document is found
         """
-        if not options:
+        if not q_options:
             # use defaults
-            options = GulpQueryAdditionalParameters()
+            q_options = GulpQueryAdditionalParameters()
 
-        if not options.sigma_parameters:
+        if not q_options.sigma_parameters:
             # use defaults
-            options.sigma_parameters = GulpSigmaQueryParameters()
+            q_options.sigma_parameters = GulpSigmaQueryParameters()
 
         queries: list[GulpConvertedSigma] = GulpQuery.query_sigma_build(
             sigma=sigma,
             plugin=plugin,
             referenced_sigma=referenced_sigma,
             backend="opensearch",
-            pipeline=options.sigma_parameters.pipeline,
+            pipeline=q_options.sigma_parameters.pipeline,
             output_format="dsl_lucene",
         )
 
         for q in queries:
             # perform queries
-            options.sigma_parameters.note_name = q.name
-            options.sigma_parameters.note_tags = q.tags
+            q_options.sigma_parameters.note_name = q.name
+            q_options.sigma_parameters.note_tags = q.tags
             await GulpQuery.query_raw(
                 sess=sess,
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                dsl=q.q,
+                q=q.q,
                 index=index,
                 flt=flt,
-                options=options,
+                q_options=q_options,
                 el=el,
             )
 
@@ -406,7 +366,7 @@ class GulpQuery:
         stored_query_id: str,
         index: str,
         flt: GulpQueryFilter = None,
-        options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
     ) -> None:
         """
@@ -420,7 +380,7 @@ class GulpQuery:
             stored_query_id(str): the id of the stored query to use
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
-            options(GulpQueryAdditionalParameters, optional): additional options to use
+            q_ptions(GulpQueryAdditionalParameters, optional): additional options to use
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
 
         Raises:
@@ -429,19 +389,19 @@ class GulpQuery:
         """
         # get stored query by id
         q: GulpStoredQuery = await GulpStoredQuery.get_by_id(sess, stored_query_id)
-        if not options:
-            options = GulpQueryAdditionalParameters()
-        options.sigma_parameters = None
+        if not q_options:
+            q_options = GulpQueryAdditionalParameters()
+        q_options.sigma_parameters = None
 
         await GulpQuery.query_raw(
             sess,
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            dsl=json.loads(q.q),
+            q=json.loads(q.q),
             index=index,
             flt=flt,
-            options=options,
+            q_options=q_options,
             el=el,
         )
 

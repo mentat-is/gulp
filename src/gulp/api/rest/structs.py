@@ -746,7 +746,7 @@ additional parameters for querying.
         Returns:
             dict: The query options.
         """
-        return options or {}
+        return options or GulpQueryAdditionalParameters()
 
     def param_collab_flt_optional(
         flt: Annotated[

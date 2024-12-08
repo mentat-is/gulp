@@ -1265,26 +1265,93 @@
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabType,
+    GulpUserPermission,
     MissingPermission,
 )
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+from gulp.api.opensearch.query import GulpQuery, GulpQueryAdditionalParameters
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.rest.server_utils import (
     ServerUtils,
 )
 from gulp.api.rest.structs import APIDependencies
 from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
+from muty.log import MutyLogger
+import muty.string
+import muty.crypto
+import muty.dynload
 
 router: APIRouter = APIRouter()
+
+
+async def _query_raw_internal(
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    index: str,
+    q: list[dict],
+    q_options: GulpQueryAdditionalParameters,
+    flt: GulpQueryFilter,
+) -> None:
+    """
+    runs in a worker and perform one or more queries, streaming results to the `ws_id` websocket
+    """
+    async with GulpCollab.get_instance().session() as sess:
+        for qq in q:
+            try:
+                await GulpQuery.query_raw(
+                    user_id=user_id,
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    index=index,
+                    q=qq,
+                    q_options=q_options,
+                    flt=flt,
+                    sess=sess,
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
+
+
+async def _spawn_query_raw(
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    index: str,
+    q: list[dict],
+    q_options: GulpQueryAdditionalParameters,
+    flt: GulpQueryFilter = None,
+) -> None:
+    """
+    spawns a task which runs the ingestion in a worker process's task
+    """
+    MutyLogger.get_instance().debug("spawning query task ...")
+    kwds = dict(
+        user_id=user_id,
+        req_id=req_id,
+        ws_id=ws_id,
+        index=index,
+        q=q,
+        q_options=q_options,
+        flt=flt,
+    )
+    # print(json.dumps(kwds, indent=2))
+
+    async def worker_coro(kwds: dict):
+        await GulpProcess.get_instance().process_pool.apply(
+            _query_raw_internal, kwds=kwds
+        )
+
+    await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
 
 
 @router.post(
@@ -1305,12 +1372,11 @@ router: APIRouter = APIRouter()
             }
         }
     },
-    summary="the default query.",
+    summary="the default query type for Gulp.",
     description="""
-    query Gulp's OpenSearch with filter.
+    query Gulp with filter.
 
     - this API returns `pending` and results are streamed to the `ws_id` websocket.
-    - queries are run in the background using tasks in worker processes.
 """,
 )
 async def query_gulp(
@@ -1318,7 +1384,7 @@ async def query_gulp(
     index: Annotated[str, Depends(APIDependencies.param_index)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
-    q_params: Annotated[
+    q_options: Annotated[
         GulpQueryAdditionalParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
     ] = None,
@@ -1326,19 +1392,141 @@ async def query_gulp(
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
-    params["q_params"] = q_params.model_dump(exclude_none=True)
+    params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
     try:
-        # spawn a task which runs the ingestion in a worker process
-        async def worker_coro(kwds: dict):
-            await GulpProcess.get_instance().process_pool.apply(
-                _ingest_raw_internal, kwds=kwds
-            )
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            s = await GulpUserSession.check_token(sess, token)
+            user_id = s.user_id
 
-        await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+        # convert gulp query to raw query and spawn task
+        dsl = flt.to_opensearch_dsl()
+        await _spawn_query_raw(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            q=[dsl],
+            q_options=q_options,
+        )
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+
+
+@router.post(
+    "/query_raw",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="Advanced query.",
+    description="""
+    query Gulp using a [raw OpenSearch query](https://opensearch.org/docs/latest/query-dsl/).
+
+    - this API returns `pending` and results are streamed to the `ws_id` websocket.
+    - `flt` may be used to restrict the raw query.
+""",
+)
+async def query_raw(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    q: Annotated[
+        dict,
+        Body(
+            description="query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)",
+            examples=[{"query": {"match_all": {}}}],
+        ),
+    ],
+    q_options: Annotated[
+        GulpQueryAdditionalParameters,
+        Depends(APIDependencies.param_query_additional_parameters_optional),
+    ] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["q_options"] = q_options.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            s = await GulpUserSession.check_token(sess, token)
+            user_id = s.user_id
+
+        # convert gulp query to raw query and spawn task
+        await _spawn_query_raw(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            q=[q],
+            q_options=q_options,
+            flt=flt,
+        )
+
+        # and return pending
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+
+
+@router.post(
+    "/query_single",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": GulpDocument.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="Query a single document.",
+    description="""
+    query Gulp for a single document using its `_id`.
+""",
+)
+async def query_single(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    doc_id: Annotated[str, Query(description="`_id` of the document on Gulp `index`.")],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+
+    try:
+        d = await GulpQuery.query_single(index, doc_id)
+        return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)

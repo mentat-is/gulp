@@ -146,6 +146,8 @@ GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
 
 ##### Ingestion
 
+TODO: check test results
+
 ```bash
 # win_evtx
 # 98633 records, 1 record failed, 1 skipped, 98631 ingested
@@ -179,18 +181,14 @@ GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
 
 ##### Collaboration
 
+TODO: test all the other API
+
 ```bash
-# users
-./test_scripts/test_user.py --mode admin
+# test user paths
+python3 -m pytest tests/user.py
 
-# reset first, then test as guest (cannot create users/update permissions/access other users)
-./test_scripts/test_user.py --mode guest --reset
-
-# notes
-./test_scripts/test_collab_obj.py --username editor --password editor
-
-# reset first, then this should fail (missing EDIT permission)
-./test_scripts/test_collab_obj.py --username gues --password guest --reset
+# test notes, acl
+python3 -m pytest tests/note.py
 ```
 
 ## Architecture

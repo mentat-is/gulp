@@ -13,12 +13,18 @@ from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import (
     GulpDocumentFilterResult,
     GulpIngestionFilter,
     GulpQueryFilter,
 )
-from gulp.api.ws_api import GulpDocumentsChunk, GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import (
+    GulpDocumentsChunkPacket,
+    GulpQueryDonePacket,
+    GulpSharedWsQueue,
+    GulpWsQueueDataType,
+)
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -232,7 +238,7 @@ class GulpOpenSearch:
         # loop with query_raw until there's data and update filtered_mapping
         while True:
             try:
-                docs = await self.search_dsl(index=name, q=q, options=options)
+                docs = await self.search_dsl(index=name, q=q, q_options=options)
                 # MutyLogger.get_instance().debug("docs: %s" % (json.dumps(docs, indent=2)))
             except ObjectNotFound:
                 break
@@ -1001,7 +1007,7 @@ class GulpOpenSearch:
         req_id: str = None,
         ws_id: str = None,
         user_id: str = None,
-        options: "GulpQueryAdditionalParameters" = None,
+        q_options: "GulpQueryAdditionalParameters" = None,
         el: AsyncElasticsearch = None,
         sess: AsyncSession = None,
     ) -> None:
@@ -1016,7 +1022,7 @@ class GulpOpenSearch:
             req_id (str), optional: The request ID for the query
             ws_id (str, optional): The websocket ID to send the results to
             user_id (str, optional): The user ID performing the query
-            options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
+            q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
             sess (AsyncSession, options): SQLAlchemy session, used only if options.sigma_parameters.create_notes is set. Defaults to None.
 
@@ -1026,13 +1032,13 @@ class GulpOpenSearch:
         """
         from gulp.api.opensearch.query import GulpQueryAdditionalParameters
 
-        if not options:
+        if not q_options:
             # use defaults
-            options = GulpQueryAdditionalParameters()
+            q_options = GulpQueryAdditionalParameters()
 
-        if options.sigma_parameters:
-            if not options.sigma_parameters.create_notes and (
-                not options.sigma_parameters.note_name or not sess
+        if q_options.sigma_parameters:
+            if not q_options.sigma_parameters.create_notes and (
+                not q_options.sigma_parameters.note_name or not sess
             ):
                 raise ValueError(
                     "note_name and sess are both required for a sigma query when sigma_create_notes is set!"
@@ -1046,11 +1052,12 @@ class GulpOpenSearch:
                 "search_dsl: using provided ElasticSearch client %s" % (el)
             )
 
-        parsed_options: dict = options.parse()
+        parsed_options: dict = q_options.parse()
         processed: int = 0
         chunk_num: int = 0
         while True:
             last: bool = False
+            docs: list[dict] = []
             try:
                 if use_elasticsearch_api:
                     # use the ElasticSearch client provided
@@ -1060,7 +1067,7 @@ class GulpOpenSearch:
                     res = await el.search(
                         index=index,
                         track_total_hits=True,
-                        query=q,
+                        query=q["query"],
                         sort=parsed_options["_sort"],
                         size=parsed_options["_size"],
                         search_after=parsed_options["search_after"],
@@ -1068,8 +1075,11 @@ class GulpOpenSearch:
                     )
                 else:
                     # use the OpenSearch client (default)
-                    body = {"track_total_hits": True, "query": q}
-                    body.update(parsed_options)
+                    body = q
+                    body["track_total_hits"] = True
+                    for k, v in parsed_options.items():
+                        if v:
+                            body[k] = v
                     MutyLogger.get_instance().debug(
                         "query_raw body=%s" % (json.dumps(body, indent=2))
                     )
@@ -1087,22 +1097,32 @@ class GulpOpenSearch:
                     raise ObjectNotFound("no more results found!")
 
                 # get data
-                chunk_num += 1
                 total_hits = res["hits"]["total"]["value"]
                 docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
                 search_after = hits[-1]["sort"]
-                if options.loop:
+                if q_options.loop:
                     # auto setup for next iteration
-                    options.search_after = search_after
+                    parsed_options["search_after"] = search_after
 
                 processed += len(docs)
-                if processed >= total_hits:
+                if processed >= total_hits or not q_options.loop:
                     # this is the last chunk
                     last = True
 
             except ObjectNotFound as ex:
-                if processed == 0:
+                if processed == 0 and ws_id:
                     # no results at all
+                    p = GulpQueryDonePacket(
+                        req_id=req_id, status=GulpRequestStatus.FAILED, total_hits=0
+                    )
+                    GulpSharedWsQueue.get_instance().put(
+                        type=GulpWsQueueDataType.QUERY_DONE,
+                        ws_id=ws_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        data=p.model_dump(exclude_none=True),
+                    )
+
                     raise ex
                 else:
                     # indicates the last result
@@ -1114,7 +1134,7 @@ class GulpOpenSearch:
 
             if ws_id:
                 # build a GulpDocumentsChunk and send to websocket
-                chunk = GulpDocumentsChunk(
+                chunk = GulpDocumentsChunkPacket(
                     docs=docs,
                     num_docs=len(docs),
                     chunk_number=chunk_num,
@@ -1122,8 +1142,6 @@ class GulpOpenSearch:
                     last=last,
                     search_after=search_after,
                 )
-
-                # TODO: consider to send only a subset of the fields on the websocket
                 GulpSharedWsQueue.get_instance().put(
                     type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                     ws_id=ws_id,
@@ -1131,8 +1149,24 @@ class GulpOpenSearch:
                     req_id=req_id,
                     data=chunk.model_dump(exclude_none=True),
                 )
-
-            if options.sigma_parameters.sigma_create_notes:
+                if last:
+                    # also send a GulpQueryDonePacket
+                    p = GulpQueryDonePacket(
+                        req_id=req_id,
+                        status=GulpRequestStatus.DONE,
+                        total_hits=total_hits,
+                    )
+                    GulpSharedWsQueue.get_instance().put(
+                        type=GulpWsQueueDataType.QUERY_DONE,
+                        ws_id=ws_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        data=p.model_dump(exclude_none=True),
+                    )
+            if (
+                q_options.sigma_parameters
+                and q_options.sigma_parameters.sigma_create_notes
+            ):
                 # this is a sigma, auto-create a note for each of the matched document on collab db
                 GulpNote.bulk_create_from_documents(
                     sess,
@@ -1140,15 +1174,19 @@ class GulpOpenSearch:
                     ws_id=ws_id,
                     req_id=req_id,
                     docs=docs,
-                    name=options.sigma_parameters.note_name,
-                    tags=options.sigma_parameters.note_tags,
-                    color=options.sigma_parameters.note_color,
-                    glyph_id=options.sigma_parameters.note_glyph_id,
-                    private=options.sigma_parameters.note_private,
+                    name=q_options.sigma_parameters.note_name,
+                    tags=q_options.sigma_parameters.note_tags,
+                    color=q_options.sigma_parameters.note_color,
+                    glyph_id=q_options.sigma_parameters.note_glyph_id,
+                    private=q_options.sigma_parameters.note_private,
                 )
-            if last or not options.loop:
+            if last or not q_options.loop:
                 break
 
+            # next chunk
+            chunk_num += 1
+
         MutyLogger.get_instance().info(
-            "search_dsl: processed %d documents, total=%d" % (processed, total_hits)
+            "search_dsl: processed %d documents, total=%d, chunks=%d"
+            % (processed, total_hits, chunk_num)
         )

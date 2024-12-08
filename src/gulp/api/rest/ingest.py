@@ -636,7 +636,7 @@ async def ingest_raw_handler(
         )
         # print(json.dumps(kwds, indent=2))
 
-        # spawn a task which runs the ingestion in a worker process
+        # spawn a task which runs the ingestion in a worker process's task
         async def worker_coro(kwds: dict):
             await GulpProcess.get_instance().process_pool.apply(
                 _ingest_raw_internal, kwds=kwds
@@ -858,7 +858,7 @@ async def ingest_zip_handler(
                 payload=f,
             )
 
-            # spawn a task which runs the ingestion in a worker process
+            # spawn a task which runs the ingestion in a worker process's task
             async def worker_coro(kwds: dict):
                 await GulpProcess.get_instance().process_pool.apply(
                     _ingest_file_internal, kwds=kwds

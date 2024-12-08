@@ -45,7 +45,7 @@ router = APIRouter()
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
                         "data": {
                             "token": "6c40c48a-f504-48ac-93fc-63948ec0c9cf",
-                            "user_id": "admin",
+                            "id": "admin",
                             "time_expire": 1707470710830,
                         },
                     }
@@ -97,7 +97,7 @@ async def login_handler(
                     req_id=req_id,
                     data={
                         "token": s.id,
-                        "user_id": s.user_id,
+                        "id": s.user_id,
                         "time_expire": s.time_expire,
                     },
                 )
@@ -119,7 +119,7 @@ async def login_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"user_id": "admin"},
+                        "data": {"id": "admin", "token": "token_admin"},
                     }
                 }
             }
@@ -149,9 +149,7 @@ async def logout_handler(
             return JSONResponse(
                 JSendResponse.success(
                     req_id=req_id,
-                    data={
-                        "user_id": s.user_id,
-                    },
+                    data={"id": s.user_id, "token": token},
                 )
             )
     except Exception as ex:
@@ -283,7 +281,7 @@ async def user_delete_handler(
         return JSONResponse(
             JSendResponse.success(
                 req_id=req_id,
-                data={"user_id": user_id},
+                data={"id": user_id},
             )
         )
 
