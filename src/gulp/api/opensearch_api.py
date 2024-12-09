@@ -979,7 +979,7 @@ class GulpOpenSearch:
             if el:
                 res = await el.indices.get_data_stream(name=datastream)
             else:
-                res = await self._opensearch.indices.get_data_stream(name=name)
+                res = await self._opensearch.indices.get_data_stream(name=datastream)
 
             # resolve to index
             index = res["data_streams"][0]["indices"][0]["index_name"]

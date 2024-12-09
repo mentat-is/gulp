@@ -32,15 +32,14 @@ class GulpBaseDocumentFilter(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    time_range: Optional[tuple[int | str, int | str, bool]] = Field(
+    int_filter: Optional[tuple[int, int] | tuple[int, int, str]] = Field(
         default=None,
-        example=[1551385571023173120, 1551446406878338048, False],
+        example=[1551385571023173120, 1551446406878338048, "gulp.timestamp"],
         description="""
-include documents matching `gulp.timestamp` in a time range [start, end], inclusive, in nanoseconds from unix epoch.
-if the third element is True, [start, end] are strings and matching is against `@timestamp` string, according to [DSL docs about date ranges](https://opensearch.org/docs/latest/query-dsl/term/range/#date-fields).
+a tuple representing `[ start, end, field]`.
 
-**for ingestion filtering, `gulp.timestamp` is always used (match against nanoseconds) and the third element is ignored**.
-        """,
+- `field` may be omitted (defaults to `gulp.timestamp`, nanoseconds from the unix epoch).
+""",
     )
 
     query_string_parameters: Optional[dict] = Field(
@@ -104,9 +103,9 @@ default is False (both OpenSearch and websocket receives the filtered results).
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
 
-        if flt.time_range:
+        if flt.int_filter:
             ts = doc["gulp.timestamp"]
-            if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
+            if ts <= flt.int_filter[0] or ts >= flt.int_filter[1]:
                 return GulpDocumentFilterResult.SKIP
 
         return GulpDocumentFilterResult.ACCEPT
@@ -116,7 +115,8 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     """
     a GulpQueryFilter defines a filter for the query API.
 
-    further key,value pairs are allowed and will be used as additional filters.
+    - query is built using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query.
+    - further key,value pairs are allowed and will be used as additional filters.
     """
 
     agent_type: Optional[list[str]] = Field(
@@ -156,14 +156,33 @@ include documents matching the given `gulp.source_id`/s.
         description="include documents matching the given `event.code`/s.",
         example=["5152"],
     )
-    event_original: Optional[tuple[str, bool]] = Field(
+    event_original: Optional[tuple[str, bool] | str] = Field(
         None,
         description="""include documents matching the given `event.original`.
 
-        if the second element is `True`, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original` field.
-        if the second element is `False`, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).
+        - if just a string is provided, assumes `keyword search` (`wildcard` and `case-insensitive` supported).
+        - if the second element is `False`, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).
+        - if the second element is `True`, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original.text` field.
         """,
         example=["*searchme*", False],
+    )
+    date_range: Optional[tuple[str, str] | tuple[str, str, str]] = Field(
+        default=None,
+        example=[
+            "2010-11-10T17:22:53.203125+00:00",
+            "2010-11-10T17:23:50.000000+00:00",
+            "@timestamp",
+        ],
+        description="""
+a tuple representing `[ time_start, time_end, field ]`.
+
+- `field` may be omitted (defaults to `@timestamp`, ISO-8601 string).
+""",
+    )
+    range_parameters: Optional[dict] = Field(
+        default=None,
+        example={"time_zone": "+01:00", "format": "strict_date_optional_time"},
+        description="additional parameters to be applied to `date_range`, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/term/range/#parameters)",
     )
 
     @override
@@ -190,23 +209,15 @@ include documents matching the given `gulp.source_id`/s.
             """
             qs += f"{field}: {v} OR "
 
-        qs = qs[:-4]
+        qs = qs[:-4]  # remove last " OR "
         qs += ")"
         return qs
 
     def _query_string_build_eq_clause(self, field: str, v: int | str) -> str:
-        """
-        if isinstance(v, str):
-            # only enclose if there is a space in the value
-            vv = muty.string.enclose(v) if " " in v else v
-        else:
-            vv = v
-        """
         qs = f"{field}: {v}"
         return qs
 
     def _query_string_build_gte_clause(self, field: str, v: int) -> str:
-        if isinstance(v, str):
         qs = f"{field}: >={v}"
         return qs
 
@@ -244,7 +255,6 @@ include documents matching the given `gulp.source_id`/s.
 
         def _build_clauses():
             clauses: list[str] = []
-            range_q = {}
 
             if self.agent_type:
                 clauses.append(
@@ -270,9 +280,17 @@ include documents matching the given `gulp.source_id`/s.
                 )
             if self.id:
                 clauses.append(self._query_string_build_or_clauses("_id", self.id))
+
             if self.event_original:
                 # check for full text search or keyword search
-                event_original, fts = self.event_original
+                if len(self.event_original) == 2:
+                    # tuple
+                    event_original, fts = self.event_original
+                else:
+                    # keyword search
+                    fts = False
+                    event_original = self.event_original
+
                 field = "event.original.text" if fts else "event.original"
                 clauses.append(
                     self._query_string_build_eq_clause(field, event_original)
@@ -281,22 +299,19 @@ include documents matching the given `gulp.source_id`/s.
                 clauses.append(
                     self._query_string_build_or_clauses("event.code", self.event_code)
                 )
-            if self.time_range:
-                # use string or numeric field depending on the third element (default to numeric)
-                timestamp_field = (
-                    "@timestamp" if self.time_range[2] else "gulp.timestamp"
-                )
-                if self.time_range[0]:
+            if self.int_filter:
+                # simple >=, <= clauses
+                if len(self.int_filter) == 2:
+                    field = "gulp.timestamp"
+                else:
+                    field = self.int_filter[2]
+                if self.int_filter[0]:
                     clauses.append(
-                        self._query_string_build_gte_clause(
-                            timestamp_field, self.time_range[0]
-                        )
+                        self._query_string_build_gte_clause(field, self.int_filter[0])
                     )
-                if self.time_range[1]:
+                if self.int_filter[1]:
                     clauses.append(
-                        self._query_string_build_lte_clause(
-                            timestamp_field, self.time_range[1]
-                        )
+                        self._query_string_build_lte_clause(field, self.int_filter[1])
                     )
             if self.model_extra:
                 # extra fields
@@ -308,37 +323,54 @@ include documents matching the given `gulp.source_id`/s.
             # print(clauses)
             return clauses
 
-        #d = self.model_dump(exclude_none=True, exclude_defaults=True)
-        qs = " AND ".join(filter(None, _build_clauses())) or "*"
-
-        # default_field: _id below is an attempt to fix "field expansion matches too many fields"
+        # build the query struct
+        #
+        # NOTE: default_field: _id below is an attempt to fix "field expansion matches too many fields"
         # https://discuss.elastic.co/t/no-detection-of-fields-in-query-string-query-strings-results-in-field-expansion-matches-too-many-fields/216137/2
         # (caused by "default_field" which by default is "*" and the query string is incorrectly parsed when parenthesis are used as we do, maybe this could be fixed in a later opensearch version as it is in elasticsearch)
         query_dict = {
             "query": {
-                "query_string": {
-                    "query": qs,
-                    "analyze_wildcard": True,
-                    "default_field": "_id",
+                "bool": {
+                    "must": [
+                        {
+                            "query_string": {
+                                "query": " AND ".join(filter(None, _build_clauses()))
+                                or "*",
+                                "analyze_wildcard": True,
+                                "default_field": "_id",
+                            }
+                        }
+                    ]
                 }
             }
         }
+        must_array = query_dict["query"]["bool"]["must"]
+        bool_dict = query_dict["query"]["bool"]
+        q_string = query_dict["query"]["bool"]["must"][0]["query_string"]
+        if self.query_string_parameters:
+            q_string.update(self.query_string_parameters)
 
-        if qs != "*" and self.query_string_parameters:
-            query_dict["query"]["query_string"].update(self.query_string_parameters)
+        if self.date_range:
+            # build range query
+            range_q = {}
+            if len(self.date_range) == 2:
+                field = "@timestamp"
+            else:
+                field = self.date_range[2]
+            if self.date_range[0]:
+                range_q["gte"] = self.date_range[0]
+            if self.date_range[1]:
+                range_q["lte"] = self.date_range[1]
+
+            # add range query
+            r = {field: range_q}
+            if self.range_parameters:
+                r[field].update(self.range_parameters)
+            must_array.append({"range": {field: range_q}})
 
         if flt:
             # merge with the provided filter using a bool query
-            query_dict = {
-                "query": {
-                    "bool": {
-                        "filter": [
-                            flt.to_opensearch_dsl()["query"],
-                            query_dict["query"],
-                        ]
-                    }
-                }
-            }
+            bool_dict["filter"] = [flt.to_opensearch_dsl()["query"]]
 
         # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
         return query_dict
@@ -372,7 +404,7 @@ include documents matching the given `gulp.source_id`/s.
         """
         return not any(
             [
-                self.time_range,
+                self.int_filter,
                 self.agent_type,
                 self.id,
                 self.operation_id,

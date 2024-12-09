@@ -1526,6 +1526,10 @@ async def query_single(
     ServerUtils.dump_params(params)
 
     try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            await GulpUserSession.check_token(sess, token)
+
         d = await GulpQuery.query_single(index, doc_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:

@@ -1,13 +1,82 @@
 {
     "gulp_query": [
         {
-            // total_hits: 89
+            // 89 hits
             "flt": {
-                "time_range": [
+                "int_filter": [
                     1551385571023173000,
                     1551446406878338000,
-                    false
+                    "gulp.timestamp"
                 ],
+                "agent_type": [
+                    "win_evtx"
+                ],
+                "operation_id": [
+                    "test_operation"
+                ]
+            },
+            "options": {
+                "sort": {
+                    "@timestamp": "asc",
+                    "_id": "asc",
+                    "event.sequence": "asc"
+                },
+                "fields": [
+                    "_id",
+                    "@timestamp",
+                    "event.duration",
+                    "event.code",
+                    "gulp.timestamp",
+                    "gulp.timestamp_invalid",
+                    "gulp.operation_id",
+                    "gulp.context_id",
+                    "gulp.source_id",
+                    "gulp.event_code"
+                ],
+                "limit": 1000,
+                "loop": true
+            }
+        },
+        {
+            // 5 hits
+            "flt": {
+                "date_range": [
+                    "2010-11-10T17:20:34+00:00",
+                    "2010-11-10T17:21:01+00:00",
+                    "@timestamp"
+                ],
+                "agent_type": [
+                    "win_evtx"
+                ],
+                "operation_id": [
+                    "test_operation"
+                ]
+            },
+            "options": {
+                "sort": {
+                    "@timestamp": "asc",
+                    "_id": "asc",
+                    "event.sequence": "asc"
+                },
+                "fields": [
+                    "_id",
+                    "@timestamp",
+                    "event.duration",
+                    "event.code",
+                    "gulp.timestamp",
+                    "gulp.timestamp_invalid",
+                    "gulp.operation_id",
+                    "gulp.context_id",
+                    "gulp.source_id",
+                    "gulp.event_code"
+                ],
+                "limit": 1000,
+                "loop": true
+            }
+        },
+        {
+            // 98631
+            "flt": {
                 "query_string_parameters": {
                     "analyze_wildcard": true,
                     "default_field": "_id"
@@ -27,15 +96,15 @@
                 "loop": true
             }
         },
+        // 24 hits
         {
-            // total_hits: 98631
             "flt": {
-                "query_string_parameters": {
-                    "analyze_wildcard": true,
-                    "default_field": "_id"
-                },
+                "event_original": "d9060000",
                 "agent_type": [
                     "win_evtx"
+                ],
+                "operation_id": [
+                    "test_operation"
                 ]
             },
             "options": {
@@ -45,6 +114,45 @@
                     "event.sequence": "asc"
                 },
                 "fields": "*",
+                "limit": 1000,
+                "loop": true
+            }
+        },
+        // raw, 24 hits
+        {
+            "q": {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "query_string": {
+                                    "query": "(agent.type: win_evtx) AND (gulp.operation_id: test_operation) AND event.original: d9060000",
+                                    "analyze_wildcard": true,
+                                    "default_field": "_id"
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "options": {
+                "sort": {
+                    "@timestamp": "asc",
+                    "_id": "asc",
+                    "event.sequence": "asc"
+                },
+                "fields": [
+                    "_id",
+                    "@timestamp",
+                    "event.duration",
+                    "event.code",
+                    "gulp.timestamp",
+                    "gulp.timestamp_invalid",
+                    "gulp.operation_id",
+                    "gulp.context_id",
+                    "gulp.source_id",
+                    "gulp.event_code"
+                ],
                 "limit": 1000,
                 "loop": true
             }
