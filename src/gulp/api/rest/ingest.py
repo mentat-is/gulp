@@ -45,6 +45,15 @@ class GulpBaseIngestPayload(BaseModel):
     base payload for ingestion
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "flt": autogenerate_model_example_by_class(GulpIngestionFilter),
+                }
+            ]
+        }
+    )
     flt: Optional[GulpIngestionFilter] = Field(
         GulpIngestionFilter(), description="The ingestion filter."
     )
@@ -55,7 +64,20 @@ class GulpIngestPayload(GulpBaseIngestPayload):
     payload for ingest_file
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "flt": autogenerate_model_example_by_class(GulpIngestionFilter),
+                    "plugin_params": autogenerate_model_example_by_class(
+                        GulpPluginParameters
+                    ),
+                    "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx",
+                }
+            ]
+        },
+    )
 
     plugin_params: Optional[GulpPluginParameters] = Field(
         None, description="The plugin parameters."
@@ -64,16 +86,21 @@ class GulpIngestPayload(GulpBaseIngestPayload):
         None, description="The original file path."
     )
 
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
-
 
 class GulpZipIngestPayload(GulpBaseIngestPayload):
     """
     payload for ingest_zip
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "flt": autogenerate_model_example_by_class(GulpIngestionFilter),
+                }
+            ]
+        }
+    )
 
 
 class GulpZipMetadataEntry(BaseModel):
@@ -81,14 +108,25 @@ class GulpZipMetadataEntry(BaseModel):
     metadata entry for ingest_zip
     """
 
-    plugin: str = Field(..., description="The plugin to use.", example="win_evtx")
-    files: list[str] = Field(
-        ..., description="The files to ingest.", example="file1.evtx"
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "plugin": "win_evtx",
+                    "files": ["file1.evtx"],
+                    "original_path": "c:\\logs",
+                    "plugin_params": autogenerate_model_example_by_class(
+                        GulpPluginParameters
+                    ),
+                }
+            ]
+        }
     )
+    plugin: str = Field(..., description="The plugin to use.")
+    files: list[str] = Field(..., description="The files to ingest.")
     original_path: Optional[str] = Field(
         None,
         description="The original base path where `files` are taken from.",
-        example="c:\\logs",
     )
     plugin_params: Optional[GulpPluginParameters] = Field(
         GulpPluginParameters(), description="The plugin parameters."

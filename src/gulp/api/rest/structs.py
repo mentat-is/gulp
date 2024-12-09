@@ -1,6 +1,6 @@
 from fastapi import Body, Depends, Header, Query
 from typing import Annotated, Optional
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
@@ -41,6 +41,16 @@ class GulpUploadResponse(BaseModel):
     the ingest API may respond with this object to indicate the status of an unfinished upload.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "done": True,
+                    "continue_offset": 0,
+                },
+            ]
+        },
+    )
     done: bool = Field(..., description="Indicates whether the upload is complete.")
     continue_offset: Optional[int] = Field(
         0, description="The offset of the next chunk to be uploaded, to resume."

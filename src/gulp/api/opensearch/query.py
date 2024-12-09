@@ -19,6 +19,20 @@ class GulpConvertedSigma(BaseModel):
     A converted sigma rule
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "test",
+                    "id": "test",
+                    "q": {"query": {"match_all": {}}},
+                    "tags": ["test"],
+                    "backend": "opensearch",
+                    "pipeline": "default",
+                }
+            ]
+        }
+    )
     name: str = Field(..., description="the name/title of the sigma rule.")
     id: str = Field(..., description="the id of the sigma rule.")
     q: Any = Field(..., description="the converted query.")
@@ -34,6 +48,24 @@ class GulpSigmaQueryParameters(BaseModel):
     represents options for a sigma query, to customize automatic note creation or to customize
     the conversion using specific backend/pipeline/output format.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "create_notes": True,
+                    "note_name": "Sigma Rule",
+                    "note_tags": ["auto"],
+                    "note_color": None,
+                    "note_glyph_id": None,
+                    "note_private": False,
+                    "pipeline": None,
+                    "backend": None,
+                    "output_format": None,
+                }
+            ]
+        }
+    )
 
     create_notes: bool = Field(
         True,
@@ -78,13 +110,34 @@ class GulpQueryAdditionalParameters(BaseModel):
     additional options for a query.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "sort": {
+                        "@timestamp": "asc",
+                        "_id": "asc",
+                        "event.sequence": "asc",
+                    },
+                    "fields": ["@timestamp", "event.id"],
+                    "limit": 1000,
+                    "search_after": None,
+                    "loop": True,
+                    "sigma_parameters": None,
+                    "external_uri": "http://localhost:8080",
+                    "external_credentials": ("user", "password"),
+                    "external_options": None,
+                }
+            ]
+        },
+    )
 
     sort: Optional[dict[str, GulpSortOrder]] = Field(
         default={"@timestamp": "asc", "_id": "asc", "event.sequence": "asc"},
         description="how to sort results, default=sort by ascending `@timestamp`.",
     )
-    fields: Optional[list[str]|str] = Field(
+    fields: Optional[list[str] | str] = Field(
         default=QUERY_DEFAULT_FIELDS,
         description="the set of fields to include in the returned documents.<br>"
         "default=`%s` (which are forcefully included anyway), use `*` to return all fields."
@@ -149,7 +202,7 @@ for pagination, this should be set to the `search_after` returned by the previou
                 n["sort"].append({"event.sequence": {"order": v}})
 
         # fields to be returned
-        if self.fields and self.fields != '*':
+        if self.fields and self.fields != "*":
             # only return these fields (must always include the defaults)
             for f in QUERY_DEFAULT_FIELDS:
                 if f not in self.fields:

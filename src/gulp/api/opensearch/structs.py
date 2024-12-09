@@ -7,7 +7,10 @@ import muty.string
 import muty.time
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from muty.pydantic import autogenerate_model_example, autogenerate_model_example_by_class
+from muty.pydantic import (
+    autogenerate_model_example,
+    autogenerate_model_example_by_class,
+)
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.rest.test_values import (
@@ -24,43 +27,49 @@ class GulpBasicDocument(BaseModel):
         extra="allow",
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "_id": "1234567890abcdef1234567890abcdef",
+                    "@timestamp": "2021-01-01T00:00:00Z",
+                    "gulp.timestamp": 1609459200000000000,
+                    "gulp.timestamp_invalid": False,
+                    "gulp.operation_id": TEST_OPERATION_ID,
+                    "gulp.context_id": TEST_CONTEXT_ID,
+                    "gulp.source_id": TEST_SOURCE_ID,
+                }
+            ]
+        },
     )
 
     id: str = Field(
         description='"_id": the unique identifier of the document.',
         alias="_id",
-        example="1234567890abcdef1234567890abcdef",
     )
     timestamp: str = Field(
         description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
-        example="2021-01-01T00:00:00Z",
     )
     gulp_timestamp: int = Field(
         description='"@timestamp": document timestamp in nanoseconds from unix epoch',
         alias="gulp.timestamp",
-        example=1609459200000000000,
     )
     invalid_timestamp: bool = Field(
         False,
         description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
         alias="gulp.timestamp_invalid",
-        example=False,
     )
     operation_id: str = Field(
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
-        example=TEST_OPERATION_ID,
     )
     context_id: str = Field(
         description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
-        example=TEST_CONTEXT_ID,
     )
     source_id: str = Field(
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
-        example=TEST_SOURCE_ID,
     )
 
 
@@ -69,63 +78,67 @@ class GulpDocument(GulpBasicDocument):
     represents a Gulp document.
     """
 
+    model_config = ConfigDict(
+        extra="allow",
+        # solves the issue of not being able to populate fields using field name instead of alias
+        populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "_id": "1234567890abcdef1234567890abcdef",
+                    "@timestamp": "2021-01-01T00:00:00Z",
+                    "gulp.timestamp": 1609459200000000000,
+                    "gulp.timestamp_invalid": False,
+                    "gulp.operation_id": TEST_OPERATION_ID,
+                    "gulp.context_id": TEST_CONTEXT_ID,
+                    "gulp.source_id": TEST_SOURCE_ID,
+                    "agent.type": "win_evtx",
+                    "event.original": "raw event content",
+                    "event.sequence": 1,
+                    "event.code": "1234",
+                    "gulp.event_code": 1234,
+                    "event.duration": 1,
+                    "log.file.path": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
+                }
+            ]
+        },
+    )
+
     log_file_path: Optional[str] = Field(
         None,
         description='"log.file.path": the original log file name or path.',
         alias="log.file.path",
-        example="C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
     )
     agent_type: str = Field(
         None,
         description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
         alias="agent.type",
-        example="win_evtx",
     )
     event_original: str = Field(
         None,
         description='"event.original": the original event as text.',
         alias="event.original",
-        example="raw event content",
     )
     event_sequence: int = Field(
         0,
         description='"event.sequence": the sequence number of the document in the source.',
         alias="event.sequence",
-        example=1,
     )
     event_code: Optional[str] = Field(
         "0",
         description='"event.code": the event code, "0" if missing.',
         alias="event.code",
-        example="1234",
     )
     gulp_event_code: Optional[int] = Field(
         0,
         description='"gulp.event_code": "event.code" as integer.',
         alias="gulp.event_code",
-        example=1234,
     )
     event_duration: Optional[int] = Field(
         1,
         description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
         alias="event.duration",
-        example=1,
     )
-
-    @classmethod
-    def example(cls) -> dict:
-        """
-        builds example of the model
-
-        Returns:
-            dict: the model example
-        """
-        return autogenerate_model_example_by_class(cls)
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
 
     @staticmethod
     def ensure_timestamp(
@@ -339,23 +352,29 @@ class GulpRawDocumentMetadata(BaseModel):
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
         extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "@timestamp": "2021-01-01T00:00:00Z",
+                    "event.original": "raw event content",
+                    "event.code": "1234",
+                }
+            ]
+        },
     )
     timestamp: str = Field(
         ...,
         description="the document timestamp, in iso8601 format.",
-        example="2021-01-01T00:00:00Z",
         alias="@timestamp",
     )
     event_original: str = Field(
         ...,
         description="the original event as text.",
-        example="raw event content",
         alias="event.original",
     )
     event_code: Optional[str] = Field(
         "0",
         description="the event code, defaults to '0'.",
-        example="1234",
         alias="event.code",
     )
 
@@ -365,6 +384,22 @@ class GulpRawDocument(BaseModel):
         extra="allow",
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "__metadata__": autogenerate_model_example_by_class(GulpRawDocumentMetadata),
+                    "doc": {
+                        "agent.type": "win_evtx",
+                        "event.original": "raw event content",
+                        "event.sequence": 1,
+                        "event.code": "1234",
+                        "gulp.event_code": 1234,
+                        "event.duration": 1,
+                        "log.file.path": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
+                    },
+                }
+            ]
+        },
     )
 
     metadata: GulpRawDocumentMetadata = Field(
@@ -377,7 +412,3 @@ class GulpRawDocument(BaseModel):
         description="the document as key/value pairs, to generate the `GulpDocument` with.",
     )
 
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)

@@ -1273,6 +1273,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
     MissingPermission,
 )
+from muty.pydantic import autogenerate_model_example_by_class
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -1511,7 +1512,7 @@ async def query_raw(
                         "status": "pending",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                        "data": GulpDocument.example(),
+                        "data": autogenerate_model_example_by_class(GulpDocument)
                     }
                 }
             }

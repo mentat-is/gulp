@@ -146,44 +146,57 @@ class GulpCollabFilter(BaseModel):
     """
 
     # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
-    model_config = ConfigDict(extra="allow")
-
-    ids: Optional[list[str]] = Field(
-        None, description="filter by the given id/s.", example=["id1", "id2"]
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "ids": ["id1", "id2"],
+                    "types": ["note", "highlight"],
+                    "operation_ids": ["op1", "op2"],
+                    "context_ids": ["ctx1", "ctx2"],
+                    "source_ids": ["src1", "src2"],
+                    "owner_user_ids": ["admin"],
+                    "tags": ["tag1", "tag2"],
+                    "names": ["name1", "name2"],
+                    "texts": ["text1", "text2"],
+                    "time_pin_range": (1620000000000000000, 1620000000000000001),
+                    "doc_ids": ["18b6332595d82048e31963e6960031a1"],
+                    "doc_time_range": (1620000000000000000, 1620000000000000001),
+                    "limit": 10,
+                    "offset": 100,
+                    "tags_and": False,
+                },
+            ]
+        },
     )
+
+    ids: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     types: Optional[list[GulpCollabType]] = Field(
         None,
         description="filter by the given type/s.",
-        example=["note", "highlight"],
     )
     operation_ids: Optional[list[str]] = Field(
-        None, description="filter by the given operation/s.", example=["op1", "op2"]
+        None, description="filter by the given operation/s."
     )
     context_ids: Optional[list[str]] = Field(
-        None, description="filter by the given context/s.", example=["ctx1", "ctx2"]
+        None, description="filter by the given context/s."
     )
     source_ids: Optional[list[str]] = Field(
         None,
         description="filter by the given source path/s or name/s.",
-        example=["src1", "src2"],
     )
     owner_user_ids: Optional[list[str]] = Field(
-        None, description="filter by the given owner user id/s.", example=["admin"]
+        None, description="filter by the given owner user id/s."
     )
-    tags: Optional[list[str]] = Field(
-        None, description="filter by the given tag/s.", example=["tag1", "tag2"]
-    )
-    names: Optional[list[str]] = Field(
-        None, description="filter by the given name/s.", example=["name1", "name2"]
-    )
+    tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
+    names: Optional[list[str]] = Field(None, description="filter by the given name/s.")
     texts: Optional[list[str]] = Field(
         None,
         description="filter by the given object text (wildcard accepted).",
-        example=["text1", "text2"],
     )
     time_pin_range: Optional[tuple[int, int]] = Field(
         None,
-        example=(1620000000000000000, 1620000000000000001),
         description="""
 if set, matches objects in a `CollabObject.time_pin` range [start, end], inclusive, in nanoseconds from unix epoch.
 
@@ -197,11 +210,9 @@ filter by the given document ID/s in a `CollabObject.docs` list of `GulpBasicDoc
 
 - cannot be used with `time_pin_range` or `doc_time_range`.
 """,
-        example=["18b6332595d82048e31963e6960031a1"],
     )
     doc_time_range: Optional[tuple[int, int]] = Field(
         None,
-        example=(1620000000000000000, 1620000000000000001),
         description="""
 if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObject.docs`, inclusive, in nanoseconds from unix epoch.
 
@@ -210,24 +221,16 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     )
     limit: Optional[int] = Field(
         None,
-        example=10,
         description='to be used together with "offset", maximum number of results to return. default=return all.',
     )
     offset: Optional[int] = Field(
         None,
-        example=100,
         description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
     )
     tags_and: Optional[bool] = Field(
         False,
-        example=False,
         description="if True, all tags must match. Default=False (at least one tag must match).",
     )
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
 
     @override
     def __str__(self) -> str:

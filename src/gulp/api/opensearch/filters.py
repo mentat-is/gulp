@@ -30,11 +30,27 @@ class GulpBaseDocumentFilter(BaseModel):
     base class for Gulp filters acting on documents.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "int_filter": [
+                        1551385571023173120,
+                        1551446406878338048,
+                        "gulp.timestamp",
+                    ],
+                    "query_string_parameters": {
+                        "analyze_wildcard": True,
+                        "default_field": "_id",
+                    },
+                }
+            ]
+        },
+    )
 
     int_filter: Optional[tuple[int, int] | tuple[int, int, str]] = Field(
         default=None,
-        example=[1551385571023173120, 1551446406878338048, "gulp.timestamp"],
         description="""
 a tuple representing `[ start, end, field]`.
 
@@ -44,7 +60,6 @@ a tuple representing `[ start, end, field]`.
 
     query_string_parameters: Optional[dict] = Field(
         default=None,
-        example={"analyze_wildcard": True, "default_field": "_id"},
         description="additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)",
     )
 
@@ -67,6 +82,20 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
     each field is optional, if no filter is specified all events are ingested.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "int_filter": [
+                        1551385571023173120,
+                        1551446406878338048,
+                        "gulp.timestamp",
+                    ],
+                    "storage_ignore_filter": False,
+                }
+            ]
+        }
+    )
     storage_ignore_filter: Optional[bool] = Field(
         False,
         description="""
@@ -74,11 +103,6 @@ if set, websocket receives filtered results while OpenSearch stores unfiltered (
 default is False (both OpenSearch and websocket receives the filtered results).
 """,
     )
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
 
     @override
     def __str__(self) -> str:
@@ -119,20 +143,41 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     - further key,value pairs are allowed and will be used as additional filters.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "agent_type": ["win_evtx"],
+                    "id": ["18b6332595d82048e31963e6960031a1"],
+                    "operation_id": [TEST_OPERATION_ID],
+                    "context_id": [TEST_CONTEXT_ID],
+                    "source_id": [TEST_SOURCE_ID],
+                    "event_code": ["5152"],
+                    "event_original": ["*searchme*", False],
+                    "date_range": [
+                        "2010-11-10T17:22:53.203125+00:00",
+                        "2010-11-10T17:23:50.000000+00:00",
+                        "@timestamp",
+                    ],
+                    "range_parameters": {
+                        "time_zone": "+01:00",
+                        "format": "strict_date_optional_time",
+                    },
+                }
+            ]
+        }
+    )
     agent_type: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `agent.type`/s.",
-        example=["win_evtx"],
     )
     id: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `_id`/s.",
-        example=["18b6332595d82048e31963e6960031a1"],
     )
     operation_id: Optional[list[str]] = Field(
         None,
         description="include documents  matching the given `gulp.operation_id`/s.",
-        example=[TEST_OPERATION_ID],
     )
     context_id: Optional[list[str]] = Field(
         None,
@@ -141,7 +186,6 @@ include documents matching the given `gulp.context_id`/s.
 
 - this must be set to the *real context_id* as on the collab database, calculated as *SHA1(operation_id+context_id)*.
 """,
-        example=[TEST_CONTEXT_ID],
     )
     source_id: Optional[list[str]] = Field(
         None,
@@ -149,12 +193,10 @@ include documents matching the given `gulp.context_id`/s.
 include documents matching the given `gulp.source_id`/s.
 - this must be set to the *real source_id* as on the collab database, calculated as *SHA1(operation_id+context_id+source_id)*.
 """,
-        example=[TEST_SOURCE_ID],
     )
     event_code: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `event.code`/s.",
-        example=["5152"],
     )
     event_original: Optional[tuple[str, bool] | str] = Field(
         None,
@@ -164,15 +206,9 @@ include documents matching the given `gulp.source_id`/s.
         - if the second element is `False`, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).
         - if the second element is `True`, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original.text` field.
         """,
-        example=["*searchme*", False],
     )
     date_range: Optional[tuple[str, str] | tuple[str, str, str]] = Field(
         default=None,
-        example=[
-            "2010-11-10T17:22:53.203125+00:00",
-            "2010-11-10T17:23:50.000000+00:00",
-            "@timestamp",
-        ],
         description="""
 a tuple representing `[ time_start, time_end, field ]`.
 
@@ -181,14 +217,8 @@ a tuple representing `[ time_start, time_end, field ]`.
     )
     range_parameters: Optional[dict] = Field(
         default=None,
-        example={"time_zone": "+01:00", "format": "strict_date_optional_time"},
         description="additional parameters to be applied to `date_range`, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/term/range/#parameters)",
     )
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
 
     @override
     def __str__(self) -> str:

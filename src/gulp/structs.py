@@ -5,7 +5,10 @@ from typing import Any, Literal, Optional, override
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping
-from muty.pydantic import autogenerate_model_example
+from muty.pydantic import (
+    autogenerate_model_example,
+    autogenerate_model_example_by_class,
+)
 
 
 class ObjectAlreadyExists(Exception):
@@ -23,11 +26,20 @@ class GulpPluginParameters(BaseModel):
     this may also include GulpPluginAdditionalParameter.name entries specific to the plugin
     """
 
-    model_config = ConfigDict(extra="allow")
-
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "mapping_file": "mftecmd_csv.json",
+                    "mappings": autogenerate_model_example_by_class(GulpMapping),
+                    "mapping_id": "record",
+                }
+            ]
+        },
+    )
     mapping_file: Optional[str] = Field(
         None,
-        example="mftecmd_csv.json",
         description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
 
@@ -39,14 +51,8 @@ class GulpPluginParameters(BaseModel):
     mapping_id: Optional[str] = Field(
         None,
         description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
-        example="record",
     )
 
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
-    
     def is_empty(self) -> bool:
         """
         check if all parameters are None
@@ -64,24 +70,26 @@ class GulpPluginAdditionalParameter(BaseModel):
     `name` may also be a key in the `GulpPluginParameters` object, to list additional parameters specific for the plugin.
     """
 
-    name: str = Field(..., description="option name.", example="ignore_mapping")
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "ignore_mapping",
+                    "type": "bool",
+                    "default_value": False,
+                    "desc": "ignore mapping file and use default mapping.",
+                    "required": True,
+                }
+            ]
+        }
+    )
+    name: str = Field(..., description="option name.")
     type: Literal["bool", "str", "int", "float", "dict", "list"] = Field(
-        ..., description="option type.", example="bool"
+        ..., description="option type."
     )
-    default_value: Optional[Any] = Field(
-        None, description="default value.", example=False
-    )
-    desc: Optional[str] = Field(
-        None, description="option description.", example="test description."
-    )
-    required: Optional[bool] = Field(
-        False, description="is the option required ?", example=True
-    )
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
+    default_value: Optional[Any] = Field(None, description="default value.")
+    desc: Optional[str] = Field(None, description="option description.")
+    required: Optional[bool] = Field(False, description="is the option required ?")
 
 
 class GulpPluginSigmaSupport(BaseModel):
@@ -91,23 +99,27 @@ class GulpPluginSigmaSupport(BaseModel):
     refer to [sigma-cli](https://github.com/SigmaHQ/sigma-cli) for parameters (backend=-t, pipeline=-p, output=-f).
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "backend": ["opensearch"],
+                    "pipelines": ["ecs_windows", "ecs_windows_old"],
+                    "output": ["dsl_lucene"],
+                }
+            ]
+        }
+    )
     backend: list[str] = Field(
         ...,
         description="one or more pysigma backend supported by the plugin.",
-        example="opensearch",
     )
     pipelines: list[str] = Field(
         ...,
         description="one or more pysigma pipelines supported by the plugin.",
-        example="default",
     )
     output: list[str] = Field(
         ...,
         description="one or more output formats supported by the plugin. ",
-        example="dsl_lucene",
     )
 
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)

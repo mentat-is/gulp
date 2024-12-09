@@ -14,8 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
     TEST_REQ_ID,
     TEST_SOURCE_ID,
+    TEST_WS_ID,
 )
 from gulp.config import GulpConfig
 import asyncio
@@ -27,6 +30,9 @@ class GulpUserLoginLogoutPacket(BaseModel):
     Represents a user login or logout event.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"user_id": "admin", "login": True}]}
+    )
     user_id: str = Field(..., description="The user ID.")
     login: bool = Field(
         ..., description="If the event is a login event, either it is a logout."
@@ -38,7 +44,8 @@ class GulpCollabDeletePacket(BaseModel):
     Represents a delete collab event.
     """
 
-    id: str = Field(..., description="The collab ID.")
+    model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
+    id: str = Field(..., description="The collab object ID.")
 
 
 class GulpQueryDonePacket(BaseModel):
@@ -46,6 +53,17 @@ class GulpQueryDonePacket(BaseModel):
     Represents a query done event on the websocket.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "req_id": TEST_REQ_ID,
+                    "status": GulpRequestStatus.DONE,
+                    "total_hits": 100,
+                }
+            ]
+        }
+    )
     req_id: str = Field(..., description="The request ID.")
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."
@@ -63,27 +81,28 @@ class GulpIngestSourceDonePacket(BaseModel):
     model_config = ConfigDict(
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "source_id": TEST_SOURCE_ID,
+                    "context_id": TEST_CONTEXT_ID,
+                    "req_id": TEST_REQ_ID,
+                    "status": GulpRequestStatus.DONE,
+                }
+            ]
+        },
     )
     source_id: str = Field(
         description="The source ID in the collab database.",
         alias="gulp.source_id",
-        example=TEST_SOURCE_ID,
     )
     context_id: str = Field(
         ...,
         description="The context ID in the collab database.",
         alias="gulp.context_id",
-        example=TEST_CONTEXT_ID,
     )
-    req_id: str = Field(..., description="The request ID.", example=TEST_REQ_ID)
-    status: GulpRequestStatus = Field(
-        ..., description="The request status.", example=GulpRequestStatus.DONE
-    )
-
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)
+    req_id: str = Field(..., description="The request ID.")
+    status: GulpRequestStatus = Field(..., description="The request status.")
 
 
 class GulpCollabCreateUpdatePacket(BaseModel):
@@ -91,6 +110,23 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     Represents a create or update event.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "data": {
+                        "id": "the id",
+                        "name": "the name",
+                        "type": GulpCollabType.NOTE,
+                        "something": "else",
+                    },
+                    "bulk": False,
+                    "bulk_type": GulpCollabType.NOTE,
+                    "created": True,
+                }
+            ]
+        }
+    )
     data: list | dict = Field(..., description="The created or updated data.")
     bulk: Optional[bool] = Field(
         default=False, description="If the event is a bulk event (data is a list)."
@@ -117,6 +153,18 @@ class GulpRebaseDonePacket(BaseModel):
     Represents a rebase done event on the websocket.
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "src_index": TEST_INDEX,
+                    "dest_index": "destination_index",
+                    "status": GulpRequestStatus.DONE,
+                    "result": "error message or successful rebase result",
+                }
+            ]
+        }
+    )
     src_index: str = Field(..., description="The source index.")
     dest_index: str = Field(..., description="The destination index.")
     status: "GulpRequestStatus" = Field(
@@ -132,6 +180,17 @@ class GulpWsErrorPacket(BaseModel):
     Represents an error on the websocket
     """
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "error": "error message",
+                    "error_code": GulpWsError.OBJECT_NOT_FOUND,
+                    "data": {"id": "the id"},
+                }
+            ]
+        }
+    )
     error: str = Field(..., description="error on the websocket.")
     error_code: Optional[str] = Field(None, description="optional error code.")
     data: Optional[dict] = Field(None, description="optional error data")
@@ -164,11 +223,22 @@ class GulpWsQueueDataType(StrEnum):
     REBASE_DONE = "rebase_done"
 
 
-class GulpWsAuthParameters(BaseModel):
+class GulpWsAuthPacket(BaseModel):
     """
     Parameters for authentication on the websocket
     """
-
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "token": "token_admin",
+                    "ws_id": TEST_WS_ID,
+                    "operation_id": [TEST_OPERATION_ID],
+                    "type": [GulpWsQueueDataType.DOCUMENTS_CHUNK],
+                }
+            ]   
+        }
+    )
     token: str = Field(
         ...,
         description="""user token. 

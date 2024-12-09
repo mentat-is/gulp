@@ -1,4 +1,3 @@
-
 from fastapi.websockets import WebSocketState
 import muty.jsend
 import muty.list
@@ -15,7 +14,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import (
     GulpConnectedSockets,
-    GulpWsAuthParameters,
+    GulpWsAuthPacket,
     GulpWsData,
     GulpWsError,
     GulpWsErrorPacket,
@@ -53,7 +52,7 @@ class GulpAPIWebsocket:
         try:
             await websocket.accept()
             js = await websocket.receive_json()
-            params = GulpWsAuthParameters.model_validate(js)
+            params = GulpWsAuthPacket.model_validate(js)
             if params.token.lower() != "monitor":
                 async with GulpCollab.get_instance().session() as sess:
                     await GulpUserSession.check_token(
@@ -124,7 +123,7 @@ class GulpAPIWebsocket:
         try:
             await websocket.accept()
             js = await websocket.receive_json()
-            params = GulpWsAuthParameters.model_validate(js)
+            params = GulpWsAuthPacket.model_validate(js)
             async with GulpCollab.get_instance().session() as sess:
                 await GulpUserSession.check_token(
                     sess, params.token, GulpUserPermission.READ
