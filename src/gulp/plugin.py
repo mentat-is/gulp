@@ -22,6 +22,7 @@ from muty.log import MutyLogger
 from sigma.collection import SigmaCollection
 from sigma.conversion.base import Backend
 from sqlalchemy.ext.asyncio import AsyncSession
+import yaml
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.stats import (
@@ -375,31 +376,75 @@ class GulpPluginBase(ABC):
             f"plugin {self.name} does not support backend={backend}, pipeline={pipeline}, output_format={output_format}"
         )
 
+    def _build_sigma_collection(
+        sigmas: list[str], name: str = None, tags: list[str] = None
+    ) -> SigmaCollection:
+        """
+        Build a SigmaCollection from one or more sigma rules.
+        If multiple rules, combines them with AND logic using filters.
+
+        Args:
+            sigmas: List of sigma rule YAML strings
+            name: Name to set on the query (only used for multiple rules)
+            tags: Tags to set on the query (only used for multiple rules)
+        Returns:
+            SigmaCollection: Combined rules
+        """
+        if len(sigmas) == 1:
+            return SigmaCollection.from_yaml(sigmas[0])
+
+        # For multiple rules, create main rule that references all others
+        id = muty.string.generate_unique()
+        rule_name = name or "rule_%s" % (id)
+        main_rule = {
+            "title": rule_name,
+            "name": rule_name,
+            "id": id,
+            "status": "test",
+            "description": "Combines multiple sigma rules with AND logic",
+            "detection": {
+                "condition": " and ".join(f"filter{i}" for i in range(len(sigmas))),
+            },
+            "filter": {"name": []},
+        }
+        if tags:
+            main_rule["tags"] = tags
+
+        # Add filter references for each rule
+        for i in range(len(sigmas)):
+            main_rule["detection"][f"filter{i}"] = {"ref": f"rule{i}"}
+            main_rule["filter"]["name"].append(f"rule{i}")
+
+        # combine main rule with others
+        combined_yaml = yaml.dump(main_rule)
+        for sigma in sigmas:
+            combined_yaml += f"\n---\n{sigma}"
+
+        return SigmaCollection.from_yaml(combined_yaml)
+
     def _sigma_convert_internal(
         self,
-        sigma: str,
+        sigmas: list[str],
         backend: Backend,
-        referenced_sigmas: list[str] = None,
+        name: str = None,
+        tags: list[str] = None,
         output_format: str = None,
     ) -> list[GulpConvertedSigma]:
         """
-        perform the sigma conversion, taking into account the referenced sigmas.
+        perform the sigma conversion.
 
         Args:
-            sigma (str): the main sigma rule YAML
+            sigmas (str): the main sigma rule YAML
             backend (Backend): the backend to use
+            name (str): the name to set on the query
+            tags (list[str]): the tags to set on the query
             referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
             output_format (str): the output format to use
         Returns:
             list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
         """
         # build sigma including references
-        if referenced_sigmas:
-            for r in referenced_sigmas:
-                sigma += f"\n---\n{r}"
-
-        # convert sigma, taking into account the referenced sigmas
-        sc = SigmaCollection.from_yaml(sigma)
+        sc: SigmaCollection = self._build_sigma_collection(sigmas, name, tags)
         sc.resolve_rule_references()
         l = []
 
@@ -420,9 +465,10 @@ class GulpPluginBase(ABC):
 
     def sigma_convert(
         self,
-        sigma: str,
-        referenced_sigmas: list[str] = None,
+        sigmas: list[str],
         backend: str = None,
+        name: str = None,
+        tags: list[str] = None,
         pipeline: str = None,
         output_format: str = None,
     ) -> list[GulpConvertedSigma]:
@@ -430,11 +476,10 @@ class GulpPluginBase(ABC):
         convert a sigma rule specifically targeted to this plugin to a query in the format specified by backend/pipeline/output_format.
 
         Args:
-            sigma (str): the main sigma rule YAML
-            referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
-                NOTE: if set, their `name` must be referenced in the main `sigma` rule in the `filter` section as explained in [sigma filter](https://sigmahq.io/docs/meta/filters.html) documentation.
-            flt (GulpQueryFilter, optional): an optional filter to restrict the sigma query. Defaults to None.
+            sigmas (list[str]): one or more sigma rules YAMLs.
             backend (str, optional): the backend to use, must be listed in `sigma_support`. Defaults to None (use first supported).
+            name (str, optional): the name to set on the query. Defaults to None (use sigma rule name).
+            tags (list[str], optional): the tags to set on the query. Defaults to None (use sigma rule tags).
             pipeline (str, optional): the pipeline to use, must be listed in `sigma_support`. Defaults to None (use first supported).
             output_format (str, optional): the output format to use, must be listed in `sigma_support`. Defaults to None (use first supported).
         Returns:

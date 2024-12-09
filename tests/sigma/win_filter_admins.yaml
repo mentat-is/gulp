@@ -1,0 +1,11 @@
+title: Filter Out Administrator accounts
+description: Filters out administrator accounts that start with adm_
+logsource:
+  category: process_creation
+  product: windows
+filter:
+  rules:
+    - proc_creation_win_sc_create_service
+  selection:
+    User|startswith: "adm_"
+  condition: not selection

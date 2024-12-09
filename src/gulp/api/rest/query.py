@@ -1277,12 +1277,18 @@ from gulp.api.collab.note import GulpNote
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQuery, GulpQueryAdditionalParameters
+from gulp.api.opensearch.query import (
+    GulpConvertedSigma,
+    GulpQuery,
+    GulpQueryAdditionalParameters,
+    GulpSigmaQueryParameters,
+)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.rest.server_utils import (
     ServerUtils,
 )
 from gulp.api.rest.structs import APIDependencies
+from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
 from muty.log import MutyLogger
@@ -1441,7 +1447,7 @@ async def query_gulp(
     query Gulp using a [raw OpenSearch query](https://opensearch.org/docs/latest/query-dsl/).
 
     - this API returns `pending` and results are streamed to the `ws_id` websocket.
-    - `flt` may be used to restrict the raw query.
+    - `flt` may be used to restrict the query.
 """,
 )
 async def query_raw(
@@ -1452,7 +1458,7 @@ async def query_raw(
         dict,
         Body(
             description="query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)",
-            examples=[{"query": {"match_all": {}}}],
+            example={"query": {"match_all": {}}},
         ),
     ],
     q_options: Annotated[
@@ -1532,5 +1538,136 @@ async def query_single(
 
         d = await GulpQuery.query_single(index, doc_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+
+
+@router.post(
+    "/query_sigma",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="Query using sigma rule/s.",
+    description="""
+    query using [sigma rules](https://github.com/SigmaHQ/sigma).
+
+    - this API returns `pending` and results are streamed to the `ws_id` websocket.
+    - `flt` may be used to restrict the query.
+""",
+)
+async def query_sigma(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    sigmas: Annotated[
+        dict,
+        Body(
+            description="""
+one or more sigma rule YAML.
+
+- if more than a sigma rule is set, they will be combined with AND using [sigma filters](https://sigmahq.io/docs/meta/filters.html)
+""",
+            example=[
+                """
+title: Match All Events
+id: 1a070ea4-87f4-467c-b1a9-f556c56b2449
+status: test
+description: Matches all events in the data source
+logsource:
+    category: *
+    product: *
+detection:
+    selection:
+        '*': '*'
+    condition: selection
+falsepositives:
+    - 'This rule matches everything'
+level: info
+"""
+            ],
+        ),
+    ],
+    plugin: Annotated[
+        str,
+        Query(
+            description="a plugin implementing `sigma_support`, `sigma_convert`, to handle the sigma rule conversion.",
+            example="win_evtx",
+        ),
+    ],
+    group_rule_name: Annotated[
+        str,
+        Query(
+            description="if `sigmas` contains more than one rule, this is the name of the group.",
+            example="attack name",
+        ),
+    ] = None,
+    group_rule_tags: Annotated[
+        list[str],
+        Body(
+            description="if `sigmas` contains more than one rule, this is the tags for the rule group."
+        ),
+    ] = None,
+    q_options: Annotated[
+        GulpQueryAdditionalParameters,
+        Depends(APIDependencies.param_query_additional_parameters_optional),
+    ] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["q_options"] = q_options.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            s = await GulpUserSession.check_token(sess, token)
+            user_id = s.user_id
+
+        # convert sigma
+        if not q_options.sigma_parameters:
+            q_options.sigma_parameters = GulpSigmaQueryParameters()
+
+        # convert sigma rule to raw query
+        mod = await GulpPluginBase.load(plugin)
+        q: list[GulpConvertedSigma] = mod.sigma_convert(
+            sigmas,
+            q_options.sigma_parameters.backend,
+            q_options.sigma_parameters.pipeline,
+            q_options.sigma_parameters.output_format,
+        )
+
+        # spawn tasks
+        for qq in q:
+            q_options.sigma_parameters.note_name = group_rule_name or qq.name
+            q_options.sigma_parameters.note_tags = group_rule_tags or qq.tags
+            await _spawn_query_raw(
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                q=[qq],
+                q_options=q_options,
+                flt=flt,
+            )
+
+        # and return pending
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)

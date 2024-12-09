@@ -239,9 +239,10 @@ class Plugin(GulpPluginBase):
     @override
     def sigma_convert(
         self,
-        sigma: str,
-        referenced_sigmas: list[str] = None,
+        sigmas: list[str],
         backend: str = None,
+        name: str = None,
+        tags: list[str] = None,
         pipeline: str = None,
         output_format: str = None,
     ) -> list[any]:
@@ -261,8 +262,9 @@ class Plugin(GulpPluginBase):
 
         # convert
         return self._sigma_convert_internal(
-            sigma,
+            sigmas,
             backend,
-            referenced_sigmas=referenced_sigmas,
+            name,
+            tags,
             output_format=output_format,
         )

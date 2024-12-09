@@ -722,11 +722,11 @@ the query filter, to filter for common fields, including:
         return flt or GulpQueryFilter()
 
     def param_query_additional_parameters_optional(
-        options: Annotated[
+        q_options: Annotated[
             Optional[GulpQueryAdditionalParameters],
             Body(
                 description="""
-additional parameters for querying.
+additional parameters for querying, including:
 
 - `limit`, `offset`, `search_after` for pagination.
 - `fields` to restrict returned fields.
@@ -746,7 +746,7 @@ additional parameters for querying.
         Returns:
             dict: The query options.
         """
-        return options or GulpQueryAdditionalParameters()
+        return q_options or GulpQueryAdditionalParameters()
 
     def param_collab_flt_optional(
         flt: Annotated[

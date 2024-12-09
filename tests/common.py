@@ -4,6 +4,9 @@ from muty.log import MutyLogger
 import requests
 import json
 
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+
 
 class GulpAPICommon:
     def __init__(
@@ -142,6 +145,54 @@ class GulpAPICommon:
         token = res.get("token")
         assert token
         return token
+
+    async def query_sigma(
+        self,
+        token: str,
+        plugin: str,
+        index: str,
+        sigmas: list[str],
+        group_rule_name: str = None,
+        group_rule_tags: list[str] = None,
+        q_options: GulpQueryAdditionalParameters = None,
+        flt: GulpQueryFilter = None,
+        expected_status: int = 200,
+    ) -> dict:
+        MutyLogger.get_instance().info(
+            "Querying sigma %s, plugin=%s, index=%s..." % (sigmas, plugin, index)
+        )
+        params = {
+            "plugin": plugin,
+            "index": index,
+            "group_rule_name": group_rule_name,
+            "req_id": self._req_id,
+        }
+        body = {
+            "sigmas": sigmas,
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+            "group_rule_tags": group_rule_tags,
+        }
+
+        res = await self._make_request(
+            "POST",
+            "query_sigma",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
 
     async def object_delete(
         self,
@@ -310,8 +361,10 @@ class GulpAPICommon:
             "POST",
             api,
             params={"req_id": self._req_id},
-            body=flt.model_dump(
-                by_alias=True, exclude_none=True, exclude_defaults=True
+            body=(
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
             ),
             token=token,
             expected_status=expected_status,
