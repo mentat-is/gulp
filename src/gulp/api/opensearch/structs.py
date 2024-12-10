@@ -8,7 +8,6 @@ import muty.time
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from muty.pydantic import (
-    autogenerate_model_example,
     autogenerate_model_example_by_class,
 )
 from gulp.api.mapping.models import GulpMapping
@@ -387,7 +386,9 @@ class GulpRawDocument(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "__metadata__": autogenerate_model_example_by_class(GulpRawDocumentMetadata),
+                    "__metadata__": autogenerate_model_example_by_class(
+                        GulpRawDocumentMetadata
+                    ),
                     "doc": {
                         "agent.type": "win_evtx",
                         "event.original": "raw event content",
@@ -411,4 +412,3 @@ class GulpRawDocument(BaseModel):
         ...,
         description="the document as key/value pairs, to generate the `GulpDocument` with.",
     )
-

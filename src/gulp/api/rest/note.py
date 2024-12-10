@@ -6,10 +6,12 @@ from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.note import GulpNote
+from gulp.api.collab.note import GulpNote, GulpNoteEdit
 from gulp.api.collab.structs import (
     GulpCollabFilter,
+    GulpUserPermission,
 )
+from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.server_utils import (
@@ -178,54 +180,58 @@ async def note_update_handler(
             raise ValueError(
                 "at least one of docs, time_pin, text, name, tags, glyph_id, color must be set."
             )
-        prev_text = None
-        prev_editor_id = None
-        prev_edit_time = None
-        previous_edits: list[dict] = []
         async with GulpCollab.get_instance().session() as sess:
-            # get previous note text and edits
             n: GulpNote = await GulpNote.get_by_id(
                 sess, object_id, with_for_update=True
             )
-            prev_text: str = n.text
-            prev_editor_id: str = n.last_editor_id or n.owner_user_id
-            prev_edit_time: int = n.time_updated
-            previous_edits: list[dict] = n.previous
 
-        # ensure only one in time_pin and docs is set
-        d = {}
-        if time_pin:
-            d["docs"] = None
-            d["time_pin"] = time_pin
-        if docs:
-            d["docs"] = [
-                doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
-                for doc in docs
-            ]
-            d["time_pin"] = 0
-        if text:
-            # also save previous text
-            previous_edits.append(
-                {
-                    "editor_id": prev_editor_id,
-                    "edit_time": prev_edit_time,
-                    "text": prev_text,
-                }
+            s = await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.EDIT, obj=n
             )
-            d["text"] = text
 
-        d["name"] = name
-        d["tags"] = tags
-        d["glyph_id"] = glyph_id
-        d["color"] = color
-        d["previous"] = previous_edits
-        d = await GulpNote.update_by_id(
-            token,
-            object_id,
-            ws_id=ws_id,
-            req_id=req_id,
-            d=d,
-        )
+            d = {}
+
+            # ensure only one in time_pin and docs is set
+            if time_pin:
+                d["docs"] = None
+                d["time_pin"] = time_pin
+            if docs:
+                d["docs"] = [
+                    doc.model_dump(
+                        by_alias=True, exclude_none=True, exclude_defaults=True
+                    )
+                    for doc in docs
+                ]
+                d["time_pin"] = 0
+
+            # update
+            d["name"] = name
+            d["tags"] = tags
+            d["text"] = text
+            d["glyph_id"] = glyph_id
+            d["color"] = color
+            d["last_editor_id"] = s.user_id
+            await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
+
+            # get the note again and add the edit info
+            await sess.refresh(n)
+            p = GulpNoteEdit(
+                user_id=n.last_editor_id, text=n.text, timestamp=n.time_updated
+            )
+            n.edits.append(p.model_dump(exclude_none=True))
+
+            # update again
+            await n.update(
+                sess,
+                d=None,
+                ws_id=ws_id,
+                user_id=s.user_id,
+                req_id=req_id,
+                updated_instance=n,
+            )
+            await sess.refresh(n)
+            d = n.to_dict(exclude_none=True)
+
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

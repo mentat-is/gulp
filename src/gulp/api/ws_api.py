@@ -3,14 +3,13 @@ import collections
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
-from typing import Any, Optional, override
-
+from typing import Any, Optional
+from muty.pydantic import autogenerate_model_example_by_class
 import muty
 from fastapi import WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
-from muty.pydantic import autogenerate_model_example
 from pydantic import BaseModel, ConfigDict, Field
-
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
@@ -23,6 +22,33 @@ from gulp.api.rest.test_values import (
 from gulp.config import GulpConfig
 import asyncio
 from fastapi.websockets import WebSocketState
+
+
+class GulpWsQueueDataType(StrEnum):
+    """
+    The type of data into the websocket queue.
+    """
+
+    # GulpWsErrorPacket
+    WS_ERROR = "ws_error"
+    # GulpCollabCreateUpdatePacket
+    STATS_UPDATE = "stats_update"
+    # GulpCollabCreateUpdatePacket
+    COLLAB_UPDATE = "collab_update"
+    # GulpUserLoginLogoutPacket
+    USER_LOGIN = "user_login"
+    # GulpUserLoginLogoutPacket
+    USER_LOGOUT = "user_logout"
+    # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
+    DOCUMENTS_CHUNK = "docs_chunk"
+    # GulpCollabDeletePacket
+    COLLAB_DELETE = "collab_delete"
+    # GulpIngestSourceDonePacket to indicate a source has been ingested
+    INGEST_SOURCE_DONE = "ingest_source_done"
+    # GulpQueryDonePacket
+    QUERY_DONE = "query_done"
+    # GulpRebaseDonePacket
+    REBASE_DONE = "rebase_done"
 
 
 class GulpUserLoginLogoutPacket(BaseModel):
@@ -59,12 +85,14 @@ class GulpQueryDonePacket(BaseModel):
                 {
                     "req_id": TEST_REQ_ID,
                     "status": GulpRequestStatus.DONE,
+                    "name": "the query name",
                     "total_hits": 100,
                 }
             ]
         }
     )
     req_id: str = Field(..., description="The request ID.")
+    name: Optional[str] = Field(None, description="The query name.")
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."
     )
@@ -196,37 +224,11 @@ class GulpWsErrorPacket(BaseModel):
     data: Optional[dict] = Field(None, description="optional error data")
 
 
-class GulpWsQueueDataType(StrEnum):
-    """
-    The type of data into the websocket queue.
-    """
-
-    # GulpWsErrorPacket
-    WS_ERROR = "ws_error"
-    # GulpCollabCreateUpdatePacket
-    STATS_UPDATE = "stats_update"
-    # GulpCollabCreateUpdatePacket
-    COLLAB_UPDATE = "collab_update"
-    # GulpUserLoginLogoutPacket
-    USER_LOGIN = "user_login"
-    # GulpUserLoginLogoutPacket
-    USER_LOGOUT = "user_logout"
-    # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
-    DOCUMENTS_CHUNK = "docs_chunk"
-    # GulpCollabDeletePacket
-    COLLAB_DELETE = "collab_delete"
-    # GulpIngestSourceDonePacket to indicate a source has been ingested
-    INGEST_SOURCE_DONE = "ingest_source_done"
-    # GulpQueryDonePacket
-    QUERY_DONE = "query_done"
-    # GulpRebaseDonePacket
-    REBASE_DONE = "rebase_done"
-
-
 class GulpWsAuthPacket(BaseModel):
     """
     Parameters for authentication on the websocket
     """
+
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
@@ -236,7 +238,7 @@ class GulpWsAuthPacket(BaseModel):
                     "operation_id": [TEST_OPERATION_ID],
                     "type": [GulpWsQueueDataType.DOCUMENTS_CHUNK],
                 }
-            ]   
+            ]
         }
     )
     token: str = Field(
@@ -265,7 +267,24 @@ class GulpDocumentsChunkPacket(BaseModel):
 
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "docs": [
+                        autogenerate_model_example_by_class(GulpDocument),
+                    ],
+                    "num_docs": 1,
+                    "chunk_number": 1,
+                    "total_hits": 100,
+                    "name": "the query name",
+                    "last": False,
+                    "search_after": ["value_1", "value_2"],
+                }
+            ]
+        },
+    )
 
     docs: list[dict] = Field(
         ...,
@@ -281,15 +300,19 @@ class GulpDocumentsChunkPacket(BaseModel):
     )
     total_hits: Optional[int] = Field(
         0,
-        description="the total number of hits for the query related to this chunk (may not be available).",
+        description="for query only: the total number of hits for the query related to this chunk.",
+    )
+    name: Optional[str] = Field(
+        None,
+        description="for query only: the query name related to this chunk.",
     )
     last: Optional[bool] = Field(
         False,
-        description="is this the last chunk of a query response ? (may not be available).",
+        description="for query only: is this the last chunk of a query response ?",
     )
     search_after: Optional[list] = Field(
         None,
-        description="to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
+        description="for query only: to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
     )
 
 

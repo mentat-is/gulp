@@ -2,7 +2,6 @@ from enum import IntEnum, StrEnum
 from typing import Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
-from muty.pydantic import autogenerate_model_example
 
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,

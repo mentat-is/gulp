@@ -2,7 +2,6 @@ from typing import Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
 from muty.pydantic import (
-    autogenerate_model_example,
     autogenerate_model_example_by_class,
 )
 
@@ -169,16 +168,10 @@ class GulpMappingFile(BaseModel):
     mappings: dict[str, GulpMapping] = Field(
         ...,
         description="defined mappings for this mapping file, key is the `mapping_id`",
-        example=autogenerate_model_example_by_class(GulpMapping),
         min_length=1,
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
         None,
-        example=autogenerate_model_example_by_class(GulpMappingFileMetadata),
         description="metadata for the mapping file.",
     )
 
-    @override
-    @classmethod
-    def model_json_schema(cls, *args, **kwargs):
-        return autogenerate_model_example(cls, *args, **kwargs)

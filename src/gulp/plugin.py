@@ -323,12 +323,6 @@ class GulpPluginBase(ABC):
         """
         return []
 
-    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
-        """
-        return backends/pipelines supported by the plugin (check pysigma on github for details)
-        """
-        return []
-
     def _check_sigma_support(
         self, backend: str, pipeline: str, output_format: str
     ) -> tuple[str, str, str]:
@@ -336,9 +330,9 @@ class GulpPluginBase(ABC):
         check if the plugin supports the given sigma backend/pipeline/output_format
 
         Args:
-            backend (str): the backend to use.
-            pipeline (str): the pipeline to use.
-            output_format (str): the output format to use.
+            backend (str): the backend to use: if not set, the first supported backend is used.
+            pipeline (str): the pipeline to use: if not set, the first supported pipeline is used.
+            output_format (str): the output format to use: if not set, the first supported output format is used.
 
         Returns:
             tuple[str,str,str]: the selected backend, pipeline, output_format
@@ -373,11 +367,11 @@ class GulpPluginBase(ABC):
                 return (backend, pipeline, output_format)
 
         raise ValueError(
-            f"plugin {self.name} does not support backend={backend}, pipeline={pipeline}, output_format={output_format}"
+            f"plugin {self.name} does not support the combination: backend={backend}, pipeline={pipeline}, output_format={output_format}"
         )
 
     def _build_sigma_collection(
-        sigmas: list[str], name: str = None, tags: list[str] = None
+        self, sigmas: list[str], name: str = None, tags: list[str] = None
     ) -> SigmaCollection:
         """
         Build a SigmaCollection from one or more sigma rules.
@@ -436,8 +430,8 @@ class GulpPluginBase(ABC):
         Args:
             sigmas (str): the main sigma rule YAML
             backend (Backend): the backend to use
-            name (str): the name to set on the query
-            tags (list[str]): the tags to set on the query
+            name (str): the name to set on the query (only used if sigmas contains multiple rules)
+            tags (list[str]): the tags to set on the query (only used if sigmas contains multiple rules)
             referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
             output_format (str): the output format to use
         Returns:
@@ -453,15 +447,26 @@ class GulpPluginBase(ABC):
             q = backend.convert_rule(r, output_format=output_format)
             for qq in q:
                 converted = GulpConvertedSigma(
-                    name=r.name,
+                    name=r.name or "rule_" + str(r.id),
                     q=qq,
                     tags=[str(t) for t in r.tags] if r.tags else [],
-                    id=r.id,
+                    id=str(r.id),
                     backend=backend.name,
                     pipeline=backend.processing_pipeline.name,
                 )
-                l.extend(converted)
+                l.append(converted)
         return l
+
+    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
+        """
+        return backends/pipelines supported by the plugin (check pysigma on github for details)
+
+        NOTE: "opensearch" backend and "dsl_lucene" output format are MANDATORY to query Gulp
+
+        Returns:
+            list[GulpPluginSigmaSupport]: the supported backends/pipelines/output_formats.
+        """
+        return []
 
     def sigma_convert(
         self,
@@ -478,8 +483,8 @@ class GulpPluginBase(ABC):
         Args:
             sigmas (list[str]): one or more sigma rules YAMLs.
             backend (str, optional): the backend to use, must be listed in `sigma_support`. Defaults to None (use first supported).
-            name (str, optional): the name to set on the query. Defaults to None (use sigma rule name).
-            tags (list[str], optional): the tags to set on the query. Defaults to None (use sigma rule tags).
+            name (str, optional): the name to set on the query. Defaults to None (only used if sigmas contains multiple rules).
+            tags (list[str], optional): the tags to set on the query. Defaults to None (only used if sigmas contains multiple rules).
             pipeline (str, optional): the pipeline to use, must be listed in `sigma_support`. Defaults to None (use first supported).
             output_format (str, optional): the output format to use, must be listed in `sigma_support`. Defaults to None (use first supported).
         Returns:
@@ -688,7 +693,7 @@ class GulpPluginBase(ABC):
 
             if self._query_create_notes:
                 # auto-create notes during external query with ingestion (this is a sigma query)
-                GulpNote.bulk_create_from_documents(
+                await GulpNote.bulk_create_from_documents(
                     sess=self._sess,
                     user_id=self._user_id,
                     ws_id=self._ws_id,

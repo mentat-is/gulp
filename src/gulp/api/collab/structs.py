@@ -3,7 +3,6 @@ import re
 from enum import StrEnum
 from typing import List, Optional, TypeVar, override, TYPE_CHECKING
 
-from muty.pydantic import autogenerate_model_example
 import muty.string
 import muty.time
 from muty.log import MutyLogger
@@ -670,8 +669,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
 
-        the instance is refreshed after creation
-
         Args:
             sess (AsyncSession): The database session to use.
             object_data (dict): The data to create the object with.
@@ -1013,11 +1010,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         updates the object, also updating the websocket if required.
 
-        the instance is refreshed after the update.
-
         Args:
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
-            d (dict): A dictionary containing the fields to update and their new values, ignored if updated_instance is provided.
+            d (dict): A dictionary containing the fields to update and their new values, must be None and is ignored if updated_instance is provided.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             user_id (str, optional): The ID of the user making the request. Defaults to None.
             ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
@@ -1323,7 +1318,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         helper to update an object by ID, handling session
 
         Args:
-            token (str): The user token.
+            token (str): The user token
             id (str): The ID of the object to update.
             ws_id (str): The websocket ID.
             req_id (str): The request ID.

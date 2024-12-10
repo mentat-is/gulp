@@ -1,11 +1,14 @@
 from typing import Optional, override
 
 from muty.log import MutyLogger
-from sqlalchemy import BIGINT, ForeignKey, Index, String, insert
+from opensearchpy import Field
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, String, insert
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from muty.pydantic import autogenerate_model_example_by_class
+from sqlalchemy.ext.mutable import MutableList
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabObject,
@@ -17,6 +20,30 @@ from gulp.api.ws_api import (
     GulpSharedWsQueue,
     GulpWsQueueDataType,
 )
+
+
+class GulpNoteEdit(BaseModel):
+    """
+    a note edit
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "editor_id": "editor_id",
+                    "timestamp": 1234567890,
+                    "text": "previous note text",
+                }
+            ]
+        }
+    )
+
+    user_id: str = Field(..., description="The user ID of the editor.")
+    timestamp: int = Field(
+        ..., description="The timestamp of the edit, in milliseconds from unix epoch."
+    )
+    text: str = Field(..., description="The note text.")
 
 
 class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
@@ -44,9 +71,9 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     )
     text: Mapped[Optional[str]] = mapped_column(String, doc="The text of the note.")
 
-    previous: Mapped[Optional[list[dict]]] = mapped_column(
-        JSONB,
-        doc="The previous edits made to the note.",
+    edits: Mapped[Optional[list[GulpNoteEdit]]] = mapped_column(
+        MutableList.as_mutable(ARRAY(JSONB)),
+        doc="The edits made to the note.",
         default_factory=list,
     )
 
@@ -65,12 +92,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 "time_pin": 1234567890,
                 "last_editor_id": "last_editor_id",
                 "text": "note text",
-                "previous": [
-                    {
-                        "editor_id": "editor_id",
-                        "timestamp": 1234567890,
-                        "text": "previous note text",
-                    }
+                "edits": [
+                    autogenerate_model_example_by_class(GulpNoteEdit),
                 ],
             }
         )
@@ -129,7 +152,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             docs=docs,
             time_pin=time_pin,
             text=text,
-            previous=[],
+            edits=[],
         )
 
     @staticmethod
@@ -172,6 +195,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
         # creates a list of notes, one for each document
         notes = []
+        MutyLogger.get_instance().info("creating a bulk of %d notes..." % len(docs))
         for doc in docs:
             # associate the document with the note by creating a GulpBasicDocument object
             associated_doc = GulpBasicDocument(
@@ -194,7 +218,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 color=color,
                 name=name,
                 docs=[associated_doc],
-                editor_id=user_id,
             )
 
             note_dict = GulpNote.build_base_object_dict(
@@ -204,33 +227,31 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             )
             notes.append(note_dict)
 
-            # bulk insert
-            MutyLogger.get_instance().debug("creating %d notes" % len(notes))
-            await sess.execute(insert(GulpNote).values(notes))
-            await sess.commit()
+        # bulk insert
+        await sess.execute(insert(GulpNote).values(notes))
+        await sess.commit()
+        MutyLogger.get_instance().info("written %d notes on collab db" % len(notes))
 
-            MutyLogger.get_instance().info("created %d notes" % len(notes))
+        # send over the websocket
+        MutyLogger.get_instance().debug(
+            "sending %d notes on the websocket %s " % (len(notes), ws_id)
+        )
 
-            # send over the websocket
-            MutyLogger.get_instance().debug(
-                "sending %d notes on the websocket %s " % (len(notes), ws_id)
-            )
+        # operation is always the same
+        operation_id = notes[0].get("operation_id")
+        data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
+            data=notes, bulk=True, bulk_type=GulpCollabType.NOTE, created=True
+        )
+        GulpSharedWsQueue.get_instance().put(
+            GulpWsQueueDataType.COLLAB_UPDATE,
+            ws_id=ws_id,
+            user_id=user_id,
+            operation_id=operation_id,
+            req_id=req_id,
+            data=data,
+        )
+        MutyLogger.get_instance().debug(
+            "sent %d notes on the websocket %s " % (len(notes), ws_id)
+        )
 
-            # operation is always the same
-            operation_id = notes[0].get("operation_id")
-            data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
-                data=notes, bulk=True, bulk_type=GulpCollabType.NOTE, created=True
-            )
-            GulpSharedWsQueue.get_instance().put(
-                GulpWsQueueDataType.COLLAB_UPDATE,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=operation_id,
-                req_id=req_id,
-                data=data,
-            )
-            MutyLogger.get_instance().debug(
-                "sent %d notes on the websocket %s " % (len(notes), ws_id)
-            )
-
-            return len(notes)
+        return len(notes)

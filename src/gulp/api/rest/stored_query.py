@@ -85,7 +85,7 @@ async def stored_query_create_handler(
         if text:
             try:
                 r = SigmaRule.from_yaml(text)
-                q_id = r.id
+                q_id = str(r.id)
             except Exception as ex:
                 MutyLogger.get_instance().warning(
                     "could not extract id from sigma rule: %s" % (ex)

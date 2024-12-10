@@ -166,6 +166,7 @@ class GulpAPICommon:
             "index": index,
             "group_rule_name": group_rule_name,
             "req_id": self._req_id,
+            "ws_id": self._ws_id,
         }
         body = {
             "sigmas": sigmas,

@@ -16,6 +16,9 @@ from tests.common import GulpAPICommon
 
 @pytest.mark.asyncio
 async def test():
+    """
+    test notes and ACL
+    """
     gulp_api = GulpAPICommon(host=TEST_HOST, req_id=TEST_REQ_ID, ws_id=TEST_WS_ID)
 
     # reset first
@@ -87,6 +90,25 @@ async def test():
         tags=["test", "updated"],
     )
     assert updated["text"] == "Updated note"
+    assert len(updated["edits"]) == 1
+    assert updated["edits"][0]["text"] == "Updated note"
+    assert updated["edits"][0]["user_id"] == "editor"
+    assert updated["last_editor_id"] == "editor"
+
+    # further edit by admin
+    updated = await gulp_api.note_update(
+        admin_token,
+        pinned_note["id"],
+        text="Updated note again",
+        tags=["test", "updated", "again"],
+    )
+    assert updated["text"] == "Updated note again"
+    assert len(updated["edits"]) == 2
+    assert updated["edits"][0]["text"] == "Updated note"
+    assert updated["edits"][1]["text"] == "Updated note again"
+    assert updated["edits"][0]["user_id"] == "editor"
+    assert updated["edits"][1]["user_id"] == "admin"
+    assert updated["last_editor_id"] == "admin"
 
     # editor can delete the note
     deleted = await gulp_api.object_delete(

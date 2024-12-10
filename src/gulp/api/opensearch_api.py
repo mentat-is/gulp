@@ -1113,7 +1113,10 @@ class GulpOpenSearch:
                 if processed == 0 and ws_id:
                     # no results at all
                     p = GulpQueryDonePacket(
-                        req_id=req_id, status=GulpRequestStatus.FAILED, total_hits=0
+                        req_id=req_id,
+                        status=GulpRequestStatus.FAILED,
+                        total_hits=0,
+                        name=q_options.name,
                     )
                     GulpSharedWsQueue.get_instance().put(
                         type=GulpWsQueueDataType.QUERY_DONE,
@@ -1141,6 +1144,7 @@ class GulpOpenSearch:
                     total_hits=total_hits,
                     last=last,
                     search_after=search_after,
+                    name=q_options.name,
                 )
                 GulpSharedWsQueue.get_instance().put(
                     type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
@@ -1154,6 +1158,7 @@ class GulpOpenSearch:
                     p = GulpQueryDonePacket(
                         req_id=req_id,
                         status=GulpRequestStatus.DONE,
+                        name=q_options.name,
                         total_hits=total_hits,
                     )
                     GulpSharedWsQueue.get_instance().put(
@@ -1163,12 +1168,9 @@ class GulpOpenSearch:
                         req_id=req_id,
                         data=p.model_dump(exclude_none=True),
                     )
-            if (
-                q_options.sigma_parameters
-                and q_options.sigma_parameters.sigma_create_notes
-            ):
+            if q_options.sigma_parameters and q_options.sigma_parameters.create_notes:
                 # this is a sigma, auto-create a note for each of the matched document on collab db
-                GulpNote.bulk_create_from_documents(
+                await GulpNote.bulk_create_from_documents(
                     sess,
                     user_id,
                     ws_id=ws_id,

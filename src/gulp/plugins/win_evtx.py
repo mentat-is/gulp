@@ -19,6 +19,7 @@ from gulp.api.collab.stats import (
 )
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch.query import GulpConvertedSigma
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters, GulpPluginSigmaSupport
@@ -245,7 +246,7 @@ class Plugin(GulpPluginBase):
         tags: list[str] = None,
         pipeline: str = None,
         output_format: str = None,
-    ) -> list[any]:
+    ) -> list[GulpConvertedSigma]:
 
         # select pipeline, backend and output format to use
         backend, pipeline, output_format = self._check_sigma_support(

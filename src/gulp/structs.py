@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping
 from muty.pydantic import (
-    autogenerate_model_example,
     autogenerate_model_example_by_class,
 )
 
@@ -112,7 +111,7 @@ class GulpPluginSigmaSupport(BaseModel):
     )
     backend: list[str] = Field(
         ...,
-        description="one or more pysigma backend supported by the plugin.",
+        description="one or more pysigma backend supported by the plugin: `opensearch` is the one to use to query Gulp.",
     )
     pipelines: list[str] = Field(
         ...,
@@ -120,6 +119,6 @@ class GulpPluginSigmaSupport(BaseModel):
     )
     output: list[str] = Field(
         ...,
-        description="one or more output formats supported by the plugin. ",
+        description="one or more output formats supported by the plugin.",
     )
 

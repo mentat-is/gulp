@@ -16,7 +16,6 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from muty.pydantic import (
-    autogenerate_model_example,
     autogenerate_model_example_by_class,
 )
 from gulp.api.opensearch.structs import GulpRawDocument

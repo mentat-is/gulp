@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
 import asyncio
 import json
-import pprint
 import pytest
-from muty.log import MutyLogger
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
-from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.test_values import (
-    TEST_CONTEXT_ID,
     TEST_HOST,
     TEST_INDEX,
-    TEST_OPERATION_ID,
     TEST_REQ_ID,
-    TEST_SOURCE_ID,
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpWsAuthPacket
@@ -32,8 +25,6 @@ async def test_windows():
     await gulp_api.reset_gulp_collab()
 
     # login admin
-    admin_token = await gulp_api.login("admin", "admin")
-    assert admin_token
     guest_token = await gulp_api.login("guest", "guest")
     assert guest_token
 
@@ -43,7 +34,7 @@ async def test_windows():
     )
 
     _, host = TEST_HOST.split("://")
-    ws_url = f"ws:/{host}/ws"
+    ws_url = f"ws://{host}/ws"
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(token=guest_token, ws_id=TEST_WS_ID)

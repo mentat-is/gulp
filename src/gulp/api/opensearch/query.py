@@ -97,11 +97,11 @@ class GulpSigmaQueryParameters(BaseModel):
     )
     backend: str = Field(
         None,
-        description="the backend to use when converting the sigma rule, default=plugin's default",
+        description="the backend to use when converting the sigma rule, default=plugin's default, ignored when querying Gulp (uses `opensearch` internally).",
     )
     output_format: str = Field(
         None,
-        description="the output format to use when converting the sigma rule, default=plugin's default",
+        description="the output format to use when converting the sigma rule, default=plugin's default, ignored when querying Gulp (uses `dsl_lucene` internally).",
     )
 
 
@@ -122,6 +122,7 @@ class GulpQueryAdditionalParameters(BaseModel):
                     },
                     "fields": ["@timestamp", "event.id"],
                     "limit": 1000,
+                    "name": "test",
                     "search_after": None,
                     "loop": True,
                     "sigma_parameters": None,
@@ -132,7 +133,10 @@ class GulpQueryAdditionalParameters(BaseModel):
             ]
         },
     )
-
+    name: str = Field(
+        None,
+        description="the name of the query, used for logging and debugging.",
+    )
     sort: Optional[dict[str, GulpSortOrder]] = Field(
         default={"@timestamp": "asc", "_id": "asc", "event.sequence": "asc"},
         description="how to sort results, default=sort by ascending `@timestamp`.",
@@ -396,6 +400,7 @@ class GulpQuery:
 
         for q in queries:
             # perform queries
+            q_options.name = q.name
             q_options.sigma_parameters.note_name = q.name
             q_options.sigma_parameters.note_tags = q.tags
             await GulpQuery.query_raw(
@@ -445,7 +450,7 @@ class GulpQuery:
         if not q_options:
             q_options = GulpQueryAdditionalParameters()
         q_options.sigma_parameters = None
-
+        q_options.name = q.name
         await GulpQuery.query_raw(
             sess,
             user_id=user_id,
