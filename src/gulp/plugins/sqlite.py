@@ -73,7 +73,7 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def additional_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
         return [
             GulpPluginSpecificParam(
                 "encryption_key", "str", "DB encryption key", default_value=None

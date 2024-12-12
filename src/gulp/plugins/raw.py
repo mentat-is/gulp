@@ -15,7 +15,7 @@ from gulp.api.opensearch.structs import (
     GulpRawDocumentMetadata,
 )
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -57,9 +57,9 @@ class Plugin(GulpPluginBase):
         return "Raw events ingestion plugin"
 
     @override
-    def additional_parameters(self) -> list[GulpPluginAdditionalParameter]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginAdditionalParameter(
+            GulpPluginCustomParameter(
                 name="ignore_mapping",
                 type="bool",
                 default_value=False,

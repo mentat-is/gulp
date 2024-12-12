@@ -12,7 +12,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 try:
     from aiocsv import AsyncDictReader

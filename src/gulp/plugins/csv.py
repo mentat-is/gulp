@@ -17,7 +17,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginAdditionalParameter, GulpPluginParameters
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 try:
     from aiocsv import AsyncDictReader
@@ -64,9 +64,9 @@ class Plugin(GulpPluginBase):
         return """generic CSV file processor"""
 
     @override
-    def additional_parameters(self) -> list[GulpPluginAdditionalParameter]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginAdditionalParameter(
+            GulpPluginCustomParameter(
                 name="delimiter",
                 type="str",
                 desc="delimiter for the CSV file",

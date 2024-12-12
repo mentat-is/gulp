@@ -56,7 +56,7 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def additional_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng
         # hence a safe default could be pcapng regardless of type
         return [

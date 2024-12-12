@@ -6,20 +6,16 @@ from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.stored_query import GulpStoredQuery, GulpStoredQueryType
+from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpUserPermission,
 )
 from gulp.api.opensearch.query import (
-    GulpQueryAdditionalParameters,
     GulpQuerySigmaParameters,
 )
 from gulp.api.rest.server_utils import (
     ServerUtils,
 )
-from sigma.rule import SigmaRule
-from muty.log import MutyLogger
 
 from gulp.api.rest.structs import APIDependencies
 
@@ -64,8 +60,7 @@ async def stored_query_create_handler(
     ],
     q_groups: Annotated[
         Optional[list[str]],
-        Query(
-            None,
+        Body(
             description="if set, one or more `query groups` to associate with this query.",
         ),
     ] = None,
@@ -139,8 +134,7 @@ async def stored_query_update_handler(
     ],
     q_groups: Annotated[
         Optional[list[str]],
-        Query(
-            None,
+        Body(
             description="if set, one or more `query groups` to associate with this query.",
         ),
     ] = None,

@@ -48,7 +48,7 @@ from gulp.api.ws_api import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import (
-    GulpPluginAdditionalParameter,
+    GulpPluginCustomParameter,
     GulpPluginParameters,
     GulpPluginSigmaSupport,
 )
@@ -287,12 +287,12 @@ class GulpPluginBase(ABC):
         """
         return ""
 
-    def additional_parameters(self) -> list[GulpPluginAdditionalParameter]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         """
         this is to be used by the UI to list the supported options, and their types, for a plugin.
 
         Returns:
-            list[GulpPluginAdditionalParameter]: a list of additional parameters.
+            list[GulpPluginCustomParameter]: a list of custom parameters this plugin supports.
         """
         return []
 
@@ -407,8 +407,6 @@ class GulpPluginBase(ABC):
         ws_id: str,
         q: any,
         q_options: GulpQueryAdditionalParameters,
-        plugin_params: GulpPluginParameters,
-        **kwargs,
     ) -> tuple[int, int]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
@@ -459,24 +457,22 @@ class GulpPluginBase(ABC):
 
         MutyLogger.get_instance().debug(
             f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={self._operation_id}, ws_id={ws_id}, req_id={req_id}, \
-                q={q}, q_options={q_options}, ingest_index={self._index}, plugin_params={plugin_params}"
+                q={q}, q_options={q_options}, ingest_index={self._index}, plugin_params={q_options.external_parameters.plugin_params}"
         )
 
     async def query_external_single(
         self,
         req_id: str,
-        q: any,
+        doc_id: any,
         q_options: GulpQueryAdditionalParameters,
-        plugin_params: GulpPluginParameters = None,
     ) -> dict:
         """
         query a single document, converted to gulpdocument, on an external source.
 
         Args:
             req_id (str): the request id
-            q (any): set to the id of the single document to query on the external source, format is plugin dependent
+            doc_id (any): set to the id of the single document to query on the external source, format is plugin dependent
             q_options (GulpQueryAdditionalParameters): additional query options (uri, credentials, options for the external source)
-            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
 
         Returns:
             dict: the document as a GulpDocument dictionary
@@ -488,7 +484,7 @@ class GulpPluginBase(ABC):
             - implementers must call super().query_external first then _initialize().<br>
         """
         MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, req_id={req_id}, q={q}, q_options={q_options}, plugin_params={plugin_params}"
+            f"querying external source with plugin {self.name}, req_id={req_id}, doc_id={doc_id}, q_options={q_options}, plugin_params={q_options.external_parameters.plugin_params}"
         )
         return {}
 
