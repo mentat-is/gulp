@@ -152,8 +152,6 @@ class GulpAPICommon:
         plugin: str,
         index: str,
         sigmas: list[str],
-        group_rule_name: str = None,
-        group_rule_tags: list[str] = None,
         q_options: GulpQueryAdditionalParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,

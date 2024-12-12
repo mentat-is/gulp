@@ -11,7 +11,7 @@ import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from gulp.api.opensearch.sigma import merge_and_convert, to_gulp_query_struct
 from gulp.api.collab.stats import (
     GulpIngestionStats,
     RequestCanceledError,
@@ -19,7 +19,11 @@ from gulp.api.collab.stats import (
 )
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.query import GulpConvertedSigma
+from gulp.api.opensearch.query import (
+    GulpQuery,
+    GulpQueryAdditionalParameters,
+    GulpQuerySigmaParameters,
+)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters, GulpPluginSigmaSupport
@@ -240,18 +244,12 @@ class Plugin(GulpPluginBase):
     @override
     def sigma_convert(
         self,
-        sigmas: list[str],
-        backend: str = None,
-        name: str = None,
-        tags: list[str] = None,
-        pipeline: str = None,
-        output_format: str = None,
-    ) -> list[GulpConvertedSigma]:
+        sigma: str,
+        s_options: GulpQuerySigmaParameters,
+    ) -> list[GulpQuery]:
 
         # select pipeline, backend and output format to use
-        backend, pipeline, output_format = self._check_sigma_support(
-            backend, pipeline, output_format
-        )
+        backend, pipeline, output_format = self._check_sigma_support(s_options)
         if pipeline == "ecs_windows":
             pipeline = ecs_windows()
         else:
@@ -261,11 +259,6 @@ class Plugin(GulpPluginBase):
         else:
             raise ValueError("unsupported backend: %s" % backend)
 
-        # convert
-        return self._sigma_convert_internal(
-            sigmas,
-            backend,
-            name,
-            tags,
-            output_format=output_format,
+        return to_gulp_query_struct(
+            sigma, backend, output_format=output_format, tags=s_options.tags
         )

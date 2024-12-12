@@ -18,6 +18,33 @@ class ObjectNotFound(Exception):
     pass
 
 
+class GulpPluginGenericExternalParameters(BaseModel):
+    """
+    generic parameters for an external service.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "uri": "http://localhost:9200",
+                    "username": "admin",
+                    "password": "admin",
+                    "params": {"verify": False},
+                }
+            ]
+        }
+    )
+    uri: str = Field(..., description="The URI to connect to the external service.")
+    username: Optional[str] = Field(
+        None, description="The username to connect to the external service."
+    )
+    password: Optional[str] = Field(
+        None, description="The password to connect to the external service."
+    )
+    params: Optional[dict] = Field(None, description="Additional parameters.")
+
+
 class GulpPluginParameters(BaseModel):
     """
     common parameters for a plugin, to be passed to ingest and query API.
@@ -33,6 +60,9 @@ class GulpPluginParameters(BaseModel):
                     "mapping_file": "mftecmd_csv.json",
                     "mappings": autogenerate_model_example_by_class(GulpMapping),
                     "mapping_id": "record",
+                    "generic_external_parameters": autogenerate_model_example_by_class(
+                        GulpPluginGenericExternalParameters
+                    ),
                 }
             ]
         },
@@ -50,6 +80,11 @@ class GulpPluginParameters(BaseModel):
     mapping_id: Optional[str] = Field(
         None,
         description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
+    )
+
+    generic_external_parameters = Optional[GulpPluginGenericExternalParameters] = Field(
+        None,
+        description="used for external plugins only: generic parameters for an external service.",
     )
 
     def is_empty(self) -> bool:
@@ -121,4 +156,3 @@ class GulpPluginSigmaSupport(BaseModel):
         ...,
         description="one or more output formats supported by the plugin.",
     )
-

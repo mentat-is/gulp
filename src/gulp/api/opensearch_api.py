@@ -157,7 +157,7 @@ class GulpOpenSearch:
         MutyLogger.get_instance().debug("opensearch info: %s" % (res))
 
     async def datastream_get_key_value_mapping(
-        self, name: str, return_raw_result: bool = False
+        self, index: str, return_raw_result: bool = False
     ) -> dict:
         """
         Get and parse mappings for the given datastream or index: it will result in a dict (if return_raw_result is not set) like:
@@ -168,7 +168,7 @@ class GulpOpenSearch:
         }
 
         Args:
-            name (str): an index/datastream to query
+            index (str): an index/datastream to query
             return_raw_result (bool, optional): Whether to return the raw result (mapping + settings). Defaults to False.
         Returns:
             dict: The mapping dict.
@@ -189,10 +189,10 @@ class GulpOpenSearch:
             return result
 
         try:
-            res = await self._opensearch.indices.get_mapping(index=name)
+            res = await self._opensearch.indices.get_mapping(index=index)
         except Exception as e:
             MutyLogger.get_instance().warning(
-                'no mapping for index "%s" found: %s' % (name, e)
+                'no mapping for index "%s" found: %s' % (index, e)
             )
             return {}
 
@@ -205,7 +205,7 @@ class GulpOpenSearch:
         return _parse_mappings_internal(properties)
 
     async def datastream_get_mapping_by_src(
-        self, name: str, context_id: str, source_id: str
+        self, index: str, context_id: str, source_id: str, el: AsyncElasticsearch = None
     ) -> dict:
         """
         Get and parse mappings for the given index/datastream, considering only "gulp.context_id"=context_id and "gulp.source_id"=source_id.
@@ -213,38 +213,37 @@ class GulpOpenSearch:
         The return type is the same as index_get_mapping with return_raw_result=False.
 
         Args:
-            name (str): The index/datastream name.
+            index (str): The index/datastream name.
             context_id (str): The context ID.
             source_id (str): The source ID.
+            el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
 
         Returns:
             dict: The mapping dict.
         """
         # query first
-        options = {}  # GulpQueryOptions()
+        options = GulpQueryAdditionalParameters()
         options.limit = 1000
-        options.fields_filter = ["*"]
+        options.fields = ["*"]
         q = {
             "query_string": {
                 "query": 'gulp.context_id: "%s" AND gulp.source_id: "%s"'
                 % (context_id, source_id)
-            }
+            },
         }
 
         # get mapping
-        mapping = await self.datastream_get_key_value_mapping(name)
+        mapping = await self.datastream_get_key_value_mapping(index)
         filtered_mapping = {}
-
         # loop with query_raw until there's data and update filtered_mapping
         while True:
             try:
-                docs = await self.search_dsl(index=name, q=q, q_options=options)
-                # MutyLogger.get_instance().debug("docs: %s" % (json.dumps(docs, indent=2)))
+                parsed_options = options.parse()
+                _, docs, search_after = await self._search_dsl_internal(
+                    index, parsed_options, q, el=el
+                )
             except ObjectNotFound:
                 break
-            search_after = docs.get("search_after", None)
-
-            docs = docs["results"]
             options.search_after = search_after
 
             # Update filtered_mapping with the current batch of documents
@@ -265,15 +264,15 @@ class GulpOpenSearch:
         filtered_mapping = dict(sorted(filtered_mapping.items()))
         return filtered_mapping
 
-    async def index_template_delete(self, name: str) -> None:
+    async def index_template_delete(self, index: str) -> None:
         """
         Delete the index template for the given index/datastream.
 
         Args:
-            name (str): The index/datastream name.
+            index (str): The index/datastream name.
         """
         try:
-            template_name = "%s-template" % (name)
+            template_name = "%s-template" % (index)
             MutyLogger.get_instance().debug(
                 "deleting index template: %s ..." % (template_name)
             )
@@ -281,17 +280,17 @@ class GulpOpenSearch:
         except Exception as e:
             MutyLogger.get_instance().warning("index template does not exist: %s" % (e))
 
-    async def index_template_get(self, name: str) -> dict:
+    async def index_template_get(self, index: str) -> dict:
         """
         Get the index template for the given index/datastream.
 
         Args:
-            name (str): The index/datastream name.
+            index (str): The index/datastream name.
 
         Returns:
             dict: The index template.
         """
-        template_name = "%s-template" % (name)
+        template_name = "%s-template" % (index)
         MutyLogger.get_instance().debug(
             "getting index template: %s ..." % (template_name)
         )
@@ -299,22 +298,22 @@ class GulpOpenSearch:
         try:
             res = await self._opensearch.indices.get_index_template(name=template_name)
         except Exception as e:
-            raise ObjectNotFound("no template found for datastream/index %s" % (name))
+            raise ObjectNotFound("no template found for datastream/index %s" % (index))
 
         return res["index_templates"][0]["index_template"]
 
-    async def index_template_put(self, name: str, d: dict) -> dict:
+    async def index_template_put(self, index: str, d: dict) -> dict:
         """
         Put the index template for the given index/datastream.
 
         Args:
-            name (str): The index/datastream name.
+            index (str): The index/datastream name.
             d (dict): The index template.
 
         Returns:
             dict: The response from the OpenSearch client.
         """
-        template_name = "%s-template" % (name)
+        template_name = "%s-template" % (index)
         MutyLogger.get_instance().debug(
             "putting index template: %s ..." % (template_name)
         )
@@ -324,13 +323,13 @@ class GulpOpenSearch:
         )
 
     async def index_template_set_from_file(
-        self, name: str, path: str, apply_patches: bool = True
+        self, index: str, path: str, apply_patches: bool = True
     ) -> dict:
         """
         Asynchronously sets an index template in OpenSearch from a JSON file.
 
                 Args:
-            name (str): The name of the index/datastream to set the template for.
+            index (str): The name of the index/datastream to set the template for.
             path (str): The file path to the JSON file containing the index template.
             apply_patches (bool, optional): Whether to apply specific patches to the mappings and settings before setting the index template. Defaults to True.
         Returns:
@@ -341,15 +340,15 @@ class GulpOpenSearch:
             'loading index template from file "%s" ...' % (path)
         )
         d = muty.dict.from_json_file(path)
-        return await self.build_and_set_index_template(name, d, apply_patches)
+        return await self.build_and_set_index_template(index, d, apply_patches)
 
     async def build_and_set_index_template(
-        self, index_name: str, d: dict, apply_patches: bool = True
+        self, index: str, d: dict, apply_patches: bool = True
     ) -> dict:
         """
         Sets an index template in OpenSearch, applying the needed patches to the mappings and settings.
         Args:
-            index_name (str): The name of the index for which the template is being set.
+            index (str): The name of the index for which the template is being set.
             d (dict): The dictionary containing the template, mappings, and settings for the index.
             apply_patches (bool, optional): Whether to apply specific patches to the mappings and settings before setting the index template. Defaults to True.
         Returns:
@@ -361,9 +360,7 @@ class GulpOpenSearch:
             - It applies specific patches to the mappings and settings before setting the index template.
             - If the OpenSearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
         """
-        MutyLogger.get_instance().debug(
-            'setting index template for "%s" ...' % (index_name)
-        )
+        MutyLogger.get_instance().debug('setting index template for "%s" ...' % (index))
         template = d.get("template", None)
         if template is None:
             raise ValueError('no "template" key found in the index template')
@@ -384,7 +381,7 @@ class GulpOpenSearch:
             mappings["dynamic_templates"] = dt
 
         # apply our patches
-        d["index_patterns"] = [index_name]
+        d["index_patterns"] = [index]
         d["data_stream"] = {}
         d["priority"] = 100
 
@@ -445,7 +442,7 @@ class GulpOpenSearch:
                 settings["index"]["number_of_replicas"] = 0
 
         # write template
-        await self.index_template_put(index_name, d)
+        await self.index_template_put(index, d)
         return d
 
     async def datastream_list(self) -> list[str]:
@@ -475,12 +472,12 @@ class GulpOpenSearch:
 
         return ll
 
-    async def datastream_delete(self, name: str) -> None:
+    async def datastream_delete(self, ds: str) -> None:
         """
         Delete the datastream and associated index and template from OpenSearch.
 
         Args:
-            name (str): The name of the datastream to delete.
+            ds (str): The name of the datastream to delete.
 
         Returns:
             None
@@ -488,22 +485,22 @@ class GulpOpenSearch:
         # params = {"ignore_unavailable": "true"}
         headers = {"accept": "application/json"}
         try:
-            MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (name))
-            await self._opensearch.indices.delete_data_stream(name, headers=headers)
+            MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
+            await self._opensearch.indices.delete_data_stream(ds, headers=headers)
         except Exception as e:
             MutyLogger.get_instance().error("error deleting datastream: %s" % (e))
             pass
         try:
-            await self.index_template_delete(name)
+            await self.index_template_delete(ds)
         except Exception as e:
             MutyLogger.get_instance().error("error deleting index template: %s" % (e))
 
-    async def datastream_create(self, name: str, index_template: str = None) -> dict:
+    async def datastream_create(self, ds: str, index_template: str = None) -> dict:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
         Args:
-            datastream_name(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
+            ds(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
                 if it already exists, it will be deleted first.
             index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
 
@@ -512,8 +509,8 @@ class GulpOpenSearch:
         """
 
         # attempt to delete the datastream first, if it exists
-        MutyLogger.get_instance().debug('re/creating datastream "%s" ...' % (name))
-        await self.datastream_delete(name)
+        MutyLogger.get_instance().debug('re/creating datastream "%s" ...' % (ds))
+        await self.datastream_delete(ds)
 
         # create index template, check if we are overriding the default index template.
         # if so, we only apply gulp-related patching and leaving everything else as is
@@ -527,18 +524,18 @@ class GulpOpenSearch:
             )
             apply_patches = False
         await self.index_template_set_from_file(
-            name, template_path, apply_patches=apply_patches
+            ds, template_path, apply_patches=apply_patches
         )
 
         try:
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
-            r = await self._opensearch.indices.create_data_stream(name, headers=headers)
+            r = await self._opensearch.indices.create_data_stream(ds, headers=headers)
             MutyLogger.get_instance().debug("datastream created: %s" % (r))
             return r
         except Exception as e:
             # delete the index template
-            await self.index_template_delete(name)
+            await self.index_template_delete(ds)
             raise e
 
     def _bulk_docs_result_to_ingest_chunk(
@@ -1000,6 +997,65 @@ class GulpOpenSearch:
                 f'document with ID "{id}" not found in datastream={datastream} index={index}'
             )
 
+    async def _search_dsl_internal(
+        self, index: str, parsed_options: dict, q: dict, el: AsyncElasticsearch = None
+    ) -> tuple[int, list[dict], list[dict]]:
+        """
+        Executes a raw DSL query on OpenSearch and returns the results.
+
+        Args:
+            index (str): Name of the index (or datastream) to query.
+            parsed_options (dict): The parsed query options.
+            q (dict): The DSL query to execute.
+            el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
+
+        Returns:
+            tuple:
+            - total_hits (int): The total number of hits found.
+            - docs (list[dict]): The documents found.
+            - search_after (list[dict]): The search_after value for the next iteration.
+
+        Raises:
+            ObjectNotFound: If no more hits are found.
+        """
+        if el:
+            # use the ElasticSearch client provided
+            res = await el.search(
+                index=index,
+                track_total_hits=True,
+                query=q["query"],
+                sort=parsed_options["_sort"],
+                size=parsed_options["_size"],
+                search_after=parsed_options["search_after"],
+                source=parsed_options["source"],
+            )
+        else:
+            # use the OpenSearch client (default)
+            body = q
+            body["track_total_hits"] = True
+            for k, v in parsed_options.items():
+                if v:
+                    body[k] = v
+            MutyLogger.get_instance().debug(
+                "query_raw body=%s" % (json.dumps(body, indent=2))
+            )
+
+            headers = {
+                "content-type": "application/json",
+            }
+            res = await self._opensearch.search(body=body, index=index, headers=headers)
+
+        # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (json.dumps(res, indent=2)))
+        hits = res["hits"]["hits"]
+        if not hits:
+            raise ObjectNotFound("no more hits")
+
+        # get data
+        total_hits = res["hits"]["total"]["value"]
+        docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
+        search_after = hits[-1]["sort"]
+        return total_hits, docs, search_after
+
     async def search_dsl(
         self,
         index: str,
@@ -1010,11 +1066,11 @@ class GulpOpenSearch:
         q_options: "GulpQueryAdditionalParameters" = None,
         el: AsyncElasticsearch = None,
         sess: AsyncSession = None,
-    ) -> None:
+    ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
 
-        NOTE: in the end, all gulp **local** queries will be done through this function.
+        NOTE: in the end, all gulp **local** queries and all **elasticsearch/opensearch** based queries for external plugins will be done through this function.
 
         Args:
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
@@ -1024,10 +1080,15 @@ class GulpOpenSearch:
             user_id (str, optional): The user ID performing the query
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
-            sess (AsyncSession, options): SQLAlchemy session, used only if options.sigma_parameters.create_notes is set. Defaults to None.
+            sess (AsyncSession, options): SQLAlchemy session, used only if options.note_parameters.create_notes is set. Defaults to None.
+
+        Return:
+            tuple:
+            - processed (int): The number of documents processed.
+            - total_hits (int): The total number of hits found.
 
         Raises:
-            ObjectNotFound: If no results are found.
+            ValueError: argument error
             Exception: If an error occurs during the query.
         """
         from gulp.api.opensearch.query import GulpQueryAdditionalParameters
@@ -1036,18 +1097,11 @@ class GulpOpenSearch:
             # use defaults
             q_options = GulpQueryAdditionalParameters()
 
-        if q_options.sigma_parameters:
-            if not q_options.sigma_parameters.create_notes and (
-                not q_options.sigma_parameters.note_name or not sess
-            ):
-                raise ValueError(
-                    "note_name and sess are both required for a sigma query when sigma_create_notes is set!"
-                )
+        if q_options.note_parameters.create_notes and not sess:
+            raise ValueError("sess is required if create_notes is set!")
 
-        use_elasticsearch_api = False
         if el:
             # force use_elasticsearch_api if el is provided
-            use_elasticsearch_api = True
             MutyLogger.get_instance().debug(
                 "search_dsl: using provided ElasticSearch client %s" % (el)
             )
@@ -1059,47 +1113,10 @@ class GulpOpenSearch:
             last: bool = False
             docs: list[dict] = []
             try:
-                if use_elasticsearch_api:
-                    # use the ElasticSearch client provided
-                    if el is None:
-                        # missing elasticsearch client
-                        raise ValueError("el is None, but use_elasticsearch_api is set")
-                    res = await el.search(
-                        index=index,
-                        track_total_hits=True,
-                        query=q["query"],
-                        sort=parsed_options["_sort"],
-                        size=parsed_options["_size"],
-                        search_after=parsed_options["search_after"],
-                        source=parsed_options["source"],
-                    )
-                else:
-                    # use the OpenSearch client (default)
-                    body = q
-                    body["track_total_hits"] = True
-                    for k, v in parsed_options.items():
-                        if v:
-                            body[k] = v
-                    MutyLogger.get_instance().debug(
-                        "query_raw body=%s" % (json.dumps(body, indent=2))
-                    )
+                total_hits, docs, search_after = await self._search_dsl_internal(
+                    index, parsed_options, q, el
+                )
 
-                    headers = {
-                        "content-type": "application/json",
-                    }
-                    res = await self._opensearch.search(
-                        body=body, index=index, headers=headers
-                    )
-
-                # MutyLogger.get_instance().debug("search_dsl: res=%s" % (json.dumps(res, indent=2)))
-                hits = res["hits"]["hits"]
-                if not hits:
-                    raise ObjectNotFound("no more results found!")
-
-                # get data
-                total_hits = res["hits"]["total"]["value"]
-                docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
-                search_after = hits[-1]["sort"]
                 if q_options.loop:
                     # auto setup for next iteration
                     parsed_options["search_after"] = search_after
@@ -1126,7 +1143,8 @@ class GulpOpenSearch:
                         data=p.model_dump(exclude_none=True),
                     )
 
-                    raise ex
+                    # no results
+                    return 0, 0
                 else:
                     # indicates the last result
                     last = True
@@ -1168,19 +1186,19 @@ class GulpOpenSearch:
                         req_id=req_id,
                         data=p.model_dump(exclude_none=True),
                     )
-            if q_options.sigma_parameters and q_options.sigma_parameters.create_notes:
-                # this is a sigma, auto-create a note for each of the matched document on collab db
+            if q_options.note_parameters.create_notes:
+                # automatically generate notes
                 await GulpNote.bulk_create_from_documents(
                     sess,
                     user_id,
                     ws_id=ws_id,
                     req_id=req_id,
                     docs=docs,
-                    name=q_options.sigma_parameters.note_name,
-                    tags=q_options.sigma_parameters.note_tags,
-                    color=q_options.sigma_parameters.note_color,
-                    glyph_id=q_options.sigma_parameters.note_glyph_id,
-                    private=q_options.sigma_parameters.note_private,
+                    name=q_options.note_parameters.note_name,
+                    tags=q_options.note_parameters.note_tags,
+                    color=q_options.note_parameters.note_color,
+                    glyph_id=q_options.note_parameters.note_glyph_id,
+                    private=q_options.note_parameters.note_private,
                 )
             if last or not q_options.loop:
                 break
@@ -1192,3 +1210,4 @@ class GulpOpenSearch:
             "search_dsl: processed %d documents, total=%d, chunks=%d"
             % (processed, total_hits, chunk_num)
         )
+        return processed, total_hits

@@ -8,7 +8,11 @@ import muty.string
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError, SourceCanceledError
+from gulp.api.collab.stats import (
+    GulpIngestionStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -28,30 +32,17 @@ class Plugin(GulpPluginBase):
 
     the csv plugin may ingest any CSV file itself, but it is also used as a base plugin for other plugins (in "stacked" mode).
 
+    NOTE: since it is mandatory that for each document to have a `@timestamp`, a `GulpMapping` must be set with either `timestamp_field` or
+    a field directly set to "@timestamp".
+
+
     ### standalone mode
 
     when used by itself, it is enough to ingest a CSV file with the default settings (no extra parameters needed).
 
-    NOTE: since each document must have a "@timestamp", a GulpMapping must be set with a "timestamp_field" set in the plugin_params.
-
-    ~~~bash
-    # all CSV field will result in "gulp.unmapped.*" fields, timestamp will be set from "UpdateTimestamp" field
-    TEST_PLUGIN_PARAMS='{"timestamp_field": "UpdateTimestamp"}' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
-
-    # use a mapping file
-    # a mapping file may hold more than one mapping definition with its own options (as defined in helpers.get_mapping_from_file())
-    TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "j"}' TEST_PLUGIN=csv ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
-    ~~~
-
     ### stacked mode
 
     in stacked mode, we simply run the stacked plugin, which in turn use the CSV plugin to parse the data.
-
-    ~~~bash
-    TEST_PLUGIN=stacked_example ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_j.csv
-    ~~~
-
-    see the example in [stacked_example.py](stacked_example.py)
 
     ### parameters
 

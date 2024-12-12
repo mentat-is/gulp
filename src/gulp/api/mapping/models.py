@@ -64,11 +64,17 @@ class GulpMappingField(BaseModel):
     )
     extra_doc_with_event_code: Optional[str] = Field(
         None,
-        description='if this is set, the creation of an extra document is triggered with the given "event.code" and "@timestamp" set to this field value.',
+        description="""
+if this is set, the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
+
+usually, in this setting, a mapping file shows a field `ecs` directly mapped as `@timestamp` (to indicate the *main* document) and one or more additional `extra_doc_with_event_code` fields.
+
+check `mftecmd_csv.json` for an example of this setting.
+""",
     )
     is_timestamp_chrome: Optional[bool] = Field(
         False,
-        description="if set, the corresponding value is a webkit timestamp (from 1601) and will be converted to nanoseconds from unix epoch.",
+        description="if set, the corresponding value is a `webkit timestamp` (from 1601) and will be converted to nanoseconds from the unix epoch.",
     )
 
 
@@ -174,4 +180,3 @@ class GulpMappingFile(BaseModel):
         None,
         description="metadata for the mapping file.",
     )
-

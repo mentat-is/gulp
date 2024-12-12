@@ -19,18 +19,14 @@ import muty.log
 import muty.string
 import muty.time
 from muty.log import MutyLogger
-from sigma.collection import SigmaCollection
-from sigma.conversion.base import Backend
 from sqlalchemy.ext.asyncio import AsyncSession
-import yaml
-
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.stats import (
     GulpIngestionStats,
     RequestCanceledError,
     SourceCanceledError,
 )
-from gulp.api.collab.structs import GulpCollabBase, GulpRequestStatus
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
@@ -38,8 +34,10 @@ from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
 )
 from gulp.api.opensearch.query import (
-    GulpConvertedSigma,
+    GulpQuery,
     GulpQueryAdditionalParameters,
+    GulpQueryNoteParameters,
+    GulpQuerySigmaParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -263,13 +261,7 @@ class GulpPluginBase(ABC):
 
         # additional options
         self._ingestion_enabled: bool = True
-        self._stats_enabled: bool = True
-        self._query_create_notes: bool = False
-        self._note_name: str = None
-        self._note_color: str = None
-        self._note_tags: list[str] = None
-        self._note_glyph: str = None
-        self._note_private: bool = False
+        self._note_parameters: GulpQueryNoteParameters = GulpQueryNoteParameters()
 
     @abstractmethod
     def display_name(self) -> str:
@@ -324,15 +316,15 @@ class GulpPluginBase(ABC):
         return []
 
     def _check_sigma_support(
-        self, backend: str, pipeline: str, output_format: str
+        self, s_options: GulpQuerySigmaParameters
     ) -> tuple[str, str, str]:
         """
         check if the plugin supports the given sigma backend/pipeline/output_format
 
+        if s_options.backend, pipeline or output_format are not set, the first supported is selected.
+
         Args:
-            backend (str): the backend to use: if not set, the first supported backend is used.
-            pipeline (str): the pipeline to use: if not set, the first supported pipeline is used.
-            output_format (str): the output format to use: if not set, the first supported output format is used.
+            s_options (GulpQuerySigmaParameters): the sigma query parameters.
 
         Returns:
             tuple[str,str,str]: the selected backend, pipeline, output_format
@@ -341,22 +333,32 @@ class GulpPluginBase(ABC):
             raise ValueError(
                 f"plugin {self.name} does not support any sigma backends/pipelines/output_formats"
             )
+        if not s_options:
+            s_options = GulpQuerySigmaParameters()
 
-        if not backend:
+        if not s_options.backend:
             backend = self.sigma_support()[0].backend[0]
             MutyLogger.get_instance().debug(
                 f"no backend specified, using first supported: {backend}"
             )
-        if not pipeline:
+        else:
+            backend = s_options.backend
+
+        if not s_options.pipeline:
             pipeline = self.sigma_support()[0].pipelines[0]
             MutyLogger.get_instance().debug(
                 f"no pipeline specified, using first supported: {pipeline}"
             )
-        if not output_format:
+        else:
+            pipeline = s_options
+
+        if not s_options.output_format:
             output_format = self.sigma_support()[0].output[0]
             MutyLogger.get_instance().debug(
                 f"no output_format specified, using first supported: {output_format}"
             )
+        else:
+            output_format = s_options.output_format
 
         for s in self.sigma_support():
             if (
@@ -369,93 +371,6 @@ class GulpPluginBase(ABC):
         raise ValueError(
             f"plugin {self.name} does not support the combination: backend={backend}, pipeline={pipeline}, output_format={output_format}"
         )
-
-    def _build_sigma_collection(
-        self, sigmas: list[str], name: str = None, tags: list[str] = None
-    ) -> SigmaCollection:
-        """
-        Build a SigmaCollection from one or more sigma rules.
-        If multiple rules, combines them with AND logic using filters.
-
-        Args:
-            sigmas: List of sigma rule YAML strings
-            name: Name to set on the query (only used for multiple rules)
-            tags: Tags to set on the query (only used for multiple rules)
-        Returns:
-            SigmaCollection: Combined rules
-        """
-        if len(sigmas) == 1:
-            return SigmaCollection.from_yaml(sigmas[0])
-
-        # For multiple rules, create main rule that references all others
-        id = muty.string.generate_unique()
-        rule_name = name or "rule_%s" % (id)
-        main_rule = {
-            "title": rule_name,
-            "name": rule_name,
-            "id": id,
-            "status": "test",
-            "description": "Combines multiple sigma rules with AND logic",
-            "detection": {
-                "condition": " and ".join(f"filter{i}" for i in range(len(sigmas))),
-            },
-            "filter": {"name": []},
-        }
-        if tags:
-            main_rule["tags"] = tags
-
-        # Add filter references for each rule
-        for i in range(len(sigmas)):
-            main_rule["detection"][f"filter{i}"] = {"ref": f"rule{i}"}
-            main_rule["filter"]["name"].append(f"rule{i}")
-
-        # combine main rule with others
-        combined_yaml = yaml.dump(main_rule)
-        for sigma in sigmas:
-            combined_yaml += f"\n---\n{sigma}"
-
-        return SigmaCollection.from_yaml(combined_yaml)
-
-    def _sigma_convert_internal(
-        self,
-        sigmas: list[str],
-        backend: Backend,
-        name: str = None,
-        tags: list[str] = None,
-        output_format: str = None,
-    ) -> list[GulpConvertedSigma]:
-        """
-        perform the sigma conversion.
-
-        Args:
-            sigmas (str): the main sigma rule YAML
-            backend (Backend): the backend to use
-            name (str): the name to set on the query (only used if sigmas contains multiple rules)
-            tags (list[str]): the tags to set on the query (only used if sigmas contains multiple rules)
-            referenced_sigmas (list[str], optional): a list of referenced sigma rules YAMLs. Defaults to None.
-            output_format (str): the output format to use
-        Returns:
-            list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
-        """
-        # build sigma including references
-        sc: SigmaCollection = self._build_sigma_collection(sigmas, name, tags)
-        sc.resolve_rule_references()
-        l = []
-
-        # a single sigma may originate multiple queries
-        for r in sc:
-            q = backend.convert_rule(r, output_format=output_format)
-            for qq in q:
-                converted = GulpConvertedSigma(
-                    name=r.name or "rule_" + str(r.id),
-                    q=qq,
-                    tags=[str(t) for t in r.tags] if r.tags else [],
-                    id=str(r.id),
-                    backend=backend.name,
-                    pipeline=backend.processing_pipeline.name,
-                )
-                l.append(converted)
-        return l
 
     def sigma_support(self) -> list[GulpPluginSigmaSupport]:
         """
@@ -470,23 +385,15 @@ class GulpPluginBase(ABC):
 
     def sigma_convert(
         self,
-        sigmas: list[str],
-        backend: str = None,
-        name: str = None,
-        tags: list[str] = None,
-        pipeline: str = None,
-        output_format: str = None,
-    ) -> list[GulpConvertedSigma]:
+        sigma: str,
+        s_options: GulpQuerySigmaParameters,
+    ) -> list[GulpQuery]:
         """
-        convert a sigma rule specifically targeted to this plugin to a query in the format specified by backend/pipeline/output_format.
+        convert a sigma rule specifically targeted to this plugin into a query for the specified by backend/pipeline/output_format.
 
         Args:
-            sigmas (list[str]): one or more sigma rules YAMLs.
-            backend (str, optional): the backend to use, must be listed in `sigma_support`. Defaults to None (use first supported).
-            name (str, optional): the name to set on the query. Defaults to None (only used if sigmas contains multiple rules).
-            tags (list[str], optional): the tags to set on the query. Defaults to None (only used if sigmas contains multiple rules).
-            pipeline (str, optional): the pipeline to use, must be listed in `sigma_support`. Defaults to None (use first supported).
-            output_format (str, optional): the output format to use, must be listed in `sigma_support`. Defaults to None (use first supported).
+            sigma (str): the sigma rule YAML
+            s_options (GulpQuerySigmaParameters): the sigma query parameters.
         Returns:
             list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
         """
@@ -500,14 +407,9 @@ class GulpPluginBase(ABC):
         ws_id: str,
         q: any,
         q_options: GulpQueryAdditionalParameters,
-        operation_id: str = None,
-        context_id: str = None,
-        source: str = None,
-        ingest_index: str = None,
-        stats: GulpIngestionStats = None,
-        plugin_params: GulpPluginParameters = None,
+        plugin_params: GulpPluginParameters,
         **kwargs,
-    ) -> None:
+    ) -> tuple[int, int]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
 
@@ -519,18 +421,15 @@ class GulpPluginBase(ABC):
             ws_id (str): the websocket id
             user (str): the user performing the query
             q(any): the query to perform, format is plugin specific
-            q_options (GulpQueryAdditionalParameters): additional query options (uri, credentials, options for the external source)
-            operation_id (str, optional): the operation to set on the documents. Defaults to None.
-            context_id (str, optional): the context to set on the documents. Defaults to None.
-            source (str, optional): the source to set on the documents. Defaults to None.
-            ingest_index (str, optional): the index to ingest the results. Defaults to None.
-            stats (GulpIngestionStats, optional): the ingestion stats, ignored if ingest_index is None. Defaults to None.
-            plugin_params (GulpPluginParameters, optional): any plugin specific parameters. Defaults to None.
+            q_options (GulpQueryAdditionalParameters): additional query options
+            plugin_params (GulpPluginParameters): any plugin specific parameters.
 
         Notes:
-            - implementers must call super().ingest_file first, then _initialize().
+            - implementers must call super().query_external first, then _initialize().
             - this function *MUST NOT* raise exceptions.
 
+        Returns:
+            tuple[int, int]: the number of documents processed(ingested) and the total number of documents found
         Raises:
             ObjectNotFound: if no document is found.
         """
@@ -543,34 +442,24 @@ class GulpPluginBase(ABC):
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
-        self._operation_id = operation_id
-        self._file_path = source
-        self._context_id = context_id
 
         # setup internal state to be able to call process_record as during ingestion
-        self._stats_enabled = False
-        if ingest_index:
+        self._stats = None
+        if q_options.external_parameters.ingest_index:
             # ingest during query
-            self._index = ingest_index
-            self._stats = stats
-            if not self._stats:
-                raise ValueError("stats must be set when ingest_index is set")
+            self._index = q_options.external_parameters.ingest_index
+            self._operation_id = q_options.external_parameters.operation_id
+            self._file_path = q_options.external_parameters.source_id
+            self._context_id = q_options.external_parameters.context_id
+            self._note_parameters = q_options.note_parameters
 
-            if q_options.sigma_parameters:
-                # this is a sigma query
-                self._query_create_notes = q_options.sigma_parameters.create_notes
-                self._note_name = q_options.sigma_parameters.note_name
-                self._note_color = q_options.sigma_parameters.note_color
-                self._note_tags = q_options.sigma_parameters.note_glyph_id
-                self._note_glyph = q_options.sigma_parameters.note_tags
-                self._note_private = q_options.sigma_parameters.note_private
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={operation_id}, ws_id={ws_id}, req_id={req_id}, \
-                q={q}, q_options={q_options}, ingest_index={ingest_index}, plugin_params={plugin_params}"
+            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={self._operation_id}, ws_id={ws_id}, req_id={req_id}, \
+                q={q}, q_options={q_options}, ingest_index={self._index}, plugin_params={plugin_params}"
         )
 
     async def query_external_single(
@@ -691,7 +580,7 @@ class GulpPluginBase(ABC):
             )
             self._chunks_ingested += 1
 
-            if self._query_create_notes:
+            if self._note_parameters.create_notes:
                 # auto-create notes during external query with ingestion (this is a sigma query)
                 await GulpNote.bulk_create_from_documents(
                     sess=self._sess,
@@ -699,11 +588,11 @@ class GulpPluginBase(ABC):
                     ws_id=self._ws_id,
                     req_id=self._req_id,
                     docs=data,
-                    name=self._note_name,
-                    tags=self._note_tags,
-                    color=self._note_color,
-                    glyph_id=self._note_glyph,
-                    private=self._note_private,
+                    name=self._note_parameters.note_name,
+                    tags=self._note_parameters.note_tags,
+                    color=self._note_parameters.note_color,
+                    glyph_id=self._note_parameters.note_glyph,
+                    private=self._note_parameters.note_private,
                 )
 
         return len(ingested_docs), skipped
@@ -1096,19 +985,18 @@ class GulpPluginBase(ABC):
                         )
                     )
 
-                # update stats
-                MutyLogger.get_instance().debug(
-                    "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d"
-                    % (
-                        self._records_processed_per_chunk,
-                        ingested,
-                        skipped,
-                        self._tot_failed_in_source,
-                        self._tot_skipped_in_source,
-                    )
-                )
-                if self._stats_enabled:
+                if self._stats:
                     # update stats
+                    MutyLogger.get_instance().debug(
+                        "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d"
+                        % (
+                            self._records_processed_per_chunk,
+                            ingested,
+                            skipped,
+                            self._tot_failed_in_source,
+                            self._tot_skipped_in_source,
+                        )
+                    )
                     d = dict(
                         records_skipped=skipped,
                         records_ingested=ingested,
@@ -1375,20 +1263,20 @@ class GulpPluginBase(ABC):
         Args:
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
         """
-        """
-        if not self._stats_enabled or self._stats.status != GulpRequestStatus.ONGOING:
-            MutyLogger.get_instance().debug(
-                "request already done, status=%s" % (self._stats.status)
-            )
-            return
-        """
         MutyLogger.get_instance().debug(
             "INGESTION SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s"
-            % (self._file_path, len(self._docs_buffer), self._stats.status)
+            % (
+                self._file_path,
+                len(self._docs_buffer),
+                self._stats.status if self._stats else GulpRequestStatus.DONE,
+            )
         )
 
         # flush the last chunk
         ingested, skipped = await self._flush_buffer(flt, wait_for_refresh=True)
+        if not self._stats:
+            return
+
         d = dict(
             source_failed=1 if self._is_source_failed else 0,
             source_processed=1,

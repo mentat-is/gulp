@@ -3,7 +3,7 @@ from typing import Optional, override
 from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, String, insert
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, String, insert, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -11,6 +11,7 @@ from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy.ext.mutable import MutableList
 from gulp.api.collab.structs import (
     GulpCollabBase,
+    GulpCollabFilter,
     GulpCollabObject,
     GulpCollabType,
 )
@@ -186,12 +187,12 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         Returns:
             the number of notes created
         """
-        default_tags = ["auto"]
-        if tags:
-            # add the default tags if not already present
-            tags = list(default_tags.union(tag.lower() for tag in tags))
-        else:
-            tags = list(default_tags)
+        tt: list[str] = tags
+        if not tt:
+            tt = []
+
+        if not ["auto"] in tt:
+            tt.append("auto")
 
         # creates a list of notes, one for each document
         notes = []
@@ -214,7 +215,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 context_id=associated_doc.context_id,
                 source_id=associated_doc.source_id,
                 glyph_id=glyph_id,
-                tags=tags,
+                tags=tt,
                 color=color,
                 name=name,
                 docs=[associated_doc],
@@ -240,7 +241,11 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         # operation is always the same
         operation_id = notes[0].get("operation_id")
         data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
-            data=notes, bulk=True, bulk_type=GulpCollabType.NOTE, created=True
+            data=notes,
+            bulk=True,
+            bulk_type=GulpCollabType.NOTE,
+            created=True,
+            bulk_size=len(notes),
         )
         GulpSharedWsQueue.get_instance().put(
             GulpWsQueueDataType.COLLAB_UPDATE,
@@ -255,3 +260,43 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         )
 
         return len(notes)
+
+    @staticmethod
+    async def bulk_update_tag(
+        sess: AsyncSession,
+        tags: list[str],
+        new_tags: list[str],
+    ) -> None:
+        """
+        get tags from notes and update them with new tags
+        """
+
+        offset = 0
+        chunk_size = 1000
+        flt = GulpCollabFilter(tags=tags, limit=chunk_size, offset=offset)
+        updated = 0
+        while True:
+            notes: list[GulpNote] = await GulpNote.get_by_filter(
+                sess, flt, throw_if_not_found=False, with_for_update=True
+            )
+            if not notes:
+                break
+            MutyLogger.get_instance().info("updating tags for %d notes..." % len(notes))
+
+            note_ids = [n.id for n in notes]
+            note_tags = []
+            for n in notes:
+                if not new_tags in n.tags:
+                    n.tags.extend(new_tags)
+                note_tags.append(n.tags)
+
+            await sess.execute(
+                update(GulpNote).where(GulpNote.id.in_(note_ids)).values(tags=note_tags)
+            )
+            await sess.commit()
+
+            # next chunk
+            offset += chunk_size
+            flt.offset = offset
+            updated += len(notes)
+        MutyLogger.get_instance().info("updated tags for %d notes" % updated)

@@ -47,6 +47,8 @@ class GulpWsQueueDataType(StrEnum):
     INGEST_SOURCE_DONE = "ingest_source_done"
     # GulpQueryDonePacket
     QUERY_DONE = "query_done"
+    # GulpQueryGroupMatch
+    QUERY_GROUP_MATCH = "query_group_match"
     # GulpRebaseDonePacket
     REBASE_DONE = "rebase_done"
 
@@ -74,6 +76,26 @@ class GulpCollabDeletePacket(BaseModel):
     id: str = Field(..., description="The collab object ID.")
 
 
+class GulpQueryGroupMatch(BaseModel):
+    """
+    Represents a query group match.
+
+    once receiving a query group match, the client should query notes with tag=group name
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "the query group name",
+                    "total_hits": 100,
+                }
+            ]
+        }
+    )
+    name: str = Field(..., description="The query group name.")
+    total_hits: int = Field(..., description="The total number of hits.")
+    
 class GulpQueryDonePacket(BaseModel):
     """
     Represents a query done event on the websocket.
@@ -148,7 +170,8 @@ class GulpCollabCreateUpdatePacket(BaseModel):
                         "type": GulpCollabType.NOTE,
                         "something": "else",
                     },
-                    "bulk": False,
+                    "bulk": True,
+                    "bulk_size": 100,
                     "bulk_type": GulpCollabType.NOTE,
                     "created": True,
                 }
@@ -162,6 +185,7 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     bulk_type: Optional[GulpCollabType] = Field(
         None, description="The type of the bulk event."
     )
+    bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
     created: Optional[bool] = Field(
         default=False, description="If the event is a create event."
     )
