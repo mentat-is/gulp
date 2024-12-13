@@ -6,10 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
     GulpQueryFilter,
-    GulpSortOrder,
 )
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpPluginParameters, GulpSortOrder
 from muty.pydantic import autogenerate_model_example_by_class
 
 

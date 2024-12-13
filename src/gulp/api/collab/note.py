@@ -33,6 +33,7 @@ from gulp.api.ws_api import (
     GulpSharedWsQueue,
     GulpWsQueueDataType,
 )
+from gulp.structs import GulpSortOrder
 
 
 class GulpNoteEdit(BaseModel):
@@ -284,9 +285,12 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         """
         offset = 0
         chunk_size = 1000
-        flt = GulpCollabFilter(tags=tags, limit=chunk_size, offset=offset)
+        flt = GulpCollabFilter(
+            tags=tags,
+            limit=chunk_size,
+            offset=offset,
+        )
         updated = 0
-        cached_notes = []
 
         while True:
             # get all notes matching "tags"
@@ -296,28 +300,13 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             if not notes:
                 break
 
+            # for each note, update tags
             for n in notes:
-                if n.id not in cached_notes:
-                    cached_notes.append(n.id)
-                    MutyLogger.get_instance().debug(
-                        "cached note, offset=%d, id=%s" % (offset, n.id)
-                    )
-                else:
-                    MutyLogger.get_instance().error(
-                        "Note already present in cached notes, offset=%d, id=%s, cached=%s"
-                        % (offset, n.id, cached_notes)
-                    )
-                    raise Exception("Note already present in cached notes")
-
-            # create update chunk
-            for n in notes:
-                # extend tags that aren't already present
                 for t in new_tags:
                     if t not in n.tags:
                         n.tags.append(t)
 
             await sess.commit()
-
             rows_updated = len(notes)
             MutyLogger.get_instance().debug(f"updated {rows_updated} notes")
 

@@ -1,7 +1,7 @@
 import json
 import re
 from enum import StrEnum
-from typing import List, Optional, TypeVar, override, TYPE_CHECKING
+from typing import Any, List, Optional, TypeVar, override, TYPE_CHECKING
 
 import muty.string
 import muty.time
@@ -46,7 +46,7 @@ from tenacity import (
 if TYPE_CHECKING:
     from gulp.api.ws_api import GulpWsQueueDataType
 
-from gulp.structs import ObjectAlreadyExists, ObjectNotFound
+from gulp.structs import GulpSortOrder, ObjectAlreadyExists, ObjectNotFound
 
 
 class SessionExpired(Exception):
@@ -165,6 +165,7 @@ class GulpCollabFilter(BaseModel):
                     "limit": 10,
                     "offset": 100,
                     "tags_and": False,
+                    "sort": [("time_created", "ASC"), ("id", "ASC")],
                 },
             ]
         },
@@ -229,6 +230,10 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     tags_and: Optional[bool] = Field(
         False,
         description="if True, all tags must match. Default=False (at least one tag must match).",
+    )
+    sort: Optional[list[tuple[str, GulpSortOrder]]] = Field(
+        None,
+        description="sort fields and order. Default=sort by `time_created` ASC, `id` ASC.",
     )
 
     @override
@@ -374,10 +379,27 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 )
             q = q.filter(and_(*conditions))
 
+        # add sort
+        if not self.sort:
+            # default, time_created ASC, id ASC
+            order_clauses = [
+                type.time_created.asc(),
+                type.id.asc(),
+            ]
+        else:
+            order_clauses = []
+            for field, direction in self.sort:
+                if direction == GulpSortOrder.ASC:
+                    order_clauses.append(getattr(type, field).asc())
+                else:
+                    order_clauses.append(getattr(type, field).desc())
+        q = q.order_by(*order_clauses)
+
         if self.limit:
             q = q.limit(self.limit)
         if self.offset:
             q = q.offset(self.offset)
+
         if with_for_update:
             q = q.with_for_update()
         # MutyLogger.get_instance().debug(f"to_select_query: {q}")
@@ -1164,7 +1186,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # build and run query (ensure eager loading)
         q = flt.to_select_query(cls, with_for_update=with_for_update)
         q = q.options(*cls._build_relationship_loading_options())
-        MutyLogger.get_instance().debug(f"get_by_filter query:\n{q}")
+        # MutyLogger.get_instance().debug(f"get_by_filter query:\n{q}")
         res = await sess.execute(q)
         objects = res.scalars().all()
         if not objects:

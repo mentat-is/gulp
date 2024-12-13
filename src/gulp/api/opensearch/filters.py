@@ -1,4 +1,4 @@
-from enum import IntEnum, StrEnum
+from enum import IntEnum
 from typing import Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -444,12 +444,3 @@ a tuple representing `[ time_start, time_end, field ]`.
                 self.model_extra,
             ]
         )
-
-
-class GulpSortOrder(StrEnum):
-    """
-    specifies the sort types for API accepting the "sort" parameter
-    """
-
-    ASC = "asc"
-    DESC = "desc"

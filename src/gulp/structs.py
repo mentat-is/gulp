@@ -1,5 +1,6 @@
 """Gulp global definitions."""
 
+from enum import StrEnum
 from typing import Any, Literal, Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -121,3 +122,12 @@ class GulpPluginSigmaSupport(BaseModel):
         ...,
         description="one or more output formats supported by the plugin.",
     )
+
+
+class GulpSortOrder(StrEnum):
+    """
+    specifies the sort types for API accepting the "sort" parameter
+    """
+
+    ASC = "asc"
+    DESC = "desc"
