@@ -783,7 +783,7 @@ additional parameters for querying, including:
             str,
             Query(
                 description="""
-id of a request, *will be replicated in the response `req_id`.
+id of a request, will be replicated in the response `req_id`.
 
 - leave empty to autogenerate.
 """,

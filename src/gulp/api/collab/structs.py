@@ -250,6 +250,28 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         conditions = [column.ilike(f"%{value}%") for value in values]
         return or_(*conditions)
 
+    def _array_contains_all(self, array_field, values):
+        """
+        array containment check (ALL must match)
+        """
+
+        # cast both arrays to text[] and lowercase
+        array_expr = func.array(
+            select(func.lower(func.unnest(array_field))).scalar_subquery()
+        )
+        return array_expr.op("@>")(values)
+
+    def _array_contains_any(self, array_field, values):
+        """
+        array overlap check (ANY must match)
+        """
+
+        # cast both arrays to text[] and lowercase
+        array_expr = func.array(
+            select(func.lower(func.unnest(array_field))).scalar_subquery()
+        )
+        return array_expr.op("&&")(values)
+
     def to_select_query(self, type: T, with_for_update: bool = False) -> Select[Tuple]:
         """
         convert the filter to a select query
@@ -282,14 +304,16 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q = q.filter(
                 self._case_insensitive_or_ilike(type.owner_user_id, self.owner_user_ids)
             )
+
         if self.tags and "tags" in type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
             if self.tags_and:
                 # all tags must match (CONTAINS operator)
-                q = q.filter(func.lower(type.tags).op("@>")(lower_tags))
+                q = q.filter(self._array_contains_all(type.tags, lower_tags))
             else:
                 # at least one tag must match (OVERLAP operator)
-                q = q.filter(func.lower(type.tags).op("&&")(self.tags))
+                q = q.filter(self._array_contains_any(type.tags, lower_tags))
+
         if self.names and "name" in type.columns:
             q = q.filter(self._case_insensitive_or_ilike(type.name, self.names))
         if self.texts and "text" in type.columns:
@@ -1140,7 +1164,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # build and run query (ensure eager loading)
         q = flt.to_select_query(cls, with_for_update=with_for_update)
         q = q.options(*cls._build_relationship_loading_options())
-        # MutyLogger.get_instance().debug(f"get_by_filter query: {q}")
+        MutyLogger.get_instance().debug(f"get_by_filter query:\n{q}")
         res = await sess.execute(q)
         objects = res.scalars().all()
         if not objects:
@@ -1420,7 +1444,7 @@ class GulpCollabObject(
         ),
         doc="The id of the operation associated with the object.",
     )
-    tags: Mapped[Optional[list[str]]] = mapped_column(
+    tags: Mapped[list[str]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
         doc="The tags associated with the object.",
     )

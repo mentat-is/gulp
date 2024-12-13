@@ -11,7 +11,7 @@ import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.opensearch.sigma import merge_and_convert, to_gulp_query_struct
+from gulp.api.opensearch.sigma import to_gulp_query_struct
 from gulp.api.collab.stats import (
     GulpIngestionStats,
     RequestCanceledError,
@@ -21,7 +21,6 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.query import (
     GulpQuery,
-    GulpQueryAdditionalParameters,
     GulpQuerySigmaParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
@@ -260,5 +259,5 @@ class Plugin(GulpPluginBase):
             raise ValueError("unsupported backend: %s" % backend)
 
         return to_gulp_query_struct(
-            sigma, backend, output_format=output_format, tags=s_options.tags
+            sigma, backend, output_format=output_format
         )

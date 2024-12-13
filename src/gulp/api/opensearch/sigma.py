@@ -40,11 +40,11 @@ def to_gulp_query_struct(
         q = backend.convert_rule(r, output_format=output_format)
         for qq in q:
             # generate a GulpConvertedSigma for each
-            rule_id = r.id or muty.string.generate_unique()
+            rule_id = str(r.id) or muty.string.generate_unique()
             rule_name = r.name or r.title or "sigma_%s" % (rule_id)
             rule_tags = r.tags or []
             if tags:
-                # add given tags
+                # additional tags
                 [rule_tags.append(t) for t in tags if t not in rule_tags]
 
             converted = GulpQuery(

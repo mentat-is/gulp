@@ -135,13 +135,16 @@ class GulpRestServer:
 
         status_code = 500
         req_id = None
-        name = None
+        name = ex.__class__.__name__
+
         if isinstance(ex, JSendException):
             req_id = ex.req_id
             if ex.status_code is not None:
                 status_code = ex.status_code
             if ex.ex is not None:
+                # use the inner exception
                 ex = ex.ex
+                name = ex.__class__.__name__
 
         if isinstance(ex, RequestValidationError):
             status_code = 400
@@ -149,8 +152,6 @@ class GulpRestServer:
                 # convert to dict
                 # ex = literal_eval(str(ex))
                 ex = str(ex)
-                name = "RequestValidationError"
-
             except:
                 # fallback to string
                 ex = str(ex)

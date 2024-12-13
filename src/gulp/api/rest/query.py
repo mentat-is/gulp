@@ -1,4 +1,5 @@
 from asyncio import Task
+from copy import copy, deepcopy
 import json
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Any
@@ -138,6 +139,7 @@ async def _query_internal(
     runs in a worker and perform one or more queries, streaming results to the `ws_id` websocket
     """
     totals = 0
+    mod = None
     try:
         if q[0].external_plugin:
             # external query, load plugin (it is guaranteed it is the same for all queries)
@@ -201,16 +203,25 @@ async def _spawn_query_group_workers(
         tasks: list[Task] = []
         queries: list[GulpQuery] = kwds["queries"]
 
-        for qq in queries:
-            # note name set to query name
-            q_options.note_parameters.note_name = qq.name
+        for gq in queries:
+            q_opt = deepcopy(q_options)
 
-            # note tags set to query tags + this query name.
-            # this will allow to identify the results in the end
-            if q_options.name:
-                qq.tags.append(q_options.name)
-            q_options.note_parameters.note_tags = qq.tags
-            q_options.external_parameters.plugin_params = qq.external_plugin_params
+            # get name
+            name = gq.name
+            if not name:
+                # fallback if not set i.e. by sigma rule converter
+                name = q_opt.name
+
+            # note name set to query name
+            q_opt.note_parameters.note_name = name
+
+            # query name in note tags (this will allow to identify the results in the end)
+            gq.tags.append(name)
+            if not q_opt.name in gq.tags:
+                gq.tags.append(q_opt.name)
+
+            q_opt.note_parameters.note_tags = gq.tags
+            q_opt.external_parameters.plugin_params = gq.external_plugin_params
 
             # add task
             d = dict(
@@ -218,8 +229,8 @@ async def _spawn_query_group_workers(
                 req_id=req_id,
                 ws_id=ws_id,
                 index=index,
-                q=qq,
-                q_options=q_options,
+                q=[gq],
+                q_options=q_opt,
                 flt=flt,
             )
             tasks.append(
@@ -242,14 +253,11 @@ async def _spawn_query_group_workers(
             # all queries in the group matched, change note names to query group name
             if q_options.note_parameters.create_notes:
                 async with GulpCollab.get_instance().session() as sess:
-                    await GulpNote.bulk_update_tag(
+                    await GulpNote.bulk_update_tags(
                         sess, [q_options.name], [q_options.group]
                     )
-                    p = GulpQueryGroupMatch(
-                        name=q_options.group, total_hits=total_doc_matches
-                    )
-
             # and signal websocket
+            p = GulpQueryGroupMatch(name=q_options.group, total_hits=total_doc_matches)
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
                 ws_id=ws_id,
@@ -323,7 +331,7 @@ async def query_gulp_handler(
         dsl = flt.to_opensearch_dsl()
 
         # spawn task to spawn worker
-        qq = GulpQuery(name=None, q=dsl)
+        qq = GulpQuery(name=q_options.name, q=dsl)
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
@@ -405,7 +413,7 @@ or a query in the external source DSL.
 
         # build query
         qq = GulpQuery(
-            name=None,
+            name=q_options.name,
             q=q,
             external_plugin=q_options.external_parameters.plugin,
             external_plugin_params=q_options.external_parameters.plugin_params,
@@ -558,18 +566,18 @@ async def query_sigma_handler(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    if not q_options.sigma_parameters.plugin:
-        raise ValueError("q_options.sigma_parameters.plugin must be set")
-    if len(sigmas) > 1 and not q_options.group:
-        raise ValueError(
-            "if more than one query is provided, `q_options.group` must be set."
-        )
-
-    # activate notes on match
-    q_options.note_parameters.create_notes = True
-
     mod = None
     try:
+        if not q_options.sigma_parameters.plugin:
+            raise ValueError("q_options.sigma_parameters.plugin must be set")
+        if len(sigmas) > 1 and not q_options.group:
+            raise ValueError(
+                "if more than one query is provided, `q_options.group` must be set."
+            )
+
+        # activate notes on match
+        q_options.note_parameters.create_notes = True
+
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
             s = await GulpUserSession.check_token(sess, token)
@@ -681,15 +689,15 @@ async def query_stored(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    if len(stored_query_ids) > 1 and not q_options.group:
-        raise ValueError(
-            "if more than one query is provided, `options.group` must be set."
-        )
-
-    # activate notes on match
-    q_options.note_parameters.create_notes = True
-
     try:
+        if len(stored_query_ids) > 1 and not q_options.group:
+            raise ValueError(
+                "if more than one query is provided, `options.group` must be set."
+            )
+
+        # activate notes on match
+        q_options.note_parameters.create_notes = True
+
         queries: list[GulpQuery] = []
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id

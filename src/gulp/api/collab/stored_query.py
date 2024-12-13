@@ -36,12 +36,11 @@ this must be set if this is a sigma query.
         JSONB,
         doc="custom plugin parameters, if needed.",
     )
-    q: Mapped[str] = (
-        mapped_column(
-            String,
-            doc="a query as string: may be YAML, JSON string, text, depending on the query type.",
-        ),
+    q: Mapped[str] = mapped_column(
+        String,
+        doc="a query as string: may be YAML, JSON string, text, depending on the query type.",
     )
+
     external_plugin: Mapped[Optional[str]] = mapped_column(
         String,
         default=None,

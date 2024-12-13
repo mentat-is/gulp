@@ -224,11 +224,11 @@ class GulpQueryAdditionalParameters(BaseModel):
     )
     name: Optional[str] = Field(
         None,
-        description="the name of the query, used for logging and debugging.",
+        description="the name of the query: for sigma queries, this is automatically set to the sigma rule name/title.",
     )
     group: Optional[str] = Field(
         None,
-        description="if the query is part of a query group, this is the name of the group.",
+        description="the query group, if any.",
     )
     sort: Optional[dict[str, GulpSortOrder]] = Field(
         default={

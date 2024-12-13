@@ -149,7 +149,6 @@ class GulpAPICommon:
     async def query_sigma(
         self,
         token: str,
-        plugin: str,
         index: str,
         sigmas: list[str],
         q_options: GulpQueryAdditionalParameters = None,
@@ -157,12 +156,10 @@ class GulpAPICommon:
         expected_status: int = 200,
     ) -> dict:
         MutyLogger.get_instance().info(
-            "Querying sigma %s, plugin=%s, index=%s..." % (sigmas, plugin, index)
+            "Querying sigma %s, plugin=%s, index=%s..." % (sigmas, q_options.external_parameters.plugin, index)
         )
         params = {
-            "plugin": plugin,
             "index": index,
-            "group_rule_name": group_rule_name,
             "req_id": self._req_id,
             "ws_id": self._ws_id,
         }
@@ -180,7 +177,6 @@ class GulpAPICommon:
                 if q_options
                 else None
             ),
-            "group_rule_tags": group_rule_tags,
         }
 
         res = await self._make_request(

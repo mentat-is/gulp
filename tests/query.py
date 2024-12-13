@@ -21,13 +21,9 @@ import os
 import websockets
 
 
-@pytest.mark.asyncio
-async def test_windows():
-    gulp_api = GulpAPICommon(host=TEST_HOST, req_id=TEST_REQ_ID, ws_id=TEST_WS_ID)
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    test_plugin = "win_evtx"
-
+async def test_sigma(gulp_api: GulpAPICommon, token: str, plugin: str):
     # read sigma
+    current_dir = os.path.dirname(os.path.realpath(__file__))
     sigma_match_all = await muty.file.read_file_async(
         os.path.join(current_dir, "sigma/match_all.yaml")
     )
@@ -39,10 +35,38 @@ async def test_windows():
     sigma_match_some_more = await muty.file.read_file_async(
         os.path.join(current_dir, "sigma/match_some_more.yaml")
     )
-
-    sigma_match_combined = await muty.file.read_file_async(
-        os.path.join(current_dir, "sigma/match_combined.yaml")
+    q_options = GulpQueryAdditionalParameters()
+    q_options.sigma_parameters.plugin = plugin
+    q_options.group = "test group"
+    await gulp_api.query_sigma(
+        token,
+        TEST_INDEX,
+        [
+            sigma_match_some.decode(),
+            # sigma_match_some_more.decode(),
+            sigma_match_all.decode(),
+        ],
+        q_options,
     )
+
+
+@pytest.mark.asyncio
+async def test_windows():
+    gulp_api = GulpAPICommon(host=TEST_HOST, req_id=TEST_REQ_ID, ws_id=TEST_WS_ID)
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    test_plugin = "win_evtx"
+
+    # reset first
+    await gulp_api.reset_gulp_collab()
+
+    # login admin
+    guest_token = await gulp_api.login("guest", "guest")
+    assert guest_token
+
+    # test sigma
+    await test_sigma(gulp_api, guest_token, test_plugin)
+
+    # sigma_match_combined = await muty.file.read_file_async(os.path.join(current_dir, "sigma/match_combined.yaml"))
 
     """
     # convert sigma rule/s to raw query
@@ -68,12 +92,6 @@ async def test_windows():
         print("********")
     return
     """
-    # reset first
-    await gulp_api.reset_gulp_collab()
-
-    # login admin
-    guest_token = await gulp_api.login("guest", "guest")
-    assert guest_token
 
     # query (98631 matches/notes)
     # await gulp_api.query_sigma(guest_token, test_plugin, TEST_INDEX, [sigma_match_all.decode()])
@@ -86,16 +104,6 @@ async def test_windows():
 
     # query (88 matches/notes)
     # await gulp_api.query_sigma(guest_token, test_plugin, TEST_INDEX, [sigma_match_combined.decode()])
-
-    await gulp_api.query_sigma(
-        guest_token,
-        test_plugin,
-        TEST_INDEX,
-        [
-            sigma_match_some.decode(),
-            sigma_match_some_more.decode(),
-        ],
-    )
 
     # TODO: websocket
     """

@@ -3,7 +3,19 @@ from typing import Optional, override
 from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, String, insert, update
+from sqlalchemy import (
+    ARRAY,
+    BIGINT,
+    ForeignKey,
+    Index,
+    String,
+    bindparam,
+    case,
+    func,
+    insert,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -191,7 +203,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         if not tt:
             tt = []
 
-        if not ["auto"] in tt:
+        if "auto" not in tt:
             tt.append("auto")
 
         # creates a list of notes, one for each document
@@ -262,7 +274,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         return len(notes)
 
     @staticmethod
-    async def bulk_update_tag(
+    async def bulk_update_tags(
         sess: AsyncSession,
         tags: list[str],
         new_tags: list[str],
@@ -270,33 +282,48 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         """
         get tags from notes and update them with new tags
         """
-
         offset = 0
         chunk_size = 1000
         flt = GulpCollabFilter(tags=tags, limit=chunk_size, offset=offset)
         updated = 0
+        cached_notes = []
+
         while True:
+            # get all notes matching "tags"
             notes: list[GulpNote] = await GulpNote.get_by_filter(
                 sess, flt, throw_if_not_found=False, with_for_update=True
             )
             if not notes:
                 break
-            MutyLogger.get_instance().info("updating tags for %d notes..." % len(notes))
 
-            note_ids = [n.id for n in notes]
-            note_tags = []
             for n in notes:
-                if not new_tags in n.tags:
-                    n.tags.extend(new_tags)
-                note_tags.append(n.tags)
+                if n.id not in cached_notes:
+                    cached_notes.append(n.id)
+                    MutyLogger.get_instance().debug(
+                        "cached note, offset=%d, id=%s" % (offset, n.id)
+                    )
+                else:
+                    MutyLogger.get_instance().error(
+                        "Note already present in cached notes, offset=%d, id=%s, cached=%s"
+                        % (offset, n.id, cached_notes)
+                    )
+                    raise Exception("Note already present in cached notes")
 
-            await sess.execute(
-                update(GulpNote).where(GulpNote.id.in_(note_ids)).values(tags=note_tags)
-            )
+            # create update chunk
+            for n in notes:
+                # extend tags that aren't already present
+                for t in new_tags:
+                    if t not in n.tags:
+                        n.tags.append(t)
+
             await sess.commit()
 
+            rows_updated = len(notes)
+            MutyLogger.get_instance().debug(f"updated {rows_updated} notes")
+
             # next chunk
-            offset += chunk_size
+            offset += rows_updated
             flt.offset = offset
-            updated += len(notes)
-        MutyLogger.get_instance().info("updated tags for %d notes" % updated)
+            updated += rows_updated
+
+        MutyLogger.get_instance().info("updated %d notes tags" % (updated))

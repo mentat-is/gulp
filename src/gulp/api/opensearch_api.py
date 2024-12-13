@@ -1200,11 +1200,11 @@ class GulpOpenSearch:
                     glyph_id=q_options.note_parameters.note_glyph_id,
                     private=q_options.note_parameters.note_private,
                 )
-            if last or not q_options.loop:
-                break
 
             # next chunk
             chunk_num += 1
+            if last or not q_options.loop:
+                break
 
         MutyLogger.get_instance().info(
             "search_dsl: processed %d documents, total=%d, chunks=%d"
