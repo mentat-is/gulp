@@ -234,9 +234,9 @@ class Plugin(GulpPluginBase):
     def sigma_support(self) -> list[GulpPluginSigmaSupport]:
         return [
             GulpPluginSigmaSupport(
-                backend=["opensearch"],
+                backends=["opensearch"],
                 pipelines=["ecs_windows", "ecs_windows_old"],
-                output=["dsl_lucene"],
+                output_formats=["dsl_lucene"],
             ),
         ]
 
@@ -258,6 +258,4 @@ class Plugin(GulpPluginBase):
         else:
             raise ValueError("unsupported backend: %s" % backend)
 
-        return to_gulp_query_struct(
-            sigma, backend, output_format=output_format
-        )
+        return to_gulp_query_struct(sigma, backend, output_format=output_format)

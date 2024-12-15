@@ -337,7 +337,7 @@ class GulpPluginBase(ABC):
             s_options = GulpQuerySigmaParameters()
 
         if not s_options.backend:
-            backend = self.sigma_support()[0].backend[0]
+            backend = self.sigma_support()[0].backends[0]
             MutyLogger.get_instance().debug(
                 f"no backend specified, using first supported: {backend}"
             )
@@ -353,7 +353,7 @@ class GulpPluginBase(ABC):
             pipeline = s_options
 
         if not s_options.output_format:
-            output_format = self.sigma_support()[0].output[0]
+            output_format = self.sigma_support()[0].output_formats[0]
             MutyLogger.get_instance().debug(
                 f"no output_format specified, using first supported: {output_format}"
             )
@@ -362,9 +362,9 @@ class GulpPluginBase(ABC):
 
         for s in self.sigma_support():
             if (
-                backend in s.backend
+                backend in s.backends
                 and pipeline in s.pipelines
-                and output_format in s.output
+                and output_format in s.output_formats
             ):
                 return (backend, pipeline, output_format)
 

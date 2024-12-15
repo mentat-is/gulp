@@ -1,9 +1,9 @@
 from asyncio import Task
-from copy import copy, deepcopy
+from copy import deepcopy
 import json
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Any
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
@@ -25,7 +25,11 @@ from gulp.api.rest.server_utils import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.rest.structs import APIDependencies
-from gulp.api.ws_api import GulpQueryGroupMatch, GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import (
+    GulpQueryGroupMatchPacket,
+    GulpSharedWsQueue,
+    GulpWsQueueDataType,
+)
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from muty.log import MutyLogger
@@ -131,31 +135,31 @@ async def _query_internal(
     req_id: str,
     ws_id: str,
     index: str,
-    q: list[GulpQuery],
+    queries: list[GulpQuery],
     q_options: GulpQueryAdditionalParameters,
     flt: GulpQueryFilter,
 ) -> int:
     """
-    runs in a worker and perform one or more queries, streaming results to the `ws_id` websocket
+    runs in a worker and perform one or more queries of the same type, streaming results to the `ws_id` websocket
     """
     totals = 0
     mod = None
     try:
-        if q[0].external_plugin:
+        if queries[0].external_plugin:
             # external query, load plugin (it is guaranteed it is the same for all queries)
-            mod = await GulpPluginBase.load(q[0].external_plugin)
+            mod = await GulpPluginBase.load(queries[0].external_plugin)
 
         async with GulpCollab.get_instance().session() as sess:
-            for qq in q:
+            for gq in queries:
                 try:
                     if not mod:
-                        # local query
+                        # local query, gq.q is a dict
                         _, hits = await GulpQueryHelpers.query_raw(
                             user_id=user_id,
                             req_id=req_id,
                             ws_id=ws_id,
                             index=index,
-                            q=qq.q,
+                            q=gq.q,
                             q_options=q_options,
                             flt=flt,
                             sess=sess,
@@ -206,17 +210,14 @@ async def _spawn_query_group_workers(
         for gq in queries:
             q_opt = deepcopy(q_options)
 
-            # get name
-            name = gq.name
-            if not name:
-                # fallback if not set i.e. by sigma rule converter
-                name = q_opt.name
+            # set name, i.e. for sigma rules we want the sigma rule name to be used (which has been set in the GulpQuery struct)
+            q_opt.name = gq.name
 
             # note name set to query name
-            q_opt.note_parameters.note_name = name
+            q_opt.note_parameters.note_name = gq.name
 
             # query name in note tags (this will allow to identify the results in the end)
-            gq.tags.append(name)
+            gq.tags.append(gq.name)
             if not q_opt.name in gq.tags:
                 gq.tags.append(q_opt.name)
 
@@ -229,7 +230,7 @@ async def _spawn_query_group_workers(
                 req_id=req_id,
                 ws_id=ws_id,
                 index=index,
-                q=[gq],
+                queries=[gq],
                 q_options=q_opt,
                 flt=flt,
             )
@@ -254,10 +255,12 @@ async def _spawn_query_group_workers(
             if q_options.note_parameters.create_notes:
                 async with GulpCollab.get_instance().session() as sess:
                     await GulpNote.bulk_update_tags(
-                        sess, [q_options.name], [q_options.group]
+                        sess, [q_opt.name], [q_options.group]
                     )
             # and signal websocket
-            p = GulpQueryGroupMatch(name=q_options.group, total_hits=total_doc_matches)
+            p = GulpQueryGroupMatchPacket(
+                name=q_options.group, total_hits=total_doc_matches
+            )
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
                 ws_id=ws_id,
@@ -331,14 +334,15 @@ async def query_gulp_handler(
         dsl = flt.to_opensearch_dsl()
 
         # spawn task to spawn worker
-        qq = GulpQuery(name=q_options.name, q=dsl)
+        gq = GulpQuery(name=q_options.name, q=dsl)
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
             index=index,
-            q=[qq],
+            queries=[gq],
             q_options=q_options,
+            flt=None,
         )
 
         # and return pending
@@ -374,7 +378,7 @@ query Gulp using a [raw OpenSearch query](https://opensearch.org/docs/latest/que
 
 ### external queries
 
-- at least `q_options.external_parameters.plugin`, `q_options.external_parameters.uri` must be set.
+- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
 - `flt` is not supported
 """,
 )
@@ -412,7 +416,7 @@ or a query in the external source DSL.
             user_id = s.user_id
 
         # build query
-        qq = GulpQuery(
+        gq = GulpQuery(
             name=q_options.name,
             q=q,
             external_plugin=q_options.external_parameters.plugin,
@@ -423,7 +427,7 @@ or a query in the external source DSL.
             req_id=req_id,
             ws_id=ws_id,
             index=index,
-            q=[qq],
+            queries=[gq],
             q_options=q_options,
             flt=flt,
         )
@@ -459,18 +463,18 @@ query Gulp or an external source for a single document.
 
 ### external queries
 
-- at least `q_options.external_parameters.plugin`, `q_options.external_parameters.uri` must be set.
+- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
 """,
 )
 async def query_single_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     doc_id: Annotated[
         Any,
-        Query(
+        Body(
             description="the `id` of the document (`_id` on Gulp `index`, or the equivalent for the external source)."
         ),
     ],
+    index: Annotated[str, Depends(APIDependencies.param_index_optional)],
     q_options: Annotated[
         GulpQueryAdditionalParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -530,14 +534,15 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 ### q_options
 
 - `create_notes` is set to `True` to create notes on match.
-- if `sigmas` contains more than one rule, `group` must be set to indicate a `query group`.
-    - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
 - `sigma_parameters.plugin` must be set to a plugin implementing `sigma_support` and `sigma_convert` to be used to convert the sigma rule.
 - `sigma_parameters.backend` and `sigma_parameters.output_format` are ignored for non `external` queries (internally set to `opensearch` and `dsl_lucene` respectively)
+- if `sigmas` contains more than one rule, `group` must be set to indicate a `query group`.
+    - all rules must be handled by the same `sigma_parameters.plugin`.
+    - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
 
 ### external queries
 
-- at least `q_options.external_parameters.plugin`, `q_options.external_parameters.uri` must be set.
+- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
 - `flt` is not supported
 """,
 )
@@ -590,17 +595,14 @@ async def query_sigma_handler(
             # local gulp query
             q_options.sigma_parameters.backend = "opensearch"
             q_options.sigma_parameters.output_format = "dsl_lucene"
-        if not q_options.name:
-            # use an autogenerated name
-            q_options.name = "query_%s" % (muty.string.generate_unique())
 
         queries: list[GulpQuery] = []
         for s in sigmas:
             q: list[GulpQuery] = mod.sigma_convert(s, q_options.sigma_parameters)
-            for qq in q:
+            for gq in q:
                 # set the plugin to process the query with, if any
-                qq.external_plugin = q_options.external_parameters.plugin
-                qq.external_plugin_params = q_options.external_parameters.plugin_params
+                gq.external_plugin = q_options.external_parameters.plugin
+                gq.external_plugin_params = q_options.external_parameters.plugin_params
             queries.extend(q)
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
@@ -657,12 +659,13 @@ query using queries stored on the Gulp `collab` database.
 - `create_notes` is set to `True` to create notes on match.
 - each `stored_query` is retrieved by id and converted if needed.
 - if `stored_query_ids` contains more than one query, `group` must be set to indicate a `query group`.
+    - all queries in the group must be handled by the same `q_options.external_parameters.plugin`.
     - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
-- to allow ingestion during query, `external_parameters` must be set.
+- to allow ingestion during query, `external_parameters.ingest_index` must be set.
 
 ### external queries
 
-- at least `q_options.external_parameters.plugin`, `q_options.external_parameters.uri` must be set.
+- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
 - `flt` is not supported.
 
 """,
@@ -713,7 +716,9 @@ async def query_stored(
         external_plugin: str = queries[0].external_plugin
         for q in queries:
             if external_plugin != q.external_plugin:
-                raise ValueError("all queries must be from the same external plugin.")
+                raise ValueError(
+                    "all queries must be handled by the same external plugin."
+                )
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
         await _spawn_query_group_workers(

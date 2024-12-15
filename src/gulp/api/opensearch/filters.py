@@ -146,12 +146,12 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         json_schema_extra={
             "examples": [
                 {
-                    "agent_type": ["win_evtx"],
-                    "id": ["18b6332595d82048e31963e6960031a1"],
-                    "operation_id": [TEST_OPERATION_ID],
-                    "context_id": [TEST_CONTEXT_ID],
-                    "source_id": [TEST_SOURCE_ID],
-                    "event_code": ["5152"],
+                    "agent_types": ["win_evtx"],
+                    "doc_id": ["18b6332595d82048e31963e6960031a1"],
+                    "operation_ids": [TEST_OPERATION_ID],
+                    "context_ids": [TEST_CONTEXT_ID],
+                    "source_ids": [TEST_SOURCE_ID],
+                    "event_codes": ["5152"],
                     "event_original": ["*searchme*", False],
                     "date_range": [
                         "2010-11-10T17:22:53.203125+00:00",
@@ -166,19 +166,19 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             ]
         }
     )
-    agent_type: Optional[list[str]] = Field(
+    agent_types: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `agent.type`/s.",
     )
-    id: Optional[list[str]] = Field(
+    doc_ids: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `_id`/s.",
     )
-    operation_id: Optional[list[str]] = Field(
+    operation_ids: Optional[list[str]] = Field(
         None,
         description="include documents  matching the given `gulp.operation_id`/s.",
     )
-    context_id: Optional[list[str]] = Field(
+    context_ids: Optional[list[str]] = Field(
         None,
         description="""
 include documents matching the given `gulp.context_id`/s.
@@ -186,20 +186,20 @@ include documents matching the given `gulp.context_id`/s.
 - this must be set to the *real context_id* as on the collab database, calculated as *SHA1(operation_id+context_id)*.
 """,
     )
-    source_id: Optional[list[str]] = Field(
+    source_ids: Optional[list[str]] = Field(
         None,
         description="""
 include documents matching the given `gulp.source_id`/s.
 - this must be set to the *real source_id* as on the collab database, calculated as *SHA1(operation_id+context_id+source_id)*.
 """,
     )
-    event_code: Optional[list[str]] = Field(
+    event_codes: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `event.code`/s.",
     )
     event_original: Optional[tuple[str, bool] | str] = Field(
         None,
-        description="""include documents matching the given `event.original`.
+        description="""include documents with `event.original` matching the given text.
 
         - if just a string is provided, assumes `keyword search` (`wildcard` and `case-insensitive` supported).
         - if the second element is `False`, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).
@@ -285,30 +285,30 @@ a tuple representing `[ time_start, time_end, field ]`.
         def _build_clauses():
             clauses: list[str] = []
 
-            if self.agent_type:
+            if self.agent_types:
                 clauses.append(
-                    self._query_string_build_or_clauses("agent.type", self.agent_type)
+                    self._query_string_build_or_clauses("agent.type", self.agent_types)
                 )
-            if self.operation_id:
-                clauses.append(
-                    self._query_string_build_or_clauses(
-                        "gulp.operation_id", self.operation_id
-                    )
-                )
-            if self.context_id:
+            if self.operation_ids:
                 clauses.append(
                     self._query_string_build_or_clauses(
-                        "gulp.context_id", self.context_id
+                        "gulp.operation_id", self.operation_ids
                     )
                 )
-            if self.source_id:
+            if self.context_ids:
                 clauses.append(
                     self._query_string_build_or_clauses(
-                        "gulp.source_id", self.source_id
+                        "gulp.context_id", self.context_ids
                     )
                 )
-            if self.id:
-                clauses.append(self._query_string_build_or_clauses("_id", self.id))
+            if self.source_ids:
+                clauses.append(
+                    self._query_string_build_or_clauses(
+                        "gulp.source_id", self.source_ids
+                    )
+                )
+            if self.doc_ids:
+                clauses.append(self._query_string_build_or_clauses("_id", self.doc_ids))
 
             if self.event_original:
                 # check for full text search or keyword search
@@ -324,9 +324,9 @@ a tuple representing `[ time_start, time_end, field ]`.
                 clauses.append(
                     self._query_string_build_eq_clause(field, event_original)
                 )
-            if self.event_code:
+            if self.event_codes:
                 clauses.append(
-                    self._query_string_build_or_clauses("event.code", self.event_code)
+                    self._query_string_build_or_clauses("event.code", self.event_codes)
                 )
             if self.int_filter:
                 # simple >=, <= clauses
@@ -434,12 +434,12 @@ a tuple representing `[ time_start, time_end, field ]`.
         return not any(
             [
                 self.int_filter,
-                self.agent_type,
-                self.id,
-                self.operation_id,
-                self.context_id,
-                self.source_id,
-                self.event_code,
+                self.agent_types,
+                self.doc_ids,
+                self.operation_ids,
+                self.context_ids,
+                self.source_ids,
+                self.event_codes,
                 self.event_original,
                 self.model_extra,
             ]

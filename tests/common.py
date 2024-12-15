@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from muty.log import MutyLogger
 import requests
@@ -146,6 +146,51 @@ class GulpAPICommon:
         assert token
         return token
 
+    async def query_stored(
+        self,
+        token: str,
+        index: str,
+        stored_query_ids: list[str],
+        q_options: GulpQueryAdditionalParameters = None,
+        flt: GulpQueryFilter = None,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> dict:
+        MutyLogger.get_instance().info(
+            "Querying stored query ids=%s, plugin=%s, index=%s..."
+            % (stored_query_ids, q_options.external_parameters.plugin, index)
+        )
+        params = {
+            "index": index,
+            "req_id": req_id or self._req_id,
+            "ws_id": self._ws_id,
+        }
+        body = {
+            "stored_query_ids": stored_query_ids,
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+        }
+
+        res = await self._make_request(
+            "POST",
+            "query_stored",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
     async def query_sigma(
         self,
         token: str,
@@ -154,13 +199,15 @@ class GulpAPICommon:
         q_options: GulpQueryAdditionalParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
+        req_id: str = None,
     ) -> dict:
         MutyLogger.get_instance().info(
-            "Querying sigma %s, plugin=%s, index=%s..." % (sigmas, q_options.external_parameters.plugin, index)
+            "Querying sigmas=%s, plugin=%s, index=%s..."
+            % (sigmas, q_options.external_parameters.plugin, index)
         )
         params = {
             "index": index,
-            "req_id": self._req_id,
+            "req_id": req_id or self._req_id,
             "ws_id": self._ws_id,
         }
         body = {
@@ -182,6 +229,128 @@ class GulpAPICommon:
         res = await self._make_request(
             "POST",
             "query_sigma",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    async def query_gulp(
+        self,
+        token: str,
+        index: str,
+        flt: GulpQueryFilter = None,
+        q_options: GulpQueryAdditionalParameters = None,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> dict:
+        MutyLogger.get_instance().info("Query gulp, flt=%s, index=%s..." % (flt, index))
+        params = {
+            "index": index,
+            "req_id": req_id or self._req_id,
+            "ws_id": self._ws_id,
+        }
+        body = {
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+        }
+
+        res = await self._make_request(
+            "POST",
+            "query_gulp",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    async def query_single_id(
+        self,
+        token: str,
+        doc_id: Any,
+        index: str = None,
+        q_options: GulpQueryAdditionalParameters = None,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> dict:
+        MutyLogger.get_instance().info(
+            "Query single id, id=%s, index=%s..." % (doc_id, index)
+        )
+        params = {
+            "req_id": req_id or self._req_id,
+            "ws_id": self._ws_id,
+            "index": index,
+        }
+        body = {
+            "doc_id": doc_id,
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+        }
+
+        res = await self._make_request(
+            "POST",
+            "query_single_id",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    async def query_raw(
+        self,
+        token: str,
+        index: str,
+        q: Any,
+        flt: GulpQueryFilter = None,
+        q_options: GulpQueryAdditionalParameters = None,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> dict:
+        MutyLogger.get_instance().info(
+            "Query raw, q=%s, flt=%s, index=%s..." % (q, flt, index)
+        )
+        params = {
+            "index": index,
+            "req_id": req_id or self._req_id,
+            "ws_id": self._ws_id,
+        }
+        body = {
+            "q": q,
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+        }
+
+        res = await self._make_request(
+            "POST",
+            "query_raw",
             params=params,
             body=body,
             token=token,

@@ -103,14 +103,14 @@ class GulpPluginSigmaSupport(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "backend": ["opensearch"],
+                    "backends": ["opensearch"],
                     "pipelines": ["ecs_windows", "ecs_windows_old"],
-                    "output": ["dsl_lucene"],
+                    "output_formats": ["dsl_lucene"],
                 }
             ]
         }
     )
-    backend: list[str] = Field(
+    backends: list[str] = Field(
         ...,
         description="one or more pysigma backend supported by the plugin: `opensearch` is the one to use to query Gulp.",
     )
@@ -118,7 +118,7 @@ class GulpPluginSigmaSupport(BaseModel):
         ...,
         description="one or more pysigma pipelines supported by the plugin.",
     )
-    output: list[str] = Field(
+    output_formats: list[str] = Field(
         ...,
         description="one or more output formats supported by the plugin.",
     )

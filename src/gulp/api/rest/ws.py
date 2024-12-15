@@ -14,6 +14,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import (
     GulpConnectedSockets,
+    GulpWsAcknowledgedPacket,
     GulpWsAuthPacket,
     GulpWsData,
     GulpWsError,
@@ -42,8 +43,9 @@ class GulpAPIWebsocket:
         the websocket protocol is really simple:
 
         1. client sends a json request with GulpWsAuthParameters
-        2. server checks the token and ws_id, and accepts the connection
-        3. server sends messages to the client with the same ws_id (plus broadcasting CollabObj objects to the other connected websockets)
+        2. server accepts the connection and checks the token and ws_id
+        3. on error, server sends a GulpWsErrorPacket and closes the connection. on success, it sends a GulpWsAcknowledgedPacket and starts the main loop.
+        4. server sends messages to the client on the connected `ws_id` and also broadcastis Collab objects and events to the other connected websockets.
 
         Args:
             websocket (WebSocket): The websocket object.
@@ -53,16 +55,31 @@ class GulpAPIWebsocket:
             await websocket.accept()
             js = await websocket.receive_json()
             params = GulpWsAuthPacket.model_validate(js)
+            user_id = None
             if params.token.lower() != "monitor":
+                # "monitor" skips token check, for internal usage only
                 async with GulpCollab.get_instance().session() as sess:
-                    await GulpUserSession.check_token(
+                    s = await GulpUserSession.check_token(
                         sess, params.token, GulpUserPermission.READ
                     )
+                    user_id = s.user_id
 
             MutyLogger.get_instance().debug(f"ws accepted for ws_id={params.ws_id}")
             ws = GulpConnectedSockets.get_instance().add(
                 websocket, params.ws_id, params.type, params.operation_id
             )
+
+            # aknowledge connection
+            p = GulpWsData(
+                timestamp=muty.time.now_msec(),
+                type=GulpWsQueueDataType.WS_CONNECTED,
+                ws_id=params.ws_id,
+                user_id=user_id,
+                data=GulpWsAcknowledgedPacket(token=params.token).model_dump(
+                    exclude_none=True
+                ),
+            )
+            await websocket.send_json(p.model_dump(exclude_none=True))
 
             # blocks until exception/disconnect
             await ws.run_loop()

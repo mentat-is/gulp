@@ -76,7 +76,7 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
   - **user/pwd: `admin/admin`** (default gulp admin user)
 - postgreSQL on **localhost:5432**
   - **user/pwd: `postgres/Gulp1234!`**
-- [adminer on http://localhost:8001, to manage postgreSQL](http://localhost:8001)
+- [adminer on http://localhost:8001, to manage postgreSQL](http://localhost:8081)
   - **server/user/pwd: `postgres/postgres/Gulp1234!`**
 - [opensearch on http://localhost:9200](http://localhost:9200)
   - **user/pwd: `admin/Gulp1234!`**
@@ -189,6 +189,10 @@ python3 -m pytest tests/user.py
 
 # test notes, acl
 python3 -m pytest tests/note.py
+
+# queries
+# needs samples/win_evtx loaded on an empty gulp instance
+python3 -m pytest tests/query.py
 ```
 
 ## Architecture

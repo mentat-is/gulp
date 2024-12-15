@@ -31,6 +31,8 @@ class GulpWsQueueDataType(StrEnum):
 
     # GulpWsErrorPacket
     WS_ERROR = "ws_error"
+    # GulpWsAcknowledgedPacket
+    WS_CONNECTED = "ws_connected"
     # GulpCollabCreateUpdatePacket
     STATS_UPDATE = "stats_update"
     # GulpCollabCreateUpdatePacket
@@ -67,6 +69,19 @@ class GulpUserLoginLogoutPacket(BaseModel):
     )
 
 
+class GulpWsAcknowledgedPacket(BaseModel):
+    """
+    Represents a connection acknowledged event on the websocket.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"ws_id": "the_ws_id", "token": "the_user_token"}]
+        }
+    )
+    token: str = Field(..., description="The user token.")
+
+
 class GulpCollabDeletePacket(BaseModel):
     """
     Represents a delete collab event.
@@ -76,7 +91,7 @@ class GulpCollabDeletePacket(BaseModel):
     id: str = Field(..., description="The collab object ID.")
 
 
-class GulpQueryGroupMatch(BaseModel):
+class GulpQueryGroupMatchPacket(BaseModel):
     """
     Represents a query group match.
 
@@ -95,7 +110,8 @@ class GulpQueryGroupMatch(BaseModel):
     )
     name: str = Field(..., description="The query group name.")
     total_hits: int = Field(..., description="The total number of hits.")
-    
+
+
 class GulpQueryDonePacket(BaseModel):
     """
     Represents a query done event on the websocket.

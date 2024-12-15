@@ -110,6 +110,7 @@ services:
 
   postgres:
     # using an image having pg_cron preinstalled
+    # TODO: use the official postgres image and install pg_cron
     image: cleisonfmelo/postgres-pg-cron
 
     #command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
@@ -132,16 +133,13 @@ services:
     depends_on:
       - os01
 
-  pgadmin:
-    image: dpage/pgadmin4
+  adminer:
+    image: adminer
     depends_on:
       - postgres
     restart: always
     ports:
-      - 8081:80
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
-      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
+      - 8081:8080
 
   gulp:
     profiles: [ "full" ]
