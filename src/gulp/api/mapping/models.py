@@ -5,40 +5,6 @@ from muty.pydantic import (
     autogenerate_model_example_by_class,
 )
 
-"""
-mapping files structure:
-{
-    mapping_id_1: {
-        GulpMapping: {
-            "fields": {
-                field_1: {
-                    GulpMappingField
-                },
-                field_2: {
-                    GulpMappingField
-                },
-                ...
-            }
-        }
-    },
-    mapping_id_2: {
-        GulpMapping: {
-            "fields": {
-                field_1: {
-                    GulpMappingField
-                },
-                field_2: {
-                    GulpMappingField
-                },
-                ...
-            }
-        }
-    },
-    ...
-}
-"""
-
-
 class GulpMappingField(BaseModel):
     """
     defines how to map a single field, including field-specific options.
