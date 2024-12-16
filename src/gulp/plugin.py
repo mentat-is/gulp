@@ -30,6 +30,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
+    GulpBaseDocumentFilter,
     GulpDocumentFilterResult,
     GulpIngestionFilter,
 )
@@ -137,13 +138,13 @@ class GulpPluginType(StrEnum):
     specifies the plugin types
 
     - INGESTION: support ingestion
-    - QUERY_EXTERNAL: support query to external sources
+    - EXTERNAL: support query to/ingestion from external sources
     - EXTENSION: extension plugin
     """
 
     INGESTION = "ingestion"
     EXTENSION = "extension"
-    QUERY_EXTERNAL = "query_external"
+    EXTERNAL = "external"
 
 
 class GulpPluginBase(ABC):
@@ -315,179 +316,6 @@ class GulpPluginBase(ABC):
         """
         return []
 
-    def _check_sigma_support(
-        self, s_options: GulpQuerySigmaParameters
-    ) -> tuple[str, str, str]:
-        """
-        check if the plugin supports the given sigma backend/pipeline/output_format
-
-        if s_options.backend, pipeline or output_format are not set, the first supported is selected.
-
-        Args:
-            s_options (GulpQuerySigmaParameters): the sigma query parameters.
-
-        Returns:
-            tuple[str,str,str]: the selected backend, pipeline, output_format
-        """
-        if not self.sigma_support():
-            raise ValueError(
-                f"plugin {self.name} does not support any sigma backends/pipelines/output_formats"
-            )
-        if not s_options:
-            s_options = GulpQuerySigmaParameters()
-
-        if not s_options.backend:
-            backend = self.sigma_support()[0].backends[0]
-            MutyLogger.get_instance().debug(
-                f"no backend specified, using first supported: {backend}"
-            )
-        else:
-            backend = s_options.backend
-
-        if not s_options.pipeline:
-            pipeline = self.sigma_support()[0].pipelines[0]
-            MutyLogger.get_instance().debug(
-                f"no pipeline specified, using first supported: {pipeline}"
-            )
-        else:
-            pipeline = s_options
-
-        if not s_options.output_format:
-            output_format = self.sigma_support()[0].output_formats[0]
-            MutyLogger.get_instance().debug(
-                f"no output_format specified, using first supported: {output_format}"
-            )
-        else:
-            output_format = s_options.output_format
-
-        for s in self.sigma_support():
-            if (
-                backend in s.backends
-                and pipeline in s.pipelines
-                and output_format in s.output_formats
-            ):
-                return (backend, pipeline, output_format)
-
-        raise ValueError(
-            f"plugin {self.name} does not support the combination: backend={backend}, pipeline={pipeline}, output_format={output_format}"
-        )
-
-    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
-        """
-        return backends/pipelines supported by the plugin (check pysigma on github for details)
-
-        NOTE: "opensearch" backend and "dsl_lucene" output format are MANDATORY to query Gulp
-
-        Returns:
-            list[GulpPluginSigmaSupport]: the supported backends/pipelines/output_formats.
-        """
-        return []
-
-    def sigma_convert(
-        self,
-        sigma: str,
-        s_options: GulpQuerySigmaParameters,
-    ) -> list[GulpQuery]:
-        """
-        convert a sigma rule specifically targeted to this plugin into a query for the specified by backend/pipeline/output_format.
-
-        Args:
-            sigma (str): the sigma rule YAML
-            s_options (GulpQuerySigmaParameters): the sigma query parameters.
-        Returns:
-            list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
-        """
-        raise NotImplementedError("not implemented!")
-
-    async def query_external(
-        self,
-        sess: AsyncSession,
-        user_id: str,
-        req_id: str,
-        ws_id: str,
-        q: any,
-        q_options: GulpQueryAdditionalParameters,
-    ) -> tuple[int, int]:
-        """
-        query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
-
-        optionally ingest them.
-
-        Args:
-            sess (AsyncSession): The database session.
-            req_id (str): the request id
-            ws_id (str): the websocket id
-            user (str): the user performing the query
-            q(any): the query to perform, format is plugin specific
-            q_options (GulpQueryAdditionalParameters): additional query options
-            plugin_params (GulpPluginParameters): any plugin specific parameters.
-
-        Notes:
-            - implementers must call super().query_external first, then _initialize().
-            - this function *MUST NOT* raise exceptions.
-
-        Returns:
-            tuple[int, int]: the number of documents processed(ingested) and the total number of documents found
-        Raises:
-            ObjectNotFound: if no document is found.
-        """
-
-        # TODO in plugins:
-        # 1. query the external source in chunk of 1000 documents, with loop set
-        # 2. run the same process_record loop as in ingest_file then
-        # 3. use the raw plugin to ingest ~~consider to implement ingest_raw to ingest the results~~
-        self._sess = sess
-        self._ws_id = ws_id
-        self._req_id = req_id
-        self._user_id = user_id
-
-        # setup internal state to be able to call process_record as during ingestion
-        self._stats = None
-        if q_options.external_parameters.ingest_index:
-            # ingest during query
-            self._index = q_options.external_parameters.ingest_index
-            self._operation_id = q_options.external_parameters.operation_id
-            self._file_path = q_options.external_parameters.source_id
-            self._context_id = q_options.external_parameters.context_id
-            self._note_parameters = q_options.note_parameters
-
-        else:
-            # just query, no ingestion
-            self._ingestion_enabled = False
-
-        MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={self._operation_id}, ws_id={ws_id}, req_id={req_id}, \
-                q={q}, q_options={q_options}, ingest_index={self._index}, plugin_params={q_options.external_parameters.plugin_params}"
-        )
-
-    async def query_external_single(
-        self,
-        req_id: str,
-        doc_id: any,
-        q_options: GulpQueryAdditionalParameters,
-    ) -> dict:
-        """
-        query a single document, converted to gulpdocument, on an external source.
-
-        Args:
-            req_id (str): the request id
-            doc_id (any): set to the id of the single document to query on the external source, format is plugin dependent
-            q_options (GulpQueryAdditionalParameters): additional query options (uri, credentials, options for the external source)
-
-        Returns:
-            dict: the document as a GulpDocument dictionary
-
-        Raises:
-            ObjectNotFound: if the document is not found.
-
-        Notes:
-            - implementers must call super().query_external first then _initialize().<br>
-        """
-        MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, req_id={req_id}, doc_id={doc_id}, q_options={q_options}, plugin_params={q_options.external_parameters.plugin_params}"
-        )
-        return {}
-
     async def _process_docs_chunk(
         self,
         data: list[dict],
@@ -592,6 +420,197 @@ class GulpPluginBase(ABC):
                 )
 
         return len(ingested_docs), skipped
+
+    def _check_sigma_support(
+        self, s_options: GulpQuerySigmaParameters
+    ) -> tuple[str, str, str]:
+        """
+        check if the plugin supports the given sigma backend/pipeline/output_format
+
+        if s_options.backend, pipeline or output_format are not set, the first supported is selected.
+
+        Args:
+            s_options (GulpQuerySigmaParameters): the sigma query parameters.
+
+        Returns:
+            tuple[str,str,str]: the selected backend, pipeline, output_format
+        """
+        if not self.sigma_support():
+            raise ValueError(
+                f"plugin {self.name} does not support any sigma backends/pipelines/output_formats"
+            )
+        if not s_options:
+            s_options = GulpQuerySigmaParameters()
+
+        # if set, get the specified backend/pipeline/output_format.
+        # either, get the first available for each
+        if not s_options.backend:
+            backend = self.sigma_support()[0].backends[0].name
+            MutyLogger.get_instance().debug(
+                f"no backend specified, using first supported: {backend}"
+            )
+        else:
+            backend = s_options.backend
+
+        if not s_options.pipeline:
+            pipeline = self.sigma_support()[0].pipelines[0].name
+            MutyLogger.get_instance().debug(
+                f"no pipeline specified, using first supported: {pipeline}"
+            )
+        else:
+            pipeline = s_options
+
+        if not s_options.output_format:
+            output_format = self.sigma_support()[0].output_formats[0].name
+            MutyLogger.get_instance().debug(
+                f"no output_format specified, using first supported: {output_format}"
+            )
+        else:
+            output_format = s_options.output_format
+
+        # check support
+        support_list = self.sigma_support()
+        for s in support_list:
+            backend_supported = False
+            pipeline_supported = False
+            output_format_supported = False
+            for b in s.backends:
+                if b.name == backend:
+                    backend_supported = True
+                    break
+            for p in s.pipelines:
+                if p.name == pipeline:
+                    pipeline_supported = True
+                    break
+            for o in s.output_formats:
+                if o.name == output_format:
+                    output_format_supported = True
+                    break
+
+            if backend_supported and pipeline_supported and output_format_supported:
+                return (backend, pipeline, output_format)
+
+        raise ValueError(
+            f"plugin {self.name} does not support the combination: backend={backend}, pipeline={pipeline}, output_format={output_format}"
+        )
+
+    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
+        """
+        return backends/pipelines supported by the plugin (check pysigma on github for details)
+
+        NOTE: "opensearch" backend and "dsl_lucene" output format are MANDATORY to query Gulp
+
+        Returns:
+            list[GulpPluginSigmaSupport]: the supported backends/pipelines/output_formats.
+        """
+        return []
+
+    def sigma_convert(
+        self,
+        sigma: str,
+        s_options: GulpQuerySigmaParameters,
+    ) -> list[GulpQuery]:
+        """
+        convert a sigma rule specifically targeted to this plugin into a query for the specified by backend/pipeline/output_format.
+
+        Args:
+            sigma (str): the sigma rule YAML
+            s_options (GulpQuerySigmaParameters): the sigma query parameters.
+        Returns:
+            list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
+        """
+        raise NotImplementedError("not implemented!")
+
+    async def query_external(
+        self,
+        sess: AsyncSession,
+        user_id: str,
+        req_id: str,
+        ws_id: str,
+        q: any,
+        q_options: GulpQueryAdditionalParameters,
+        flt: GulpBaseDocumentFilter = None,
+    ) -> tuple[int, int]:
+        """
+        query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
+
+        optionally ingest them.
+
+        Args:
+            sess (AsyncSession): The database session.
+            req_id (str): the request id
+            ws_id (str): the websocket id
+            user (str): the user performing the query
+            q(any): the query to perform, format is plugin specific. If set, `flt` is ignored.
+            q_options (GulpQueryAdditionalParameters): additional query options
+            flt: (GulpBaseDocumentFilter, optional): if set, `q` is ignored and the time range will be converted in a query to the external source. Defaults to None.
+
+        Notes:
+            - implementers must call super().query_external first, then _initialize().
+            - this function *MUST NOT* raise exceptions.
+
+        Returns:
+            tuple[int, int]: the number of documents processed(ingested) and the total number of documents found
+        Raises:
+            ObjectNotFound: if no document is found.
+        """
+
+        # TODO in plugins:
+        # 1. query the external source in chunk of 1000 documents, with loop set
+        # 2. run the same process_record loop as in ingest_file then
+        # 3. use the raw plugin to ingest ~~consider to implement ingest_raw to ingest the results~~
+        self._sess = sess
+        self._ws_id = ws_id
+        self._req_id = req_id
+        self._user_id = user_id
+
+        # setup internal state to be able to call process_record as during ingestion
+        self._stats = None
+        if q_options.external_parameters.ingest_index:
+            # ingest during query
+            self._index = q_options.external_parameters.ingest_index
+            self._operation_id = q_options.external_parameters.operation_id
+            self._file_path = q_options.external_parameters.source_id
+            self._context_id = q_options.external_parameters.context_id
+            self._note_parameters = q_options.note_parameters
+
+        else:
+            # just query, no ingestion
+            self._ingestion_enabled = False
+
+        MutyLogger.get_instance().debug(
+            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={self._operation_id}, ws_id={ws_id}, req_id={req_id}, \
+                q={q}, q_options={q_options}, ingest_index={self._index}, plugin_params={q_options.external_parameters.plugin_params}"
+        )
+        return (0, 0)
+
+    async def query_external_single(
+        self,
+        req_id: str,
+        doc_id: any,
+        q_options: GulpQueryAdditionalParameters,
+    ) -> dict:
+        """
+        query a single document, converted to gulpdocument, on an external source.
+
+        Args:
+            req_id (str): the request id
+            doc_id (any): set to the id of the single document to query on the external source, format is plugin dependent
+            q_options (GulpQueryAdditionalParameters): additional query options (uri, credentials, options for the external source)
+
+        Returns:
+            dict: the document as a GulpDocument dictionary
+
+        Raises:
+            ObjectNotFound: if the document is not found.
+
+        Notes:
+            - implementers must call super().query_external first then _initialize().<br>
+        """
+        MutyLogger.get_instance().debug(
+            f"querying external source with plugin {self.name}, req_id={req_id}, doc_id={doc_id}, q_options={q_options}, plugin_params={q_options.external_parameters.plugin_params}"
+        )
+        return {}
 
     async def ingest_raw(
         self,
@@ -1085,7 +1104,7 @@ class GulpPluginBase(ABC):
         )
 
         # for each defined additional parameter, set it if found in plugin_params
-        for p in self.additional_parameters() or []:
+        for p in self.custom_parameters() or []:
             k = p.name
             if p.required and (not plugin_params or k not in plugin_params.model_extra):
                 raise ValueError(
@@ -1503,9 +1522,11 @@ class GulpPluginBase(ABC):
                 "type": p.type(),
                 "desc": p.desc(),
                 "filename": p.bare_filename,
-                "sigma_support": [o.model_dump() for o in p.sigma_support()],
+                "sigma_support": [
+                    o.model_dump(exclude_none=True) for o in p.sigma_support()
+                ],
                 "additional_parameters": [
-                    o.model_dump() for o in p.additional_parameters()
+                    o.model_dump() for o in p.custom_parameters()
                 ],
                 "depends_on": p.depends_on(),
                 "tags": p.tags(),

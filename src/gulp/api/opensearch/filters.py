@@ -53,7 +53,12 @@ class GulpBaseDocumentFilter(BaseModel):
         description="""
 a tuple representing `[ start, end, field]`.
 
-- `field` may be omitted (defaults to `gulp.timestamp`, nanoseconds from the unix epoch).
+- `start` and `end` are nanoseconds from the unix epoch.
+- `field` may be omitted (defaults to `gulp.timestamp`).
+
+### external queries
+
+- for `external` queries, `field` is always ignored and set by the plugin automatically.
 """,
     )
 

@@ -92,6 +92,33 @@ class GulpPluginCustomParameter(BaseModel):
     required: Optional[bool] = Field(False, description="is the option required ?")
 
 
+class GulpNameDescriptionEntry(BaseModel):
+    """
+    indicates the sigma support for a plugin, to be returned by the plugin.sigma_support() method.
+
+    refer to [sigma-cli](
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "opensearch",
+                    "description": "the one to use to query Gulp.",
+                }
+            ]
+        }
+    )
+    name: str = Field(
+        ...,
+        description="name for the entry.",
+    )
+    description: Optional[str] = Field(
+        None,
+        description="a description",
+    )
+
+
 class GulpPluginSigmaSupport(BaseModel):
     """
     indicates the sigma support for a plugin, to be returned by the plugin.sigma_support() method.
@@ -103,22 +130,37 @@ class GulpPluginSigmaSupport(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "backends": ["opensearch"],
-                    "pipelines": ["ecs_windows", "ecs_windows_old"],
-                    "output_formats": ["dsl_lucene"],
+                    "backends": [
+                        {
+                            "name": "opensearch",
+                            "description": "OpenSearch.",
+                        }
+                    ],
+                    "pipelines": [
+                        {
+                            "name": "ecs_windows",
+                            "description": "ECS Mapping for windows event logs ingested with Winlogbeat or Gulp.",
+                        }
+                    ],
+                    "output_formats": [
+                        {
+                            "name": "dsl_lucene",
+                            "description": "DSL with embedded Lucene queries.",
+                        }
+                    ],
                 }
             ]
         }
     )
-    backends: list[str] = Field(
+    backends: list[GulpNameDescriptionEntry] = Field(
         ...,
         description="one or more pysigma backend supported by the plugin: `opensearch` is the one to use to query Gulp.",
     )
-    pipelines: list[str] = Field(
+    pipelines: list[GulpNameDescriptionEntry] = Field(
         ...,
         description="one or more pysigma pipelines supported by the plugin.",
     )
-    output_formats: list[str] = Field(
+    output_formats: list[GulpNameDescriptionEntry] = Field(
         ...,
         description="one or more output formats supported by the plugin.",
     )

@@ -25,12 +25,16 @@ from gulp.api.opensearch.query import (
 )
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginParameters, GulpPluginSigmaSupport
+from gulp.structs import (
+    GulpNameDescriptionEntry,
+    GulpPluginParameters,
+    GulpPluginSigmaSupport,
+)
 from muty.log import MutyLogger
 
 # needs the following backends for sigma support (add others if needed)
-muty.os.check_and_install_package("pysigma-backend-elasticsearch", "1.1.3")
-muty.os.check_and_install_package("pysigma-backend-opensearch", "1.0.3")
+muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
+muty.os.check_and_install_package("pysigma-backend-opensearch", ">=1.0.3,<2.0.0")
 
 from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
@@ -234,9 +238,28 @@ class Plugin(GulpPluginBase):
     def sigma_support(self) -> list[GulpPluginSigmaSupport]:
         return [
             GulpPluginSigmaSupport(
-                backends=["opensearch"],
-                pipelines=["ecs_windows", "ecs_windows_old"],
-                output_formats=["dsl_lucene"],
+                backends=[
+                    GulpNameDescriptionEntry(
+                        name="opensearch",
+                        description="OpenSearch Lucene backend for pySigma",
+                    )
+                ],
+                pipelines=[
+                    GulpNameDescriptionEntry(
+                        name="ecs_windows",
+                        description="ECS Mapping for windows event logs ingested with Winlogbeat or Gulp.",
+                    ),
+                    GulpNameDescriptionEntry(
+                        name="ecs_windows_old",
+                        description="ECS Mapping for windows event logs ingested with Winlogbeat<=6.x",
+                    ),
+                ],
+                output_formats=[
+                    GulpNameDescriptionEntry(
+                        name="dsl_lucene",
+                        description="DSL with embedded Lucene queries.",
+                    )
+                ],
             ),
         ]
 
@@ -253,9 +276,6 @@ class Plugin(GulpPluginBase):
             pipeline = ecs_windows()
         else:
             pipeline = ecs_windows_old()
-        if backend == "opensearch":
-            backend = OpensearchLuceneBackend(processing_pipeline=pipeline)
-        else:
-            raise ValueError("unsupported backend: %s" % backend)
 
+        backend = OpensearchLuceneBackend(processing_pipeline=pipeline)
         return to_gulp_query_struct(sigma, backend, output_format=output_format)
