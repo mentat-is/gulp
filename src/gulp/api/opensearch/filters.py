@@ -64,7 +64,13 @@ a tuple representing `[ start, end, field]`.
 
     query_string_parameters: Optional[dict] = Field(
         default=None,
-        description="additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)",
+        description="""
+additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)
+
+### external queries
+
+- not applicable.
+""",
     )
 
     @override

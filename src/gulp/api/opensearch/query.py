@@ -175,6 +175,7 @@ class GulpQueryExternalParameters(BaseModel):
                     "username": "user",
                     "password": "password",
                     "params": None,
+                    "index": "src_index",
                     "ingest_index": "target_index",
                     "operation_id": "operation_1",
                     "context_name": "context_1",
@@ -190,8 +191,9 @@ class GulpQueryExternalParameters(BaseModel):
     )
     plugin_params: Optional[GulpPluginParameters] = Field(
         GulpPluginParameters(),
-        description="custom plugin parameters to use for the query.",
+        description="custom plugin parameters to pass to the external plugin.",
     )
+    index: Optional[Any] = Field(None, description="the source index to query.")
     uri: Optional[str] = Field(
         None, description="The URI to connect to the external service."
     )
@@ -258,17 +260,17 @@ class GulpQueryAdditionalParameters(BaseModel):
         description="the query group, if any.",
     )
     sort: Optional[dict[str, GulpSortOrder]] = Field(
-        default={
-            "@timestamp": GulpSortOrder.ASC,
-            "_id": GulpSortOrder.ASC,
-            "event.sequence": GulpSortOrder.ASC,
-        },
+        default=None,
         description="how to sort results, default=sort by ascending `@timestamp`.",
     )
     fields: Optional[list[str] | str] = Field(
-        default=QUERY_DEFAULT_FIELDS,
-        description="the set of fields to include in the returned documents.<br>"
-        "default=`%s` (which are forcefully included anyway), use `*` to return all fields."
+        default=None,
+        description="""
+the set of fields to include in the returned documents.
+
+- ignored for `external` queries.
+- default=`%s` (which are forcefully included anyway), or use `*` to return all fields.
+"""
         % (QUERY_DEFAULT_FIELDS),
     )
     limit: Optional[int] = Field(
@@ -315,22 +317,41 @@ for pagination, this should be set to the `search_after` returned by the previou
 
         # sorting
         n["sort"] = []
-        for k, v in self.sort.items():
+        if not self.sort:
+            # default sort
+            sort = (
+                {
+                    "@timestamp": GulpSortOrder.ASC,
+                    "_id": GulpSortOrder.ASC,
+                    "event.sequence": GulpSortOrder.ASC,
+                },
+            )
+        else:
+            # use provided
+            sort = self.sort
+
+        for k, v in sort.items():
             n["sort"].append({k: {"order": v}})
-            # NOTE: this was "event.hash" before: i removed it since its values is the same as _id now, so put _id here.
-            # if problems (i.e. issues with sorting on _id), we can add it back just by duplicating _id
-            if "_id" not in self.sort:
+            if "_id" not in sort:
+                # make sure _id is always sorted
                 n["sort"].append({"_id": {"order": v}})
-            if "event.sequence" not in self.sort:
+            if "event.sequence" not in sort:
+                # make sure event.sequence is always sorted
                 n["sort"].append({"event.sequence": {"order": v}})
 
         # fields to be returned
-        if self.fields and self.fields != "*":
-            # only return these fields (must always include the defaults)
+        if not self.fields:
+            # default, if not set
+            fields = QUERY_DEFAULT_FIELDS
+        else:
+            # use the given set
+            fields = self.fields
+        if fields != "*":
+            # if "*", return all (so we do not set "_source"). either, only return these fields and be sure they include the defaults
             for f in QUERY_DEFAULT_FIELDS:
-                if f not in self.fields:
-                    self.fields.append(f)
-            n["_source"] = self.fields
+                if f not in fields:
+                    fields.append(f)
+            n["_source"] = fields
 
         # pagination: doc limit
         if self.limit is not None:

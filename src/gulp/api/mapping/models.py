@@ -5,6 +5,7 @@ from muty.pydantic import (
     autogenerate_model_example_by_class,
 )
 
+
 class GulpMappingField(BaseModel):
     """
     defines how to map a single field, including field-specific options.

@@ -33,6 +33,7 @@ from gulp.api.opensearch.filters import (
     GulpBaseDocumentFilter,
     GulpDocumentFilterResult,
     GulpIngestionFilter,
+    GulpQueryFilter,
 )
 from gulp.api.opensearch.query import (
     GulpQuery,
@@ -224,7 +225,7 @@ class GulpPluginBase(ABC):
         # current source id
         self._source_id: str = None
         # opensearch index to operate on
-        self._index: str = None
+        self._ingest_index: str = None
         # this is retrieved from the index to check types during ingestion
         self._index_type_mapping: dict = None
         # websocket to stream data to
@@ -347,7 +348,7 @@ class GulpPluginBase(ABC):
         if self._ingestion_enabled:
             # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
             skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
-                self._index,
+                self._ingest_index,
                 data,
                 flt=flt,
                 wait_for_refresh=wait_for_refresh,
@@ -529,7 +530,7 @@ class GulpPluginBase(ABC):
         ws_id: str,
         q: any,
         q_options: GulpQueryAdditionalParameters,
-        flt: GulpBaseDocumentFilter = None,
+        flt: GulpQueryFilter = None,
     ) -> tuple[int, int]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
@@ -542,8 +543,8 @@ class GulpPluginBase(ABC):
             ws_id (str): the websocket id
             user (str): the user performing the query
             q(any): the query to perform, format is plugin specific. If set, `flt` is ignored.
-            q_options (GulpQueryAdditionalParameters): additional query options
-            flt: (GulpBaseDocumentFilter, optional): if set, `q` is ignored and the time range will be converted in a query to the external source. Defaults to None.
+            q_options (GulpQueryAdditionalParameters): additional query options, `q_options.external_parameters` must be set accordingly.
+            flt: (GulpQueryFilter, optional): if set, `q` is ignored and (at least) `int_filter` will be converted in a query to the external source. Defaults to None.
 
         Notes:
             - implementers must call super().query_external first, then _initialize().
@@ -568,7 +569,7 @@ class GulpPluginBase(ABC):
         self._stats = None
         if q_options.external_parameters.ingest_index:
             # ingest during query
-            self._index = q_options.external_parameters.ingest_index
+            self._ingest_index = q_options.external_parameters.ingest_index
             self._operation_id = q_options.external_parameters.operation_id
             self._file_path = q_options.external_parameters.source_id
             self._context_id = q_options.external_parameters.context_id
@@ -580,7 +581,7 @@ class GulpPluginBase(ABC):
 
         MutyLogger.get_instance().debug(
             f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={self._operation_id}, ws_id={ws_id}, req_id={req_id}, \
-                q={q}, q_options={q_options}, ingest_index={self._index}, plugin_params={q_options.external_parameters.plugin_params}"
+                q={q}, q_options={q_options}, ingest_index={self._ingest_index}, plugin_params={q_options.external_parameters.plugin_params}"
         )
         return (0, 0)
 
@@ -658,7 +659,7 @@ class GulpPluginBase(ABC):
         self._user_id = user_id
         self._operation_id = operation_id
         self._context_id = context_id
-        self._index = index
+        self._ingest_index = index
         self._source_id = source_id
         MutyLogger.get_instance().debug(
             f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
@@ -713,7 +714,7 @@ class GulpPluginBase(ABC):
         self._user_id = user_id
         self._operation_id = operation_id
         self._context_id = context_id
-        self._index = index
+        self._ingest_index = index
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
@@ -1127,7 +1128,7 @@ class GulpPluginBase(ABC):
         # initialize index types k,v mapping from opensearch
         self._index_type_mapping = (
             await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
-                self._index
+                self._ingest_index
             )
         )
         MutyLogger.get_instance().debug(
