@@ -20,7 +20,11 @@ import muty.string
 import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from gulp.api.collab.context import GulpContext
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
     GulpIngestionStats,
     RequestCanceledError,
@@ -568,11 +572,17 @@ class GulpPluginBase(ABC):
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
         if q_options.external_parameters.ingest_index:
-            # ingest during query
+            # ingest during query, we need to create context if it doesn't exist
+            operation: GulpOperation = await GulpOperation.get_by_id(
+                sess, q_options.external_parameters.operation_id
+            )
+            ctx: GulpContext = await operation.add_context(
+                sess, user_id=user_id, name=q_options.external_parameters.context_name
+            )
             self._ingest_index = q_options.external_parameters.ingest_index
             self._operation_id = q_options.external_parameters.operation_id
-            self._file_path = q_options.external_parameters.source_id
-            self._context_id = q_options.external_parameters.context_id
+            self._source_id = None
+            self._context_id = ctx.id
             self._note_parameters = q_options.note_parameters
 
         else:

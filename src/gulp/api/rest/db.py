@@ -4,14 +4,16 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import json
 from typing import Annotated, Optional
+
+import muty.file
+import muty.log
+import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
-import muty.log
-import muty.uploadfile
-import muty.file
 from pydantic import BaseModel, ConfigDict, field_validator, validator
+
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -303,8 +305,8 @@ async def opensearch_rebase_index_handler(
         int,
         Query(
             example=3600000,
-            description="""offset, in milliseconds from the unix epoch, to be added to the `@timestamp` field.
-            
+            description="""offset in milliseconds to add to document `@timestamp` and `gulp.timestamp`.
+
 - to subtract, use a negative offset.
 """,
         ),

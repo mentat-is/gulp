@@ -22,11 +22,6 @@
 		"editor.tokenColorCustomizations": {
 			"comments": "",
 			"textMateRules": []
-		},
-		"workbench.colorCustomizations": {
-			"activityBar.background": "#301957",
-			"titleBar.activeBackground": "#432379",
-			"titleBar.activeForeground": "#FBFAFD"
 		}
 	}
 }

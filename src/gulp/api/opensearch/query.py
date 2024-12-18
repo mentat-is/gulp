@@ -1,16 +1,14 @@
 from typing import Any, Optional
 
+import muty.string
 from elasticsearch import AsyncElasticsearch
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.opensearch.filters import (
-    QUERY_DEFAULT_FIELDS,
-    GulpQueryFilter,
-)
+
+from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.structs import GulpPluginParameters, GulpSortOrder
-from muty.pydantic import autogenerate_model_example_by_class
-import muty.string
 
 
 class GulpQuery(BaseModel):
@@ -207,13 +205,21 @@ class GulpQueryExternalParameters(BaseModel):
         None, description="if set, ingest the results to this gulp index/datastream."
     )
     operation_id: Optional[str] = Field(
-        None, description="if set, the operation id to associate with the ingestion."
+        None,
+        description="""
+if set, the operation id to associate with the ingestion.
+
+- ignored if `ingest_index` is not set.
+""",
     )
-    context_id: Optional[str] = Field(
-        None, description="if set, the context id to associate with the ingestion."
-    )
-    source_id: Optional[str] = Field(
-        None, description="if set, the source id to associate with the ingestion."
+    context_name: Optional[str] = Field(
+        None,
+        description="""
+if set, name of the context to associate with the ingestion.
+
+- an id will be generated if not yet present.
+- ignored if `ingest_index` is not set.
+""",
     )
 
 
@@ -282,7 +288,7 @@ the set of fields to include in the returned documents.
     search_after: Optional[list[dict]] = Field(
         None,
         description="""
-for pagination, this should be set to the `search_after` returned by the previous call. 
+for pagination, this should be set to the `search_after` returned by the previous call.
 
 - check [OpenSearch documentation](https://opensearch.org/docs/latest/search-plugins/searching-data/paginate/#the-search_after-parameter).
 
