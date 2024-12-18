@@ -46,7 +46,7 @@ class Plugin(GulpPluginBase):
     """
 
     def type(self) -> GulpPluginType:
-        return [GulpPluginType.INGESTION]
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "win_evtx"

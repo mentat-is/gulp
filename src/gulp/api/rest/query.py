@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
+    GulpRequestStatus,
 )
 from muty.pydantic import autogenerate_model_example_by_class
 from gulp.api.collab.note import GulpNote
@@ -26,6 +27,7 @@ from gulp.api.rest.server_utils import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.ws_api import (
+    GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpSharedWsQueue,
     GulpWsQueueDataType,
@@ -171,13 +173,16 @@ async def _query_internal(
                             user_id=user_id,
                             req_id=req_id,
                             ws_id=ws_id,
+                            index=index,
                             q=gq.q,
                             q_options=q_options,
                             flt=flt,
                         )
+
                     totals += hits
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)
+
     finally:
         if mod:
             await mod.unload()
@@ -473,9 +478,7 @@ async def query_single_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     doc_id: Annotated[
         Any,
-        Body(
-            description="the `_id` of the document on Gulp `index`."
-        ),
+        Body(description="the `_id` of the document on Gulp `index`."),
     ],
     index: Annotated[str, Depends(APIDependencies.param_index_optional)],
     q_options: Annotated[
@@ -703,9 +706,7 @@ async def query_stored(
             user_id = s.user_id
 
             # get queries
-            queries = await _stored_query_ids_to_gulp_queries(
-                sess, stored_query_ids
-            )
+            queries = await _stored_query_ids_to_gulp_queries(sess, stored_query_ids)
 
         # external queries check (all must refer to the same plugin)
         external_plugin: str = queries[0].external_plugin

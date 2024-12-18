@@ -49,6 +49,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
+    GulpQueryDonePacket,
     GulpSharedWsQueue,
     GulpWsQueueDataType,
 )
@@ -228,10 +229,12 @@ class GulpPluginBase(ABC):
         self._original_file_path: str = None
         # current source id
         self._source_id: str = None
-        # opensearch index to operate on
+        # opensearch index to ingest into
         self._ingest_index: str = None
         # this is retrieved from the index to check types during ingestion
         self._index_type_mapping: dict = None
+        # if the plugin is processing an external query
+        self._external_query: bool = False
         # websocket to stream data to
         self._ws_id: str = None
         # current request id
@@ -534,7 +537,8 @@ class GulpPluginBase(ABC):
         user_id: str,
         req_id: str,
         ws_id: str,
-        q: any,
+        index: Any,
+        q: Any,
         q_options: GulpQueryAdditionalParameters,
         flt: GulpQueryFilter = None,
     ) -> tuple[int, int]:
@@ -548,7 +552,8 @@ class GulpPluginBase(ABC):
             req_id (str): the request id
             ws_id (str): the websocket id
             user (str): the user performing the query
-            q(any): the query to perform, format is plugin specific. If set, `flt` is ignored.
+            index (Any): the index to query on the external source (format is plugin specific)
+            q(Any): the query to perform, format is plugin specific. If set, `flt` is ignored.
             q_options (GulpQueryAdditionalParameters): additional query options, `q_options.external_parameters` must be set accordingly.
             flt: (GulpQueryFilter, optional): if set, `q` is ignored and (at least) `int_filter` will be converted in a query to the external source. Defaults to None.
 
@@ -565,35 +570,60 @@ class GulpPluginBase(ABC):
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
+        self._external_query = True
 
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
-        if q_options.external_parameters.ingest_index:
-            # make sure the index exists
-            exists = await GulpOpenSearch.get_instance().datastream_exists(q_options.external_parameters.ingest_index)
-            if not exists:
-                await GulpOpenSearch.get_instance().datastream_create(q_options.external_parameters.ingest_index)
 
-            # create context if it doesn't exist
-            operation: GulpOperation = await GulpOperation.get_by_id(
-                sess, q_options.external_parameters.operation_id
-            )
-            ctx: GulpContext = await operation.add_context(
-                sess, user_id=user_id, name=q_options.external_parameters.context_name
-            )
+        # create context if it doesn't exist
+        operation: GulpOperation = await GulpOperation.get_by_id(
+            sess, q_options.external_parameters.operation_id
+        )
+        ctx: GulpContext = await operation.add_context(
+            sess, user_id=user_id, name=q_options.external_parameters.context_name
+        )
+
+        # also add a bogus source
+        src: GulpSource = await ctx.add_source(
+            sess,
+            user_id=user_id,
+            name="src-%s" % (q_options.external_parameters.context_name),
+        )
+        self._operation_id = q_options.external_parameters.operation_id
+        self._source_id = src.id
+        self._context_id = ctx.id
+        self._note_parameters = q_options.note_parameters
+
+        if q_options.external_parameters.ingest_index:
+            # ingestion is enabled
             self._ingest_index = q_options.external_parameters.ingest_index
-            self._operation_id = q_options.external_parameters.operation_id
-            self._source_id = None
-            self._context_id = ctx.id
-            self._note_parameters = q_options.note_parameters
+
+            # make sure the index to ingest into exists
+            exists = await GulpOpenSearch.get_instance().datastream_exists(
+                q_options.external_parameters.ingest_index
+            )
+            if not exists:
+                await GulpOpenSearch.get_instance().datastream_create(
+                    q_options.external_parameters.ingest_index
+                )
 
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
-            f"querying external source with plugin {self.name}, user_id={user_id}, operation_id={self._operation_id}, ws_id={ws_id}, req_id={req_id}, \
-                q={q}, q_options={q_options}, ingest_index={self._ingest_index}, plugin_params={q_options.external_parameters.plugin_params}"
+            "querying external source with plugin {self.name}, "
+            "user_id={user_id}, "
+            "operation_id={self._operation_id}, "
+            "context_id={self._context_id}, "
+            "source_id={self._source_id}, "
+            "ws_id={ws_id}, "
+            "req_id={req_id}, "
+            "index={index}, "
+            "q={q}, "
+            "q_options={q_options}, "
+            "ingest_index={self._ingest_index}, "
+            "plugin_params={q_options.external_parameters.plugin_params}"
         )
         return (0, 0)
 
@@ -950,6 +980,10 @@ class GulpPluginBase(ABC):
         Returns:
             None
         """
+        if self._external_query:
+            # external query, documents have been already filtered by the query
+            flt = None
+
         ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
         self._extra_docs = []
 
@@ -1101,7 +1135,8 @@ class GulpPluginBase(ABC):
         )
 
         # check any custom plugin paramter (they're passed in plugin_params.model_extra)
-        for p in self.custom_parameters():
+        custom_params = self.custom_parameters()
+        for p in custom_params:
             k = p.name
             if p.required and k not in plugin_params.model_extra:
                 raise ValueError(
@@ -1295,6 +1330,7 @@ class GulpPluginBase(ABC):
         ingested, skipped = await self._flush_buffer(
             flt, wait_for_refresh=True, data=data
         )
+
         if not self._stats:
             return
 
@@ -1316,6 +1352,52 @@ class GulpPluginBase(ABC):
             )
         except RequestCanceledError as ex:
             MutyLogger.get_instance().warning("request canceled, source_done!")
+
+    async def _query_external_done(
+        self, query_name: str, hits: int, error: Exception | str = None
+    ) -> None:
+        """
+        for external sources, called by the engine when the query is done to send a GulpQueryDonePacket.
+
+        Args:
+            query_name (str): The name of the query.
+            hits (int): The number of hits.
+            error (Exception | str, optional): The error that caused the query to fail. Defaults to None
+        """
+        MutyLogger.get_instance().debug(
+            "EXTERNAL QUERY DONE: query %s, %d hits, error=%s"
+            % (
+                query_name,
+                hits,
+                error,
+            )
+        )
+
+        # any error sets status to failed
+        if not error:
+            # but also 0 hits
+            status = GulpRequestStatus.DONE if hits > 0 else GulpRequestStatus.FAILED
+        else:
+            status = GulpRequestStatus.FAILED
+
+        if error and isinstance(error, Exception):
+            error = muty.log.exception_to_string(error, True)
+
+        # send a GulpQueryDonePacket
+        p = GulpQueryDonePacket(
+            req_id=self._req_id,
+            status=status,
+            total_hits=hits,
+            name=query_name,
+            error=error,
+        )
+        GulpSharedWsQueue.get_instance().put(
+            type=GulpWsQueueDataType.QUERY_DONE,
+            ws_id=self._ws_id,
+            user_id=self._user_id,
+            req_id=self._req_id,
+            data=p.model_dump(exclude_none=True),
+        )
 
     async def _source_failed(
         self,

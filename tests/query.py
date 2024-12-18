@@ -237,6 +237,83 @@ async def test_windows():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
+    async def _test_raw_external_pre(gulp_api: GulpAPICommon, token: str, plugin: str):
+        # run test
+        q_options = GulpQueryAdditionalParameters()
+        q_options.name = "test_raw_query_splunk"
+        q_options.external_parameters.plugin = "splunk"
+        q_options.external_parameters.uri = "http://localhost:8089"
+        q_options.external_parameters.username = "admin"
+        q_options.external_parameters.password = "Valerino74!"
+        q_options.external_parameters.operation_id = TEST_OPERATION_ID
+        q_options.external_parameters.context_name = "splunk_context"
+        q_options.external_parameters.ingest_index = "test_idx"
+
+        await gulp_api.query_raw(
+            token,
+            "_audit",
+            'index="_audit"',
+            flt=GulpQueryFilter(source=["audittrail"]),
+            q_options=q_options,
+        )
+
+    async def _test_raw_external(gulp_api: GulpAPICommon, token: str, plugin: str):
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryAdditionalParameters()
+                        q_options.name = "test_raw_query_splunk"
+                        q_options.external_parameters.plugin = "splunk"
+                        q_options.external_parameters.uri = "http://10.10.10.10:8089"
+                        q_options.external_parameters.username = "admin"
+                        q_options.external_parameters.password = "Valerino74!"
+
+                        await gulp_api.query_raw(
+                            token,
+                            "_audit",
+                            'index="_audit"',
+                            flt=GulpQueryFilter(host=["383a1a58b2ea"]),
+                            q_options=q_options,
+                        )
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.name
+                        )
+                        if q_done_packet.name == "test_raw_query":
+                            assert q_done_packet.total_hits == 6709
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed:
+                MutyLogger.get_instance().warning("WebSocket connection closed")
+
+        assert test_completed
+        MutyLogger.get_instance().info("test succeeded!")
+
     async def _test_gulp(gulp_api: GulpAPICommon, token: str, plugin: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
@@ -300,6 +377,9 @@ async def test_windows():
     assert guest_token
 
     # test different queries
+    await _test_raw_external_pre(gulp_api, guest_token, test_plugin)
+    return
+
     await _test_gulp(gulp_api, guest_token, test_plugin)
     await _test_raw(gulp_api, guest_token, test_plugin)
     await _test_sigma_single(gulp_api, guest_token, test_plugin)

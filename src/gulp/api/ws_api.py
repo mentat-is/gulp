@@ -125,6 +125,7 @@ class GulpQueryDonePacket(BaseModel):
                     "status": GulpRequestStatus.DONE,
                     "name": "the query name",
                     "total_hits": 100,
+                    "error": None,
                 }
             ]
         }
@@ -134,6 +135,7 @@ class GulpQueryDonePacket(BaseModel):
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."
     )
+    error: Optional[str] = Field(None, description="The error message, if any.")
     total_hits: Optional[int] = Field(
         None, description="The total number of hits for the query."
     )
