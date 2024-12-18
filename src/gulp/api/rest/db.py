@@ -1,7 +1,3 @@
-"""
-This module contains the REST API for gULP (gui Universal Log Processor).
-"""
-
 import json
 from typing import Annotated, Optional
 
@@ -25,6 +21,8 @@ from gulp.api.ws_api import GulpRebaseDonePacket, GulpSharedWsQueue, GulpWsQueue
 from gulp.process import GulpProcess
 
 router: APIRouter = APIRouter()
+
+# TODO: datastream create, delete, list
 
 
 @router.post(

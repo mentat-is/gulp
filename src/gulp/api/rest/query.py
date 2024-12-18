@@ -466,11 +466,7 @@ or a query in the external source DSL.
     },
     summary="Query a single document.",
     description="""
-query Gulp or an external source for a single document.
-
-### external queries
-
-- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
+query Gulp for a single document.
 """,
 )
 async def query_single_id_handler(
@@ -478,7 +474,7 @@ async def query_single_id_handler(
     doc_id: Annotated[
         Any,
         Body(
-            description="the `id` of the document (`_id` on Gulp `index`, or the equivalent for the external source)."
+            description="the `_id` of the document on Gulp `index`."
         ),
     ],
     index: Annotated[str, Depends(APIDependencies.param_index_optional)],
@@ -497,17 +493,7 @@ async def query_single_id_handler(
             # check token and get caller user id
             await GulpUserSession.check_token(sess, token)
 
-        if not q_options.external_parameters.plugin:
-            # local
-            d = await GulpQueryHelpers.query_single(index, doc_id)
-        else:
-            # external
-            mod = None
-            try:
-                mod = await GulpPluginBase.load(q_options.external_parameters.plugin)
-                d = await mod.query_external_single(req_id, doc_id, q_options)
-            finally:
-                await mod.unload()
+        d = await GulpQueryHelpers.query_single(index, doc_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)

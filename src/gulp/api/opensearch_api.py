@@ -9,7 +9,7 @@ import muty.string
 import muty.time
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
-from opensearchpy import AsyncOpenSearch
+from opensearchpy import AsyncOpenSearch, NotFoundError, RequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
@@ -495,7 +495,26 @@ class GulpOpenSearch:
         except Exception as e:
             MutyLogger.get_instance().error("error deleting index template: %s" % (e))
 
-    async def datastream_create(self, ds: str, index_template: str = None) -> dict:
+    
+    async def datastream_exists(self, ds: str) -> bool:
+        """
+        Check if a datastream exists in OpenSearch.
+
+        Args:
+            ds (str): The name of the datastream to check.
+
+        Returns:
+            bool: True if the datastream exists, False otherwise.
+        """
+        try:
+            await self._opensearch.indices.get_data_stream(name=ds)
+            return True
+        except NotFoundError:
+            return False
+
+    async def datastream_create(
+        self, ds: str, index_template: str = None
+    ) -> dict:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
@@ -507,7 +526,6 @@ class GulpOpenSearch:
         Returns:
             dict: The response from the OpenSearch client after creating the datastream.
         """
-
         # attempt to delete the datastream first, if it exists
         MutyLogger.get_instance().debug('re/creating datastream "%s" ...' % (ds))
         await self.datastream_delete(ds)

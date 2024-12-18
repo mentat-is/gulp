@@ -1,4 +1,4 @@
-from typing import override
+from typing import Any, override
 
 import aiofiles
 import muty.dict
@@ -37,14 +37,14 @@ class Plugin(GulpPluginBase):
         return "1.0"
 
     @override
-    async def _augment_documents(self, docs: list[dict]) -> list[dict]:
+    async def _augment_documents(self, docs: list[dict], data: Any) -> list[dict]:
         for doc in docs:
             doc["augmented"] = True
         return docs
 
     @override
     async def _record_to_gulp_document(
-        self, record: GulpDocument, record_idx: int
+        self, record: GulpDocument, record_idx: int, data: Any
     ) -> GulpDocument:
 
         # MutyLogger.get_instance().debug("record: %s" % record)

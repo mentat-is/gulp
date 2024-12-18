@@ -1,5 +1,5 @@
 import os
-from typing import override
+from typing import Any, override
 
 import aiofiles
 import muty.dict
@@ -80,7 +80,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: dict, record_idx: int
+        self, record: dict, record_idx: int, data: Any = None
     ) -> GulpDocument:
 
         # MutyLogger.get_instance().debug("processing record:\n%s" % (json.dumps(record,indent=2)))
@@ -165,7 +165,7 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        delimiter = plugin_params.model_extra.get("delimiter", ",")
+        delimiter = self._custom_params.get("delimiter", ",")
         doc_idx = 0
         try:
             async with aiofiles.open(

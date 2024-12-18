@@ -147,10 +147,10 @@ class GulpDocument(GulpBasicDocument):
         fuzzy: bool = None,
     ) -> tuple[str, int, bool]:
         """
-        Ensure the timestamp is in iso8601 format.
+        returns a string guaranteed to be in iso8601 time format
 
         Args:
-            timestamp (str): The timestamp.
+            timestamp (str): The time string to parse (in iso8601 format or a string in a format supported by muty.time.ensure_iso8601).
             dayfirst (bool, optional): If set, parse the timestamp with dayfirst=True. Defaults to None (use dateutil.parser default).
             yearfirst (bool, optional): If set, parse the timestamp with yearfirst=True. Defaults to None (use dateutil.parser default).
             fuzzy (bool, optional): If set, parse the timestamp with fuzzy=True. Defaults to None (use dateutil.parser default).
@@ -159,17 +159,22 @@ class GulpDocument(GulpBasicDocument):
         """
         epoch_start: str = "1970-01-01T00:00:00Z"
         if not timestamp:
+            # invalid timestamp
             return epoch_start, 0, True
 
         try:
+            # get iso8601 timestamp
             ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
+
+            # we also need nanoseconds from the unix epoch
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
-                ns = muty.time.number_to_nanos(timestamp)
+                ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
             else:
-                ns = muty.time.string_to_epoch_nsec(
+                ns = muty.time.string_to_nanos_from_unix_epoch(
                     ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy
                 )
+
             return ts, ns, False
         except Exception as e:
             # invalid timestamp
@@ -192,7 +197,7 @@ class GulpDocument(GulpBasicDocument):
         **kwargs,
     ) -> None:
         """
-        Initialize a GulpDocument instance.
+        initializea a GulpDocument instance.
 
         Args:
             plugin_instance: The calling PluginBase
@@ -201,9 +206,7 @@ class GulpDocument(GulpBasicDocument):
             source_id (str): The source id on gulp collab database.
             event_original (str): The original event data.
             event_sequence (int): The sequence number of the event.
-            timestamp (str, optional): The timestamp of the event as a number or numeric string (seconds/milliseconds/nanoseconds from unix epoch)<br>
-                or a string in a format supported by dateutil.parser.<br>
-                if None, assumes **kwargs has been already processed by the mapping engine and contains {"@timestamp", "gulp.timestamp" and possibly "gulp.timestamp_invalid" flag}
+            timestamp (str, optional): the time string, will be converted to iso8601 time string (ignored if "timestamp" is in kwargs). Defaults to None.
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
             log_file_path (str, optional): The source log file path. Defaults to None.
@@ -214,15 +217,14 @@ class GulpDocument(GulpBasicDocument):
             Returns:
             None
         """
-        # replace alias keys in kwargs with their corresponding field names
-        # (i.e. "event.code" -> "event_code")
-        # this is needed to i.e. augment already existing documents
-
+        # turn any document already in gulp ecs format back to GulpDocument (i.e. turn @timestamp back to timestamp)
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
-        mapping: GulpMapping = plugin_instance.selected_mapping()
+
+        # this is set by _finalize_process_record() in the mapping engine
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
 
-        # Build initial data dict
+        # build initial data dict
+        mapping: GulpMapping = plugin_instance.selected_mapping()
         data = {
             "operation_id": operation_id,
             "context_id": context_id,
@@ -249,9 +251,8 @@ class GulpDocument(GulpBasicDocument):
         }
         data.update(kwargs)
 
-        # handle timestamp
         if "timestamp" not in data:
-            # use timestamp from argument
+            # use timestamp from argument, if not among the kwargs
             data["timestamp"] = timestamp
 
         # ensure timestamp is valid
@@ -324,6 +325,13 @@ class GulpDocumentFieldAliasHelper:
         """
         Replace alias keys in kwargs with their corresponding field names.
 
+        i.e. "event.code" -> "event_code
+
+        - if key is an alias, replace it with the corresponding field name,
+        - if key is not an alias, keep it as is.
+
+        NOTE: this is needed to i.e. ingest raw documents already in gulp ecs format.
+
         Args:
             kwargs (dict): The keyword arguments to fix.
         Returns:
@@ -344,7 +352,7 @@ class GulpDocumentFieldAliasHelper:
 
 class GulpRawDocumentMetadata(BaseModel):
     """
-    metadata for a GulpRawDocument
+    metadata for a GulpRawDocument: represents the mandatory fields in a document.
     """
 
     model_config = ConfigDict(
@@ -379,6 +387,13 @@ class GulpRawDocumentMetadata(BaseModel):
 
 
 class GulpRawDocument(BaseModel):
+    """
+    represents a raw GulpDocument record, consisting of:
+
+    - metadata: the document metadata, these are the mandatoiry fields (timestamp, event code, original raw event).
+    - doc: the rest of the document as key/value pairs, to generate the `GulpDocument` with.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         # solves the issue of not being able to populate fields using field name instead of alias
@@ -386,7 +401,7 @@ class GulpRawDocument(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "__metadata__": autogenerate_model_example_by_class(
+                    "metadata": autogenerate_model_example_by_class(
                         GulpRawDocumentMetadata
                     ),
                     "doc": {
@@ -406,7 +421,6 @@ class GulpRawDocument(BaseModel):
     metadata: GulpRawDocumentMetadata = Field(
         ...,
         description="the document metadata.",
-        alias="__metadata__",
     )
     doc: dict = Field(
         ...,

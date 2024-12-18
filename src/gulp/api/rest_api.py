@@ -231,43 +231,8 @@ class GulpRestServer:
         self._app.include_router(query_router)
 
         """
-        import gulp.api.rest.collab_utility
-        import gulp.api.rest.db
-        import gulp.api.rest.glyph
-        import gulp.api.rest.highlight
-        import gulp.api.rest.ingest
-        import gulp.api.rest.link
-        import gulp.api.rest.note
-        import gulp.api.rest.operation
-        import gulp.api.rest.query
-        import gulp.api.rest.user_session
-        import gulp.api.rest.shared_data
-        import gulp.api.rest.stats
-        import gulp.api.rest.stored_query
-        import gulp.api.rest.story
-        import gulp.api.rest.user
-        import gulp.api.rest.user_data
         import gulp.api.rest.utility
-
-        _app.include_router(gulp.api.rest.client.router())
-        _app.include_router(gulp.api.rest.collab_utility.router())
-        _app.include_router(gulp.api.rest.db.router())
-        _app.include_router(gulp.api.rest.glyph.router())
-        _app.include_router(gulp.api.rest.highlight.router())
-        _app.include_router(gulp.api.rest.ingest.router())
-        _app.include_router(gulp.api.rest.link.router())
-        _app.include_router(gulp.api.rest.note.router())
-        _app.include_router(gulp.api.rest.operation.router())
-        _app.include_router(gulp.api.rest.query.router())
-        _app.include_router(gulp.api.rest.user_session.router())
-        _app.include_router(gulp.api.rest.shared_data.router())
-        _app.include_router(gulp.api.rest.stats.router())
-        _app.include_router(gulp.api.rest.stored_query.router())
-        _app.include_router(gulp.api.rest.story.router())
-        _app.include_router(gulp.api.rest.user.router())
         _app.include_router(gulp.api.rest.utility.router())
-        _app.include_router(gulp.api.rest.user_data.router())
-        _app.include_router(gulp_ws.router())
         """
         pass
 
@@ -421,8 +386,8 @@ class GulpRestServer:
                 MutyLogger.get_instance().warning(
                     "resetting data, recreating index '%s' ..." % (self._reset_index)
                 )
-                el = GulpOpenSearch.get_instance()
-                await el.datastream_create(self._reset_index)
+                gos = GulpOpenSearch.get_instance()
+                await gos.datastream_create(self._reset_index)
         except Exception as ex:
             if first_run:
                 # allow restart on first run

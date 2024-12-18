@@ -166,7 +166,7 @@ TODO: check test results
 ./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json
 
 # raw with mapping
-# 3 ingested, record 1.field2 mapping changed
+# 3 ingested, record 1.field2 mapped to test.mapped and test.another_mapped
 ./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
 
 # zip (with metadata.json), win_evtx and csv with mappings

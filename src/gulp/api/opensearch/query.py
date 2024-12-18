@@ -175,6 +175,7 @@ class GulpQueryExternalParameters(BaseModel):
                     "params": None,
                     "index": "src_index",
                     "ingest_index": "target_index",
+                    "ingest_index_create": False,
                     "operation_id": "operation_1",
                     "context_name": "context_1",
                     "source": "test_source",
@@ -203,6 +204,10 @@ class GulpQueryExternalParameters(BaseModel):
     )
     ingest_index: Optional[str] = Field(
         None, description="if set, ingest the results to this gulp index/datastream."
+    )
+    ingest_index_create: Optional[bool] = Field(
+        False,
+        description="if set, create the ingest index if it does not exist, default=False.",
     )
     operation_id: Optional[str] = Field(
         None,

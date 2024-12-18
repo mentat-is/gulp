@@ -1,4 +1,4 @@
-from typing import override
+from typing import Any, override
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
@@ -69,17 +69,17 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: GulpRawDocument, record_idx: int
+        self, record: GulpRawDocument, record_idx: int, data: Any = None
     ) -> GulpDocument:
-        # get mandatory fields from metadata (metadata and the doc dictionary itself)
         metadata: GulpRawDocumentMetadata = record.metadata
         doc: dict = record.doc
+
+        # get mandatory fields from metadata
         ts: str = metadata.timestamp
         original: str = metadata.event_original
         event_code: str = metadata.event_code
 
-        mapping = self.selected_mapping()
-        if mapping.model_extra.get("ignore_mapping", False):
+        if self._custom_params.get("ignore_mapping", False):
             # ignore mapping
             d = doc
         else:
