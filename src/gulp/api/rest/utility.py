@@ -97,7 +97,7 @@ async def plugin_list_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token)
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
 
             l = await gulp.plugin.GulpPluginBase.list()
             return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
