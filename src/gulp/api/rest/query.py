@@ -477,8 +477,8 @@ query Gulp for a single document.
 async def query_single_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     doc_id: Annotated[
-        Any,
-        Body(description="the `_id` of the document on Gulp `index`."),
+        str,
+        Query(description="the `_id` of the document on Gulp `index`."),
     ],
     index: Annotated[str, Depends(APIDependencies.param_index_optional)],
     q_options: Annotated[

@@ -76,7 +76,7 @@ class GulpQuery(BaseModel):
 
 class GulpQueryNoteParameters(BaseModel):
     """
-    to automaticallyu create notes on query matches
+    to automatically create notes on query matches
     """
 
     model_config = ConfigDict(
@@ -248,8 +248,9 @@ class GulpQueryAdditionalParameters(BaseModel):
                     "note_parameters": autogenerate_model_example_by_class(
                         GulpQueryNoteParameters
                     ),
-                    "external_uri": "http://localhost:8080",
-                    "external_credentials": ("user", "password"),
+                    "external_parameters": autogenerate_model_example_by_class(
+                        GulpQueryExternalParameters
+                    ),
                     "external_options": None,
                 }
             ]

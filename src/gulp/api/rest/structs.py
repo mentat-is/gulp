@@ -742,7 +742,7 @@ additional parameters for querying, including:
 - `fields` to restrict returned fields.
 - `sort` for sorting
 - `sigma_parameters` to control annotations in `sigma` queries.
-- `external_uri`, `external_credentials`, `external_options` to control `external` queries.
+- `external_parameters` to control `external` queries.
 """
             ),
         ] = None
