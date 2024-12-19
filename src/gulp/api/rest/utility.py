@@ -83,11 +83,111 @@ async def request_cancel_handler(
         200: {
             "content": {
                 "application/json": {
-                    "plugins": ["plugin1","plugin2"],
-                    }
+                    "status": "success",
+                    "timestamp_msec": 1734609216840,
+                    "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
+                    "data": [
+                        {
+                        "display_name": "csv",
+                        "type": "ingestion",
+                        "desc": "generic CSV file processor",
+                        "filename": "csv",
+                        "sigma_support": [],
+                        "additional_parameters": [
+                            {
+                            "name": "delimiter",
+                            "type": "str",
+                            "default_value": ",",
+                            "desc": "delimiter for the CSV file",
+                            "required": False
+                            }
+                        ],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "raw",
+                        "type": "ingestion",
+                        "desc": "Raw events ingestion plugin",
+                        "filename": "raw",
+                        "sigma_support": [],
+                        "additional_parameters": [
+                            {
+                            "name": "ignore_mapping",
+                            "type": "bool",
+                            "default_value": False,
+                            "desc": "if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
+                            "required": False
+                            }
+                        ],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "csv",
+                        "type": "ingestion",
+                        "desc": "stacked plugin on top of csv example",
+                        "filename": "stacked_example",
+                        "sigma_support": [],
+                        "additional_parameters": [],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "win_evtx",
+                        "type": "ingestion",
+                        "desc": "Windows EVTX log file processor.",
+                        "filename": "win_evtx",
+                        "sigma_support": [
+                            {
+                            "backends": [
+                                {
+                                "name": "opensearch",
+                                "description": "OpenSearch Lucene backend for pySigma"
+                                }
+                            ],
+                            "pipelines": [
+                                {
+                                "name": "ecs_windows",
+                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat or Gulp."
+                                },
+                                {
+                                "name": "ecs_windows_old",
+                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat<=6.x"
+                                }
+                            ],
+                            "output_formats": [
+                                {
+                                "name": "dsl_lucene",
+                                "description": "DSL with embedded Lucene queries."
+                                }
+                            ]
+                            }
+                        ],
+                        "additional_parameters": [],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "extension_example",
+                        "type": "extension",
+                        "desc": "Extension example.",
+                        "filename": "example",
+                        "sigma_support": [],
+                        "additional_parameters": [],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        }
+                    ]
                 }
             }
-        },
+        }
+    },
     summary="list available plugins.",
 )
 async def plugin_list_handler(
