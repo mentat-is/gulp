@@ -1588,25 +1588,25 @@ class GulpPluginBase(ABC):
         files = plugins + extensions
         l = []
         for f in files:
-            if "__init__" or "__pycache__" in f:
+            if "__init__" in f or "__pycache__" in f:
                 continue
+
             if "/extension/" in f:
                 extension = True
             else:
-                extension = False
+                extension = False       
             try:
                 p = await GulpPluginBase.load(f, extension=extension, ignore_cache=True)
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
                 MutyLogger.get_instance().error("could not load plugin %s" % (f))
                 continue
-
             if name is not None:
                 # filter by name
-                if name.lower() not in p.name.lower():
+                if name.lower() not in p.display_name().lower():
                     continue
             n = {
-                "display_name": p.name,
+                "display_name": p.display_name(),
                 "type": p.type(),
                 "desc": p.desc(),
                 "filename": p.bare_filename,
@@ -1622,5 +1622,5 @@ class GulpPluginBase(ABC):
             }
             l.append(n)
             await p.unload()
-
+    
         return l
