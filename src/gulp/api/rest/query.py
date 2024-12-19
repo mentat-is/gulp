@@ -383,7 +383,8 @@ query Gulp or an external source using a raw DSL query.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 
-### gulp
+### gulp queries
+
 - refer to [OpenSearch query DSL](https://opensearch.org/docs/latest/query-dsl/).
 - `flt` may be used to restrict the query.
 
@@ -535,7 +536,7 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
     - all rules must be handled by the same `sigma_parameters.plugin`.
     - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
 
-### gulp
+### gulp queries
 
 - `flt` may be used to restrict the query.
 
@@ -657,7 +658,7 @@ query using queries stored on the Gulp `collab` database.
     - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
 - to allow ingestion during query, `external_parameters.ingest_index` must be set.
 
-### gulp
+### gulp queries
 
 - `flt` may be used to restrict the query.
 

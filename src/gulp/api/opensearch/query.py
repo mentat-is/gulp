@@ -323,13 +323,12 @@ for pagination, this should be set to the `search_after` returned by the previou
         n["sort"] = []
         if not self.sort:
             # default sort
-            sort = (
-                {
-                    "@timestamp": GulpSortOrder.ASC,
-                    "_id": GulpSortOrder.ASC,
-                    "event.sequence": GulpSortOrder.ASC,
-                },
-            )
+            sort = {
+                "@timestamp": GulpSortOrder.ASC,
+                "_id": GulpSortOrder.ASC,
+                "event.sequence": GulpSortOrder.ASC,
+            }
+
         else:
             # use provided
             sort = self.sort

@@ -34,6 +34,10 @@ class GulpPluginParameters(BaseModel):
                     "mapping_file": "mftecmd_csv.json",
                     "mappings": autogenerate_model_example_by_class(GulpMapping),
                     "mapping_id": "record",
+                    "additional_mapping_files": [
+                        ("mftecmd_csv.json", "record"),
+                        ("mftecmd_csv.json", "file"),
+                    ],
                 }
             ]
         },
@@ -42,10 +46,21 @@ class GulpPluginParameters(BaseModel):
         None,
         description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
+    additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
+        None,
+        description="""
+if this is set, allows to specify further mapping files and mapping IDs with a tuple of (mapping_file, mapping_id) to load and merge additional mappings from another file.
 
+- each mapping loaded from `additional_mapping_files` will be merged with the main `mapping file.mapping_id` fields.
+- ignored if `mappings` is set.
+""",
+    )
     mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
-        description="used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly (`mapping_file` is ignored if set).",
+        description="""
+used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly.
+- `mapping_file` and `additional_mapping_files` are ignored if this is set.
+""",
     )
 
     mapping_id: Optional[str] = Field(
@@ -55,12 +70,14 @@ class GulpPluginParameters(BaseModel):
 
     def is_empty(self) -> bool:
         """
-        check if all parameters are None
+        a mapping is empty if mappings or mapping_file or mapping_id is empty
 
         Returns:
             bool: True if all parameters are None, False otherwise
         """
-        return all(v is None for v in self.model_dump().values())
+        if self.mappings is not None or self.mapping_file is not None:
+            return False
+        return True
 
 
 class GulpPluginCustomParameter(BaseModel):

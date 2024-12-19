@@ -421,11 +421,11 @@ class GulpPluginBase(ABC):
                     user_id=self._user_id,
                     ws_id=self._ws_id,
                     req_id=self._req_id,
-                    docs=data,
+                    docs=data["docs"],
                     name=self._note_parameters.note_name,
                     tags=self._note_parameters.note_tags,
                     color=self._note_parameters.note_color,
-                    glyph_id=self._note_parameters.note_glyph,
+                    glyph_id=self._note_parameters.note_glyph_id,
                     private=self._note_parameters.note_private,
                 )
 
@@ -1122,6 +1122,44 @@ class GulpPluginBase(ABC):
 
             # ensure mapping_id is set
             self._mapping_id = self._mapping_id or next(iter(self._mappings))
+
+            # now go for additional mappings
+            if not plugin_params.mappings and plugin_params.additional_mapping_files:
+                MutyLogger.get_instance().debug(
+                    "loading additional mapping files/id: %s ..."
+                    % (plugin_params.additional_mapping_files)
+                )
+                for f in plugin_params.additional_mapping_files:
+                    # each entry is a tuple (file, mapping_id)
+                    additional_mapping_file_path = GulpConfig.build_mapping_file_path(
+                        f[0]
+                    )
+                    additional_mapping_id = f[1]
+                    f = await muty.file.read_file_async(additional_mapping_file_path)
+                    js = json.loads(f)
+                    if not js:
+                        raise ValueError(
+                            "additional mapping file %s is empty!"
+                            % (additional_mapping_file_path)
+                        )
+
+                    a_gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
+
+                    # update mappings
+                    MutyLogger.get_instance().debug(
+                        "adding additional mappings from %s.%s to %s.%s ..."
+                        % (
+                            additional_mapping_file_path,
+                            additional_mapping_id,
+                            self.bare_filename,
+                            self._mapping_id,
+                        )
+                    )
+
+                    main_mapping = self.selected_mapping()
+                    add_mapping = a_gmf.mappings[additional_mapping_id]
+                    for k, v in add_mapping.fields.items():
+                        main_mapping.fields[k] = v
 
         # ensure we have a plugin_params object
         if not plugin_params:
