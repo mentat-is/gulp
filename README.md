@@ -192,7 +192,11 @@ python3 -m pytest tests/note.py
 
 # queries
 # needs samples/win_evtx loaded on an empty gulp instance
-python3 -m pytest tests/query.py
+python3 -m pytest tests/query.py::test_windows
+
+# queries/ingestion with external plugins
+# TODO: this actually needs private test data, just for devteam reference...
+python3 -m pytest tests/query.py::test_splunk
 ```
 
 ## Architecture
