@@ -9,9 +9,18 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import (
     ServerUtils,
 )
+import gulp.config
+import gulp.gulp
+import gulp.plugin
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpUserPermission,
+    MissingPermission,
+)
 
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
+import gulp.plugins
 
 router: APIRouter = APIRouter()
 
@@ -64,6 +73,39 @@ async def request_cancel_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
+
+@router.get(
+    "/plugin_list",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "plugins": ["plugin1","plugin2"],
+                    }
+                }
+            }
+        },
+    summary="list available plugins.",
+)
+async def plugin_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token)
+
+            l = await gulp.plugin.GulpPluginBase.list()
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+
 # import base64
 # import json
 # import os
@@ -93,96 +135,6 @@ async def request_cancel_handler(
 
 # _app: APIRouter = APIRouter()
 
-
-# @_app.get(
-#     "/plugin_list",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1723204355167,
-#                         "req_id": "fc21e3c5-fcbf-4fda-a9bb-5776ef418dfd",
-#                         "data": [
-#                             {
-#                                 "display_name": "win_evtx",
-#                                 "type": "ingestion",
-#                                 "desc": "Windows EVTX log file processor.",
-#                                 "filename": "win_evtx.py",
-#                                 "internal": False,
-#                                 "options": [],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                             {
-#                                 "display_name": "raw",
-#                                 "type": "ingestion",
-#                                 "desc": "Raw events ingestion plugin.",
-#                                 "filename": "raw.py",
-#                                 "internal": False,
-#                                 "options": [],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                             {
-#                                 "display_name": "stacked",
-#                                 "type": "ingestion",
-#                                 "desc": "example plugin stacked over the CSV plugin",
-#                                 "filename": "stacked_example.py",
-#                                 "internal": False,
-#                                 "options": [],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                             {
-#                                 "display_name": "csv",
-#                                 "type": "ingestion",
-#                                 "desc": "generic CSV file processor",
-#                                 "filename": "csv.py",
-#                                 "internal": False,
-#                                 "options": [
-#                                     {
-#                                         "name": "delimiter",
-#                                         "type": "str",
-#                                         "default": ",",
-#                                         "desc": "delimiter for the CSV file",
-#                                     }
-#                                 ],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                         ],
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="list available plugins.",
-# )
-# async def plugin_list_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         l = await gulp.plugin.list_plugins()
-#         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
 # @_app.get(
