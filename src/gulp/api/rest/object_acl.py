@@ -390,7 +390,7 @@ async def object_make_private(
             }
         }
     },
-    summary="make the object *private*.",
+    summary="make the object *public*.",
     description="""
 a public object is accessible by anyone.
 
