@@ -240,8 +240,8 @@ async def plugin_get_handler(
 ) -> JSendResponse:
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
-
+            # should only admins be able to read all( including paid) plugins?
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ) 
             path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
             file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
             
@@ -254,143 +254,52 @@ async def plugin_get_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
+@router.delete(
+    "/plugin_delete",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"filename": "win_evtx.py"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an existing plugin file.",
+)
+async def plugin_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[
+        str,
+        Query(
+            description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    try:
+         async with GulpCollab.get_instance().session() as sess:
+            # should only admins be able to read all( including paid) plugins?
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN) 
 
-# import base64
-# import json
-# import os
-# from typing import Annotated
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
+            file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
-# import muty.crypto
-# import muty.file
-# import muty.jsend
-# import muty.list
-# import muty.log
-# import muty.os
-# import muty.string
-# import muty.uploadfile
-# from fastapi import APIRouter, File, Header, Query, UploadFile
-# from fastapi.responses import JSONResponse
-# from muty.jsend import JSendException, JSendResponse
-# from muty.log import MutyLogger
-
-# import gulp.api.collab_api as collab_api
-# import gulp.config
-# import gulp.plugin
-# import gulp.structs
-# import gulp.utils as gulp_utils
-# from gulp.api.collab.base import GulpUserPermission
-# from gulp.api.collab.session import GulpUserSession
-# from gulp.config import GulpConfig
-
-# _app: APIRouter = APIRouter()
-
-
-
-# @_app.get(
-#     "/plugin_get",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701546711919,
-#                         "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
-#                         "data": {"win_evt.py": "base64 file content here"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="get plugin content (i.e. for editing and reupload).",
-# )
-# async def plugin_get_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-#     plugin: Annotated[
-#         str,
-#         Query(
-#             description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
-#         ),
-#     ],
-#     plugin_type: Annotated[
-#         gulp.structs.GulpPluginType,
-#         Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
-#     ] = gulp.structs.GulpPluginType.INGESTION,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
-#         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
-
-#         # read file content
-#         f = await muty.file.read_file_async(file_path)
-#         filename = os.path.basename(file_path)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(
-#                 req_id=req_id, data={filename: base64.b64encode(f).decode()}
-#             )
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-# @_app.delete(
-#     "/plugin_delete",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"filename": "win_evtx.py"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="deletes an existing plugin file.",
-# )
-# async def plugin_delete_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-#     plugin: Annotated[
-#         str,
-#         Query(
-#             description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
-#         ),
-#     ],
-#     plugin_type: Annotated[
-#         gulp.structs.GulpPluginType,
-#         Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
-#     ] = gulp.structs.GulpPluginType.INGESTION,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(
-#             await collab_api.session(), token, GulpUserPermission.ADMIN
-#         )
-
-#         path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
-#         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
-
-#         # delete file
-#         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(req_id=req_id, data={"filename": plugin})
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            # delete file
+            await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data={"filename": plugin})
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
 # @_app.post(
