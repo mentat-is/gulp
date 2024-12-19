@@ -1,3 +1,10 @@
+import os
+import base64
+import muty.file
+import gulp.config
+import gulp.gulp
+import gulp.plugin
+
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
@@ -8,6 +15,11 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import (
     ServerUtils,
+)
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpUserPermission,
+    MissingPermission,
 )
 
 from gulp.api.rest.structs import APIDependencies
@@ -64,232 +76,230 @@ async def request_cancel_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# import base64
-# import json
-# import os
-# from typing import Annotated
 
-# import muty.crypto
-# import muty.file
-# import muty.jsend
-# import muty.list
-# import muty.log
-# import muty.os
-# import muty.string
-# import muty.uploadfile
-# from fastapi import APIRouter, File, Header, Query, UploadFile
-# from fastapi.responses import JSONResponse
-# from muty.jsend import JSendException, JSendResponse
-# from muty.log import MutyLogger
+@router.get(
+    "/plugin_list",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "status": "success",
+                    "timestamp_msec": 1734609216840,
+                    "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
+                    "data": [
+                        {
+                        "display_name": "csv",
+                        "type": "ingestion",
+                        "desc": "generic CSV file processor",
+                        "filename": "csv",
+                        "sigma_support": [],
+                        "additional_parameters": [
+                            {
+                            "name": "delimiter",
+                            "type": "str",
+                            "default_value": ",",
+                            "desc": "delimiter for the CSV file",
+                            "required": False
+                            }
+                        ],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "raw",
+                        "type": "ingestion",
+                        "desc": "Raw events ingestion plugin",
+                        "filename": "raw",
+                        "sigma_support": [],
+                        "additional_parameters": [
+                            {
+                            "name": "ignore_mapping",
+                            "type": "bool",
+                            "default_value": False,
+                            "desc": "if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
+                            "required": False
+                            }
+                        ],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "csv",
+                        "type": "ingestion",
+                        "desc": "stacked plugin on top of csv example",
+                        "filename": "stacked_example",
+                        "sigma_support": [],
+                        "additional_parameters": [],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "win_evtx",
+                        "type": "ingestion",
+                        "desc": "Windows EVTX log file processor.",
+                        "filename": "win_evtx",
+                        "sigma_support": [
+                            {
+                            "backends": [
+                                {
+                                "name": "opensearch",
+                                "description": "OpenSearch Lucene backend for pySigma"
+                                }
+                            ],
+                            "pipelines": [
+                                {
+                                "name": "ecs_windows",
+                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat or Gulp."
+                                },
+                                {
+                                "name": "ecs_windows_old",
+                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat<=6.x"
+                                }
+                            ],
+                            "output_formats": [
+                                {
+                                "name": "dsl_lucene",
+                                "description": "DSL with embedded Lucene queries."
+                                }
+                            ]
+                            }
+                        ],
+                        "additional_parameters": [],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        },
+                        {
+                        "display_name": "extension_example",
+                        "type": "extension",
+                        "desc": "Extension example.",
+                        "filename": "example",
+                        "sigma_support": [],
+                        "additional_parameters": [],
+                        "depends_on": [],
+                        "tags": [],
+                        "version": "1.0"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    summary="list available plugins.",
+)
+async def plugin_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
 
-# import gulp.api.collab_api as collab_api
-# import gulp.config
-# import gulp.plugin
-# import gulp.structs
-# import gulp.utils as gulp_utils
-# from gulp.api.collab.base import GulpUserPermission
-# from gulp.api.collab.session import GulpUserSession
-# from gulp.config import GulpConfig
+            l = await gulp.plugin.GulpPluginBase.list()
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
-# _app: APIRouter = APIRouter()
+@router.get(
+    "/plugin_get",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701546711919,
+                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
+                        "data": {"win_evt.py": "base64 file content here"},
+                    }
+                }
+            }
+        }
+    },
+    summary="get plugin content (i.e. for editing and reupload).",
+)
+async def plugin_get_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[
+        str,
+        Query(
+            description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # should only admins be able to read all( including paid) plugins?
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ) 
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
+            file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
+            
+            # read file content
+            f = await muty.file.read_file_async(file_path)
+            filename = os.path.basename(file_path)
 
-
-# @_app.get(
-#     "/plugin_list",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1723204355167,
-#                         "req_id": "fc21e3c5-fcbf-4fda-a9bb-5776ef418dfd",
-#                         "data": [
-#                             {
-#                                 "display_name": "win_evtx",
-#                                 "type": "ingestion",
-#                                 "desc": "Windows EVTX log file processor.",
-#                                 "filename": "win_evtx.py",
-#                                 "internal": False,
-#                                 "options": [],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                             {
-#                                 "display_name": "raw",
-#                                 "type": "ingestion",
-#                                 "desc": "Raw events ingestion plugin.",
-#                                 "filename": "raw.py",
-#                                 "internal": False,
-#                                 "options": [],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                             {
-#                                 "display_name": "stacked",
-#                                 "type": "ingestion",
-#                                 "desc": "example plugin stacked over the CSV plugin",
-#                                 "filename": "stacked_example.py",
-#                                 "internal": False,
-#                                 "options": [],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                             {
-#                                 "display_name": "csv",
-#                                 "type": "ingestion",
-#                                 "desc": "generic CSV file processor",
-#                                 "filename": "csv.py",
-#                                 "internal": False,
-#                                 "options": [
-#                                     {
-#                                         "name": "delimiter",
-#                                         "type": "str",
-#                                         "default": ",",
-#                                         "desc": "delimiter for the CSV file",
-#                                     }
-#                                 ],
-#                                 "depends_on": [],
-#                                 "tags": [],
-#                                 "event_type_field": "event.code",
-#                                 "version": "1.0",
-#                             },
-#                         ],
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="list available plugins.",
-# )
-# async def plugin_list_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         l = await gulp.plugin.list_plugins()
-#         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            return JSONResponse(JSendResponse.success(req_id=req_id, data={filename: base64.b64encode(f).decode()}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.get(
-#     "/plugin_get",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701546711919,
-#                         "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
-#                         "data": {"win_evt.py": "base64 file content here"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="get plugin content (i.e. for editing and reupload).",
-# )
-# async def plugin_get_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-#     plugin: Annotated[
-#         str,
-#         Query(
-#             description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
-#         ),
-#     ],
-#     plugin_type: Annotated[
-#         gulp.structs.GulpPluginType,
-#         Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
-#     ] = gulp.structs.GulpPluginType.INGESTION,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
+@router.delete(
+    "/plugin_delete",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"filename": "win_evtx.py"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an existing plugin file.",
+)
+async def plugin_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[
+        str,
+        Query(
+            description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    try:
+         async with GulpCollab.get_instance().session() as sess:
+            # should only admins be able to read all( including paid) plugins?
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN) 
 
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
-#         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
+            file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
 
-#         # read file content
-#         f = await muty.file.read_file_async(file_path)
-#         filename = os.path.basename(file_path)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(
-#                 req_id=req_id, data={filename: base64.b64encode(f).decode()}
-#             )
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-# @_app.delete(
-#     "/plugin_delete",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"filename": "win_evtx.py"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="deletes an existing plugin file.",
-# )
-# async def plugin_delete_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-#     plugin: Annotated[
-#         str,
-#         Query(
-#             description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
-#         ),
-#     ],
-#     plugin_type: Annotated[
-#         gulp.structs.GulpPluginType,
-#         Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
-#     ] = gulp.structs.GulpPluginType.INGESTION,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(
-#             await collab_api.session(), token, GulpUserPermission.ADMIN
-#         )
-
-#         path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
-#         file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
-
-#         # delete file
-#         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(req_id=req_id, data={"filename": plugin})
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            # delete file
+            await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data={"filename": plugin})
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
 # @_app.post(
