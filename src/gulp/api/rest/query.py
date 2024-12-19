@@ -2,13 +2,13 @@ from asyncio import Task
 from copy import deepcopy
 import json
 from muty.jsend import JSendException, JSendResponse
-from typing import Annotated, Any
-from fastapi import APIRouter, Body, Depends
+from typing import Annotated, Any, Optional
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpRequestStatus,
 )
 from muty.pydantic import autogenerate_model_example_by_class
 from gulp.api.collab.note import GulpNote
@@ -21,13 +21,13 @@ from gulp.api.opensearch.query import (
     GulpQueryAdditionalParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import (
     ServerUtils,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.ws_api import (
-    GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpSharedWsQueue,
     GulpWsQueueDataType,
@@ -36,7 +36,6 @@ from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from muty.log import MutyLogger
 
-import muty.string
 import muty.crypto
 import muty.dynload
 import asyncio
@@ -730,5 +729,151 @@ async def query_stored(
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+
+
+@router.post(
+    "/query_max_min_per_field",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": {
+                            "buckets": [
+                                {
+                                    "*": {
+                                        "doc_count": 98631,
+                                        "max_event.code": 62171,
+                                        "min_gulp.timestamp": 1289373941000000000,
+                                        "max_gulp.timestamp": 1637340783836550912,
+                                        "min_event.code": 0,
+                                    }
+                                }
+                            ],
+                            "total": 98631,
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="gets max/min `@timestamp` and `event.code` in the given `index`",
+    description="""
+- use `flt` to restrict the query.
+""",
+)
+async def query_max_min_per_field(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    group_by: Annotated[
+        Optional[str],
+        Query(description="group by field (i.e. `event.code`), default=no grouping"),
+    ] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            await GulpUserSession.check_token(sess, token)
+
+        d = await GulpOpenSearch.get_instance().query_max_min_per_field(
+            index, group_by=group_by, flt=flt
+        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+
+
+@router.get(
+    "/query_operations",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": [
+                            {
+                                "name": "example operation",
+                                "id": "test_operation",
+                                "contexts": [
+                                    {
+                                        "name": "test_context",
+                                        "id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
+                                        "doc_count": 98631,
+                                        "plugins": [
+                                            {
+                                                "name": "win_evtx",
+                                                "sources": [
+                                                    {
+                                                        "name": "/home/valerino/repos/gulp/samples/win_evtx/security_big_sample.evtx",
+                                                        "id": "fabae8858452af6c2acde7f90786b3de3a928289",
+                                                        "doc_count": 62031,
+                                                        "max_event.code": 5158,
+                                                        "min_event.code": 1102,
+                                                        "min_gulp.timestamp": 1475718427166301952,
+                                                        "max_gulp.timestamp": 1475833104749409792,
+                                                    },
+                                                    {
+                                                        "name": "/home/valerino/repos/gulp/samples/win_evtx/2-system-Security-dirty.evtx",
+                                                        "id": "60213bb57e849a624b7989c448b7baec75043a1b",
+                                                        "doc_count": 14621,
+                                                        "max_event.code": 5061,
+                                                        "min_event.code": 1100,
+                                                        "min_gulp.timestamp": 1532738204663494144,
+                                                        "max_gulp.timestamp": 1553118827379374080,
+                                                    },
+                                                ],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="query operations with aggregations.",
+    description="""
+for each `operation` returns `sources` and `contexts` with their max/min `event.code` and `gulp.timestamp`.
+""",
+)
+async def query_operations(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            await GulpUserSession.check_token(sess, token)
+
+        d = await GulpOpenSearch.get_instance().query_operations(index)
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)

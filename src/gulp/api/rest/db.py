@@ -22,11 +22,179 @@ from gulp.process import GulpProcess
 
 router: APIRouter = APIRouter()
 
-# TODO: datastream create, delete, list
+
+@router.delete(
+    "/opensearch_delete_index",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"index": "test_idx"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an opensearch datastream.",
+    description="deletes the datastream `index`, including all its backing indexes and template.",
+)
+async def opensearch_delete_index_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.ADMIN
+            )
+
+        await GulpOpenSearch.get_instance().datastream_delete(
+            ds=index, throw_on_error=True
+        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.get(
+    "/opensearch_get_mapping_by_src",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "@timestamp": "date_nanos",
+                            "agent.type": "keyword",
+                            "destination.ip": "ip",
+                            "destination.port": "long",
+                            "event.category": "keyword",
+                            "event.code": "keyword",
+                            "event.duration": "long",
+                            "event.original": "text",
+                            "event.sequence": "long",
+                            "event.type": "keyword",
+                            "gulp.context_id": "keyword",
+                            "gulp.event_code": "long",
+                            "gulp.operation_id": "keyword",
+                            "gulp.source_id": "keyword",
+                            "gulp.timestamp": "long",
+                            "gulp.timestamp_invalid": "boolean",
+                            "gulp.unmapped.AccessList": "keyword",
+                            "gulp.unmapped.AccessMask": "keyword",
+                            "gulp.unmapped.AccountExpires": "keyword",
+                            "gulp.unmapped.AdditionalInfo": "keyword",
+                            "gulp.unmapped.AllowedToDelegateTo": "keyword",
+                            "gulp.unmapped.AuthenticationPackageName": "keyword",
+                            "gulp.unmapped.Data": "keyword",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get fields mapping.",
+    description="get all `key=type` mappings for the given datastream `index` matching the given `operation_id`, `context_id` and `source_id`.",
+)
+async def opensearch_get_mapping_by_src_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token)
+
+        m = await GulpOpenSearch.get_instance().datastream_get_mapping_by_src(
+            index, operation_id=operation_id, context_id=context_id, source_id=source_id
+        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.get(
+    "/opensearch_list_index",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1734619572441,
+                        "req_id": "test_req",
+                        "data": [
+                            {
+                                "name": "new_index",
+                                "indexes": [
+                                    {
+                                        "index_name": ".ds-new_index-000001",
+                                        "index_uuid": "qwrMdTrgRI6fdU_SsIxbzw",
+                                    }
+                                ],
+                                "template": "new_index-template",
+                            },
+                            {
+                                "name": "test_idx",
+                                "indexes": [
+                                    {
+                                        "index_name": ".ds-test_idx-000001",
+                                        "index_uuid": "ZUuTB5KrSw6V-JVt9jtbcw",
+                                    }
+                                ],
+                                "template": "test_idx-template",
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="lists available datastreams.",
+    description="lists all the available datastreams and their backing indexes",
+)
+async def opensearch_list_index_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token)
+
+        l = await GulpOpenSearch.get_instance().datastream_list()
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
 @router.post(
-    "/opensearch_init",
+    "/opensearch_init_index",
     tags=["db"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -44,13 +212,15 @@ router: APIRouter = APIRouter()
             }
         }
     },
-    summary="(re)creates gulp data index.",
+    summary="creates or recreates the opensearch datastream `index`, including its backing index.",
     description="""
+> **WARNING: ANY EXISTING DOCUMENT WILL BE ERASED !**
+
 - `token` needs to have `admin` permission.
-- **WARNING: all documents will be erased and `index` recreated !**
+- if `index` exists, it is **deleted** and recreated.
 """,
 )
-async def opensearch_init_handler(
+async def opensearch_init_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
     index_template: Optional[UploadFile] = File(
@@ -93,7 +263,7 @@ async def opensearch_init_handler(
 
 
 @router.post(
-    "/postgres_init",
+    "/postgres_init_collab",
     tags=["db"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -112,11 +282,13 @@ async def opensearch_init_handler(
     },
     summary="(re)creates gulp collab database.",
     description="""
+> **WARNING: ALL DATA WILL BE ERASED AND RESET TO DEFAULT !**
+
+- default users are created: `admin/admin`, `guest/guest`, `ingest/ingest`, `editor/editor`, `power/power`.
 - `token` needs to have `admin` permission.
-- **WARNING: all collab database will be erased !**
 """,
 )
-async def postgres_init_handler(
+async def postgres_init_collab_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     restart_processes: Annotated[
         bool,
@@ -165,7 +337,7 @@ async def postgres_init_handler(
     description="""
 - `token` needs to have `admin` permission.
 - **WARNING: all documents at `index` and the whole collab database will be erased!**
--  same as calling `opensearch_init` and `postgres_init` in one shot
+-  same as calling `opensearch_init_index` and `postgres_init_collab` in one shot
 """,
 )
 async def gulp_reset_handler(

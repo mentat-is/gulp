@@ -13,7 +13,9 @@ from opensearchpy import AsyncOpenSearch, NotFoundError, RequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
-from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
     GulpDocumentFilterResult,
     GulpIngestionFilter,
@@ -205,15 +207,21 @@ class GulpOpenSearch:
         return _parse_mappings_internal(properties)
 
     async def datastream_get_mapping_by_src(
-        self, index: str, context_id: str, source_id: str, el: AsyncElasticsearch = None
+        self,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        el: AsyncElasticsearch = None,
     ) -> dict:
         """
-        Get and parse mappings for the given index/datastream, considering only "gulp.context_id"=context_id and "gulp.source_id"=source_id.
+        Get and parse mappings for the given index/datastream, considering only documents matching the tuple operation_id/context_id/source_id
 
         The return type is the same as index_get_mapping with return_raw_result=False.
 
         Args:
             index (str): The index/datastream name.
+            operation_id (str): The operation ID.
             context_id (str): The context ID.
             source_id (str): The source ID.
             el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
@@ -222,14 +230,18 @@ class GulpOpenSearch:
             dict: The mapping dict.
         """
         # query first
+        from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+
         options = GulpQueryAdditionalParameters()
         options.limit = 1000
         options.fields = ["*"]
         q = {
-            "query_string": {
-                "query": 'gulp.context_id: "%s" AND gulp.source_id: "%s"'
-                % (context_id, source_id)
-            },
+            "query": {
+                "query_string": {
+                    "query": "gulp.operation_id: %s AND gulp.context_id: %s AND gulp.source_id: %s"
+                    % (operation_id, context_id, source_id)
+                }
+            }
         }
 
         # get mapping
@@ -445,7 +457,7 @@ class GulpOpenSearch:
         await self.index_template_put(index, d)
         return d
 
-    async def datastream_list(self) -> list[str]:
+    async def datastream_list(self) -> list[dict]:
         """
         Retrieves a list of datastream names (with associated indices) from OpenSearch.
 
@@ -472,7 +484,7 @@ class GulpOpenSearch:
 
         return ll
 
-    async def datastream_delete(self, ds: str) -> None:
+    async def datastream_delete(self, ds: str, throw_on_error: bool = False) -> None:
         """
         Delete the datastream and associated index and template from OpenSearch.
 
@@ -484,18 +496,17 @@ class GulpOpenSearch:
         """
         # params = {"ignore_unavailable": "true"}
         headers = {"accept": "application/json"}
-        try:
-            MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
-            await self._opensearch.indices.delete_data_stream(ds, headers=headers)
-        except Exception as e:
-            MutyLogger.get_instance().error("error deleting datastream: %s" % (e))
-            pass
+        exists = await self.datastream_exists(ds)
+        if not exists and throw_on_error:
+            raise ObjectNotFound("datastream %s does not exist" % (ds))
+
+        MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
+        await self._opensearch.indices.delete_data_stream(ds, headers=headers)
         try:
             await self.index_template_delete(ds)
         except Exception as e:
             MutyLogger.get_instance().error("error deleting index template: %s" % (e))
 
-    
     async def datastream_exists(self, ds: str) -> bool:
         """
         Check if a datastream exists in OpenSearch.
@@ -512,9 +523,7 @@ class GulpOpenSearch:
         except NotFoundError:
             return False
 
-    async def datastream_create(
-        self, ds: str, index_template: str = None
-    ) -> dict:
+    async def datastream_create(self, ds: str, index_template: str = None) -> dict:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
@@ -803,10 +812,14 @@ class GulpOpenSearch:
                 {
                     bucket["key"]: {
                         "doc_count": bucket["doc_count"],
-                        "max_event.code": bucket["max_event.code"]["value"],
-                        "min_gulp.timestamp": bucket["min_gulp.timestamp"]["value"],
-                        "max_gulp.timestamp": bucket["max_gulp.timestamp"]["value"],
-                        "min_event.code": bucket["min_event.code"]["value"],
+                        "max_event.code": int(bucket["max_event.code"]["value"]),
+                        "min_gulp.timestamp": int(
+                            bucket["min_gulp.timestamp"]["value"]
+                        ),
+                        "max_gulp.timestamp": int(
+                            bucket["max_gulp.timestamp"]["value"]
+                        ),
+                        "min_event.code": int(bucket["min_event.code"]["value"]),
                     }
                 }
                 for bucket in buckets
@@ -908,40 +921,143 @@ class GulpOpenSearch:
         }
         return self._parse_query_max_min(d)
 
-    async def query_operations(self, index: str):
+    async def _parse_operation_aggregation(self, aggregations: dict) -> list[dict]:
         """
-        Queries the OpenSearch index for operations and returns the aggregations.
+        parse OpenSearch operations aggregations and match with collab database operations.
+
+        Args:
+            aggregations (dict): Raw OpenSearch aggregations results
+
+        Returns:
+            list[dict]: Parsed operations with context and source details
+        """
+        # girst get all operations from collab db
+        async with GulpCollab.get_instance().session() as sess:
+            all_operations = await GulpOperation.get_by_filter(sess, GulpCollabFilter())
+
+        # create operation lookup map
+        operation_map = {op.id: op for op in all_operations}
+
+        result = []
+
+        # process each operation bucket
+        for op_bucket in aggregations["operations"]["buckets"]:
+            operation_id = op_bucket["key"]
+
+            # look up matching operation
+            if operation_id not in operation_map:
+                continue
+
+            operation = operation_map[operation_id]
+
+            # build operation entry
+            operation_entry = {
+                "name": operation.name,
+                "id": operation.id,
+                "contexts": [],
+            }
+
+            # process contexts
+            for ctx_bucket in op_bucket["context_id"]["buckets"]:
+                context_id = ctx_bucket["key"]
+
+                # Find matching context in operation
+                matching_context = next(
+                    (ctx for ctx in operation.contexts if ctx.id == context_id), None
+                )
+                if not matching_context:
+                    continue
+
+                context_entry = {
+                    "name": matching_context.name,
+                    "id": matching_context.id,
+                    "doc_count": ctx_bucket["doc_count"],
+                    "plugins": [],
+                }
+
+                # Process plugins
+                for plugin_bucket in ctx_bucket["plugin"]["buckets"]:
+                    plugin_entry = {"name": plugin_bucket["key"], "sources": []}
+
+                    # Process sources
+                    for src_bucket in plugin_bucket["source_id"]["buckets"]:
+                        source_id = src_bucket["key"]
+
+                        # Find matching source in context
+                        matching_source = next(
+                            (
+                                src
+                                for src in matching_context.sources
+                                if src.id == source_id
+                            ),
+                            None,
+                        )
+                        if not matching_source:
+                            continue
+
+                        source_entry = {
+                            "name": matching_source.name,
+                            "id": matching_source.id,
+                            "doc_count": src_bucket["doc_count"],
+                            "max_event.code": int(
+                                src_bucket["max_event.code"]["value"]
+                            ),
+                            "min_event.code": int(
+                                src_bucket["min_event.code"]["value"]
+                            ),
+                            "min_gulp.timestamp": int(
+                                src_bucket["min_gulp.timestamp"]["value"]
+                            ),
+                            "max_gulp.timestamp": int(
+                                src_bucket["max_gulp.timestamp"]["value"]
+                            ),
+                        }
+                        plugin_entry["sources"].append(source_entry)
+
+                    if plugin_entry["sources"]:
+                        context_entry["plugins"].append(plugin_entry)
+
+                if context_entry["plugins"]:
+                    operation_entry["contexts"].append(context_entry)
+
+            if operation_entry["contexts"]:
+                result.append(operation_entry)
+
+        return result
+
+    async def query_operations(self, index: str) -> list[dict]:
+        """
+        queries the OpenSearch index for operations and returns the aggregations.
 
         Args:
             index (str): Name of the index (or datastream) to query
 
         Returns:
-            dict: The aggregations result (WARNING: will return at most "aggregation_max_buckets" hits, which should cover 99,99% of the usage ....).
+            liist[dict]: The aggregations result (WARNING: will return at most "aggregation_max_buckets" hits, which should cover 99,99% of the usage ....).
         """
         max_buckets = GulpConfig.get_instance().aggregation_max_buckets()
 
         def _create_terms_aggregation(field):
             return {"terms": {"field": field, "size": max_buckets}}
 
-        aggs = {
-            "operations": _create_terms_aggregation("gulp.operation_id"),
-            "aggs": {
-                "context": _create_terms_aggregation("gulp.context_id"),
-                "aggs": {
-                    "plugin": _create_terms_aggregation("agent.type"),
-                    "aggs": {
-                        "src_file": _create_terms_aggregation("gulp.source_id"),
-                        "aggs": {
-                            "max_gulp.timestamp": {"max": {"field": "gulp.timestamp"}},
-                            "min_gulp.timestamp": {"min": {"field": "gulp.timestamp"}},
-                            "max_event.code": {"max": {"field": "gulp.event_code"}},
-                            "min_event.code": {"min": {"field": "gulp.event_code"}},
-                        },
-                    },
-                },
-            },
+        aggs = {"operations": _create_terms_aggregation("gulp.operation_id")}
+        aggs["operations"]["aggs"] = {
+            "context_id": _create_terms_aggregation("gulp.context_id"),
         }
-
+        aggs["operations"]["aggs"]["context_id"]["aggs"] = {
+            "plugin": _create_terms_aggregation("agent.type")
+        }
+        aggs["operations"]["aggs"]["context_id"]["aggs"]["plugin"]["aggs"] = {
+            "source_id": _create_terms_aggregation("gulp.source_id")
+        }
+        aggs["operations"]["aggs"]["context_id"]["aggs"]["plugin"]["aggs"]["source_id"][
+            "aggs"
+        ] = {
+            "max_gulp.timestamp": {"max": {"field": "gulp.timestamp"}},
+            "min_gulp.timestamp": {"min": {"field": "gulp.timestamp"}},
+            "max_event.code": {"max": {"field": "gulp.event_code"}},
+            "min_event.code": {"min": {"field": "gulp.event_code"}},
+        }
         body = {
             "track_total_hits": True,
             "aggregations": aggs,
@@ -957,18 +1073,10 @@ class GulpOpenSearch:
                 "no results found, returning empty aggregations (possibly no data on opensearch)!"
             )
             # raise ObjectNotFound()
-            return {
-                "total": 0,
-                "aggregations": {
-                    "operations": {
-                        "doc_count_error_upper_bound": 0,
-                        "sum_other_doc_count": 0,
-                        "buckets": [],
-                    }
-                },
-            }
-
-        return {"total": hits, "aggregations": res["aggregations"]}
+            return []
+        
+        d = {"total": hits, "aggregations": res["aggregations"]}
+        return await self._parse_operation_aggregation(d["aggregations"])
 
     async def query_single_document(
         self,

@@ -86,7 +86,10 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         Returns:
             GulpSource: the source added (or already existing), eager loaded
         """
-        src_id = GulpContext.make_source_id_key(self.operation_id, self.id, name)
+        # consider just the last part of the name if it's a path
+        src_id = GulpContext.make_source_id_key(
+            self.operation_id, self.id, name.split("/")[-1]
+        )
 
         # acquire lock first
         lock_id = muty.crypto.hash_xxh64_int(src_id)

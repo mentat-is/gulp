@@ -69,12 +69,13 @@ async def request_cancel_handler(
             stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(
                 sess, req_id_to_cancel
             )
-            s = await GulpUserSession.check_token(sess, token, obj=stats, enforce_owner=True)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=stats, enforce_owner=True
+            )
             await stats.cancel(sess, ws_id, s.user_id)
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
-
 
 
 @router.get(
@@ -86,107 +87,109 @@ async def request_cancel_handler(
         200: {
             "content": {
                 "application/json": {
-                    "status": "success",
-                    "timestamp_msec": 1734609216840,
-                    "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
-                    "data": [
-                        {
-                        "display_name": "csv",
-                        "type": "ingestion",
-                        "desc": "generic CSV file processor",
-                        "filename": "csv",
-                        "sigma_support": [],
-                        "additional_parameters": [
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1734609216840,
+                        "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
+                        "data": [
                             {
-                            "name": "delimiter",
-                            "type": "str",
-                            "default_value": ",",
-                            "desc": "delimiter for the CSV file",
-                            "required": False
-                            }
-                        ],
-                        "depends_on": [],
-                        "tags": [],
-                        "version": "1.0"
-                        },
-                        {
-                        "display_name": "raw",
-                        "type": "ingestion",
-                        "desc": "Raw events ingestion plugin",
-                        "filename": "raw",
-                        "sigma_support": [],
-                        "additional_parameters": [
+                                "display_name": "csv",
+                                "type": "ingestion",
+                                "desc": "generic CSV file processor",
+                                "filename": "csv",
+                                "sigma_support": [],
+                                "additional_parameters": [
+                                    {
+                                        "name": "delimiter",
+                                        "type": "str",
+                                        "default_value": ",",
+                                        "desc": "delimiter for the CSV file",
+                                        "required": False,
+                                    }
+                                ],
+                                "depends_on": [],
+                                "tags": [],
+                                "version": "1.0",
+                            },
                             {
-                            "name": "ignore_mapping",
-                            "type": "bool",
-                            "default_value": False,
-                            "desc": "if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
-                            "required": False
-                            }
-                        ],
-                        "depends_on": [],
-                        "tags": [],
-                        "version": "1.0"
-                        },
-                        {
-                        "display_name": "csv",
-                        "type": "ingestion",
-                        "desc": "stacked plugin on top of csv example",
-                        "filename": "stacked_example",
-                        "sigma_support": [],
-                        "additional_parameters": [],
-                        "depends_on": [],
-                        "tags": [],
-                        "version": "1.0"
-                        },
-                        {
-                        "display_name": "win_evtx",
-                        "type": "ingestion",
-                        "desc": "Windows EVTX log file processor.",
-                        "filename": "win_evtx",
-                        "sigma_support": [
+                                "display_name": "raw",
+                                "type": "ingestion",
+                                "desc": "Raw events ingestion plugin",
+                                "filename": "raw",
+                                "sigma_support": [],
+                                "additional_parameters": [
+                                    {
+                                        "name": "ignore_mapping",
+                                        "type": "bool",
+                                        "default_value": False,
+                                        "desc": "if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
+                                        "required": False,
+                                    }
+                                ],
+                                "depends_on": [],
+                                "tags": [],
+                                "version": "1.0",
+                            },
                             {
-                            "backends": [
-                                {
-                                "name": "opensearch",
-                                "description": "OpenSearch Lucene backend for pySigma"
-                                }
-                            ],
-                            "pipelines": [
-                                {
-                                "name": "ecs_windows",
-                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat or Gulp."
-                                },
-                                {
-                                "name": "ecs_windows_old",
-                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat<=6.x"
-                                }
-                            ],
-                            "output_formats": [
-                                {
-                                "name": "dsl_lucene",
-                                "description": "DSL with embedded Lucene queries."
-                                }
-                            ]
-                            }
+                                "display_name": "csv",
+                                "type": "ingestion",
+                                "desc": "stacked plugin on top of csv example",
+                                "filename": "stacked_example",
+                                "sigma_support": [],
+                                "additional_parameters": [],
+                                "depends_on": [],
+                                "tags": [],
+                                "version": "1.0",
+                            },
+                            {
+                                "display_name": "win_evtx",
+                                "type": "ingestion",
+                                "desc": "Windows EVTX log file processor.",
+                                "filename": "win_evtx",
+                                "sigma_support": [
+                                    {
+                                        "backends": [
+                                            {
+                                                "name": "opensearch",
+                                                "description": "OpenSearch Lucene backend for pySigma",
+                                            }
+                                        ],
+                                        "pipelines": [
+                                            {
+                                                "name": "ecs_windows",
+                                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat or Gulp.",
+                                            },
+                                            {
+                                                "name": "ecs_windows_old",
+                                                "description": "ECS Mapping for windows event logs ingested with Winlogbeat<=6.x",
+                                            },
+                                        ],
+                                        "output_formats": [
+                                            {
+                                                "name": "dsl_lucene",
+                                                "description": "DSL with embedded Lucene queries.",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "additional_parameters": [],
+                                "depends_on": [],
+                                "tags": [],
+                                "version": "1.0",
+                            },
+                            {
+                                "display_name": "extension_example",
+                                "type": "extension",
+                                "desc": "Extension example.",
+                                "filename": "example",
+                                "sigma_support": [],
+                                "additional_parameters": [],
+                                "depends_on": [],
+                                "tags": [],
+                                "version": "1.0",
+                            },
                         ],
-                        "additional_parameters": [],
-                        "depends_on": [],
-                        "tags": [],
-                        "version": "1.0"
-                        },
-                        {
-                        "display_name": "extension_example",
-                        "type": "extension",
-                        "desc": "Extension example.",
-                        "filename": "example",
-                        "sigma_support": [],
-                        "additional_parameters": [],
-                        "depends_on": [],
-                        "tags": [],
-                        "version": "1.0"
-                        }
-                    ]
+                    }
                 }
             }
         }
@@ -206,6 +209,7 @@ async def plugin_list_handler(
             return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
+
 
 @router.get(
     "/plugin_get",
@@ -241,15 +245,21 @@ async def plugin_get_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             # should only admins be able to read all( including paid) plugins?
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ) 
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
             path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
-            file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
-            
+            file_path = muty.file.safe_path_join(
+                path_plugins, plugin, allow_relative=True
+            )
+
             # read file content
             f = await muty.file.read_file_async(file_path)
             filename = os.path.basename(file_path)
 
-            return JSONResponse(JSendResponse.success(req_id=req_id, data={filename: base64.b64encode(f).decode()}))
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id, data={filename: base64.b64encode(f).decode()}
+                )
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -286,12 +296,14 @@ async def plugin_delete_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     try:
-         async with GulpCollab.get_instance().session() as sess:
+        async with GulpCollab.get_instance().session() as sess:
             # should only admins be able to read all( including paid) plugins?
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN) 
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
 
             path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
-            file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
+            file_path = muty.file.safe_path_join(
+                path_plugins, plugin, allow_relative=True
+            )
 
             # delete file
             await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
