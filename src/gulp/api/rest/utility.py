@@ -1,3 +1,10 @@
+import os
+import base64
+import muty.file
+import gulp.config
+import gulp.gulp
+import gulp.plugin
+
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
@@ -9,9 +16,6 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import (
     ServerUtils,
 )
-import gulp.config
-import gulp.gulp
-import gulp.plugin
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
@@ -20,7 +24,6 @@ from gulp.api.collab.structs import (
 
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
-import gulp.plugins
 
 router: APIRouter = APIRouter()
 
@@ -201,6 +204,52 @@ async def plugin_list_handler(
 
             l = await gulp.plugin.GulpPluginBase.list()
             return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+@router.get(
+    "/plugin_get",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701546711919,
+                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
+                        "data": {"win_evt.py": "base64 file content here"},
+                    }
+                }
+            }
+        }
+    },
+    summary="get plugin content (i.e. for editing and reupload).",
+)
+async def plugin_get_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[
+        str,
+        Query(
+            description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
+
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
+            file_path = muty.file.safe_path_join(path_plugins, plugin, allow_relative=True)
+            
+            # read file content
+            f = await muty.file.read_file_async(file_path)
+            filename = os.path.basename(file_path)
+
+            return JSONResponse(JSendResponse.success(req_id=req_id, data={filename: base64.b64encode(f).decode()}))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 

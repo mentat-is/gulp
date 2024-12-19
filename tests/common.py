@@ -738,13 +738,35 @@ class GulpAPICommon:
             token: str,
             expected_status: int = 200
     ) -> dict:
-        MutyLogger.get_instance().info(f"Listing plugins...")
+        MutyLogger.get_instance().info("Listing plugins...")
 
         """List plugins"""
         res = await self._make_request(
             "GET",
             "plugin_list",
             {},
+            token=token,
+            body=None,
+            expected_status=expected_status
+        )
+        return res
+
+ 
+    async def plugin_get(
+            self, 
+            token: str,
+            plugin: str,
+            expected_status: int = 200
+    ) -> dict:
+        MutyLogger.get_instance().info("Getting plugin %s..." % (plugin))
+
+        params = {"plugin": plugin}
+
+        """Get plugin"""
+        res = await self._make_request(
+            "GET",
+            "plugin_get",
+            params=params,
             token=token,
             body=None,
             expected_status=expected_status

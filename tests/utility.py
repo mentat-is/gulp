@@ -2,7 +2,6 @@ import pytest
 from muty.log import MutyLogger
 from gulp.api.rest.test_values import TEST_HOST, TEST_REQ_ID, TEST_WS_ID
 from tests.common import GulpAPICommon
-import gulp.api.rest.utility 
 
 @pytest.mark.asyncio
 async def test():
@@ -22,6 +21,12 @@ async def test():
     assert l
 
     l = await gulp_api.plugin_list(guest_token)
+    assert l
+
+    l = await gulp_api.plugin_get(admin_token, "csv.py")
+    assert l
+
+    l = await gulp_api.plugin_get(guest_token, "csv.py")
     assert l
 
     MutyLogger.get_instance().info("all UTILITY tests succeeded!")
