@@ -19,11 +19,9 @@ async def test():
     assert guest_token
 
     l = await gulp_api.plugin_list(admin_token)
-    print(l)
     assert l
 
     l = await gulp_api.plugin_list(guest_token)
-    print(l)
     assert l
 
     MutyLogger.get_instance().info("all UTILITY tests succeeded!")
