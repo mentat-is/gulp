@@ -350,8 +350,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 conditions.append(
                     text(
                         """EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(docs) AS doc 
-                        WHERE doc->>'_id' = :doc_id
+                        SELECT 1 FROM unnest(docs) AS doc 
+                        WHERE doc->>'_id'::text = :doc_id
                     )"""
                     ).bindparams(doc_id=doc_id.lower())
                 )
@@ -363,7 +363,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 conditions.append(
                     text(
                         """EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(docs) AS doc 
+                        SELECT 1 FROM unnest(docs) AS doc 
                         WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) >= :start_time
                     )"""
                     ).bindparams(start_time=self.doc_time_range[0])
@@ -372,7 +372,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 conditions.append(
                     text(
                         """EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(docs) AS doc 
+                        SELECT 1 FROM unnest(docs) AS doc 
                         WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) <= :end_time
                     )"""
                     ).bindparams(end_time=self.doc_time_range[1])

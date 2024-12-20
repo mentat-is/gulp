@@ -109,7 +109,7 @@ class GulpAPICommon:
         # reset
         await self._make_request(
             "POST",
-            "postgres_init",
+            "postgres_init_collab",
             params={"restart_processes": False},
             token=token,
         )
@@ -659,11 +659,12 @@ class GulpAPICommon:
         permission: Optional[list[str]] = None,
         email: Optional[str] = None,
         user_data: Optional[dict] = None,
+        merge_user_data: bool = False,
         expected_status: int = 200,
     ) -> dict:
         MutyLogger.get_instance().info(f"Updating user {username} ...")
         body = {}
-        params = {"user_id": username}
+        params = {"user_id": username, "merge_user_data": merge_user_data}
         if password:
             params["password"] = password
         if permission:
@@ -732,12 +733,8 @@ class GulpAPICommon:
             expected_status=expected_status,
         )
         return res
-    
-    async def plugin_list(
-            self, 
-            token: str,
-            expected_status: int = 200
-    ) -> dict:
+
+    async def plugin_list(self, token: str, expected_status: int = 200) -> dict:
         MutyLogger.get_instance().info("Listing plugins...")
 
         """List plugins"""
@@ -747,16 +744,12 @@ class GulpAPICommon:
             {},
             token=token,
             body=None,
-            expected_status=expected_status
+            expected_status=expected_status,
         )
         return res
 
- 
     async def plugin_get(
-            self, 
-            token: str,
-            plugin: str,
-            expected_status: int = 200
+        self, token: str, plugin: str, expected_status: int = 200
     ) -> dict:
         MutyLogger.get_instance().info("Getting plugin %s..." % (plugin))
 
@@ -769,16 +762,12 @@ class GulpAPICommon:
             params=params,
             token=token,
             body=None,
-            expected_status=expected_status
+            expected_status=expected_status,
         )
         return res
-    
 
     async def plugin_delete(
-            self, 
-            token: str,
-            plugin: str,
-            expected_status: int = 200
+        self, token: str, plugin: str, expected_status: int = 200
     ) -> dict:
         MutyLogger.get_instance().info("Deleting plugin %s..." % (plugin))
 
@@ -791,6 +780,6 @@ class GulpAPICommon:
             params=params,
             token=token,
             body=None,
-            expected_status=expected_status
+            expected_status=expected_status,
         )
         return res
