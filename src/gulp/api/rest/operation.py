@@ -130,7 +130,7 @@ async def operation_update_handler(
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals)
+    ServerUtils.dump_params(locals())
     try:
         if not any([index, description, glyph_id]):
             raise ValueError(
@@ -237,7 +237,7 @@ async def operation_delete_handler(
     },
     summary="gets an operation.",
     description="""
-"""
+""",
 )
 async def operation_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

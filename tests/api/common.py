@@ -62,19 +62,31 @@ class GulpAPICommon:
         params: dict,
         token: str = None,
         body: dict = None,
+        files: dict = None,
         expected_status: int = 200,
     ) -> dict:
         """
         make request, verify status, return "data" member or {}
+        params:
+            files: dict of file objects, e.g. {'file': ('filename.txt', open('file.txt', 'rb'))}
         """
         url = self._make_url(endpoint)
         headers = {"token": token} if token else None
 
         self._log_request(
-            method, url, {"params": params, "body": body, "headers": headers}
+            method,
+            url,
+            {"params": params, "body": body, "headers": headers, "files": files},
         )
 
-        if method in ["POST", "PATCH", "PUT"] and body:
+        # handle file uploads and regular requests
+        if files:
+            # for file uploads, body data needs to be part of form-data
+            data = body if body else None
+            r = requests.request(
+                method, url, headers=headers, params=params, files=files, data=data
+            )
+        elif method in ["POST", "PATCH", "PUT"] and body:
             r = requests.request(method, url, headers=headers, params=params, json=body)
         else:
             r = requests.request(method, url, headers=headers, params=params)
@@ -90,7 +102,7 @@ class GulpAPICommon:
         object_id: str,
         api: str,
         expected_status: int = 200,
-    ) -> str:
+    ) -> dict:
         """
         common object deletion
         """
@@ -99,8 +111,7 @@ class GulpAPICommon:
         res = await self.make_request(
             "DELETE", api, params=params, token=token, expected_status=expected_status
         )
-        id = res.get("id")
-        return id
+        return res
 
     async def object_get_by_id(
         self, token: str, object_id: str, api: str, expected_status: int = 200

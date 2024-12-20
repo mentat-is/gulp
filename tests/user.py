@@ -51,7 +51,7 @@ async def test():
 
     # test user deletion
     res = await GulpAPIUser.user_delete(admin_token, test_user_id)
-    assert res == test_user_id
+    assert res["id"] == test_user_id
 
     # verify deletion
     _ = await GulpAPIUser.user_get_by_id(admin_token, test_user_id, expected_status=404)

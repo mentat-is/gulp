@@ -163,7 +163,7 @@ class APIDependencies:
         Returns:
             str: The description.
         """
-        return APIDependencies._strip_or_none(description)
+        return APIDependencies._strip_or_none(description, lower=False)
 
     _DESC_OBJ_DISPLAY_NAME = "the object display name."
     _EXAMPLE_OBJ_DISPLAY_NAME = "object name"
@@ -369,7 +369,7 @@ one or more user permission.
                 description="""
 an authentication token obtained through `login`.
                    
-if `GULP_INTEGRATION_TEST` is set, these special tokens are valid:
+if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresponding user is logged in:
                    
 - `token_admin`: a token with admin permissions.
 - `token_editor`: a token with read/edit permissions.

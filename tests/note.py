@@ -119,10 +119,10 @@ async def test():
     assert updated["last_editor_id"] == "admin"
 
     # editor can delete the note
-    deleted = await GulpAPINote.note_delete(
+    d = await GulpAPINote.note_delete(
         editor_token, pinned_note["id"]
     )
-    assert deleted == pinned_note["id"]
+    assert d["id"] == pinned_note["id"]
 
     # create couple of notes
     pinned_note = await GulpAPINote.note_create(

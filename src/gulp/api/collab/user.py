@@ -270,7 +270,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "time_expire": time_expire,
         }
         if GulpConfig.get_instance().is_integration_test():
-            # for integration tests, use fixed token
+            # for integration tests, this api will return a fixed token based on the user_id
+            # (the user must anyway log in first)
             token_id = "token_" + user_id
             MutyLogger.get_instance().warning(
                 "using fixed token %s for integration test" % (token_id)

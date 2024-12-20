@@ -78,8 +78,7 @@ class GulpAPIUser:
             token=token,
             expected_status=expected_status,
         )
-        id = res.get("id")
-        return id
+        return res
 
     @staticmethod
     async def user_update(
@@ -115,7 +114,7 @@ class GulpAPIUser:
         return res
 
     @staticmethod
-    async def user_list(token: str, expected_status: int = 200) -> Optional[list]:
+    async def user_list(token: str, expected_status: int = 200) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
         res = await api_common.make_request(
             "GET", "user_list", params={}, token=token, expected_status=expected_status

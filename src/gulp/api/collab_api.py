@@ -371,7 +371,7 @@ class GulpCollab:
             user_glyph = await GulpGlyph._create(
                 sess,
                 object_data={
-                    "name": "user",
+                    "name": "user_icon",
                     "img": user_b,
                 },
                 owner_id=admin_user.id,
@@ -380,7 +380,7 @@ class GulpCollab:
             operation_glyph = await GulpGlyph._create(
                 sess,
                 object_data={
-                    "name": "user",
+                    "name": "operation_icon",
                     "img": operation_b,
                 },
                 owner_id=admin_user.id,

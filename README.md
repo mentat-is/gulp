@@ -184,11 +184,10 @@ TODO: check test results
 TODO: test all the other API
 
 ```bash
-# test user paths
+# test collab
 python3 -m pytest tests/user.py
-
-# test notes, acl
 python3 -m pytest tests/note.py
+python3 -m pytest tests/glyph.py
 
 # queries
 # needs samples/win_evtx loaded on an empty gulp instance

@@ -34,7 +34,7 @@ def _read_img_file(file: UploadFile) -> bytes:
     data = file.file.read()
     if len(data) > 16 * 1024:
         raise ValueError("The file size must be less than 16kb.")
-
+    return data
 
 @router.post(
     "/glyph_create",
@@ -71,8 +71,9 @@ async def glyph_create_handler(
     private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
-
+    params = locals()
+    params["img"] = img.filename
+    ServerUtils.dump_params(params)
     try:
         data = _read_img_file(img)
         d = {
@@ -125,12 +126,15 @@ async def glyph_update_handler(
     img: Annotated[Optional[UploadFile], File(description="an image file.")] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals)
+    params = locals()
+    params["img"] = img.filename if img else None
+    ServerUtils.dump_params(params)
     try:
         if not any([name, img]):
             raise ValueError("At least one of name or img must be provided.")
         d = {}
-        d["name"] = name
+        if name:
+            d["name"] = name
         if img:
             data = _read_img_file(img)
             d["img"] = data
