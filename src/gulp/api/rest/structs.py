@@ -129,7 +129,7 @@ class APIDependencies:
     def param_private_optional(
         private: Annotated[
             Optional[bool],
-            Body(
+            Query(
                 description="sets the object as private, so only the *owner* `user_id` and administrators can access it.",
             ),
         ] = False

@@ -18,7 +18,10 @@ from gulp.api.ws_api import (
     GulpQueryGroupMatchPacket,
     GulpWsAuthPacket,
 )
-from tests.common import GulpAPICommon
+from tests.api.db import GulpAPIDb
+from tests.api.user import GulpAPIUser
+from tests.api.common import GulpAPICommon
+from tests.api.query import GulpAPIQuery
 import muty.file
 import os
 import websockets
@@ -35,7 +38,7 @@ async def test_windows():
     and the gulp server running on http://localhost:8080
     """
 
-    async def _test_sigma_multi(gulp_api: GulpAPICommon, token: str, plugin: str):
+    async def _test_sigma_multi(token: str, plugin: str):
         # read sigma
         current_dir = os.path.dirname(os.path.realpath(__file__))
         sigma_match_all = await muty.file.read_file_async(
@@ -69,7 +72,7 @@ async def test_windows():
                         q_options = GulpQueryAdditionalParameters()
                         q_options.sigma_parameters.plugin = plugin
                         q_options.group = "test group"
-                        await gulp_api.query_sigma(
+                        await GulpAPIQuery.query_sigma(
                             token,
                             TEST_INDEX,
                             [
@@ -123,7 +126,7 @@ async def test_windows():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
-    async def _test_sigma_single(gulp_api: GulpAPICommon, token: str, plugin: str):
+    async def _test_sigma_single(token: str, plugin: str):
         # read sigma
         current_dir = os.path.dirname(os.path.realpath(__file__))
         sigma_match_some = await muty.file.read_file_async(
@@ -148,7 +151,7 @@ async def test_windows():
                         # run test
                         q_options = GulpQueryAdditionalParameters()
                         q_options.sigma_parameters.plugin = plugin
-                        await gulp_api.query_sigma(
+                        await GulpAPIQuery.query_sigma(
                             token,
                             TEST_INDEX,
                             [
@@ -182,7 +185,7 @@ async def test_windows():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
-    async def _test_raw(gulp_api: GulpAPICommon, token: str, plugin: str):
+    async def _test_raw(token: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -201,7 +204,7 @@ async def test_windows():
                         # run test
                         q_options = GulpQueryAdditionalParameters()
                         q_options.name = "test_raw_query"
-                        await gulp_api.query_raw(
+                        await GulpAPIQuery.query_raw(
                             token,
                             TEST_INDEX,
                             {
@@ -240,7 +243,7 @@ async def test_windows():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
-    async def _test_gulp(gulp_api: GulpAPICommon, token: str, plugin: str):
+    async def _test_gulp(token: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -259,7 +262,7 @@ async def test_windows():
                         # run test
                         q_options = GulpQueryAdditionalParameters()
                         q_options.name = "test_gulp_query"
-                        await gulp_api.query_gulp(
+                        await GulpAPIQuery.query_gulp(
                             token,
                             TEST_INDEX,
                             flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID]),
@@ -291,27 +294,28 @@ async def test_windows():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
-    # common stuff
-    gulp_api = GulpAPICommon(host=TEST_HOST, req_id=TEST_REQ_ID, ws_id=TEST_WS_ID)
-    test_plugin = "win_evtx"
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
 
     # reset first
-    await gulp_api.reset_gulp_collab()
+    await GulpAPIDb.reset_collab_as_admin()
+    test_plugin = "win_evtx"
 
-    # login admin
-    guest_token = await gulp_api.login("guest", "guest")
+    # login guest
+    guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
     # test different queries
-    await _test_gulp(gulp_api, guest_token, test_plugin)
-    await _test_raw(gulp_api, guest_token, test_plugin)
-    await _test_sigma_single(gulp_api, guest_token, test_plugin)
-    await _test_sigma_multi(gulp_api, guest_token, test_plugin)
+    await _test_gulp(guest_token)
+    await _test_raw(guest_token)
+    await _test_sigma_single(guest_token, test_plugin)
+    await _test_sigma_multi(guest_token, test_plugin)
 
 
 @pytest.mark.asyncio
 async def test_splunk():
-    async def _test_raw_external(gulp_api: GulpAPICommon, token: str):
+    async def _test_raw_external(token: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -344,7 +348,7 @@ async def test_splunk():
                         ]
                         # 56590 entries
                         index = "incidente_183651"
-                        await gulp_api.query_raw(
+                        await GulpAPIQuery.query_raw(
                             token,
                             index,
                             "index=%s" % (index),
@@ -382,7 +386,7 @@ async def test_splunk():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
-    async def _test_sigma_external(gulp_api: GulpAPICommon, token: str):
+    async def _test_sigma_external(token: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -428,7 +432,7 @@ async def test_splunk():
                         ]
                         # 56590 entries
                         index = "incidente_183651"
-                        await gulp_api.query_sigma(
+                        await GulpAPIQuery.query_sigma(
                             token,
                             index,
                             [
@@ -483,21 +487,17 @@ async def test_splunk():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
-    # common stuff
-    gulp_api = GulpAPICommon(host=TEST_HOST, req_id=TEST_REQ_ID, ws_id=TEST_WS_ID)
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
 
     # reset first
-    await gulp_api.reset_gulp_collab()
+    await GulpAPIDb.reset_collab_as_admin()
 
-    # login admin
-    guest_token = await gulp_api.login("guest", "guest")
+    # login guest
+    guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
     # test different queries
-    # await _test_raw_external(gulp_api, guest_token)
-    await _test_sigma_external(gulp_api, guest_token)
-
-
-if __name__ == "__main__":
-    asyncio.run(test_splunk())
-    # asyncio.run(test_windows())
+    await _test_raw_external(guest_token)
+    await _test_sigma_external(guest_token)

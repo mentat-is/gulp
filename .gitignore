@@ -34,3 +34,4 @@ src/gulp/plugins/**/paid/*.py*
 
 #auto generated docs
 docs/html
+.VSCodeCounter

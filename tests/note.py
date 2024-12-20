@@ -3,15 +3,21 @@ import pytest
 from muty.log import MutyLogger
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.structs import GulpBasicDocument
+from tests.api.common import GulpAPICommon
+from tests.api.object_acl import GulpAPIObjectACL
+from tests.api.user_group import GulpAPIUserGroup
+from tests.api.user import GulpAPIUser
+from tests.api.note import GulpAPINote
+from tests.api.db import GulpAPIDb
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
+    TEST_INDEX,
     TEST_OPERATION_ID,
     TEST_REQ_ID,
     TEST_SOURCE_ID,
     TEST_WS_ID,
 )
-from tests.common import GulpAPICommon
 
 
 @pytest.mark.asyncio
@@ -19,19 +25,21 @@ async def test():
     """
     test notes and ACL
     """
-    gulp_api = GulpAPICommon(host=TEST_HOST, req_id=TEST_REQ_ID, ws_id=TEST_WS_ID)
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
 
     # reset first
-    await gulp_api.reset_gulp_collab()
+    await GulpAPIDb.reset_collab_as_admin()
 
     # login editor, admin, guest, power
-    admin_token = await gulp_api.login("admin", "admin")
+    admin_token = await GulpAPIUser.login("admin", "admin")
     assert admin_token
 
     # create another editor user
     editor2_user_id = "editor2"
     editor2_pwd = "MyPassword1234!"
-    editor2_user = await gulp_api.user_create(
+    editor2_user = await GulpAPIUser.user_create(
         admin_token,
         "editor2",
         editor2_pwd,
@@ -39,17 +47,17 @@ async def test():
         email="editor2@localhost.com",
     )
     assert editor2_user["id"] == editor2_user_id
-    power_token = await gulp_api.login("power", "power")
+    power_token = await GulpAPIUser.login("power", "power")
     assert power_token
-    editor_token = await gulp_api.login("editor", "editor")
+    editor_token = await GulpAPIUser.login("editor", "editor")
     assert editor_token
-    guest_token = await gulp_api.login("guest", "guest")
+    guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
-    editor2_token = await gulp_api.login("editor2", editor2_pwd)
+    editor2_token = await GulpAPIUser.login("editor2", editor2_pwd)
     assert editor2_token
 
     # create a note by editor
-    pinned_note = await gulp_api.note_create(
+    pinned_note = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -63,13 +71,13 @@ async def test():
     assert pinned_note["text"] == "Test pinned note"
 
     # guest can see the note
-    note = await gulp_api.object_get(
-        guest_token, pinned_note["id"], "note_get_by_id", expected_status=200
+    note = await GulpAPINote.note_get_by_id(
+        guest_token, pinned_note["id"], expected_status=200
     )
     assert note["id"] == pinned_note["id"]
 
     # guest cannot edit the note
-    _ = await gulp_api.note_update(
+    _ = await GulpAPINote.note_update(
         guest_token,
         pinned_note["id"],
         text="Updated note",
@@ -77,13 +85,13 @@ async def test():
         expected_status=401,
     )
 
-    # editor2 cannot delete the note
-    await gulp_api.object_delete(
-        editor2_token, pinned_note["id"], "note_delete", expected_status=401
+    # editor2 cannot o the note
+    await GulpAPINote.note_delete(
+        editor2_token, pinned_note["id"], expected_status=401
     )
 
     # editor can edit the note
-    updated = await gulp_api.note_update(
+    updated = await GulpAPINote.note_update(
         editor_token,
         pinned_note["id"],
         text="Updated note",
@@ -96,7 +104,7 @@ async def test():
     assert updated["last_editor_id"] == "editor"
 
     # further edit by admin
-    updated = await gulp_api.note_update(
+    updated = await GulpAPINote.note_update(
         admin_token,
         pinned_note["id"],
         text="Updated note again",
@@ -111,13 +119,13 @@ async def test():
     assert updated["last_editor_id"] == "admin"
 
     # editor can delete the note
-    deleted = await gulp_api.object_delete(
-        editor_token, pinned_note["id"], "note_delete"
+    deleted = await GulpAPINote.note_delete(
+        editor_token, pinned_note["id"]
     )
     assert deleted == pinned_note["id"]
 
     # create couple of notes
-    pinned_note = await gulp_api.note_create(
+    pinned_note = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -156,7 +164,7 @@ async def test():
             source_id=TEST_SOURCE_ID,
         ).model_dump(by_alias=True, exclude_none=True),
     ]
-    note_with_docs_1 = await gulp_api.note_create(
+    note_with_docs_1 = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -169,7 +177,7 @@ async def test():
     )
     assert len(note_with_docs_1["docs"]) == 3
 
-    note_with_docs_2 = await gulp_api.note_create(
+    note_with_docs_2 = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -199,7 +207,7 @@ async def test():
     )
     assert len(note_with_docs_2["docs"]) == 2
 
-    pinned_note_2 = await gulp_api.note_create(
+    pinned_note_2 = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -213,7 +221,7 @@ async def test():
     assert pinned_note_2["time_pin"] == 2000000
 
     # cannot create note with both data and pin
-    n = await gulp_api.note_create(
+    n = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -229,7 +237,7 @@ async def test():
     assert not n
 
     # cannot create note with no docs and no pin
-    n = await gulp_api.note_create(
+    n = await GulpAPINote.note_create(
         editor_token,
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
@@ -243,8 +251,8 @@ async def test():
     assert not n
 
     # guest can see note
-    n = await gulp_api.object_get(
-        guest_token, pinned_note["id"], "note_get_by_id", expected_status=200
+    n = await GulpAPINote.note_get_by_id(
+        guest_token, pinned_note["id"], expected_status=200
     )
     assert n["id"] == pinned_note["id"]
 
@@ -255,9 +263,8 @@ async def test():
         source_ids=[TEST_SOURCE_ID],
         doc_ids=["test_doc2"],
     )
-    notes = await gulp_api.object_list(
+    notes = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     assert notes and len(notes) == 1 and notes[0]["id"] == note_with_docs_1["id"]
@@ -269,28 +276,25 @@ async def test():
         source_ids=[TEST_SOURCE_ID],
         doc_time_range=(1000007, 1000009),
     )
-    notes = await gulp_api.object_list(
+    notes = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     assert notes and len(notes) == 1 and notes[0]["id"] == note_with_docs_2["id"]
 
     # editor2 cannot make note private (not owner)
-    _ = await gulp_api.object_make_public_or_private(
+    _ = await GulpAPIObjectACL.object_make_private(
         editor2_token,
         note_with_docs_2["id"],
         GulpCollabType.NOTE,
-        private=True,
         expected_status=401,
     )
 
     # editor can make note private
-    updated = await gulp_api.object_make_public_or_private(
+    updated = await GulpAPIObjectACL.object_make_private(
         editor_token,
         note_with_docs_2["id"],
         GulpCollabType.NOTE,
-        private=True,
     )
     assert updated["granted_user_ids"] == ["editor"]
 
@@ -301,9 +305,8 @@ async def test():
         source_ids=[TEST_SOURCE_ID],
         doc_time_range=(1000007, 1000009),
     )
-    notes = await gulp_api.object_list(
+    notes = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     flt = GulpCollabFilter(
@@ -312,9 +315,8 @@ async def test():
         source_ids=[TEST_SOURCE_ID],
         time_pin_range=(1900000, 2000009),
     )
-    nn = await gulp_api.object_list(
+    nn = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     notes.extend(nn)
@@ -322,12 +324,11 @@ async def test():
     assert notes and len(notes) == 1 and notes[0]["id"] == pinned_note_2["id"]
 
     # editor can add guest to object grants
-    updated = await gulp_api.object_add_remove_user_grant(
+    updated = await GulpAPIObjectACL.object_add_granted_user(
         editor_token,
         note_with_docs_2["id"],
         GulpCollabType.NOTE,
         "guest",
-        remove=False,
     )
     assert "guest" in updated["granted_user_ids"]
 
@@ -338,46 +339,41 @@ async def test():
         source_ids=[TEST_SOURCE_ID],
         doc_time_range=(1000007, 1000009),
     )
-    notes = await gulp_api.object_list(
+    notes = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     assert notes and len(notes) == 1 and notes[0]["id"] == note_with_docs_2["id"]
 
     # editor can remove guest from object grants
-    updated = await gulp_api.object_add_remove_user_grant(
+    updated = await GulpAPIObjectACL.object_remove_granted_user(
         editor_token,
         note_with_docs_2["id"],
         GulpCollabType.NOTE,
         "guest",
-        remove=True,
     )
     assert "guest" not in updated["granted_user_ids"]
 
     # guest can't see the note again
-    notes = await gulp_api.object_list(
+    notes = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     assert not notes
 
     # guest cannot add itself to admin group
-    _ = await gulp_api.usergroup_add_remove_user(
+    _ = await GulpAPIUserGroup.usergroup_add_user(
         guest_token,
         "guest",
         "administrators",
-        remove=False,
         expected_status=401,
     )
 
     # admin can add guest to admin group
-    updated = await gulp_api.usergroup_add_remove_user(
+    updated = await GulpAPIUserGroup.usergroup_add_user(
         admin_token,
         "guest",
         "administrators",
-        remove=False,
     )
     # verify
     users = updated["users"]
@@ -388,9 +384,8 @@ async def test():
     assert found
 
     # guest can now see note again
-    notes = await gulp_api.object_list(
+    notes = await GulpAPINote.note_list(
         guest_token,
-        "note_list",
         flt=flt,
     )
     assert notes and len(notes) == 1 and notes[0]["id"] == note_with_docs_2["id"]
@@ -401,7 +396,7 @@ async def test():
     )
 
     # this should not fail since guest is an admin (user_list is admin-only api)
-    users = await gulp_api.user_list(guest_token)
+    users = await GulpAPIUser.user_list(guest_token)
     assert users
 
     guest_user: dict = None
