@@ -332,7 +332,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
         if self.doc_ids and "doc_ids" in type.columns:
             # return all collab objects that have at least one document with _id in doc_ids
-            q = q.filter(q=q.filter(func.lower(type.doc_ids).op("&&")(self.doc_ids)))
+            q = q.filter(type.doc_ids.op("&&")(self.doc_ids))
 
         if self.time_pin_range and "time_pin" in type.columns:
             # returns all collab objects that have time_pin in time_pin_range

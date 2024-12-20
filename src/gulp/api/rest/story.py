@@ -126,7 +126,7 @@ async def story_update_handler(
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals)
+    ServerUtils.dump_params(locals())
     try:
         if not any([doc_ids, name, tags, glyph_id, color]):
             raise ValueError(
