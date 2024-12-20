@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
+from sqlalchemy.ext.mutable import MutableDict
 
 from gulp.api.collab.structs import (
     GulpCollabBase,
@@ -55,11 +56,6 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         default=0,
         doc="The time of the last login, in milliseconds from the unix epoch.",
     )
-
-    # extra: Mapped[Optional[dict]] = mapped_column(
-    #     JSONB, default=None, doc="Arbitrary user properties."
-    # )
-
     session: Mapped[Optional["GulpUserSession"]] = relationship(
         "GulpUserSession",
         back_populates="user",
@@ -69,7 +65,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
     )
 
     user_data: Mapped[Optional[dict]] = mapped_column(
-        JSONB, default=None, doc="Arbitrary user data."
+        MutableDict.as_mutable(JSONB), default_factory=dict, doc="Arbitrary user data."
     )
 
     @override
@@ -125,6 +121,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             "permission": permission,
             "email": email,
             "glyph_id": glyph_id,
+            "user_data": {},
         }
 
         # set user_id to username (user owns itself)
@@ -139,6 +136,18 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         d: dict,
         user_session: "GulpUserSession",
     ) -> None:
+        """
+        updates the user object with the specified data, checking for permission and password changes.
+
+        Args:
+            sess (AsyncSession): The database session.
+            d (dict): The data to update.
+            user_session (GulpUserSession): The user session object.
+
+        Raises:
+            MissingPermission: If the user does not have the required permission.
+        """
+
         # special checks for permission and password
         #
         # - only admin can change permission

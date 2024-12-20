@@ -3,7 +3,7 @@ from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy import ARRAY, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.mutable import MutableList
+from sqlalchemy.ext.mutable import MutableList, MutableDict
 from gulp.api.collab.structs import (
     GulpCollabBase,
     GulpCollabType,
@@ -11,6 +11,7 @@ from gulp.api.collab.structs import (
 from gulp.api.mapping.models import GulpMapping
 from gulp.structs import GulpPluginParameters
 from gulp.api.opensearch.query import GulpQuerySigmaParameters
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
@@ -19,7 +20,7 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     """
 
     s_options: Mapped[Optional[GulpQuerySigmaParameters]] = mapped_column(
-        JSONB,
+        MutableDict.as_mutable(JSONB),
         doc="""
 this must be set if this is a sigma query.
 """,
@@ -33,8 +34,8 @@ this must be set if this is a sigma query.
         doc="Groups associated with the query.",
     )
     plugin_params: Mapped[Optional[GulpPluginParameters]] = mapped_column(
-        JSONB,
-        doc="custom plugin parameters, if needed.",
+        MutableDict.as_mutable(JSONB),
+        doc="Custom plugin parameters.",
     )
     q: Mapped[str] = mapped_column(
         String,

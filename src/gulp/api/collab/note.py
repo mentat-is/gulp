@@ -73,7 +73,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         String, doc="The log file path (source) associated with the note."
     )
     docs: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
-        JSONB, doc="One or more GulpBasicDocument associated with the note."
+        MutableList.as_mutable(ARRAY(JSONB)),
+        doc="One or more GulpBasicDocument associated with the note.",
     )
     time_pin: Mapped[Optional[int]] = mapped_column(
         BIGINT,

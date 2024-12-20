@@ -1,10 +1,8 @@
 from typing import override
 from sqlalchemy import ARRAY, String
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableList
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
-from gulp.api.opensearch.structs import GulpBasicDocument
 
 
 class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):

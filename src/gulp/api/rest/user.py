@@ -2,7 +2,6 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
-import re
 from typing import Annotated, Optional
 from gulp.api.collab.structs import (
     GulpCollabFilter,
@@ -15,7 +14,6 @@ from gulp.api.collab_api import GulpCollab
 from muty.jsend import JSendException, JSendResponse
 from fastapi import Body, Depends
 from gulp.api.rest.server_utils import ServerUtils
-import muty.list
 import muty.log
 import muty.os
 import muty.string
@@ -25,7 +23,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendResponse
 from gulp.api.rest.structs import REGEX_CHECK_USERNAME, APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
-from gulp.config import GulpConfig
+from muty.log import MutyLogger
 
 router = APIRouter()
 
@@ -340,6 +338,13 @@ async def user_update_handler(
             example={"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]},
         ),
     ] = None,
+    merge_user_data: Annotated[
+        bool,
+        Query(
+            description="if `true` (default), `user_data` is merged with the existing, if any. Either, it is replaced.",
+            example=True,
+        ),
+    ] = True,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -361,6 +366,11 @@ async def user_update_handler(
 
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
 
+            # get the user to be updated
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id, with_for_update=True)
+            if s.user_id != u.id and not s.user.is_admin():
+                raise MissingPermission("only admin can update other users.")
+
             d = {}
             if password:
                 d["password"] = password
@@ -371,12 +381,20 @@ async def user_update_handler(
             if glyph_id:
                 d["glyph_id"] = glyph_id
             if user_data:
-                d["user_data"] = user_data
+                if merge_user_data:
+                    dd = u.user_data or {}
+                    MutyLogger.get_instance().debug(
+                        "existing user data=%s" % (dd)
+                    )
+                    dd.update(user_data)
+                    d["user_data"] = dd
+                    MutyLogger.get_instance().debug(
+                        "provided user_data=%s, updated user data=%s"
+                        % (user_data, d["user_data"])
+                    )
+                else:
+                    d["user_data"] = user_data
 
-            # get the user to be updated
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id, with_for_update=True)
-            if s.user_id != u.id and not s.user.is_admin():
-                raise MissingPermission("only admin can update other users.")
             await u.update(sess, d, user_session=s)
 
             return JSONResponse(
