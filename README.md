@@ -186,8 +186,12 @@ TODO: test all the other API
 ```bash
 # test collab
 python3 -m pytest tests/user.py
+python3 -m pytest tests/link.py
+python3 -m pytest tests/highlight.py
+python3 -m pytest tests/story.py
 python3 -m pytest tests/note.py
 python3 -m pytest tests/glyph.py
+python3 -m pytest tests/operation.py
 
 # queries
 # needs samples/win_evtx loaded on an empty gulp instance
