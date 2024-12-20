@@ -87,9 +87,8 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             GulpSource: the source added (or already existing), eager loaded
         """
         # consider just the last part of the name if it's a path
-        src_id = GulpContext.make_source_id_key(
-            self.operation_id, self.id, name.split("/")[-1]
-        )
+        bare_name = name.split("/")[-1]
+        src_id = GulpContext.make_source_id_key(self.operation_id, self.id, bare_name)
 
         # acquire lock first
         lock_id = muty.crypto.hash_xxh64_int(src_id)
@@ -97,15 +96,17 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         sess.add(self)
 
         # check if source exists
+        flt = GulpCollabFilter(
+            names=[name],
+            operation_ids=[self.operation_id],
+            context_ids=[self.id],
+        )
         src: GulpSource = await GulpSource.get_first_by_filter(
             sess,
-            flt=GulpCollabFilter(
-                names=[name],
-                operation_ids=[self.operation_id],
-                context_ids=[self.id],
-            ),
+            flt=flt,
             throw_if_not_found=False,
         )
+        # MutyLogger.get_instance().debug("flt=%s, res=%s" % (flt, src))
         if src:
             MutyLogger.get_instance().debug(
                 f"source {src.id}, name={name} already exists in context {self.id}."

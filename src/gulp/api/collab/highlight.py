@@ -1,9 +1,8 @@
 from typing import Optional
 
-from sqlalchemy import ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import ARRAY, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.ext.mutable import MutableList
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
 
 
@@ -13,7 +12,7 @@ class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
     """
 
     time_range: Mapped[tuple[int, int]] = mapped_column(
-        MutableDict.as_mutable(JSONB),
+        MutableList.as_mutable(ARRAY(Integer)),
         doc="The time range of the highlight, in nanoseconds from unix epoch.",
     )
     source_id: Mapped[Optional[str]] = mapped_column(

@@ -140,8 +140,8 @@ class GulpCollabFilter(BaseModel):
     """
     defines filter to be applied to all objects in the collaboration system.
 
-    NOTE: filtering by basic types in `GulpCollabBase` and `GulpCollabObject` (for collab objects) is always supported.
-    other fields can be filtered only if they are present in the object model.
+    - filtering by basic types in `GulpCollabBase` and `GulpCollabObject` (for collab objects) is always supported.
+    - custom fields are supported via `model_extra` as k: [v,v,v,...] pairs where v are strings to match against the column (case insensitive/OR match).
     """
 
     # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
@@ -325,7 +325,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q.filter(self._case_insensitive_or_ilike(type.text, self.texts))
 
         if self.model_extra:
-            # any extra k,v to filter on
+            # any extra fields to filter on (case-insensitive, OR, expects v to be an array of strings)
             for k, v in self.model_extra.items():
                 if k in type.columns:
                     q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))

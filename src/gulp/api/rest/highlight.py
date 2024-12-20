@@ -129,14 +129,14 @@ async def highlight_update_handler(
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals)
+    ServerUtils.dump_params(locals())
     try:
         if not any([time_range, name, tags, glyph_id, color]):
             raise ValueError(
                 "at least one of time_range, name, tags, glyph_id, color must be set."
             )
         d = {}
-        d["time_range"] = time_range
+        d["time_range"] = list(time_range) if time_range else None
         d["name"] = name
         d["tags"] = tags
         d["glyph_id"] = glyph_id
