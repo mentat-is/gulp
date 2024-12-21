@@ -147,10 +147,10 @@ class GulpAPIQuery:
         params = {
             "req_id": req_id or api_common.req_id,
             "ws_id": api_common.ws_id,
+            "doc_id": doc_id,
             "index": index,
         }
         body = {
-            "doc_id": doc_id,
             "q_options": (
                 q_options.model_dump(
                     by_alias=True, exclude_none=True, exclude_defaults=True

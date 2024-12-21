@@ -94,7 +94,7 @@ class GulpPluginCustomParameter(BaseModel):
                     "name": "ignore_mapping",
                     "type": "bool",
                     "default_value": False,
-                    "desc": "ignore mapping file and use default mapping.",
+                    "desc": "ignore mapping file and leave the field as is.",
                     "required": True,
                 }
             ]

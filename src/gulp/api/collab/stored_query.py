@@ -35,7 +35,7 @@ this must be set if this is a sigma query.
     )
     plugin_params: Mapped[Optional[GulpPluginParameters]] = mapped_column(
         MutableDict.as_mutable(JSONB),
-        doc="Custom plugin parameters.",
+        doc="Custom plugin parameters, i.e. for mapping.",
     )
     q: Mapped[str] = mapped_column(
         String,

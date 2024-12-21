@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpIngestionStats
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import (
@@ -66,7 +66,7 @@ async def request_cancel_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
                 sess, req_id_to_cancel
             )
             s = await GulpUserSession.check_token(
@@ -117,15 +117,7 @@ async def request_cancel_handler(
                                 "desc": "Raw events ingestion plugin",
                                 "filename": "raw",
                                 "sigma_support": [],
-                                "additional_parameters": [
-                                    {
-                                        "name": "ignore_mapping",
-                                        "type": "bool",
-                                        "default_value": False,
-                                        "desc": "if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
-                                        "required": False,
-                                    }
-                                ],
+                                "additional_parameters": [],
                                 "depends_on": [],
                                 "tags": [],
                                 "version": "1.0",

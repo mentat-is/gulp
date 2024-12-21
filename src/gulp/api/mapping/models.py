@@ -71,7 +71,6 @@ class GulpMapping(BaseModel):
     fields: Optional[dict[str, GulpMappingField]] = Field(
         {},
         description="field mappings { raw_field: { GulpMappingField } } to translate a logsource to gulp document.",
-        min_length=1,
     )
     description: Optional[str] = Field(
         None,

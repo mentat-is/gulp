@@ -135,71 +135,19 @@ to use HTTPS, the following certificates must be available:
 
 > this is preliminary doc until proper test is setup!
 
-run gulp setting `GULP_INTEGRATION_TEST` environment variable first, websocket must be named `test_ws`.
-
 ```bash
-GULP_INTEGRATION_TEST=1 gulp
-
-# or to start clean...
+# run gulp on localhost:8080
 GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
-```
 
-##### Ingestion
+# run test suite (covers all the API)
+./tests/test_suite.sh
 
-TODO: check test results
+# or run single api test manually, i.e.
+# run windows ingest/query test (including sigma and stored queries)
+python3 -m pytest ./tests/query.py::test_win_evtx &&
 
-```bash
-# win_evtx
-# 98633 records, 1 record failed, 1 skipped, 98631 ingested
-./test_scripts/test_ingest.py --path ./samples/win_evtx
-
-# csv without mapping
-# 10 records, 10 ingested
-./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mappings": { "test_mapping": { "timestamp_field": "Created0x10"}}}'
-
-# csv with mapping
-# 10 records, 44 ingested
-./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
-
-# raw
-# 3 ingested
-./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json
-
-# raw with mapping
-# 3 ingested, record 1.field2 mapped to test.mapped and test.another_mapped
-./test_scripts/test_ingest.py --raw ./test_scripts/test_raw.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
-
-# zip (with metadata.json), win_evtx and csv with mappings
-# 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
-./test_scripts/test_ingest.py --path ./test_scripts/test_ingest_zip.zip
-
-# stacked plugin
-# will set every document duration to 9999, and also set augmented=True (postprocessing chunk with _augment_documents)
-./test_scripts/test_ingest.py --path ./samples/mftecmd/sample_record.csv --plugin stacked_example --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
-
-```
-
-##### Collaboration
-
-TODO: test all the other API
-
-```bash
-# test collab
-python3 -m pytest tests/user.py
-python3 -m pytest tests/link.py
-python3 -m pytest tests/highlight.py
-python3 -m pytest tests/story.py
-python3 -m pytest tests/note.py
-python3 -m pytest tests/glyph.py
-python3 -m pytest tests/operation.py
-
-# queries
-# needs samples/win_evtx loaded on an empty gulp instance
-python3 -m pytest tests/query.py::test_windows
-
-# queries/ingestion with external plugins
-# TODO: this actually needs private test data, just for devteam reference...
-python3 -m pytest tests/query.py::test_splunk
+# run collab notes test (including user ACL)
+python3 -m pytest tests/note.py &&
 ```
 
 ## Architecture

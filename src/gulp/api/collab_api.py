@@ -274,7 +274,7 @@ class GulpCollab:
                     """
                 CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
                 BEGIN
-                    DELETE FROM ingestion_stats WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
+                    DELETE FROM request_stats WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
                 END;
                 $$ LANGUAGE plpgsql;
             """
@@ -331,6 +331,9 @@ class GulpCollab:
         from gulp.api.collab.glyph import GulpGlyph
         from gulp.api.collab.operation import GulpOperation
         from gulp.api.collab.source import GulpSource
+        from gulp.api.collab.stored_query import GulpStoredQuery
+        from gulp.api.opensearch.query import GulpQuerySigmaParameters
+        from gulp.structs import GulpPluginParameters
         from gulp.api.collab.structs import (
             PERMISSION_MASK_DELETE,
             PERMISSION_MASK_EDIT,
@@ -390,6 +393,102 @@ class GulpCollab:
                 sess,
                 d={"glyph_id": user_glyph.id},
                 user_session=admin_session,
+            )
+
+            # create test stored queries
+            s_options = GulpQuerySigmaParameters(plugin="win_evtx")
+            sigma_match_some = await muty.file.read_file_async(
+                muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")
+            )
+            sigma_match_some_more = await muty.file.read_file_async(
+                muty.file.safe_path_join(assets_path, "sigma_match_some_more.yaml")
+            )
+            GulpStoredQuery = await GulpStoredQuery._create(
+                sess,
+                object_data={
+                    "name": "sigma stored query 1",
+                    "tags": ["stored", "sigma"],
+                    "q_groups": ["test group"],
+                    "q": sigma_match_some.decode("utf-8"),
+                    "s_options": s_options.model_dump(exclude_none=True),
+                },
+                id="test_stored_sigma_1",
+                owner_id=admin_user.id,
+            )
+
+            GulpStoredQuery = await GulpStoredQuery._create(
+                sess,
+                object_data={
+                    "name": "sigma stored query 2",
+                    "tags": ["stored", "sigma"],
+                    "q_groups": ["test group"],
+                    "q": sigma_match_some_more.decode("utf-8"),
+                    "s_options": s_options.model_dump(exclude_none=True),
+                },
+                id="test_stored_sigma_2",
+                owner_id=admin_user.id,
+            )
+
+            GulpStoredQuery = await GulpStoredQuery._create(
+                sess,
+                object_data={
+                    "name": "raw stored query",
+                    "tags": ["stored", "raw"],
+                    "q_groups": ["group2"],
+                    "q": json.dumps(
+                        {
+                            "query": {
+                                "bool": {
+                                    "must": [
+                                        {
+                                            "query_string": {
+                                                "query": "event.sequence:(352 OR 353 OR 354 OR 355)",
+                                                "analyze_wildcard": True,
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    ),
+                },
+                id="test_stored_raw",
+                owner_id=admin_user.id,
+            )
+
+            # some splunk queries
+            splunk_sigma = await muty.file.read_file_async(
+                muty.file.safe_path_join(assets_path, "splunk_sigma_2.yaml")
+            )
+            s_options = GulpQuerySigmaParameters(plugin="splunk")
+            plugin_params = GulpPluginParameters(
+                additional_mapping_files=[("windows.json", "windows")]
+            )
+            GulpStoredQuery = await GulpStoredQuery._create(
+                sess,
+                object_data={
+                    "name": "splunk sigma query",
+                    "tags": ["stored", "sigma", "splunk"],
+                    "q": splunk_sigma.decode("utf-8"),
+                    "external_plugin": "splunk",
+                    "s_options": s_options.model_dump(exclude_none=True),
+                    "plugin_params": plugin_params.model_dump(exclude_none=True),
+                },
+                id="test_stored_sigma_splunk",
+                owner_id=admin_user.id,
+            )
+
+            GulpStoredQuery = await GulpStoredQuery._create(
+                sess,
+                object_data={
+                    "name": "splunk raw query",
+                    "tags": ["stored", "raw", "splunk"],
+                    "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',
+                    "external_plugin": "splunk",
+                    "plugin_params": plugin_params.model_dump(exclude_none=True),
+                },
+                id="test_stored_raw_splunk",
+                owner_id=admin_user.id,
             )
 
             # create user groups

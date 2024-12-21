@@ -7,7 +7,7 @@ import muty.string
 import muty.xml
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import GulpIngestionStats, RequestCanceledError
+from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -55,7 +55,7 @@ class Plugin(GulpPluginBase):
     async def ingest_file(
         self,
         sess: AsyncSession,
-        stats: GulpIngestionStats,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,

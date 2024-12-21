@@ -31,18 +31,20 @@ class SourceCanceledError(Exception):
     pass
 
 
-class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
+class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
     """
     Represents the statistics for an ingestion operation.
     """
 
     operation_id: Mapped[str] = mapped_column(
         ForeignKey("operation.id", ondelete="CASCADE"),
+        nullable=True,
         doc="The operation associated with the stats.",
     )
     context_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
         doc="The context associated with the stats.",
+        nullable=True,
     )
     status: Mapped[GulpRequestStatus] = mapped_column(
         SQLEnum(GulpRequestStatus),
@@ -113,7 +115,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         source_total: int = 1,
     ) -> T:
         """
-        Create new (or get an existing) GulpIngestionStats object on the collab database.
+        Create new (or get an existing) GulpRequestStats object on the collab database.
 
         Args:
             sess (AsyncSession): The database session to use.
@@ -140,7 +142,7 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
 
         # check if the stats already exist
-        s: GulpIngestionStats = await cls.get_by_id(
+        s: GulpRequestStats = await cls.get_by_id(
             sess, id=req_id, throw_if_not_found=False
         )
         if s:
@@ -152,13 +154,13 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             now = muty.time.now_msec()
             time_expire = muty.time.now_msec() + time_expire
             MutyLogger.get_instance().debug(
-                'now=%s, setting stats "%s".time_expire to %s', now, id, time_expire
+                "now=%s, setting stats %s time_expire to %s", now, req_id, time_expire
             )
 
         object_data = {
             "time_expire": time_expire,
             "operation_id": operation_id,
-            "context_id": context_id,  # GulpContext.make_context_id_key(operation_id, context_id),
+            "context_id": context_id,
             "source_total": source_total,
         }
         return await super()._create(
@@ -186,10 +188,14 @@ class GulpIngestionStats(GulpCollabBase, type=GulpCollabType.INGESTION_STATS):
             ws_id (str): The websocket ID.
             user_id (str): The user ID who cancels the stats.
         """
+        # expires in 5 minutes, allow any loop to finish
+        time_expire = muty.time.now_msec() + 60 * 1000 * 5
         return await super().update(
             sess,
             {
                 "status": GulpRequestStatus.CANCELED,
+                "time_expire": time_expire,
+                "time_finished": muty.time.now_msec(),
             },
             ws_id=ws_id,
             user_id=user_id,

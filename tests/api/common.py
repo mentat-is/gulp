@@ -63,6 +63,7 @@ class GulpAPICommon:
         token: str = None,
         body: dict = None,
         files: dict = None,
+        headers: dict = None,
         expected_status: int = 200,
     ) -> dict:
         """
@@ -71,7 +72,10 @@ class GulpAPICommon:
             files: dict of file objects, e.g. {'file': ('filename.txt', open('file.txt', 'rb'))}
         """
         url = self._make_url(endpoint)
-        headers = {"token": token} if token else None
+        if headers:
+            headers.update({"token": token})
+        else:
+            headers = {"token": token} if token else {}
 
         self._log_request(
             method,

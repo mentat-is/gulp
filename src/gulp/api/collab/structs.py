@@ -113,7 +113,7 @@ class GulpCollabType(StrEnum):
     STORY = "story"
     LINK = "link"
     STORED_QUERY = "stored_query"
-    INGESTION_STATS = "ingestion_stats"
+    REQUEST_STATS = "request_stats"
     USER_DATA = "user_data"
     USER_SESSION = "user_session"
     CONTEXT = "context"
@@ -141,6 +141,7 @@ class GulpCollabFilter(BaseModel):
     defines filter to be applied to all objects in the collaboration system.
 
     - filtering by basic types in `GulpCollabBase` and `GulpCollabObject` (for collab objects) is always supported.
+    - use % for wildcard instead of * (SQL LIKE operator).
     - custom fields are supported via `model_extra` as k: [v,v,v,...] pairs where v are strings to match against the column (case insensitive/OR match).
     """
 
@@ -242,7 +243,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
     def _case_insensitive_or_ilike(self, column, values: list) -> ColumnElement[bool]:
         """
-        Create a case-insensitive OR query with wildcards for the given column and values.
+        Create a case-insensitive OR query for the given column and values.
 
         Args:
             column: The column to apply the ilike condition.
@@ -252,7 +253,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             ColumnElement[bool]: The OR query.
         """
         # print("column=%s, values=%s" % (column, values))
-        conditions = [column.ilike(f"%{value}%") for value in values]
+        conditions = [column.ilike(f"{value}") for value in values]
         return or_(*conditions)
 
     def _array_contains_all(self, array_field, values):
@@ -402,7 +403,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
         if with_for_update:
             q = q.with_for_update()
-        # MutyLogger.get_instance().debug(f"to_select_query: {q}")
+        MutyLogger.get_instance().debug(f"to_select_query: {q}")
         return q
 
 

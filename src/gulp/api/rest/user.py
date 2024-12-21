@@ -382,7 +382,7 @@ async def user_update_handler(
                 d["glyph_id"] = glyph_id
             if user_data:
                 if merge_user_data:
-                    dd = u.user_data or {}
+                    dd = u.user_data if u.user_data else {}
                     MutyLogger.get_instance().debug(
                         "existing user data=%s" % (dd)
                     )

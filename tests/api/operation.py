@@ -1,6 +1,5 @@
 from gulp.api.collab.structs import GulpCollabFilter
 from tests.api.common import GulpAPICommon
-import muty.string
 
 
 class GulpAPIOperation:

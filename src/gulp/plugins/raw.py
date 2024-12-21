@@ -3,7 +3,7 @@ from typing import Any, override
 from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
 from gulp.api.collab.stats import (
-    GulpIngestionStats,
+    GulpRequestStats,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -12,7 +12,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import (
     GulpDocument,
     GulpRawDocument,
-    GulpRawDocumentMetadata,
+    GulpRawDocumentBaseFields,
 )
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
@@ -24,26 +24,7 @@ class Plugin(GulpPluginBase):
 
     this plugin is used to ingest raw events, without any transformation.
 
-    the input for this plugin is a list of dictionaries, each with the following structure:
-
-    {
-        "metadata": {
-            # mandatory, with a format supported by gulp
-            "@timestamp": "2021-01-01T00:00:00Z"
-            # mandatory, the raw event as string
-            "event.original": "raw event content",
-            # optional, will be set to 0 if missing
-            "event.code": "something"
-        },
-        "doc" {
-            # the document as key/value pairs, will be ingested according to plugin_params.ignore_mapping:
-            # if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is.
-            # (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')
-            "something": "value",
-            "something_else": "value",
-            "another_thing": 123,
-        }
-    }
+    the input for this plugin is a list of GulpDocument dictionaries coming from i.e. a SIEM agent.
     """
 
     def type(self) -> GulpPluginType:
@@ -54,58 +35,27 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return "Raw events ingestion plugin"
-
-    @override
-    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return [
-            GulpPluginCustomParameter(
-                name="ignore_mapping",
-                type="bool",
-                default_value=False,
-                desc="if set, mapping will be ignored and fields in the resulting GulpDocuments will be ingested as is. (default: False, mapping works as usual and unmapped fields will be prefixed with 'gulp.unmapped')",
-            )
-        ]
+        return "Raw GulpDocuments ingestion plugin"
 
     @override
     async def _record_to_gulp_document(
-        self, record: GulpRawDocument, record_idx: int, data: Any = None
+        self, record: dict, record_idx: int, data: Any = None
     ) -> GulpDocument:
-        metadata: GulpRawDocumentMetadata = record.metadata
-        doc: dict = record.doc
-
-        # get mandatory fields from metadata
-        ts: str = metadata.timestamp
-        original: str = metadata.event_original
-        event_code: str = metadata.event_code
-
-        if self._custom_params.get("ignore_mapping", False):
-            # ignore mapping
-            d = doc
-        else:
-            d = {}
-            for k, v in doc.items():
-                mapped = self._process_key(k, v)
-                d.update(mapped)
-
         # create a gulp document
         return GulpDocument(
             self,
-            timestamp=ts,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
-            event_original=str(original),
+            event_original=None,  # will be set from record
             event_sequence=record_idx,
-            event_code=event_code,
-            **d,
+            **record,
         )
 
     @override
     async def ingest_raw(
         self,
         sess: AsyncSession,
-        stats: GulpIngestionStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -114,12 +64,12 @@ class Plugin(GulpPluginBase):
         context_id: str,
         source_id: str,
         chunk: list[dict],
+        stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
         await super().ingest_raw(
             sess=sess,
-            stats=stats,
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
@@ -128,6 +78,7 @@ class Plugin(GulpPluginBase):
             context_id=context_id,
             source_id=source_id,
             chunk=chunk,
+            stats=stats,
             plugin_params=plugin_params,
             flt=flt,
         )

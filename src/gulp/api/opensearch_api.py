@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
@@ -1074,7 +1075,7 @@ class GulpOpenSearch:
             )
             # raise ObjectNotFound()
             return []
-        
+
         d = {"total": hits, "aggregations": res["aggregations"]}
         return await self._parse_operation_aggregation(d["aggregations"])
 
@@ -1184,6 +1185,7 @@ class GulpOpenSearch:
 
     async def search_dsl(
         self,
+        sess: AsyncSession,
         index: str,
         q: dict,
         req_id: str = None,
@@ -1191,7 +1193,6 @@ class GulpOpenSearch:
         user_id: str = None,
         q_options: "GulpQueryAdditionalParameters" = None,
         el: AsyncElasticsearch = None,
-        sess: AsyncSession = None,
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -1199,6 +1200,7 @@ class GulpOpenSearch:
         NOTE: in the end, all gulp **local** queries and all **elasticsearch/opensearch** based queries for external plugins will be done through this function.
 
         Args:
+            sess (AsyncSession): SQLAlchemy session (to check if request has been canceled and/or create notes on match)
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The request ID for the query
@@ -1206,7 +1208,6 @@ class GulpOpenSearch:
             user_id (str, optional): The user ID performing the query
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
-            sess (AsyncSession, options): SQLAlchemy session, used only if options.note_parameters.create_notes is set. Defaults to None.
 
         Return:
             tuple:
@@ -1312,6 +1313,7 @@ class GulpOpenSearch:
                         req_id=req_id,
                         data=p.model_dump(exclude_none=True),
                     )
+
             if q_options.note_parameters.create_notes:
                 # automatically generate notes
                 await GulpNote.bulk_create_from_documents(

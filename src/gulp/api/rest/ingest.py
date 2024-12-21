@@ -18,11 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from muty.pydantic import (
     autogenerate_model_example_by_class,
 )
-from gulp.api.opensearch.structs import GulpRawDocument
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.stats import GulpIngestionStats
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -204,7 +203,7 @@ async def _ingest_file_internal(
     # MutyLogger.get_instance().debug("---> ingest_single_internal")
     async with GulpCollab.get_instance().session() as sess:
         # create stats (or get existing)
-        stats: GulpIngestionStats = await GulpIngestionStats.create(
+        stats: GulpRequestStats = await GulpRequestStats.create(
             sess,
             user_id=user_id,
             req_id=req_id,
@@ -245,20 +244,6 @@ async def _ingest_file_internal(
             )
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
-            # send done packet on the websocket
-            GulpSharedWsQueue.get_instance().put(
-                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=operation_id,
-                data=GulpIngestSourceDonePacket(
-                    source_id=source_id,
-                    context_id=context_id,
-                    req_id=req_id,
-                    status=status,
-                ),
-            )
-
             # delete file
             await muty.file.delete_file_or_dir_async(file_path)
 
@@ -495,18 +480,19 @@ async def _ingest_raw_internal(
     context_id: str,
     source_id: str,
     index: str,
-    chunk: dict,
+    chunk: list[dict],
     flt: GulpIngestionFilter,
     plugin: str,
     plugin_params: GulpPluginParameters,
 ) -> None:
     """
-    runs in a worker process to ingest a raw chunk of data
+    runs in a worker process to ingest a raw chunk of GulpDocuments
     """
     # MutyLogger.get_instance().debug("---> ingest_raw_internal")
 
     async with GulpCollab.get_instance().session() as sess:
-        stats: GulpIngestionStats = await GulpIngestionStats.create(
+        # leave out stats in raw ingestion for now ...
+        """stats: GulpRequestStats = await GulpRequestStatsreate(
             sess,
             user_id=user_id,
             req_id=req_id,
@@ -514,18 +500,16 @@ async def _ingest_raw_internal(
             operation_id=operation_id,
             context_id=context_id,
             source_total=1,
-        )
+        )"""
 
         mod: GulpPluginBase = None
-        status = GulpRequestStatus.DONE
 
         try:
             # run plugin
             plugin = plugin or "raw"
             mod = await GulpPluginBase.load(plugin)
-            status = await mod.ingest_raw(
+            await mod.ingest_raw(
                 sess,
-                stats,
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
@@ -538,27 +522,13 @@ async def _ingest_raw_internal(
                 plugin_params=plugin_params,
             )
         except Exception as ex:
-            status = GulpRequestStatus.FAILED
-            d = dict(
+            # leave out stats in raw ingestion for now ...
+            """d = dict(
                 source_failed=1,
                 error=ex,
             )
-            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
+            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)"""
         finally:
-            # send done packet on the websocket
-            GulpSharedWsQueue.get_instance().put(
-                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=operation_id,
-                data=GulpIngestSourceDonePacket(
-                    source_id=source_id,
-                    context_id=context_id,
-                    req_id=req_id,
-                    status=status,
-                ),
-            )
-
             # done
             if mod:
                 await mod.unload()
@@ -574,7 +544,7 @@ async def _ingest_raw_internal(
         200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
-ingests a chunk of `raw` documents.
+ingests a chunk of raw `GulpDocument`s, i.e. coming from a gulp SIEM agent or similar.
 
 ### plugin
 
@@ -611,8 +581,8 @@ async def ingest_raw_handler(
         Depends(APIDependencies.param_ws_id),
     ],
     chunk: Annotated[
-        list[GulpRawDocument],
-        Body(description="a chunk of raw documents to be ingested."),
+        list[dict],
+        Body(description="a chunk of raw `GulpDocument`s to be ingested."),
     ],
     flt: Annotated[
         GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional)
@@ -630,9 +600,7 @@ async def ingest_raw_handler(
         Depends(APIDependencies.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
-    # TODO: consider removing stats from raw ingestion...
     params = locals()
-    params["chunk"] = [d.model_dump(exclude_none=True) for d in chunk]
     params["flt"] = flt.model_dump(exclude_none=True)
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
 

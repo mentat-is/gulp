@@ -9,7 +9,7 @@ import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
-    GulpIngestionStats,
+    GulpRequestStats,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -115,7 +115,7 @@ class Plugin(GulpPluginBase):
     async def ingest_file(
         self,
         sess: AsyncSession,
-        stats: GulpIngestionStats,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -145,7 +145,7 @@ class Plugin(GulpPluginBase):
         )
 
         # stats must be created by the caller, get it
-        stats: GulpIngestionStats = await GulpIngestionStats.get_by_id(sess, id=req_id)
+        stats: GulpRequestStats = await GulpRequestStats.get_by_id(sess, id=req_id)
         try:
             # initialize plugin
             if not plugin_params:
@@ -185,12 +185,12 @@ class Plugin(GulpPluginBase):
 
                     try:
                         await self.process_record(fixed_dict, doc_idx, flt)
-                    except RequestCanceledError as ex:
+                    except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
-                        break
-                    except SourceCanceledError as ex:
                         await self._source_failed(ex)
                         break
+
+                    doc_idx += 1
 
         except Exception as ex:
             await self._source_failed(ex)

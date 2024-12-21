@@ -113,7 +113,7 @@ class GulpDocument(GulpBasicDocument):
         description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
         alias="agent.type",
     )
-    event_original: str = Field(
+    event_original: Optional[str] = Field(
         None,
         description='"event.original": the original event as text.',
         alias="event.original",
@@ -350,9 +350,9 @@ class GulpDocumentFieldAliasHelper:
         }
 
 
-class GulpRawDocumentMetadata(BaseModel):
+class GulpRawDocumentBaseFields(BaseModel):
     """
-    metadata for a GulpRawDocument: represents the mandatory fields in a document.
+    the base(=mandatory) fields in a raw GulpDocument record
     """
 
     model_config = ConfigDict(
@@ -379,18 +379,13 @@ class GulpRawDocumentMetadata(BaseModel):
         description="the original event as text.",
         alias="event.original",
     )
-    event_code: Optional[str] = Field(
-        "0",
-        description="the event code, defaults to '0'.",
-        alias="event.code",
-    )
 
 
 class GulpRawDocument(BaseModel):
     """
     represents a raw GulpDocument record, consisting of:
 
-    - metadata: the document metadata, these are the mandatoiry fields (timestamp, event code, original raw event).
+    - base_fields: these are the mandatory fields (timestamp, event code, original raw event).
     - doc: the rest of the document as key/value pairs, to generate the `GulpDocument` with.
     """
 
@@ -401,8 +396,8 @@ class GulpRawDocument(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "metadata": autogenerate_model_example_by_class(
-                        GulpRawDocumentMetadata
+                    "base_fields": autogenerate_model_example_by_class(
+                        GulpRawDocumentBaseFields
                     ),
                     "doc": {
                         "agent.type": "win_evtx",
@@ -418,9 +413,9 @@ class GulpRawDocument(BaseModel):
         },
     )
 
-    metadata: GulpRawDocumentMetadata = Field(
+    base_fields: GulpRawDocumentBaseFields = Field(
         ...,
-        description="the document metadata.",
+        description="the basic fields.",
     )
     doc: dict = Field(
         ...,

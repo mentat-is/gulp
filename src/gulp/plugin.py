@@ -26,7 +26,7 @@ from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
-    GulpIngestionStats,
+    GulpRequestStats,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -45,10 +45,11 @@ from gulp.api.opensearch.query import (
     GulpQueryNoteParameters,
     GulpQuerySigmaParameters,
 )
-from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch.structs import GulpDocument, GulpRawDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
+    GulpIngestSourceDonePacket,
     GulpQueryDonePacket,
     GulpSharedWsQueue,
     GulpWsQueueDataType,
@@ -209,7 +210,7 @@ class GulpPluginBase(ABC):
         self._sess: AsyncSession = None
 
         # ingestion stats
-        self._stats: GulpIngestionStats = None
+        self._stats: GulpRequestStats = None
 
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
@@ -262,9 +263,12 @@ class GulpPluginBase(ABC):
         self._records_processed_per_chunk: int = 0
         self._records_failed_per_chunk: int = 0
         self._is_source_failed: bool = False
+        self._req_canceled: bool = False
         self._source_error: str = None
         self._tot_skipped_in_source: int = 0
         self._tot_failed_in_source: int = 0
+        self._tot_ingested_in_source: int = 0
+
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
 
@@ -428,6 +432,14 @@ class GulpPluginBase(ABC):
                     glyph_id=self._note_parameters.note_glyph_id,
                     private=self._note_parameters.note_private,
                 )
+
+        # check if the request is cancelled ()
+        stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+            self._sess, self._req_id, throw_if_not_found=False
+        )
+        if stats and stats.status == GulpRequestStatus.CANCELED:
+            self._req_canceled = True
+            MutyLogger.get_instance().warning("_process_docs_chunk: request cancelled")
 
         return len(ingested_docs), skipped
 
@@ -612,25 +624,27 @@ class GulpPluginBase(ABC):
             self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
-            "querying external source with plugin {self.name}, "
-            "user_id={user_id}, "
-            "operation_id={self._operation_id}, "
-            "context_id={self._context_id}, "
-            "source_id={self._source_id}, "
-            "ws_id={ws_id}, "
-            "req_id={req_id}, "
-            "index={index}, "
-            "q={q}, "
-            "q_options={q_options}, "
-            "ingest_index={self._ingest_index}, "
-            "plugin_params={q_options.external_parameters.plugin_params}"
+            "querying external source with:\nplugin %s, user_id=%s, operation_id=%s, context_id=%s, source_id=%s, ws_id=%s, req_id=%s, index=%s, ingest_index=%s,\nq=%s,\nq_options=%s,\nplugin_params=%s"
+            % (
+                self.name,
+                self._user_id,
+                self._operation_id,
+                self._context_id,
+                self._source_id,
+                ws_id,
+                req_id,
+                index,
+                self._ingest_index,
+                q,
+                q_options,
+                q_options.external_parameters.plugin_params,
+            )
         )
         return (0, 0)
 
     async def ingest_raw(
         self,
         sess: AsyncSession,
-        stats: GulpIngestionStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -639,6 +653,7 @@ class GulpPluginBase(ABC):
         context_id: str,
         source_id: str,
         chunk: list[dict],
+        stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
@@ -647,7 +662,6 @@ class GulpPluginBase(ABC):
 
         Args:
             sess (AsyncSession): The database session.
-            stats (GulpIngestionStats): The ingestion stats.
             user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
@@ -656,6 +670,7 @@ class GulpPluginBase(ABC):
             context_id (str): id of the context on collab database.
             source_id (str): id of the source on collab database.
             chunk (list[dict]): The chunk of documents to ingest.
+            stats (GulpRequestStats, optional): The ingestion stats.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
 
@@ -667,7 +682,6 @@ class GulpPluginBase(ABC):
             - this function *MUST NOT* raise exceptions.
         """
         self._sess = sess
-        self._stats = stats
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
@@ -683,7 +697,7 @@ class GulpPluginBase(ABC):
     async def ingest_file(
         self,
         sess: AsyncSession,
-        stats: GulpIngestionStats,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -701,7 +715,7 @@ class GulpPluginBase(ABC):
 
         Args:
             sess (AsyncSession): The database session.
-            stats (GulpIngestionStats): The ingestion stats.
+            stats (GulpRequestStats): The ingestion stats.
             user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
@@ -1009,8 +1023,8 @@ class GulpPluginBase(ABC):
                 ingested, skipped = await self._flush_buffer(
                     flt, wait_for_refresh, data
                 )
-                self._tot_skipped_in_source += skipped
-                self._tot_failed_in_source += self._records_failed_per_chunk
+                if self._req_canceled:
+                    raise RequestCanceledError("request canceled!")
 
                 # check threshold
                 failure_threshold = (
@@ -1331,6 +1345,10 @@ class GulpPluginBase(ABC):
             self._docs_buffer, flt, wait_for_refresh
         )
 
+        self._tot_failed_in_source += self._records_failed_per_chunk
+        self._tot_skipped_in_source += skipped
+        self._tot_ingested_in_source += ingested
+
         """
         if wait_for_refresh:
             # update index type mapping too
@@ -1344,6 +1362,31 @@ class GulpPluginBase(ABC):
             )
         """
         return ingested, skipped
+
+    async def _source_failed(
+        self,
+        err: str | Exception,
+    ) -> None:
+        """
+        Handles the failure of a source during ingestion.
+
+        Args:
+            err (str | Exception): The error that caused the source to fail.
+        """
+        if isinstance(err, SourceCanceledError):
+            self._req_canceled = True
+        else:
+            self._is_source_failed = True
+
+        if not isinstance(err, str):
+            err = muty.log.exception_to_string(err)  # , with_full_traceback=True)
+        MutyLogger.get_instance().error(
+            "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d"
+            % (self._file_path, err, self._records_processed_per_chunk)
+        )
+
+        err = "source=%s, %s" % (self._file_path, err)
+        self._source_error = err
 
     async def _source_done(
         self, flt: GulpIngestionFilter = None, data: Any = None
@@ -1368,6 +1411,31 @@ class GulpPluginBase(ABC):
         ingested, skipped = await self._flush_buffer(
             flt, wait_for_refresh=True, data=data
         )
+
+        if self._ws_id:
+            # send ingest_source_done packet on ws
+            if self._is_source_failed:
+                status = GulpRequestStatus.FAILED
+            elif self._req_canceled:
+                status = GulpRequestStatus.CANCELED
+            else:
+                status = GulpRequestStatus.DONE
+
+            GulpSharedWsQueue.get_instance().put(
+                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
+                ws_id=self._ws_id,
+                user_id=self._user_id,
+                operation_id=self._operation_id,
+                data=GulpIngestSourceDonePacket(
+                    source_id=self._source_id,
+                    context_id=self._context_id,
+                    req_id=self._req_id,
+                    docs_ingested=self._tot_ingested_in_source,
+                    docs_skipped=self._tot_skipped_in_source,
+                    docs_failed=self._tot_failed_in_source,
+                    status=status,
+                ),
+            )
 
         if not self._stats:
             return
@@ -1436,28 +1504,6 @@ class GulpPluginBase(ABC):
             req_id=self._req_id,
             data=p.model_dump(exclude_none=True),
         )
-
-    async def _source_failed(
-        self,
-        err: str | Exception,
-    ) -> None:
-        """
-        Handles the failure of a source during ingestion.
-
-        Args:
-            err (str | Exception): The error that caused the source to fail.
-        """
-        if not isinstance(err, str):
-            # err = muty.log.exception_to_string_lite(err)
-            err = muty.log.exception_to_string(err)  # , with_full_traceback=True)
-        MutyLogger.get_instance().error(
-            "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d"
-            % (self._file_path, err, self._records_processed_per_chunk)
-        )
-        self._is_source_failed = True
-
-        err = "source=%s, %s" % (self._file_path or "-", err)
-        self._source_error = err
 
     @staticmethod
     async def path_by_name(name: str, extension: bool = False) -> str:
@@ -1632,7 +1678,7 @@ class GulpPluginBase(ABC):
             if "/extension/" in f:
                 extension = True
             else:
-                extension = False       
+                extension = False
             try:
                 p = await GulpPluginBase.load(f, extension=extension, ignore_cache=True)
             except Exception as ex:
@@ -1660,5 +1706,5 @@ class GulpPluginBase(ABC):
             }
             l.append(n)
             await p.unload()
-    
+
         return l

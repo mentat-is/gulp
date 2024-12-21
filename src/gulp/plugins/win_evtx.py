@@ -13,7 +13,7 @@ from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.sigma import to_gulp_query_struct
 from gulp.api.collab.stats import (
-    GulpIngestionStats,
+    GulpRequestStats,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -174,7 +174,7 @@ class Plugin(GulpPluginBase):
     async def ingest_file(
         self,
         sess: AsyncSession,
-        stats: GulpIngestionStats,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -221,10 +221,8 @@ class Plugin(GulpPluginBase):
                 doc_idx += 1
                 try:
                     await self.process_record(rr, doc_idx, flt)
-                except RequestCanceledError as ex:
+                except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
-                    break
-                except SourceCanceledError as ex:
                     await self._source_failed(ex)
                     break
 

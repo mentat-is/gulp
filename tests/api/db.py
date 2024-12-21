@@ -35,7 +35,7 @@ class GulpAPIDb:
         token = await GulpAPIUser.login_admin()
 
         api_common = GulpAPICommon.get_instance()
-        await GulpAPIDb.gulp_reset(token, api_common.index, False)
+        await GulpAPIDb.gulp_reset(token, api_common.index, restart_process=True)
 
     @staticmethod
     async def reset_collab_as_admin() -> None:

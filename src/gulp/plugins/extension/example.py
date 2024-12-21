@@ -12,7 +12,7 @@ from fastapi import Header, Query, Depends
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
-from gulp.api.collab.stats import GulpIngestionStats
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
@@ -105,7 +105,7 @@ class Plugin(GulpPluginBase):
         # create an example stats
         async with GulpCollab.get_instance().session() as sess:
             try:
-                await GulpIngestionStats.create(
+                await GulpRequestStats.create(
                     sess,
                     user_id,
                     req_id,

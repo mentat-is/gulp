@@ -6,6 +6,7 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
@@ -19,6 +20,7 @@ from gulp.api.opensearch.query import (
     GulpQuery,
     GulpQueryHelpers,
     GulpQueryAdditionalParameters,
+    GulpQuerySigmaParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -39,6 +41,8 @@ from muty.log import MutyLogger
 import muty.crypto
 import muty.dynload
 import asyncio
+
+from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
 
@@ -78,43 +82,55 @@ async def _stored_query_ids_to_gulp_queries(
     stored_queries: list[GulpStoredQuery] = await GulpStoredQuery.get_by_filter(
         sess, GulpCollabFilter(ids=stored_query_ids)
     )
+    MutyLogger.get_instance().debug(
+        "retrieved stored queries: %s"
+        % (json.dumps([q.to_dict(exclude_none=True) for q in stored_queries], indent=2))
+    )
 
     # convert to GulpQuery array
     for qs in stored_queries:
-        if qs.s_options.plugin:
+        MutyLogger.get_instance().debug(
+            "converting stored query '%s' to GulpQuery ..."
+            % (json.dumps(qs.to_dict(exclude_none=True), indent=2))
+        )
+        sigma_options = (
+            GulpQuerySigmaParameters.model_validate(qs.s_options)
+            if qs.s_options
+            else GulpQuerySigmaParameters()
+        )
+        plugin_params = (
+            GulpPluginParameters.model_validate(qs.plugin_params)
+            if qs.plugin_params
+            else GulpPluginParameters()
+        )
+        if sigma_options.plugin:
             # this is a sigma query, convert
-            mod = await GulpPluginBase.load(qs.s_options.plugin)
-            if qs.s_options.backend is None:
+            mod = await GulpPluginBase.load(sigma_options.plugin)
+            if sigma_options.backend is None and not qs.external_plugin:
                 # assume local, use opensearch
-                qs.s_options.backend = "opensearch"
-            if qs.s_options.output_format is None:
+                sigma_options.backend = "opensearch"
+            if sigma_options.output_format is None and not qs.external_plugin:
                 # assume local, use dsl_lucene
-                qs.s_options.output_format = "dsl_lucene"
+                sigma_options.output_format = "dsl_lucene"
 
             # convert sigma
-            qq: list[GulpQuery] = mod.sigma_convert(qs.q, qs.s_options)
-            for q in qq:
+            lgq: list[GulpQuery] = mod.sigma_convert(qs.q, sigma_options)
+            for q in lgq:
                 # set external
                 q.external_plugin = qs.external_plugin
-                q.external_plugin_params = qs.plugin_params
+                q.external_plugin_params = deepcopy(plugin_params)
                 if qs.tags:
                     # add stored query tags too
                     [q.tags.append(t) for t in qs.tags if t not in q.tags]
 
-            queries.extend(qq)
+            queries.extend(lgq)
             await mod.unload()
         else:
             # this is a raw query
             if not qs.external_plugin:
                 # gulp local query, q is a json string
                 queries.append(
-                    GulpQuery(
-                        name=qs.name,
-                        q=json.loads(qs.q),
-                        tags=qs.tags,
-                        external_plugin=None,
-                        external_plugin_params=None,
-                    )
+                    GulpQuery(name=qs.name, q=json.loads(qs.q), tags=qs.tags)
                 )
             else:
                 # external query, pass q unaltered (the external plugin will handle it)
@@ -124,7 +140,7 @@ async def _stored_query_ids_to_gulp_queries(
                         q=qs.q,
                         tags=qs.tags,
                         external_plugin=qs.external_plugin,
-                        external_plugin_params=qs.plugin_params,
+                        external_plugin_params=deepcopy(plugin_params),
                     )
                 )
 
@@ -156,6 +172,7 @@ async def _query_internal(
                     if not mod:
                         # local query, gq.q is a dict
                         _, hits = await GulpQueryHelpers.query_raw(
+                            sess=sess,
                             user_id=user_id,
                             req_id=req_id,
                             ws_id=ws_id,
@@ -163,12 +180,11 @@ async def _query_internal(
                             q=gq.q,
                             q_options=q_options,
                             flt=flt,
-                            sess=sess,
                         )
                     else:
                         # external query
                         _, hits = await mod.query_external(
-                            sess,
+                            sess=sess,
                             user_id=user_id,
                             req_id=req_id,
                             ws_id=ws_id,
@@ -258,6 +274,9 @@ async def _spawn_query_group_workers(
 
         if num_queries > 1 and query_matched == num_queries:
             # all queries in the group matched, change note names to query group name
+            MutyLogger.get_instance().info(
+                "query group '%s' matched, updating notes!" % (q_options.group)
+            )
             if q_options.note_parameters.create_notes:
                 async with GulpCollab.get_instance().session() as sess:
                     await GulpNote.bulk_update_tags(
@@ -285,6 +304,18 @@ async def _spawn_query_group_workers(
         q_options=q_options,
         flt=flt,
     )
+
+    # create a stats, just to allow request canceling
+    async with GulpCollab.get_instance().session() as sess:
+        await GulpRequestStats.create(
+            sess,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            operation_id=None,
+            context_id=None,
+            source_total=len(queries),
+        )
 
     await GulpProcess.get_instance().coro_pool.spawn(_worker_coro(kwds))
 
@@ -642,7 +673,7 @@ async def query_sigma_handler(
             }
         }
     },
-    summary="Query using sigma rule/s.",
+    summary="Query using stored queries.",
     description="""
 query using queries stored on the Gulp `collab` database.
 
@@ -664,11 +695,11 @@ query using queries stored on the Gulp `collab` database.
 ### external queries
 
 - all `stored queries` must have the same `external_plugin` set.
-- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
+- `q_options.external_parameters.plugin` is ignored (taken from the stored query).
 - `flt` is not supported.
 """,
 )
-async def query_stored(
+async def query_stored_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
@@ -713,7 +744,8 @@ async def query_stored(
         for q in queries:
             if external_plugin != q.external_plugin:
                 raise ValueError(
-                    "all queries must be handled by the same external plugin."
+                    "all queries must be handled by the same external plugin (external_plugin=%s, q.external_plugin=%s)"
+                    % (external_plugin, q.external_plugin)
                 )
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them

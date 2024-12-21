@@ -155,6 +155,7 @@ class GulpIngestSourceDonePacket(BaseModel):
                     "source_id": TEST_SOURCE_ID,
                     "context_id": TEST_CONTEXT_ID,
                     "req_id": TEST_REQ_ID,
+                    "num_docs": 100,
                     "status": GulpRequestStatus.DONE,
                 }
             ]
@@ -168,6 +169,15 @@ class GulpIngestSourceDonePacket(BaseModel):
         ...,
         description="The context ID in the collab database.",
         alias="gulp.context_id",
+    )
+    docs_ingested: int = Field(
+        ..., description="The number of documents ingested in this source."
+    )
+    docs_skipped: int = Field(
+        ..., description="The number of documents skipped in this source."
+    )
+    docs_failed: int = Field(
+        ..., description="The number of documents failed in this source."
     )
     req_id: str = Field(..., description="The request ID.")
     status: GulpRequestStatus = Field(..., description="The request status.")

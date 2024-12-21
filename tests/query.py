@@ -29,21 +29,16 @@ from muty.log import MutyLogger
 
 
 @pytest.mark.asyncio
-async def test_windows():
+async def test_win_evtx():
     """
-    NOTE: assumes the test windows samples on an empty gulp index with
-
-    ./test_scripts/test_ingest.py --path ./samples/win_evtx
+    NOTE: assumes the test windows samples in ./samples/win_evtx are ingested
 
     and the gulp server running on http://localhost:8080
     """
 
     async def _test_sigma_multi(token: str, plugin: str):
-        # read sigma
+        # read sigmas
         current_dir = os.path.dirname(os.path.realpath(__file__))
-        sigma_match_all = await muty.file.read_file_async(
-            os.path.join(current_dir, "sigma/match_all.yaml")
-        )
 
         sigma_match_some = await muty.file.read_file_async(
             os.path.join(current_dir, "sigma/match_some.yaml")
@@ -114,6 +109,125 @@ async def test_windows():
                         else:
                             raise ValueError(
                                 f"unexpected query group name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed:
+                MutyLogger.get_instance().warning("WebSocket connection closed")
+
+        assert test_completed
+        MutyLogger.get_instance().info("test succeeded!")
+
+    async def _test_sigma_stored(token: str):
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryAdditionalParameters(group="test group")
+                        await GulpAPIQuery.query_stored(
+                            token,
+                            TEST_INDEX,
+                            ["test_stored_sigma_1", "test_stored_sigma_2"],
+                            q_options,
+                        )
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.name
+                        )
+                        if q_done_packet.name == "match_some_event_sequence_numbers":
+                            assert q_done_packet.total_hits == 56
+                        elif (
+                            q_done_packet.name
+                            == "match_some_more_event_sequence_numbers"
+                        ):
+                            assert q_done_packet.total_hits == 32
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
+                            )
+                    elif data["type"] == "query_group_match":
+                        # query done
+                        q_group_match_packet: GulpQueryGroupMatchPacket = (
+                            GulpQueryGroupMatchPacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query group match, name=%s", q_group_match_packet.name
+                        )
+                        if q_group_match_packet.name == "test group":
+                            assert q_group_match_packet.total_hits == 88
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query group name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed:
+                MutyLogger.get_instance().warning("WebSocket connection closed")
+
+        assert test_completed
+        MutyLogger.get_instance().info("test succeeded!")
+
+    async def _test_raw_stored(token: str):
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryAdditionalParameters()
+                        await GulpAPIQuery.query_stored(
+                            token,
+                            TEST_INDEX,
+                            ["test_stored_raw"],
+                            q_options,
+                        )
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.name
+                        )
+                        if q_done_packet.name == "raw stored query":
+                            assert q_done_packet.total_hits == 56
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
                             )
                         break
 
@@ -294,6 +408,13 @@ async def test_windows():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
+    async def _test_single_id(token: str):
+        d = await GulpAPIQuery.query_single_id(
+            token, "a7a7bd6b7141a14b41d8b699ccef06d0", TEST_INDEX
+        )
+        assert d["_id"] == "a7a7bd6b7141a14b41d8b699ccef06d0"
+        MutyLogger.get_instance().info("test succeeded!")
+
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
@@ -307,89 +428,22 @@ async def test_windows():
     assert guest_token
 
     # test different queries
+    await _test_raw_stored(guest_token)
+    await _test_sigma_stored(guest_token)
     await _test_gulp(guest_token)
     await _test_raw(guest_token)
     await _test_sigma_single(guest_token, test_plugin)
     await _test_sigma_multi(guest_token, test_plugin)
+    await _test_single_id(guest_token)
 
 
 @pytest.mark.asyncio
 async def test_splunk():
-    async def _test_raw_external(token: str):
-        _, host = TEST_HOST.split("://")
-        ws_url = f"ws://{host}/ws"
-        test_completed = False
-        async with websockets.connect(ws_url) as ws:
-            # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
-            await ws.send(p.model_dump_json(exclude_none=True))
-
-            # receive responses
-            try:
-                while True:
-                    response = await ws.recv()
-                    data = json.loads(response)
-
-                    if data["type"] == "ws_connected":
-                        # run test
-                        q_options = GulpQueryAdditionalParameters()
-                        q_options.name = "test_raw_query_splunk"
-                        q_options.external_parameters.plugin = "splunk"
-                        q_options.external_parameters.uri = "http://localhost:8089"
-                        q_options.external_parameters.username = "admin"
-                        q_options.external_parameters.password = "Valerino74!"
-                        q_options.external_parameters.operation_id = TEST_OPERATION_ID
-                        q_options.external_parameters.context_name = "splunk_context"
-                        q_options.external_parameters.ingest_index = "test_idx"
-
-                        # also use additional windows mapping for this test
-                        q_options.external_parameters.plugin_params.additional_mapping_files = [
-                            ("windows.json", "windows")
-                        ]
-                        # 56590 entries
-                        index = "incidente_183651"
-                        await GulpAPIQuery.query_raw(
-                            token,
-                            index,
-                            "index=%s" % (index),
-                            flt=GulpQueryFilter(
-                                sourcetype=["WinEventLog:Security"],
-                                Nome_applicazione=[
-                                    "\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe"
-                                ],
-                            ),
-                            q_options=q_options,
-                        )
-                    elif data["type"] == "query_done":
-                        # query done
-                        q_done_packet: GulpQueryDonePacket = (
-                            GulpQueryDonePacket.model_validate(data["data"])
-                        )
-                        MutyLogger.get_instance().debug(
-                            "query done, name=%s", q_done_packet.name
-                        )
-                        if q_done_packet.name == "test_raw_query_splunk":
-                            assert q_done_packet.total_hits == 56590
-                            test_completed = True
-                        else:
-                            raise ValueError(
-                                f"unexpected query name: {q_done_packet.name}"
-                            )
-                        break
-
-                    # ws delay
-                    await asyncio.sleep(0.1)
-
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
-
-        assert test_completed
-        MutyLogger.get_instance().info("test succeeded!")
-
     async def _test_sigma_external(token: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         # read sigma
         current_dir = os.path.dirname(os.path.realpath(__file__))
         sigma_splunk_1 = await muty.file.read_file_async(
@@ -417,16 +471,17 @@ async def test_splunk():
                         q_options.name = "test_raw_query_splunk"
                         q_options.sigma_parameters.plugin = "splunk"
                         q_options.group = "test group"
-                        q_options.external_parameters
                         q_options.external_parameters.plugin = "splunk"
                         q_options.external_parameters.uri = "http://localhost:8089"
                         q_options.external_parameters.username = "admin"
                         q_options.external_parameters.password = "Valerino74!"
                         q_options.external_parameters.operation_id = TEST_OPERATION_ID
                         q_options.external_parameters.context_name = "splunk_context"
+
+                        # set ingest index
                         q_options.external_parameters.ingest_index = "test_idx"
 
-                        # also use additional windows mapping for this test
+                        # also use additional windows mapping
                         q_options.external_parameters.plugin_params.additional_mapping_files = [
                             ("windows.json", "windows")
                         ]
@@ -487,6 +542,201 @@ async def test_splunk():
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
 
+    async def _test_sigma_external_stored_no_ingest(token: str):
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryAdditionalParameters()
+                        q_options.external_parameters.uri = "http://localhost:8089"
+                        q_options.external_parameters.username = "admin"
+                        q_options.external_parameters.password = "Valerino74!"
+                        q_options.external_parameters.operation_id = TEST_OPERATION_ID
+                        q_options.external_parameters.context_name = "splunk_context"
+
+                        index = "incidente_183651"
+                        await GulpAPIQuery.query_stored(
+                            token,
+                            index,
+                            ["test_stored_sigma_splunk"],
+                            q_options=q_options,
+                        )
+
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.name
+                        )
+                        if (
+                            q_done_packet.name
+                            == "splunk_sigma_eventcode_5156_recordnumber"
+                        ):
+                            assert q_done_packet.total_hits == 1
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed:
+                MutyLogger.get_instance().warning("WebSocket connection closed")
+
+        assert test_completed
+        MutyLogger.get_instance().info("test succeeded!")
+
+    async def _test_raw_external_no_ingestion(token: str):
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryAdditionalParameters()
+                        q_options.name = "test_raw_query_splunk"
+                        q_options.external_parameters.plugin = "splunk"
+                        q_options.external_parameters.uri = "http://localhost:8089"
+                        q_options.external_parameters.username = "admin"
+                        q_options.external_parameters.password = "Valerino74!"
+                        q_options.external_parameters.operation_id = TEST_OPERATION_ID
+                        q_options.external_parameters.context_name = "splunk_context"
+
+                        # also use additional windows mapping
+                        q_options.external_parameters.plugin_params.additional_mapping_files = [
+                            ("windows.json", "windows")
+                        ]
+                        # 56590 entries
+                        index = "incidente_183651"
+                        await GulpAPIQuery.query_raw(
+                            token,
+                            index,
+                            "index=%s" % (index),
+                            flt=GulpQueryFilter(
+                                sourcetype=["WinEventLog:Security"],
+                                Nome_applicazione=[
+                                    "\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe"
+                                ],
+                            ),
+                            q_options=q_options,
+                        )
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.name
+                        )
+                        if q_done_packet.name == "test_raw_query_splunk":
+                            assert q_done_packet.total_hits == 56590
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed:
+                MutyLogger.get_instance().warning("WebSocket connection closed")
+
+        assert test_completed
+        MutyLogger.get_instance().info("test succeeded!")
+
+    async def _test_raw_external_stored(token: str):
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryAdditionalParameters()
+                        q_options.external_parameters.uri = "http://localhost:8089"
+                        q_options.external_parameters.username = "admin"
+                        q_options.external_parameters.password = "Valerino74!"
+                        q_options.external_parameters.operation_id = TEST_OPERATION_ID
+                        q_options.external_parameters.context_name = "splunk_context"
+
+                        # set ingest index
+                        q_options.external_parameters.ingest_index = "test_idx"
+
+                        index = "incidente_183651"
+                        await GulpAPIQuery.query_stored(
+                            token,
+                            index,
+                            ["test_stored_raw_splunk"],
+                            q_options=q_options,
+                        )
+
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.name
+                        )
+                        if q_done_packet.name == "splunk raw query":
+                            assert q_done_packet.total_hits == 1
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed:
+                MutyLogger.get_instance().warning("WebSocket connection closed")
+
+        assert test_completed
+        MutyLogger.get_instance().info("test succeeded!")
+
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
@@ -499,5 +749,7 @@ async def test_splunk():
     assert guest_token
 
     # test different queries
-    await _test_raw_external(guest_token)
+    await _test_sigma_external_stored_no_ingest(guest_token)
+    await _test_raw_external_no_ingestion(guest_token)
+    await _test_raw_external_stored(guest_token)
     await _test_sigma_external(guest_token)

@@ -380,6 +380,7 @@ class GulpQueryHelpers:
 
     @staticmethod
     async def query_raw(
+        sess: AsyncSession,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -388,12 +389,12 @@ class GulpQueryHelpers:
         flt: GulpQueryFilter = None,
         q_options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch = None,
-        sess: AsyncSession = None,
     ) -> tuple[int, int]:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
 
         Args:
+            sess(AsyncSession): collab database session
             user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
@@ -403,7 +404,6 @@ class GulpQueryHelpers:
             q_options(GulpQueryAdditionalParameters, optional): additional options to use
             el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
             user_id(str, optional): the user id of the requestor (default=use the token to get the user id)
-            sess(AsyncSession, optional): collab database session, used only if options.sigma_parameters.create_notes is set
         Returns:
             tuple[int, int]: the number of documents processed and the total number of documents found
         Raises:
@@ -417,6 +417,7 @@ class GulpQueryHelpers:
             q = flt.merge_to_opensearch_dsl(q)
 
         processed, total = await GulpOpenSearch.get_instance().search_dsl(
+            sess=sess,
             index=index,
             q=q,
             req_id=req_id,
@@ -424,7 +425,6 @@ class GulpQueryHelpers:
             user_id=user_id,
             q_options=q_options,
             el=el,
-            sess=sess,
         )
         return processed, total
 
