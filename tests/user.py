@@ -60,8 +60,8 @@ async def test():
     t = await GulpAPIUser.logout(admin_token)
     assert t == admin_token
 
-    # admin should be logget out
-    await GulpAPIUser.user_list(admin_token, expected_status=404)
+    # admin should be logget out, calling any api should return 401
+    await GulpAPIUser.user_list(admin_token, expected_status=401)
 
     # guest tests now!
 

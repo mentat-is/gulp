@@ -383,9 +383,7 @@ async def user_update_handler(
             if user_data:
                 if merge_user_data:
                     dd = u.user_data if u.user_data else {}
-                    MutyLogger.get_instance().debug(
-                        "existing user data=%s" % (dd)
-                    )
+                    MutyLogger.get_instance().debug("existing user data=%s" % (dd))
                     dd.update(user_data)
                     d["user_data"] = dd
                     MutyLogger.get_instance().debug(

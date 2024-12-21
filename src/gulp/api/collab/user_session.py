@@ -145,7 +145,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             )
             # MutyLogger.get_instance().debug("got user session for token %s: %s" % (token, user_session.to_dict()))
         except ObjectNotFound:
-            raise ObjectNotFound('token "%s" not logged in' % (token))
+            raise MissingPermission('token "%s" not logged in' % (token))
 
         if not obj and not permission:
             # no permission or object provided, just return the session

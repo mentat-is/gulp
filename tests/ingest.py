@@ -20,6 +20,7 @@ from gulp.api.rest.test_values import (
 from gulp.api.ws_api import GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
 from tests.api.common import GulpAPICommon
+from tests.api.query import GulpAPIQuery
 from tests.api.user import GulpAPIUser
 from tests.api.ingest import GulpAPIIngest
 from tests.api.db import GulpAPIDb
@@ -233,6 +234,21 @@ async def test_csv_custom_mapping():
 
     # wait for all processes to finish
     await _ws_loop(10)
+
+    # test query operations
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+    ops = await GulpAPIQuery.query_operations(guest_token, TEST_INDEX)
+    assert ops[0]["contexts"][0]["plugins"][0]["name"] == "csv"
+    assert (
+        ops[0]["contexts"][0]["plugins"][0]["sources"][0]["min_gulp.timestamp"]
+        == 1258476898794248960
+    )
+
+    # test query max-min timestamp
+    data = await GulpAPIQuery.query_max_min_per_field(guest_token, TEST_INDEX)
+    assert data["buckets"][0]["*"]["doc_count"] == 10
+    assert data["buckets"][0]["*"]["min_gulp.timestamp"] == 1258476898794248960
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     ARRAY,
     BIGINT,
+    VARCHAR,
     Boolean,
     ColumnElement,
     ForeignKey,
@@ -18,9 +19,12 @@ from sqlalchemy import (
     String,
     Tuple,
     and_,
+    column,
+    exists,
     func,
     insert,
     inspect,
+    literal,
     or_,
     select,
     text,
@@ -253,30 +257,37 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             ColumnElement[bool]: The OR query.
         """
         # print("column=%s, values=%s" % (column, values))
-        conditions = [column.ilike(f"{value}") for value in values]
+        conditions = [column.ilike(value) for value in values]
         return or_(*conditions)
 
     def _array_contains_all(self, array_field, values):
         """
         array containment check (ALL must match)
         """
-
-        # cast both arrays to text[] and lowercase
-        array_expr = func.array(
-            select(func.lower(func.unnest(array_field))).scalar_subquery()
-        )
-        return array_expr.op("@>")(values)
+        lowered_values = [val.lower() for val in values]
+        conditions = []
+        for val in lowered_values:
+            subq = (
+                select(literal(1))
+                .select_from(func.unnest(array_field).alias("elem"))
+                .where(func.lower(column("elem")) == val)
+            )
+            conditions.append(exists(subq))
+        return and_(*conditions)
 
     def _array_contains_any(self, array_field, values):
         """
         array overlap check (ANY must match)
         """
+        lowered_values = [val.lower() for val in values]
 
-        # cast both arrays to text[] and lowercase
-        array_expr = func.array(
-            select(func.lower(func.unnest(array_field))).scalar_subquery()
+        # Unnest the array, compare each element in a simple WHERE condition
+        subq = (
+            select(literal(1))
+            .select_from(func.unnest(array_field).alias("elem"))
+            .where(func.lower(column("elem")).in_(lowered_values))
         )
-        return array_expr.op("&&")(values)
+        return exists(subq)
 
     def to_select_query(self, type: T, with_for_update: bool = False) -> Select[Tuple]:
         """
@@ -329,7 +340,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             # any extra fields to filter on (case-insensitive, OR, expects v to be an array of strings)
             for k, v in self.model_extra.items():
                 if k in type.columns:
-                    q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
+                    # q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
+                    q = q.filter(self._array_contains_any(getattr(type, k), v))
 
         if self.doc_ids and "doc_ids" in type.columns:
             # return all collab objects that have at least one document with _id in doc_ids
@@ -403,7 +415,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
         if with_for_update:
             q = q.with_for_update()
-        MutyLogger.get_instance().debug(f"to_select_query: {q}")
+        # MutyLogger.get_instance().debug(f"to_select_query: {q}")
         return q
 
 
@@ -1274,6 +1286,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         token: str,
         flt: GulpCollabFilter,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        throw_if_not_found: bool = False,
         nested: bool = False,
     ) -> list[dict]:
         """
@@ -1283,6 +1296,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             token (str): The user token.
             flt (GulpCollabFilter): The filter to apply to the query.
             permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
+            throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to False (return empty list).
             nested (bool, optional): If True, nested relationships will be loaded. Defaults to False.
         Returns:
             list[dict]: The list of object dictionaries that match the filter criteria.
@@ -1293,7 +1307,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
-            objs = await cls.get_by_filter(sess, flt)
+            objs = await cls.get_by_filter(
+                sess, flt, throw_if_not_found=throw_if_not_found
+            )
+            if not objs:
+                return []
+
             data = []
             for o in objs:
                 o: GulpCollabBase
@@ -1420,7 +1439,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         Args:
             token (str): The user token.
-            ws_id (str): The websocket ID.
+            ws_id (str): The websocket ID: pass None to not notify the websocket.
             req_id (str): The request ID.
             object_data (dict): The data to create the object with.
             permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.

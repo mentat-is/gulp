@@ -1036,10 +1036,11 @@ class GulpOpenSearch:
         Returns:
             liist[dict]: The aggregations result (WARNING: will return at most "aggregation_max_buckets" hits, which should cover 99,99% of the usage ....).
         """
-        max_buckets = GulpConfig.get_instance().aggregation_max_buckets()
 
         def _create_terms_aggregation(field):
             return {"terms": {"field": field, "size": max_buckets}}
+
+        max_buckets = GulpConfig.get_instance().aggregation_max_buckets()
 
         aggs = {"operations": _create_terms_aggregation("gulp.operation_id")}
         aggs["operations"]["aggs"] = {
@@ -1062,6 +1063,7 @@ class GulpOpenSearch:
         body = {
             "track_total_hits": True,
             "aggregations": aggs,
+            "size": 0,
         }
         headers = {
             "content-type": "application/json",
@@ -1077,6 +1079,7 @@ class GulpOpenSearch:
             return []
 
         d = {"total": hits, "aggregations": res["aggregations"]}
+        # MutyLogger.get_instance().debug(json.dumps(d, indent=2))
         return await self._parse_operation_aggregation(d["aggregations"])
 
     async def query_single_document(

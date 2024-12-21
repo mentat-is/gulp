@@ -1,8 +1,15 @@
 import pytest
 from muty.log import MutyLogger
 from gulp.api.collab.structs import GulpCollabFilter
-from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
+from gulp.api.rest.test_values import (
+    TEST_HOST,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
+    TEST_WS_ID,
+)
 from tests.api.common import GulpAPICommon
+from tests.api.query import GulpAPIQuery
 from tests.api.user import GulpAPIUser
 from tests.api.operation import GulpAPIOperation
 from tests.api.db import GulpAPIDb
@@ -86,5 +93,18 @@ async def test():
     # back to one operation
     operations = await GulpAPIOperation.operation_list(guest_token)
     assert operations and len(operations) == 1
+
+    # delete operation with data
+    d = await GulpAPIOperation.operation_delete(
+        admin_token, TEST_OPERATION_ID, index=TEST_INDEX
+    )
+
+    # check data on opensearch (should be empty)
+    res = await GulpAPIQuery.query_operations(admin_token, TEST_INDEX)
+    assert not res
+
+    # verify that the operation is deleted
+    operations = await GulpAPIOperation.operation_list(guest_token)
+    assert len(operations) == 0
 
     MutyLogger.get_instance().info("all OPERATION tests succeeded!")

@@ -186,7 +186,7 @@ class APIDependencies:
         Returns:
             str: The name.
         """
-        return APIDependencies._strip_or_none(name)
+        return APIDependencies._strip_or_none(name, lower=False)
 
     @staticmethod
     def param_display_name_optional(
@@ -206,7 +206,7 @@ class APIDependencies:
         Returns:
             str: The name.
         """
-        return APIDependencies._strip_or_none(name)
+        return APIDependencies._strip_or_none(name, lower=False)
 
     @staticmethod
     def param_tags_optional(

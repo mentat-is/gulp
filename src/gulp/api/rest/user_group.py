@@ -175,7 +175,7 @@ async def user_group_update_handler(
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals)
+    ServerUtils.dump_params(locals())
     try:
         if not any([permission, description, glyph_id]):
             raise ValueError(

@@ -83,8 +83,10 @@ async def test():
     s = await GulpAPIStory.story_list(guest_token, flt)
     assert s and len(s) == 1 and s[0]["id"] == story["id"]
 
+    # non-existing doc
     flt = GulpCollabFilter(doc_ids=["doc15"])
-    await GulpAPIStory.story_list(guest_token, flt, expected_status=404)
+    l = await GulpAPIStory.story_list(guest_token, flt)
+    assert not l
 
     # guest cannot edit the story
     _ = await GulpAPIStory.story_update(

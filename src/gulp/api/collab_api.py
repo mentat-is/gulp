@@ -395,7 +395,7 @@ class GulpCollab:
                 user_session=admin_session,
             )
 
-            # create test stored queries
+            # create test stored queries (5)
             s_options = GulpQuerySigmaParameters(plugin="win_evtx")
             sigma_match_some = await muty.file.read_file_async(
                 muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")

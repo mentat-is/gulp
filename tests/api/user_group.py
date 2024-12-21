@@ -6,7 +6,127 @@ class GulpAPIUserGroup:
     """
     bindings to call gulp's user group related API endpoints
     """
+    @staticmethod
+    async def usergroup_create(
+        token: str,
+        name: str,
+        permission: list,
+        description: str = None,
+        glyph_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "name": name,
+            "glyph_id": glyph_id,
+            "req_id": api_common.req_id,
+        }
+        body = {
+            "description": description,
+            "permission": permission,
+        }
+        res = await api_common.make_request(
+            "POST",
+            "user_group_create",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
 
+    @staticmethod
+    async def usergroup_update(
+        token: str,
+        group_id: str,
+        permission: list = None,
+        description: str = None,
+        glyph_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "group_id": group_id,
+            "glyph_id": glyph_id,
+            "req_id": api_common.req_id,
+        }
+        body = {
+            "description": description,
+            "permission": permission,
+        }
+        res = await api_common.make_request(
+            "PATCH",
+            "user_group_update",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
+    async def usergroup_delete(
+        token: str,
+        group_id: str,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "group_id": group_id,
+            "req_id": api_common.req_id,
+        }
+        res = await api_common.make_request(
+            "DELETE",
+            "user_group_delete",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
+    async def usergroup_get_by_id(
+        token: str,
+        group_id: str,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "group_id": group_id,
+            "req_id": api_common.req_id,
+        }
+        res = await api_common.make_request(
+            "GET",
+            "user_group_get_by_id",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
+    async def usergroup_list(
+        token: str,
+        flt: dict = None,
+        expected_status: int = 200,
+    ) -> list[dict]:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "req_id": api_common.req_id,
+        }
+        body = {
+            "flt": flt,
+        }
+        res = await api_common.make_request(
+            "POST",
+            "user_group_list",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+    
     @staticmethod
     async def _usergroup_add_remove_user(
         token: str,

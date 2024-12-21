@@ -436,7 +436,6 @@ async def test_win_evtx():
     await _test_sigma_multi(guest_token, test_plugin)
     await _test_single_id(guest_token)
 
-
 @pytest.mark.asyncio
 async def test_splunk():
     async def _test_sigma_external(token: str):

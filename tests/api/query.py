@@ -211,3 +211,67 @@ class GulpAPIQuery:
             expected_status=expected_status,
         )
         return res
+
+    @staticmethod
+    async def query_operations(
+        token: str,
+        index: str,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> list[dict]:
+        """
+        Get operations with aggregations
+        """
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "index": index,
+            "req_id": req_id or api_common.req_id,
+            "ws_id": api_common.ws_id,
+        }
+
+        res = await api_common.make_request(
+            "GET",
+            "query_operations",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod 
+    async def query_max_min_per_field(
+        token: str,
+        index: str,
+        group_by: str = None,
+        flt: GulpQueryFilter = None,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> dict:
+        """
+        Get max/min values per field with optional grouping
+        """
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "index": index,
+            "group_by": group_by,
+            "req_id": req_id or api_common.req_id,
+            "ws_id": api_common.ws_id,
+        }
+
+        body = {
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "query_max_min_per_field", 
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res

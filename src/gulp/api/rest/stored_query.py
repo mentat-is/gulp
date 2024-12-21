@@ -79,21 +79,26 @@ async def stored_query_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["s_options"] = s_options.model_dump(exclude_none=True)
+    params["s_options"] = s_options.model_dump(exclude_none=True) if s_options else None
     ServerUtils.dump_params(params)
     try:
         object_data = {
             "name": name,
             "q": q,
             "q_groups": q_groups,
-            "s_options": s_options.model_dump(exclude_none=True),
+            "s_options": s_options.model_dump(exclude_none=True) if s_options else None,
             "tags": tags,
             "description": description,
             "glyph_id": glyph_id,
         }
         q_id: str = None
         d = await GulpStoredQuery.create(
-            token, req_id=req_id, object_data=object_data, id=q_id, private=private
+            token,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            object_data=object_data,
+            id=q_id,
+            private=private,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -152,7 +157,7 @@ async def stored_query_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["s_options"] = s_options.model_dump(exclude_none=True)
+    params["s_options"] = s_options.model_dump(exclude_none=True) if s_options else None
     ServerUtils.dump_params(params)
     try:
         if not any([q, q_groups, tags, description, glyph_id, s_options]):
