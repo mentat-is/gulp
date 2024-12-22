@@ -524,7 +524,7 @@ class GulpOpenSearch:
         except NotFoundError:
             return False
 
-    async def datastream_create(self, ds: str, index_template: str = None) -> dict:
+    async def datastream_create(self, ds: str, index_template: str = None, delete_first: bool=True) -> dict:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
@@ -532,13 +532,15 @@ class GulpOpenSearch:
             ds(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
                 if it already exists, it will be deleted first.
             index_template (str, optional): path to the index template to use. Defaults to None (use the default index template).
+            delete_first (bool, optional): Whether to delete the datastream first if it exists. Defaults to True.
 
         Returns:
             dict: The response from the OpenSearch client after creating the datastream.
         """
-        # attempt to delete the datastream first, if it exists
-        MutyLogger.get_instance().debug('re/creating datastream "%s" ...' % (ds))
-        await self.datastream_delete(ds)
+        if delete_first:
+            # attempt to delete the datastream first, if it exists
+            MutyLogger.get_instance().debug('re/creating datastream "%s" ...' % (ds))
+            await self.datastream_delete(ds)
 
         # create index template, check if we are overriding the default index template.
         # if so, we only apply gulp-related patching and leaving everything else as is
@@ -700,6 +702,7 @@ class GulpOpenSearch:
         dest_index: str,
         offset_msec: int,
         flt: GulpQueryFilter = None,
+        rebase_script: str = None,
     ) -> dict:
         """
         Rebase documents from one OpenSearch index to another with a timestamp offset.
@@ -708,6 +711,8 @@ class GulpOpenSearch:
             dest_index (str): The destination index name.
             offset_msec (int): The offset in milliseconds from unix epoch to adjust the '@timestamp' field.
             flt (GulpQueryFilter, optional): if set, it will be used to rebase only a subset of the documents. Defaults to None.
+            rebase_script (str, optional): a [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize rebasing. Defaults to None (use the default script).
+                the rebase script takes a single parameter `nsec_offset` which is the offset in nanoseconds to apply to the '@timestamp' field.
         Returns:
             dict: The response from the OpenSearch reindex operation.
 
@@ -721,14 +726,17 @@ class GulpOpenSearch:
 
         q = flt.to_opensearch_dsl()
 
-        convert_script = """
-            if (ctx._source['@timestamp'] != 0) {
-                def ts = ZonedDateTime.parse(ctx._source['@timestamp']);
-                def new_ts = ts.plusNanos(params.nsec_offset);
-                ctx._source['@timestamp'] = new_ts.toString();
-                ctx._source["gulp.timestamp"] += params.nsec_offset;
-            }
-        """
+        if rebase_script:
+            convert_script = rebase_script
+        else:
+            convert_script = """
+                if (ctx._source['@timestamp'] != 0) {
+                    def ts = ZonedDateTime.parse(ctx._source['@timestamp']);
+                    def new_ts = ts.plusNanos(params.offset_nsec);
+                    ctx._source['@timestamp'] = new_ts.toString();
+                    ctx._source["gulp.timestamp"] += params.offset_nsec;
+                }
+            """
 
         body: dict = {
             "source": {"index": index, "query": q["query"]},
@@ -737,7 +745,7 @@ class GulpOpenSearch:
                 "lang": "painless",
                 "source": convert_script,
                 "params": {
-                    "nsec_offset": offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS,
+                    "offset_nsec": offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS,
                 },
             },
         }
@@ -749,6 +757,7 @@ class GulpOpenSearch:
 
         MutyLogger.get_instance().debug("rebase body=%s" % (body))
         res = await self._opensearch.reindex(body=body, params=params, headers=headers)
+        MutyLogger.get_instance().debug("rebase result=%s" % (res))
         return res
 
     async def index_refresh(self, index: str) -> None:

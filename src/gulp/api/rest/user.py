@@ -335,7 +335,7 @@ async def user_update_handler(
         dict,
         Body(
             description="user data to set.",
-            example={"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]},
+            examples=[{"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]}],
         ),
     ] = None,
     merge_user_data: Annotated[

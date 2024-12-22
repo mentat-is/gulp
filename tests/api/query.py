@@ -138,8 +138,7 @@ class GulpAPIQuery:
     async def query_single_id(
         token: str,
         doc_id: Any,
-        index: str = None,
-        q_options: GulpQueryAdditionalParameters = None,
+        index: str,
         expected_status: int = 200,
         req_id: str = None,
     ) -> dict:
@@ -150,21 +149,11 @@ class GulpAPIQuery:
             "doc_id": doc_id,
             "index": index,
         }
-        body = {
-            "q_options": (
-                q_options.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
-                if q_options
-                else None
-            ),
-        }
 
         res = await api_common.make_request(
             "POST",
             "query_single_id",
             params=params,
-            body=body,
             token=token,
             expected_status=expected_status,
         )

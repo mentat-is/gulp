@@ -46,8 +46,7 @@ from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
 
-EXAMPLE_SIGMA_RULE = """
-title: Match All Events
+EXAMPLE_SIGMA_RULE = """title: Match All Events
 id: 1a070ea4-87f4-467c-b1a9-f556c56b2449
 status: test
 description: Matches all events in the data source
@@ -435,7 +434,7 @@ async def query_raw_handler(
             description="""query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/),
 or a query in the external source DSL.
 """,
-            example={"query": {"match_all": {}}},
+            examples=[{"query": {"match_all": {}}}],
         ),
     ],
     q_options: Annotated[
@@ -511,16 +510,10 @@ async def query_single_id_handler(
         str,
         Query(description="the `_id` of the document on Gulp `index`."),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)],
-    q_options: Annotated[
-        GulpQueryAdditionalParameters,
-        Depends(APIDependencies.param_query_additional_parameters_optional),
-    ],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    params = locals()
-    params["q_options"] = q_options.model_dump(exclude_none=True)
-    ServerUtils.dump_params(params)
+    ServerUtils.dump_params(locals())
 
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -584,7 +577,7 @@ async def query_sigma_handler(
         list[str],
         Body(
             description="one or more sigma rule YAML to create the queries with.",
-            example=[EXAMPLE_SIGMA_RULE],
+            examples=[EXAMPLE_SIGMA_RULE],
         ),
     ],
     q_options: Annotated[
@@ -705,7 +698,7 @@ async def query_stored_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     stored_query_ids: Annotated[
         list[str],
-        Body(description="one or more stored query IDs.", example=["id1", "id2"]),
+        Body(description="one or more stored query IDs.", examples=["query_2", "query_2"]),
     ],
     q_options: Annotated[
         GulpQueryAdditionalParameters,

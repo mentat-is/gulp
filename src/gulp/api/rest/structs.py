@@ -150,7 +150,8 @@ class APIDependencies:
         description: Annotated[
             Optional[str],
             Body(
-                description="the object description.", example="this is a description"
+                description="the object description.",
+                examples=["this is a description"],
             ),
         ] = None
     ) -> str:
@@ -398,7 +399,6 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
             Optional[str],
             Query(
                 description="id of a `glyph` in the collab database.",
-                example=None,
             ),
         ] = None
     ) -> str:

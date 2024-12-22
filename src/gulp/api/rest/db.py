@@ -19,6 +19,7 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.ws_api import GulpRebaseDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.process import GulpProcess
+from gulp.structs import ObjectNotFound
 
 router: APIRouter = APIRouter()
 
@@ -43,7 +44,11 @@ router: APIRouter = APIRouter()
         }
     },
     summary="deletes an opensearch datastream.",
-    description="deletes the datastream `index`, including all its backing indexes and template.",
+    description="""
+deletes the datastream `index`, including all its backing indexes and template.
+
+- `token` needs `ingest` permission.
+""",
 )
 async def opensearch_delete_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -55,7 +60,7 @@ async def opensearch_delete_index_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.ADMIN
+                sess, token, permission=GulpUserPermission.INGEST
             )
 
         await GulpOpenSearch.get_instance().datastream_delete(
@@ -193,6 +198,20 @@ async def opensearch_list_index_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
+async def _recreate_index_internal(
+    index: str, restart_processes: bool, index_template: str = None
+) -> None:
+    # reset data
+    await GulpOpenSearch.get_instance().reinit()
+    await GulpOpenSearch.get_instance().datastream_create(
+        index, index_template=index_template
+    )
+
+    if restart_processes:
+        # restart the process pool
+        await GulpProcess.get_instance().init_gulp_process()
+
+
 @router.post(
     "/opensearch_init_index",
     tags=["db"],
@@ -216,7 +235,7 @@ async def opensearch_list_index_handler(
     description="""
 > **WARNING: ANY EXISTING DOCUMENT WILL BE ERASED !**
 
-- `token` needs to have `admin` permission.
+- `token` needs `ingest` permission.
 - if `index` exists, it is **deleted** and recreated.
 """,
 )
@@ -242,18 +261,14 @@ async def opensearch_init_index_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.ADMIN
+                sess, token, permission=GulpUserPermission.INGEST
             )
 
         if index_template:
             # get index template from file
             f = await muty.uploadfile.to_path(index_template)
 
-        await GulpOpenSearch.get_instance().datastream_create(index, index_template=f)
-
-        if restart_processes:
-            # restart the process pool
-            await GulpProcess.get_instance().init_gulp_process()
+        await _recreate_index_internal(index, restart_processes, index_template=f)
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index}))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -363,12 +378,7 @@ async def gulp_reset_handler(
         await collab.init(force_recreate=True)
 
         # reset data
-        await GulpOpenSearch.get_instance().reinit()
-        await GulpOpenSearch.get_instance().datastream_create(index)
-
-        if restart_processes:
-            # restart the process pool
-            await GulpProcess.get_instance().init_gulp_process()
+        await _recreate_index_internal(index, restart_processes)
         return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -382,18 +392,26 @@ async def _rebase_internal(
     index: str,
     dest_index: str,
     offset_msec: int,
-    flt: str,
+    flt: GulpQueryFilter,
+    delete_if_exists: bool,
+    rebase_script: str,
 ):
     """
     runs in a worker process to rebase the index.
     """
     try:
         # create the destination datastream
-        await GulpOpenSearch.get_instance().datastream_create(dest_index)
+        await GulpOpenSearch.get_instance().datastream_create(
+            dest_index, delete_first=delete_if_exists
+        )
 
         # rebase
         res = await GulpOpenSearch.get_instance().rebase(
-            index, dest_index=dest_index, offset_msec=offset_msec, flt=flt
+            index,
+            dest_index=dest_index,
+            offset_msec=offset_msec,
+            flt=flt,
+            rebase_script=rebase_script,
         )
     except Exception as ex:
         # signal the websocket
@@ -457,7 +475,7 @@ rebases `index` and creates a new `dest_index` with rebased `@timestamp` + `offs
 
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
-- rebase happens in the background and **uses one of the worker processes**: when it is done, a `GulpWsQueueDataType.REBASE_DONE` event is sent to the `ws_id` websocket.
+- rebase happens in the background: when it is done, a `GulpWsQueueDataType.REBASE_DONE` event is sent to the `ws_id` websocket.
 """,
 )
 async def opensearch_rebase_index_handler(
@@ -482,7 +500,39 @@ async def opensearch_rebase_index_handler(
         ),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    create_dest_index: Annotated[
+        bool,
+        Query(
+            description="if true, the destination index is created if it not exists. either, an error is reported if `dest_index` does not exists.",
+        ),
+    ] = True,
+    delete_if_exists: Annotated[
+        bool,
+        Query(
+            description="if true, the destination index is deleted first (and recreated), if it exists.",
+        ),
+    ] = True,
     flt: Annotated[str, Depends(APIDependencies.param_query_flt_optional)] = None,
+    rebase_script: Annotated[
+        str,
+        Body(
+            description="""
+optional custom rebase script to run on the documents.
+                                       
+- must be a [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html).
+- the script receives as input a single parameter `offset_nsec`, the offset in `nanoseconds from the unix epoch` to be applied to the fields during the rebase operation.
+- the example script is the one applied by default (rebases `@timestamp` and `gulp.timestamp`).
+""",
+            examples=[
+                """if (ctx._source['@timestamp'] != 0) {
+    def ts = ZonedDateTime.parse(ctx._source['@timestamp']);
+    def new_ts = ts.plusNanos(params.offset_nsec);
+    ctx._source['@timestamp'] = new_ts.toString();
+    ctx._source["gulp.timestamp"] += params.offset_nsec;
+}"""
+            ],
+        ),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     params = locals()
@@ -502,6 +552,14 @@ async def opensearch_rebase_index_handler(
             )
             user_id = s.user_id
 
+        if not create_dest_index:
+            # check if the destination index exists
+            exists = await GulpOpenSearch.get_instance().datastream_exists(dest_index)
+            if not exists:
+                raise ObjectNotFound(
+                    "destination index %s does not exist!" % (dest_index)
+                )
+
         # spawn a task which runs the rebase in a worker process
         kwds = dict(
             user_id=user_id,
@@ -512,6 +570,8 @@ async def opensearch_rebase_index_handler(
             dest_index=dest_index,
             offset_msec=offset_msec,
             flt=flt,
+            delete_if_exists=delete_if_exists,
+            rebase_script=rebase_script,
         )
 
         async def worker_coro(kwds: dict):

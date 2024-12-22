@@ -131,23 +131,25 @@ to use HTTPS, the following certificates must be available:
 
 [with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
 
+> currently, we recommend to install from sources!
+>
 #### Test
-
-> this is preliminary doc until proper test is setup!
 
 ```bash
 # run gulp on localhost:8080
 GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
 
-# run test suite (covers all the API)
+# run test suite (covers the whole API, including ingestion and query)
 ./tests/test_suite.sh
 
 # or run single api test manually, i.e.
 # run windows ingest/query test (including sigma and stored queries)
-python3 -m pytest ./tests/query.py::test_win_evtx &&
+python3 -m pytest ./tests/query.py::test_win_evtx
 
 # run collab notes test (including user ACL)
-python3 -m pytest tests/note.py &&
+python3 -m pytest tests/note.py
+
+# ...
 ```
 
 ## Architecture

@@ -29,6 +29,7 @@ python3 -m pytest ./tests/ingest.py::test_win_evtx &&
 
     # various
     python3 -m pytest tests/utility.py &&
+    python3 -m pytest tests/db.py &&
 
     # !!! this must be run in the end, since will delete the whole data (both on opensearch and on collab db)
     python3 -m pytest tests/operation.py
