@@ -130,9 +130,19 @@ async def test():
     # check same document on new idx (should be 1 day ahead)
     doc = await GulpAPIQuery.query_single_id(guest_token, target_doc_id, new_index)
     assert doc["_id"] == target_doc_id
-    assert doc["@timestamp"] == "2014-07-17T04:04:24.614482Z" # was "2014-07-16T04:04:24.614482+00:00"
-    assert doc["gulp.timestamp"] == 1405569864614481920 # was 1405483464614481920
+    assert (
+        doc["@timestamp"] == "2014-07-17T04:04:24.614482Z"
+    )  # was "2014-07-16T04:04:24.614482+00:00"
+    assert doc["gulp.timestamp"] == 1405569864614481920  # was 1405483464614481920
+
+    # list indexes (should be 2)
+    indexes = await GulpAPIDb.opensearch_list_index(guest_token)
+    assert len(indexes) == 2
 
     # delete the new index
     await GulpAPIDb.opensearch_delete_index(ingest_token, new_index)
     MutyLogger.get_instance().info("all tests succeeded!")
+
+    # verify deleted
+    indexes = await GulpAPIDb.opensearch_list_index(guest_token)
+    assert len(indexes) == 1
