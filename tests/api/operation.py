@@ -39,7 +39,7 @@ class GulpAPIOperation:
     @staticmethod
     async def operation_update(
         token: str,
-        object_id: str,
+        operation_id: str,
         index: str = None,
         description: str = None,
         glyph_id: str = None,
@@ -48,7 +48,7 @@ class GulpAPIOperation:
         api_common = GulpAPICommon.get_instance()
 
         params = {
-            "object_id": object_id,
+            "operation_id": operation_id,
             "index": index,
             "glyph_id": glyph_id,
             "req_id": api_common.req_id,
@@ -68,7 +68,7 @@ class GulpAPIOperation:
     @staticmethod
     async def operation_delete(
         token: str,
-        object_id: str,
+        operation_id: str,
         delete_data: bool = True,
         index: str = None,
         expected_status: int = 200,
@@ -76,7 +76,7 @@ class GulpAPIOperation:
         api_common = GulpAPICommon.get_instance()
 
         params = {
-            "object_id": object_id,
+            "operation_id": operation_id,
             "delete_data": delete_data,
             "index": index,
             "req_id": api_common.req_id,
@@ -93,13 +93,13 @@ class GulpAPIOperation:
     @staticmethod
     async def operation_get_by_id(
         token: str,
-        object_id: str,
+        operation_id: str,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=object_id,
+            object_id=operation_id,
             api="operation_get_by_id",
             expected_status=expected_status,
         )
@@ -115,5 +115,98 @@ class GulpAPIOperation:
             token=token,
             api="operation_list",
             flt=flt,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
+    async def context_list(
+        token: str,
+        operation_id: str,
+        expected_status: int = 200,
+    ) -> list[dict]:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "req_id": api_common.req_id,
+        }
+        res = await api_common.make_request(
+            "GET",
+            "context_list",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
+    async def context_delete(
+        token: str,
+        operation_id: str,
+        context_id: str,
+        delete_data: bool = True,
+        index: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "context_id": context_id,
+            "delete_data": delete_data,
+            "index": index,
+            "req_id": api_common.req_id,
+        }
+        return await api_common.make_request(
+            "DELETE",
+            "context_delete",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
+    async def source_list(
+        token: str,
+        operation_id: str,
+        context_id: str,
+        expected_status: int = 200,
+    ) -> list[dict]:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "context_id": context_id,
+            "req_id": api_common.req_id,
+        }
+        return await api_common.make_request(
+            "GET",
+            "source_list",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
+    async def source_delete(
+        token: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        delete_data: bool = True,
+        index: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "context_id": context_id,
+            "source_id": source_id,
+            "delete_data": delete_data,
+            "index": index,
+            "req_id": api_common.req_id,
+        }
+        return await api_common.make_request(
+            "DELETE",
+            "source_delete",
+            params=params,
+            token=token,
             expected_status=expected_status,
         )

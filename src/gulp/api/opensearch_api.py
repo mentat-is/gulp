@@ -524,7 +524,9 @@ class GulpOpenSearch:
         except NotFoundError:
             return False
 
-    async def datastream_create(self, ds: str, index_template: str = None, delete_first: bool=True) -> dict:
+    async def datastream_create(
+        self, ds: str, index_template: str = None, delete_first: bool = True
+    ) -> dict:
         """
         (re)creates the OpenSearch datastream (with backing index) and associates the index template from configuration (or uses the default).
 
@@ -776,19 +778,92 @@ class GulpOpenSearch:
 
     async def delete_data_by_operation(
         self, index: str, operation_id: str, refresh: bool = True
-    ):
+    ) -> dict:
         """
         Deletes all data from an index that matches the given operation.
 
         Args:
             index (str): Name of the index (or datastream) to delete data from.
-            operation_id (int): The ID of the operation.
+            operation_id (str): The ID of the operation.
             refresh (bool, optional): Whether to refresh the index after deletion. Defaults to True.
 
         Returns:
             None
         """
-        q = {"query": {"term": {"gulp.operation_id": operation_id}}}
+        return await self._delete_data_by_operation_source_context(
+            index=index, operation_id=operation_id, refresh=refresh
+        )
+
+    async def delete_data_by_context(
+        self, index: str, operation_id: str, context_id: str, refresh: bool = True
+    ) -> dict:
+        """
+        Deletes all data from an index that matches the given operation and context.
+
+        Args:
+            index (str): Name of the index (or datastream) to delete data from.
+            operation_id (str): The ID of the operation.
+            context_id (str): The ID of the context.
+            refresh (bool, optional): Whether to refresh the index after deletion. Defaults to True.
+
+        Returns:
+            None
+        """
+        return await self._delete_data_by_operation_source_context(
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            refresh=refresh,
+        )
+
+    async def delete_data_by_source(
+        self,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        refresh: bool = True,
+    ) -> dict:
+        """
+        Deletes all data from an index that matches the given operation, context and source
+
+        Args:
+            index (str): Name of the index (or datastream) to delete data from.
+            operation_id (str): The ID of the operation.
+            context_id (str): The ID of the context.
+            source_id (str): The ID of the source
+            refresh (bool, optional): Whether to refresh the index after deletion. Defaults to True.
+
+        Returns:
+            None
+        """
+        return await self._delete_data_by_operation_source_context(
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            refresh=refresh,
+        )
+
+    async def _delete_data_by_operation_source_context(
+        self,
+        index: str,
+        operation_id: str,
+        context_id: str = None,
+        source_id: str = None,
+        refresh: bool = True,
+    ) -> dict:
+
+        # build bool query with must clauses
+        must_clauses = [{"term": {"gulp.operation_id": operation_id}}]
+
+        if context_id:
+            must_clauses.append({"term": {"gulp.context_id": context_id}})
+
+        if source_id:
+            must_clauses.append({"term": {"gulp.source_id": source_id}})
+
+        q = {"query": {"bool": {"must": must_clauses}}}
 
         params = None
         if refresh:
@@ -798,9 +873,11 @@ class GulpOpenSearch:
             "content-type": "application/x-ndjson",
         }
 
-        await self._opensearch.delete_by_query(
+        res = await self._opensearch.delete_by_query(
             index=index, body=q, params=params, headers=headers
         )
+        MutyLogger.get_instance().debug("delete_by_query result=%s" % (res))
+        return res
 
     def _parse_query_max_min(self, d: dict) -> dict:
         """
