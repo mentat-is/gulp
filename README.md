@@ -50,9 +50,9 @@ Here's the rough timeline we put together, it is subject to change:
 
 ### TLDR ;)
 
-| :warning: WARNING           |
-|:----------------------------|
-| [READ THIS TO INSTALL until we have a fix :)](https://github.com/mentat-is/gulp/issues/37)     |
+| :warning: WARNING                                                                          |
+| :----------------------------------------------------------------------------------------- |
+| [READ THIS TO INSTALL until we have a fix :)](https://github.com/mentat-is/gulp/issues/37) |
 
 <del>
 #### docker
@@ -138,16 +138,20 @@ to use HTTPS, the following certificates must be available:
 ```bash
 # run gulp on localhost:8080
 GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
+cd tests
 
 # run test suite (covers the whole API, including ingestion and query)
-./tests/test_suite.sh
+./test_suite.sh
 
-# or run single api test manually, i.e.
+# also test paid plugins
+PAID_PLUGINS=1 ./test_suite.sh
+
+# run single api test manually, i.e.
 # run windows ingest/query test (including sigma and stored queries)
-python3 -m pytest ./tests/query.py::test_win_evtx
+python3 -m pytest query.py::test_win_evtx
 
 # run collab notes test (including user ACL)
-python3 -m pytest tests/note.py
+python3 -m pytest note.py
 
 # ...
 ```
@@ -183,7 +187,7 @@ BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
 2. start the UI
-  
+
   on `arch linux (endeavouros)`, other OS should be similar (just package names changes, if any)
 
   ~~~bash
@@ -201,7 +205,7 @@ BIND_TO=0.0.0.0:8080 gulp
 
 ![UI](./screenshot-ui.png)
 
-- legacy UI documentation (should be enough to get you up and running)  
+- legacy UI documentation (should be enough to get you up and running)
 
   [.NET UI documentation](https://docs.google.com/document/d/e/2PACX-1vT2BwplEQeXmlSScGkmQkQ2TLTQlRLwxMDaaV1npdUB78pKJ12AJXFzFsP9oWpqBtiH9L4s_B1FPm9w/pub)
 

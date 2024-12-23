@@ -85,7 +85,7 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
             # already exists
             return admin_user.session
 
-        # create a new admin session
+        # create a new permanent admin session
         object_data = {"user_id": admin_user.id, "time_expire": 0}
         admin_session: GulpUserSession = await GulpUserSession._create(
             sess,
