@@ -1,13 +1,16 @@
 import os
+import json
+import time
 import base64
 import muty.file
 import gulp.config
 import gulp.gulp
 import gulp.plugin
 
+from gulp.api.rest_api import GulpRestServer
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, UploadFile, File, Depends, Query, WebSocket
 from fastapi.responses import JSONResponse
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
@@ -232,13 +235,17 @@ async def plugin_get_handler(
             description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
         ),
     ],
+    is_extension: Annotated[bool, Query(description="the plugin is an extension plugin")] = False,
+
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             # should only admins be able to read all( including paid) plugins?
             await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
-            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins(extension=is_extension)
             file_path = muty.file.safe_path_join(
                 path_plugins, plugin, allow_relative=True
             )
@@ -285,14 +292,17 @@ async def plugin_delete_handler(
             description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
         ),
     ],
+    is_extension: Annotated[bool, Query(description="the plugin is an extension plugin")] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             # should only admins be able to read all( including paid) plugins?
             await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
 
-            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins()
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins(extension=is_extension)
             file_path = muty.file.safe_path_join(
                 path_plugins, plugin, allow_relative=True
             )
@@ -305,156 +315,154 @@ async def plugin_delete_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
+@router.post(
+    "/plugin_upload",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"filename": "custom_plugin.py"},
+                    }
+                }
+            }
+        }
+    },
+    summary="upload a .py plugin file.",
+    description="file will be uploaded to the `gulp/plugins` directory (which can be overridden by `PATH_PLUGINS` environment variable)",
+)
+async def plugin_upload_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[UploadFile, File(description="the plugin file to upload")],
+    is_extension: Annotated[bool, Query(description="True if the plugin is an extension, False otherwise")],
+    filename: Annotated[
+        str,
+        Query(
+            description='the filename to save the plugin as, i.e. "plugin.py", "paid/paid_plugin.py"'
+        ),
+    ],
+    allow_overwrite: Annotated[
+        bool, Query(description="if set, will overwrite an existing plugin file.")
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
 
-# @_app.post(
-#     "/plugin_upload",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"filename": "custom_plugin.py"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="upload a .py plugin file.",
-#     description="file will be uploaded to the `gulp/plugins` directory (which can be overridden by `PATH_PLUGINS` environment variable)",
-# )
-# async def plugin_upload_handler(
-#     token: Annotated[
-#         str, Header(description=gulp.structs.API_DESC_TOKEN + " with EDIT permission")
-#     ],
-#     plugin: Annotated[UploadFile, File(description="the plugin file")],
-#     filename: Annotated[
-#         str,
-#         Query(
-#             description='the filename to save the plugin as, i.e. "plugin.py", "paid/paid_plugin.py"'
-#         ),
-#     ],
-#     plugin_type: Annotated[
-#         gulp.structs.GulpPluginType,
-#         Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
-#     ] = gulp.structs.GulpPluginType.INGESTION,
-#     allow_overwrite: Annotated[
-#         bool, Query(description="if set, will overwrite an existing plugin file.")
-#     ] = True,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(
-#             await collab_api.session(), token, GulpUserPermission.EDIT
-#         )
-#         path_plugins = GulpConfig.get_instance().path_plugins(plugin_type)
-#         plugin_path = muty.file.safe_path_join(
-#             path_plugins, filename, allow_relative=True
-#         )
+    try:
+         async with GulpCollab.get_instance().session() as sess:            
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
 
-#         if not filename.lower().endswith(".py") and not filename.lower().endswith(
-#             ".pyc"
-#         ):
-#             raise gulp.structs.InvalidArgument("plugin must be a .py/.pyc file.")
+            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins(extension=is_extension)
+            plugin_path = muty.file.safe_path_join(path_plugins, filename)
 
-#         if not allow_overwrite:
-#             # overwrite disabled
-#             if os.path.exists(plugin_path):
-#                 raise gulp.structs.ObjectAlreadyExists(
-#                     "plugin %s already exists." % (filename)
-#                 )
+            _, ext = os.path.splitext(filename.lower())
+            
+            if ext not in [".py", ".pyc"]:
+                raise gulp.structs.InvalidArgument("plugin must be a .py/.pyc file.")
 
-#         # ok, write file
-#         await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(plugin_path))
-#         return JSONResponse(
-#             muty.jsend.success_jsend(req_id=req_id, data={"filename": filename})
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            if not allow_overwrite:
+                # overwrite disabled
+                if os.path.exists(plugin_path):
+                    raise gulp.structs.ObjectAlreadyExists(
+                        "plugin %s already exists." % (filename)
+                    )
+
+            # ok, write file
+            await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(plugin_path))
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data={"filename": filename})
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.get(
-#     "/plugin_tags",
-#     tags=["plugin_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1716386497525,
-#                         "req_id": "99ca9c5b-7f84-4181-87bc-9ffc2064406b",
-#                         "data": ["process", "file" "network"],
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="get tags for the given plugin, if they are set: this allow to better identify plugin capabilities.",
-# )
-# async def plugin_tags_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-#     plugin: Annotated[str, Query(description=gulp.structs.API_DESC_PLUGIN)],
-#     plugin_type: Annotated[
-#         gulp.structs.GulpPluginType,
-#         Query(description=gulp.structs.API_DESC_PLUGIN_TYPE),
-#     ] = gulp.structs.GulpPluginType.INGESTION,
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
+@router.get(
+    "/plugin_tags",
+    tags=["plugin_utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1716386497525,
+                        "req_id": "99ca9c5b-7f84-4181-87bc-9ffc2064406b",
+                        "data": ["process", "file" "network"],
+                    }
+                }
+            }
+        }
+    },
+    summary="get tags for the given plugin, if they are set: this allow to better identify plugin capabilities.",
+)
+async def plugin_tags_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[str, Query(description="the plugin for which we should get the tags")],
+    is_extension: Annotated[bool, Query(description="the plugin is an extension plugin")] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         l = await gulp.plugin.get_plugin_tags(plugin, plugin_type)
-#         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=l))
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
 
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
 
-# @_app.get(
-#     "/version",
-#     tags=["utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"version": "gulp v0.0.9 (muty v0.2)"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="get gULP version.",
-# )
-# async def get_version_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(
-#                 req_id=req_id, data={"version": gulp_utils.version_string()}
-#             )
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+            p = await gulp.plugin.GulpPluginBase.load(plugin, extension=is_extension)
+            tags = p.tags().copy()
+            await p.unload()
 
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=tags))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
+
+@router.get(
+    "/version",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"version": "gulp v0.0.9 (muty v0.2)"},
+                    }
+                }
+            }
+        }
+    },
+    summary="get gULP version.",
+)
+async def get_version_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
+    try:
+         async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
+            
+            return JSONResponse(
+                JSendResponse.success(
+                req_id=req_id, data={"version": GulpRestServer.get_instance().version_string()
+}
+            )
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 # @_app.post(
 #     "/mapping_file_upload",
@@ -763,14 +771,3 @@ async def plugin_delete_handler(
 #         )
 #     except Exception as ex:
 #         raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
-
-
-# def router() -> APIRouter:
-#     """
-#     Returns this module api-router, to add it to the main router
-
-#     Returns:
-#         APIRouter: The APIRouter instance
-#     """
-#     global _app
-#     return _app
