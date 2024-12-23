@@ -1,6 +1,7 @@
 import pytest
 import shutil, os
 import pathlib
+import tempfile
 from muty.log import MutyLogger
 from gulp.api.collab.structs import MissingPermission
 from gulp.config import GulpConfig
@@ -18,6 +19,9 @@ async def test():
     )
     # reset first
     await GulpAPIDb.reset_collab_as_admin()
+
+    # create temp dir for tests
+    tmp_dir = tempfile.mkdtemp("gulp_test")
 
     # login admin, guest
     admin_token = await GulpAPIUser.login("admin", "admin")
@@ -53,5 +57,35 @@ async def test():
 
     d = await GulpAPIUtility.plugin_delete(admin_token, "utility_test_delete_me.py")
     assert not os.path.exists(to_be_deleted)
+
+    # create copy of plugin to get deleted
+    csv_plugin = pathlib.Path(GulpConfig.get_instance().path_plugins()) / "csv.py"
+    to_be_uploaded = str(
+        pathlib.Path(tmp_dir) / "upload_me.py"
+    )
+    shutil.copy(csv_plugin, to_be_uploaded)
+
+    u = await GulpAPIUtility.plugin_upload(guest_token, to_be_uploaded, expected_status=401)
+    assert not pathlib.Path(pathlib.Path(GulpConfig.get_instance().path_plugins()) / "upload_me.py").exists()
+
+    u = await GulpAPIUtility.plugin_upload(admin_token, to_be_uploaded)
+    assert pathlib.Path(pathlib.Path(GulpConfig.get_instance().path_plugins()) / "upload_me.py").exists()
+
+    await GulpAPIUtility.plugin_delete(admin_token, "upload_me.py")
+
+    t = await GulpAPIUtility.plugin_tags(admin_token, "csv.py")
+    assert t
+
+    t = await GulpAPIUtility.plugin_tags(guest_token, "csv.py")
+    assert t
+
+    v = await GulpAPIUtility.version(admin_token)
+    assert v
+
+    v = await GulpAPIUtility.version(guest_token)
+    assert v
+
+    # clear temp_dir
+    shutil.rmtree(tmp_dir)
 
     MutyLogger.get_instance().info("all UTILITY tests succeeded!")
