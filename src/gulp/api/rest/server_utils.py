@@ -11,6 +11,7 @@ import aiosmtplib
 import muty.crypto
 import muty.file
 import muty.string
+import muty.crypto
 from fastapi import Request
 from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
@@ -179,32 +180,56 @@ class ServerUtils:
         cache_dir = GulpConfig.get_instance().upload_tmp_dir()
 
         # build a unique filename
-        h = "%s-%s" % (
+        unique_filename = "%s-%s" % (
             GulpContext.make_context_id_key(operation_id, context_name),
             filename,
         )
-        cache_file_path = muty.file.safe_path_join(cache_dir, h)
+        cache_file_path = muty.file.safe_path_join(cache_dir, unique_filename)
 
         # Check if file is already complete
         current_size = await muty.file.get_size(cache_file_path)
-        if current_size == total_file_size:
-            # Upload is already complete !
-            MutyLogger.get_instance().info(
-                "file size matches, upload is already complete!"
+        MutyLogger.get_instance().debug(
+            "cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s"
+            % (
+                cache_file_path,
+                continue_offset,
+                current_size,
+                total_file_size,
+                filename,
+                cache_file_path,
             )
-            return cache_file_path, payload_dict, GulpUploadResponse(done=True)
+        )
 
-        # Write file chunk at the specified offset
-        async with aiofiles.open(cache_file_path, "ab+") as f:
-            await f.seek(continue_offset, os.SEEK_SET)
-            await f.truncate()
-            await f.write(file_part.content)
-            await f.flush()
+        if current_size < total_file_size:
+            if continue_offset != current_size:
+                # continue_offset must be equal to the current file size
+                return (
+                    cache_file_path,
+                    payload_dict,
+                    GulpUploadResponse(done=False, continue_offset=current_size),
+                )
 
-        # Verify upload status
+            # write file chunk at the specified offset
+            async with aiofiles.open(cache_file_path, "ab+") as f:
+                await f.seek(continue_offset, os.SEEK_SET)
+                await f.truncate()
+                await f.write(file_part.content)
+                await f.flush()
+
+        # verify upload status
         current_written_size = await muty.file.get_size(cache_file_path)
-        is_complete = current_written_size == total_file_size
+        current_hash = await muty.crypto.hash_sha1_file(cache_file_path)
+        if current_written_size >= total_file_size:
+            if "file_sha1" in payload_dict:
+                if current_hash != payload_dict["file_sha1"]:
+                    # delete uploaded file
+                    muty.file.delete_file_or_dir(cache_file_path)
+                    raise ValueError(
+                        f"file is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
+                    )
 
+        # notify back upload status
+        is_complete = current_written_size == total_file_size
         result = GulpUploadResponse(
             done=is_complete,
             continue_offset=None if is_complete else current_written_size,

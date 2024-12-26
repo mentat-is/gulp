@@ -27,7 +27,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.server_utils import ServerUtils
-from gulp.api.rest.structs import APIDependencies
+from gulp.api.rest.structs import APIDependencies, GulpUploadResponse
 from gulp.api.ws_api import (
     GulpSharedWsQueue,
     GulpWsQueueDataType,
@@ -82,6 +82,9 @@ class GulpIngestPayload(GulpBaseIngestPayload):
     )
     original_file_path: Optional[str] = Field(
         None, description="The original file path."
+    )
+    file_sha1: Optional[str] = Field(
+        None, description="The SHA1 of the file being ingested."
     )
 
 
@@ -288,7 +291,7 @@ the json payload is a `GulpIngestPayload`, which may contain the following field
 
 ### response with resume handling
 
-if the upload is interrupted before finishing, the **next** upload of the same file with the **same** `req_id` will return an **error** response
+if the upload is interrupted before finishing, the **next** upload of the same file with the **same** `operation_id/context_id/filename` will return an **error** response
 with `data` set to a `GulpUploadResponse`:
 
 * `done` (bool): set to `False`
@@ -415,7 +418,7 @@ async def ingest_file_handler(
             d = JSendResponse.error(
                 req_id=req_id, data=result.model_dump(exclude_none=True)
             )
-            return JSONResponse(d, status_code=100)
+            return JSONResponse(d, status_code=206)
 
         # ensure payload is valid
         payload = GulpIngestPayload.model_validate(payload)
@@ -802,6 +805,8 @@ async def ingest_zip_handler(
     params.pop("r")
     ServerUtils.dump_params(params)
     file_path: str = None
+    result: GulpUploadResponse = None
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
@@ -826,7 +831,7 @@ async def ingest_zip_handler(
             d = JSendResponse.error(
                 req_id=req_id, data=result.model_dump(exclude_none=True)
             )
-            return JSONResponse(d, status_code=100)
+            return JSONResponse(d, status_code=206)
 
         # ensure payload is valid
         payload = GulpZipIngestPayload.model_validate(payload)
@@ -878,4 +883,6 @@ async def ingest_zip_handler(
         raise JSendException(ex=ex, req_id=req_id)
     finally:
         # cleanup
-        await muty.file.delete_file_or_dir_async(file_path)
+        if result and result.done:
+            MutyLogger.get_instance().debug("deleting uploaded file %s ..." % (file_path))
+            await muty.file.delete_file_or_dir_async(file_path)

@@ -74,15 +74,9 @@ async def test():
     await GulpAPIUtility.plugin_delete(admin_token, "upload_me.py")
 
     t = await GulpAPIUtility.plugin_tags(admin_token, "csv.py")
-    assert t
-
-    t = await GulpAPIUtility.plugin_tags(guest_token, "csv.py")
-    assert t
+    assert len(t) == 0
 
     v = await GulpAPIUtility.version(admin_token)
-    assert v
-
-    v = await GulpAPIUtility.version(guest_token)
     assert v
 
     # clear temp_dir

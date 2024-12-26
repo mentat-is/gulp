@@ -330,6 +330,11 @@ async def test_raw():
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
+    buf = await muty.file.read_file_async(raw_chunk_path)
+    raw_chunk = json.loads(buf)
+
     await GulpAPIDb.reset_as_admin()
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
@@ -338,7 +343,7 @@ async def test_raw():
     # ingest raw chunk
     await GulpAPIIngest.ingest_raw(
         ingest_token,
-        RAW_DOCUMENTS_CHUNK,
+        raw_chunk,
         TEST_OPERATION_ID,
         TEST_CONTEXT_NAME,
         TEST_INDEX,

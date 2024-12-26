@@ -153,8 +153,41 @@ python3 -m pytest query.py::test_win_evtx
 # run collab notes test (including user ACL)
 python3 -m pytest note.py
 
-# ...
 ```
+
+to test single plugins manually i.e. during plugin dev, you may use [ingest.py](./test_scripts/ingest.py):
+
+> the manual ingest_py script does not check for upload correctness, you must do it manually!
+
+~~~bash
+# win_evtx
+# 98633 records, 1 record failed, 1 skipped, 98631 ingested
+./test_scripts/ingest.py --path ./samples/win_evtx
+
+# csv without mapping
+# 10 records, 10 ingested
+./test_scripts/ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mappings": { "test_mapping": { "timestamp_field": "Created0x10"}}}'
+
+# csv with mapping
+# 10 records, 44 ingested
+./test_scripts/ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
+
+# raw
+# 3 ingested
+./test_scripts/ingest.py --raw ./tests/raw_chunk.json
+
+# raw with mapping
+# 3 ingested, record 1.field2 mapped to test.mapped and test.another_mapped
+./test_scripts/ingest.py --raw ./tests/raw_chunk.json --plugin_params '{ "mappings": { "test_mapping": { "fields": { "field2": { "ecs": [ "test.mapped", "test.another_mapped" ] } } } } }'
+
+# zip (with metadata.json), win_evtx and csv with mappings
+# 98750 ingested (98631 windows, 119 mftecmd, 44 record, 75 j)
+./test_scripts/ingest.py --path ./tests/test_ingest_zip.zip
+
+# stacked plugin
+# will set every document duration to 9999, and also set augmented=True (postprocessing chunk with _augment_documents)
+./test_scripts/ingest.py --path ./samples/mftecmd/sample_record.csv --plugin stacked_example --plugin_params '{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}'
+~~~
 
 ## Architecture
 
