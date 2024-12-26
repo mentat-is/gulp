@@ -63,6 +63,8 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 
 ~~~bash
 cd ./gulp
+# also ensure to start with a clean .venv
+rm -rf ./.venv
 virtualenv --python=/usr/bin/python3.12 ./.venv
 source ./.venv/bin/activate
 ~~~
