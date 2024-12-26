@@ -91,25 +91,24 @@ pip3 install -e . && pip3 install -e ../muty-python
 
 ### 6. Run
 
-> you may need to ensure proper docker cleanup first (i.e. previous installation) with [clear_all script](../clear_all.sh)
+> you may need to ensure proper docker cleanup first (i.e. previous installation) with [reset_docker](../reset_docker.sh)
 
 ~~~bash
 # start postgresql and opensearch
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose up -d
 
-# run gulp first time
-BIND_TO=0.0.0.0:8080 gulp --reset-collab --reset-index test_idx
-
-# later it can be run with just
-# BIND_TO=0.0.0.0:8080 gulp
+# run gulp first time (will create collab database "gulp" on postgresql and "test_idx" index on opensearch)
+BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
 ### 7. Installing extra plugins
 
-plugins are just files, so it is enough to copy them in the correct directory under `GULP_INSTALL_DIR/plugins`
+plugins are just files, so it is enough to copy/symlink them in `GULP_INSTALL_DIR/src/gulp/plugins`.
 
-> `extension` plugins goes into `GULP_INSTALL_DIR/plugins/extension`
+> `extension` plugins goes into `GULP_INSTALL_DIR/src/gulp/plugins/extension`
+>
+> if the plugin needs `mapping files`, they must be copied/symlinked as well into `PATH_MAPPING_FILES`, default=`GULP_INSTALL_DIR/src/gulp/mapping_files`.
 
 ## 4. Troubleshoot
 
