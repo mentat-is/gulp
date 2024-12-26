@@ -89,34 +89,25 @@ pip3 install -e . && pip3 install -e ../muty-python
 
 ### 6. Run
 
+> you may need to ensure proper docker cleanup first (i.e. previous installation) with [clear_all script](../clear_all.sh)
+
 ~~~bash
 # start postgresql and opensearch
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose up -d
 
 # run gulp first time
-BIND_TO=0.0.0.0:8080 gulp --reset-collab --reset-elastic testidx
+BIND_TO=0.0.0.0:8080 gulp --reset-collab --reset-index test_idx
 
 # later it can be run with just
 # BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
-### 7. (Optional) Test
+### 7. Installing extra plugins
 
-~~~bash
-# check it ingests 98630 events (i.e. using elasticvue)
-TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
-TEST_INDEX=testidx TEST_WS_ID=abc ./test_scripts/test_ingest.sh -p ./samples/win_evtx
-~~~
+plugins are just files, so it is enough to copy them in the correct directory under `GULP_INSTALL_DIR/plugins`
 
-### 8. Installing extra plugins
-
-plugins are just files, so it is enough to copy them in the correct directory under *GULP_INSTALL_DIR/plugins/DIR*, where *DIR* may be the one of the following:
-
-  - `ingestion` for ingestion plugins
-  - `query` for query plugins
-  - `sigma` for sigma plugins
-  - `extension` for extension plugins
+> `extension` plugins goes into `GULP_INSTALL_DIR/plugins/extension`
 
 ## 4. Troubleshoot
 

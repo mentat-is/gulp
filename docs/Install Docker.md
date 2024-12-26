@@ -1,4 +1,7 @@
+
 # Docker Installation
+
+> THIS IS OUTDATED, NEEDS REVIEW.
 
 [TOC]
 
@@ -55,4 +58,3 @@ GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx
 > to cleanup correctly and restart from scratch, **all of them should be removed**.
 
 once you're done, `run_gulp.sh --stop` may be used to stop all the running containers.
-
