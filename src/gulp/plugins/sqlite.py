@@ -106,7 +106,7 @@ class Plugin(GulpPluginBase):
         event: dict = record
         extra = kwargs.get("extra", {})
         original_id = kwargs.get("original_id", record_idx)
-
+        #
         # we probably are dealing with a table which has no mappings, make an empty one
         if custom_mapping is None:
             custom_mapping = GulpMapping()
