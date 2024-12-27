@@ -232,6 +232,38 @@ async def test_apache_error_clf():
 
 
 @pytest.mark.asyncio
+async def test_systemd_journal():
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    await GulpAPIDb.reset_as_admin()
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/systemd_journal/system.journal")]
+
+    # for each file, spawn a process using multiprocessing
+    for file in files:
+        p = multiprocessing.Process(
+            target=_process_file_in_worker_process,
+            args=(
+                TEST_HOST,
+                TEST_WS_ID,
+                TEST_REQ_ID,
+                TEST_INDEX,
+                "systemd_journal",
+                None,
+                None,
+                file,
+                len(files),
+            ),
+        )
+        p.start()
+
+    # wait for all processes to finish
+    await _ws_loop(9243)
+
+
+@pytest.mark.asyncio
 async def test_win_evtx():
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX

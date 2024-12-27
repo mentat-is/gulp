@@ -217,7 +217,8 @@ class GulpDocument(GulpBasicDocument):
             Returns:
             None
         """
-        # turn any document already in gulp ecs format back to GulpDocument (i.e. turn @timestamp back to timestamp)
+        # turn any document already in gulp ecs format back to GulpDocument
+        # (i.e. turn "@timestamp" back to "timestamp")
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
 
         # this is set by _finalize_process_record() in the mapping engine

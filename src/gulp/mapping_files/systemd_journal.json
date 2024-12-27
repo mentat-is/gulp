@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "plugin": [
+      "systemd_journal.py"
+    ]
+  },
+  "mappings": {
+    "default": {
+      "fields": {
+        "_GID": {
+          "ecs": "user.group.id"
+        },
+        "_UID": {
+          "ecs": "user.id"
+        },
+        "_EXE": {
+          "ecs": "process.executable"
+        },
+        "_MACHINE_ID": {
+          "ecs": "host.id"
+        },
+        "_COMM": {
+          "ecs": "process.command_line"
+        },
+        "_HOST": {
+          "ecs": "host.hostname"
+        },
+        "_PID": {
+          "ecs": "process.id"
+        },
+        "_MESSAGE": {
+          "ecs": "log.message"
+        }
+      }
+    }
+  }
+}
