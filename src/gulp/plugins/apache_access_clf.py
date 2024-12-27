@@ -45,12 +45,6 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="locale",
-                type="str",
-                desc="original server's locale",
-                default_value=None,
-            ),
-            GulpPluginCustomParameter(
                 name="date_format",
                 type="str",
                 desc="server date log format",

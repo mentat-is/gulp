@@ -1,6 +1,6 @@
 import json
 import os
-from copy import deepcopy
+from typing import Any, override
 
 import muty.crypto
 import muty.dict
@@ -9,22 +9,23 @@ import muty.os
 import muty.string
 import muty.time
 from muty.log import MutyLogger
-
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
-from gulp.structs import InvalidArgument
+from gulp.structs import (
+    GulpPluginCustomParameter,
+    GulpPluginParameters,
+)
 
-try:
-    from regipy.registry import RegistryHive, Subkey
-except Exception:
-    muty.os.install_package("regipy")
-    from regipy.registry import RegistryHive, Subkey
-
+muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
+from regipy.registry import RegistryHive, Subkey
 from construct.core import EnumInteger
 
 
@@ -34,21 +35,13 @@ class Plugin(GulpPluginBase):
 
     the win_reg plugin ingests windows registry files
 
-    ### standalone mode
-
-    when used by itself, it is sufficient to ingest a registry hive with the default settings (no extra parameters needed).
-
-    ~~~bash
-    TEST_PLUGIN=win_reg ./test_scripts/test_ingest.sh -p ./samples/win_reg/NTUSER.DAT
-    ~~~
     ### parameters
 
-    win_reg supports the following custom parameters in the plugin_params.extra dictionary:
+    win_reg supports the following custom parameters:
 
     - `path`: registry path to start traversing the hive from (default=None - start of the hive)
     - `partial_hive_path`: the path from which the partial hive actually starts (default=None)
     - `partial_hive_type`: the hive type can be specified if this is a partial hive, or if auto-detection fails (default=None)
-    ~~~
     """
 
     def type(self) -> GulpPluginType:
@@ -63,43 +56,32 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginSpecificParam(
-                "path",
-                "str",
-                "registry path to start traversing the hive from",
+            GulpPluginCustomParameter(
+                name="path",
+                type="str",
+                desc="registry path to start traversing the hive from",
                 default_value=None,
             ),
-            GulpPluginSpecificParam(
-                "partial_hive_path",
-                "str",
-                "the path from which the partial hive actually starts",
+            GulpPluginCustomParameter(
+                name="partial_hive_path",
+                type="str",
+                desc="the path from which the partial hive actually starts",
                 default_value=None,
             ),
-            GulpPluginSpecificParam(
-                "partial_hive_type",
-                "str",
-                "the hive type can be specified if this is a partial hive, or if auto-detection fails",
+            GulpPluginCustomParameter(
+                name="partial_hive_type",
+                type="str",
+                desc="the hive type can be specified if this is a partial hive, or if auto-detection fails",
                 default_value=None,
             ),
         ]
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
 
         # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
         event: Subkey = record
@@ -134,149 +116,92 @@ class Plugin(GulpPluginBase):
 
         regkey["values"] = values
 
-        # self.MutyLogger.get_instance().debug("VALUES: ",values)
-        # apply mappings for each value
-        fme: list[GulpMappingField] = []
+        d: dict = {}
+
+        # map timestamp manually
+        d["@timestamp"] = event.timestamp
+        d["event.code"] = str(muty.crypto.hash_xxh64_int(str(regkey["path"])))
+
+        # map
         for k, v in muty.json.flatten_json(regkey).items():
-            # self.MutyLogger.get_instance().debug(f"MAPPING: path:{d['path']} subkey_name:{d['subkey_name']} type:{d['type']} {k}={v}")
-            e = self._map_source_key(plugin_params, custom_mapping, k, v, **kwargs)
-            for f in e:
-                fme.append(f)
+            mapped = self._process_key(k, v)
+            d.update(mapped)
 
-        time_str = event.timestamp
-        time_nanosec = muty.time.string_to_epoch_nsec(time_str)
-        time_msec = muty.time.nanos_to_millis(time_nanosec)
-        event_code = str(muty.crypto.hash_xxh64_int(str(regkey["path"])))
-
-        # self.MutyLogger.get_instance().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
-        # event_code = custom_mapping.options.event_code if custom_mapping.options.event_code is not None else str(muty.crypto.hash_xxh64_int(d["type"]))
-
-        docs = self._build_gulpdocuments(
-            fme,
-            idx=record_idx,
-            timestamp=time_msec,
-            timestamp_nsec=time_nanosec,
-            operation_id=operation_id,
-            context=context,
-            plugin=plugin,
-            client_id=client_id,
-            raw_event=str(record),
-            event_code=event_code,
-            original_id=str(record_idx),
-            src_file=os.path.basename(source),
+        return GulpDocument(
+            self,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=str(record),
+            event_sequence=record_idx,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            **d,
         )
-        return docs
 
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list,
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-
         await super().ingest_file(
-            index=index,
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
             req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context_id=context,
-            source=source,
             ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize()(
-            index, source=source, plugin_params=plugin_params
-        )
-
-        plugin_params.timestamp_field = "timestamp"
-        # check plugin_params
         try:
-            custom_mapping, plugin_params = self._process_plugin_params(
-                custom_mapping, plugin_params
-            )
-        except InvalidArgument as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            # initialize plugin
+            await self._initialize(plugin_params)
 
-        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
-        MutyLogger.get_instance().debug(plugin_params)
+        except Exception as ex:
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
-        path = plugin_params.extra.get("path", None)
-        partial_hive_type = plugin_params.extra.get("partial_hive_type", None)
-        partial_hive_path = plugin_params.extra.get("partial_hive_path", None)
-
-        extra: dict = {}
-
-        if custom_mapping.options.agent_type is None:
-            plugin = self.display_name()
-        else:
-            plugin = custom_mapping.options.agent_type
-            MutyLogger.get_instance().warning("using plugin name=%s" % (plugin))
-
-        record_to_gulp_document_fun = plugin_params.record_to_gulp_document_fun
-        if record_to_gulp_document_fun is None:
-            # no record_to_gulp_document() function defined in params, use the default one
-            record_to_gulp_document_fun = self._record_to_gulp_document
-            MutyLogger.get_instance().warning(
-                "using win_reg plugin record_to_gulp_document()."
-            )
-
-        ev_idx = 0
+        doc_idx = 0
         try:
             hive = RegistryHive(
-                source, hive_type=partial_hive_type, partial_hive_path=partial_hive_path
+                file_path,
+                hive_type=self._custom_params.get("partial_hive_type"),
+                partial_hive_path=self._custom_params.get("partial_hive_path"),
             )
-            for entry in hive.recurse_subkeys(as_json=True, path_root=path):
+            for entry in hive.recurse_subkeys(
+                as_json=True, path_root=self._custom_params.get("path")
+            ):
 
                 if len(entry.values) < 1:
                     continue
                 try:
-                    fs, must_break = await self.process_record(
-                        index,
-                        entry,
-                        ev_idx,
-                        self._record_to_gulp_document,
-                        ws_id,
-                        req_id,
-                        operation_id,
-                        client_id,
-                        context,
-                        source,
-                        fs,
-                        custom_mapping=custom_mapping,
-                        index_type_mapping=index_type_mapping,
-                        plugin_params=plugin_params,
-                        plugin=plugin,
-                        flt=flt,
-                        extra=deepcopy(extra),
-                        **kwargs,
-                    )
-
-                    ev_idx += 1
-                    if must_break:
-                        break
-
-                except Exception as ex:
-                    fs = self._record_failed(fs, entry, source, ex)
+                    await self.process_record(entry, doc_idx, flt)
+                except (RequestCanceledError, SourceCanceledError) as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    await self._source_failed(ex)
+                    break
+                doc_idx += 1
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            return self._stats_status()
