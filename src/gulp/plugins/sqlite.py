@@ -101,7 +101,7 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> list[GulpDocument]:
-
+ 
         # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
         event: dict = record
         extra = kwargs.get("extra", {})
