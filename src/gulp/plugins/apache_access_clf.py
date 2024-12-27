@@ -5,7 +5,6 @@ from typing import Any, override
 from urllib.parse import parse_qs, urlparse
 
 import aiofiles
-import muty.log
 import muty.string
 import muty.time
 import muty.xml

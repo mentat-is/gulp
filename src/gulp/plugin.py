@@ -949,6 +949,11 @@ class GulpPluginBase(ABC):
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
+
+        if mapping.ignore and source_key in mapping.ignore:
+            # ignore this key
+            return {}
+
         fields_mapping = mapping.fields.get(source_key, None)
         if not fields_mapping:
             # missing mapping at all

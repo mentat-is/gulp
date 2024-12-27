@@ -1,30 +1,27 @@
 import os
 import string
-from copy import deepcopy
+from typing import Any, override
 
 import muty.dict
 import muty.os
 import muty.string
 import muty.xml
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
 import muty.crypto
-import gulp.api.mapping.helpers as mappings_helper
-import gulp.config as gulp_utils
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingOptions
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
-from gulp.structs import InvalidArgument
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
-try:
-    import aiosqlite
-except Exception:
-    muty.os.install_package("aiosqlite")
-    import aiosqlite
+muty.os.check_and_install_package("aiosqlite", ">=0.20.0")
+import aiosqlite
 
 
 class Plugin(GulpPluginBase):
@@ -37,7 +34,7 @@ class Plugin(GulpPluginBase):
 
     when used by itself, it is sufficient to ingest a SQLITE file with the default settings (no extra parameters needed).
 
-    NOTE: since each document stored on elasticsearch must have a "@timestamp", either a mapping file is provided,  or "timestamp_field" is set to a field name in the SQLITE file.
+    NOTE: since each document stored on elasticsearch must have a "@timestamp", either a mapping file is provided,  or "timestamp_field" is set to a field name in an SQLITE table.
 
     ### stacked mode
 
@@ -73,91 +70,60 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginSpecificParam(
-                "encryption_key", "str", "DB encryption key", default_value=None
+            GulpPluginCustomParameter(
+                name="encryption_key",
+                type="str",
+                desc="DB encryption key",
+                default_value=None,
             ),
-            GulpPluginSpecificParam(
-                "key_type", "str", "DB encryption key type", default_value=None
+            GulpPluginCustomParameter(
+                name="key_type",
+                type="str",
+                desc="DB encryption key type",
+                default_value="key",
             ),
-            GulpPluginSpecificParam(
-                "queries", "dict", "query to run for each table", default_value={}
+            GulpPluginCustomParameter(
+                name="queries",
+                type="dict",
+                desc="query to run for each table",
+                default_value={},
             ),
         ]
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
 
         # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
         event: dict = record
-        extra = kwargs.get("extra", {})
-        original_id = kwargs.get("original_id", record_idx)
-        
-        # we probably are dealing with a table which has no mappings, make an empty one
-        if custom_mapping is None:
-            custom_mapping = GulpMapping()
-            custom_mapping.options = GulpMappingOptions()
+        data: dict
 
-            custom_mapping, _ = self._process_plugin_params(
-                custom_mapping, plugin_params
-            )
-
-        fme: list[GulpMappingField] = []
-
-        # add passed extras if any
-        e = GulpMappingField(result=extra)
-        fme.append(e)
-
-        # map
+        # use original id as record_idx, if any
+        record_idx = data.pop("original_id", record_idx)
+        d: dict = {}
         for k, v in event.items():
-            e = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                k,
-                v,
-                index_type_mapping=index_type_mapping,
-            )
-            for f in e:
-                fme.append(f)
+            mapped = self._process_key(k, v)
+            d.update(mapped)
 
-        # MutyLogger.get_instance().debug("processed extra=%s" % (json.dumps(extra, indent=2)))
-        event_code = str(
-            muty.crypto.hash_xxh64_int(
-                f"{extra["gulp.sqlite.db.name"]}.{extra["gulp.sqlite.db.table.name"]}"
-            )
+        # add data
+        d.update(data)
+
+        return GulpDocument(
+            self,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=str(record),
+            event_sequence=record_idx,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            **d,
         )
-
-        docs = self._build_gulpdocuments(
-            fme,
-            idx=record_idx,
-            operation_id=operation_id,
-            context=context,
-            plugin=plugin,
-            client_id=client_id,
-            raw_event=str(record),
-            event_code=event_code,
-            original_id=record_idx,
-            src_file=os.path.basename(source),
-        )
-
-        return docs
 
     @staticmethod
-    def dict_factory(cursor: aiosqlite.Cursor, row: aiosqlite.Row):
+    def _dict_factory(cursor: aiosqlite.Cursor, row: aiosqlite.Row):
         """Helper function to convert a sqlite row to dict
 
         Args:
@@ -176,7 +142,7 @@ class Plugin(GulpPluginBase):
 
         return d
 
-    def table_exists(self, db: aiosqlite.Connection, name: str):
+    def _table_exists(self, db: aiosqlite.Connection, name: str):
         """Checks if a given table exists
 
         Args:
@@ -189,7 +155,7 @@ class Plugin(GulpPluginBase):
         query = "SELECT 1 FROM sqlite_master WHERE type='table' and name = ?"
         return db.execute(query, (name,)).fetchone() is not None
 
-    def sanitize_value(self, value: str) -> str:
+    def _sanitize_value(self, value: str) -> str:
         # allowed charset: A-Za-z0-9_-
         charset = string.ascii_lowercase + string.ascii_uppercase + string.digits + "_-"
         for c in value:
@@ -198,118 +164,75 @@ class Plugin(GulpPluginBase):
 
         return value.strip()
 
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list,
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-
         await super().ingest_file(
-            index=index,
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
             req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context_id=context,
-            source=source,
             ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )
-        db_name = os.path.basename(source)
-
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize()(
-            index, source, plugin_params=plugin_params
-        )
-
-        # check plugin_params
         try:
-            custom_mapping, plugin_params = self._process_plugin_params(
-                custom_mapping, plugin_params
-            )
-        except InvalidArgument as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            # initialize plugin
+            await self._initialize(plugin_params)
 
-        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
+            # get tables to map
+            tables_to_map: list[str] = []
+            d = list(str(key) for key in self._mappings.keys())
+            for m in d:
+                tables_to_map.append(m)
 
-        try:
-            custom_mappings: list[GulpMapping] = (
-                await mappings_helper.get_mappings_from_file(
-                    GulpConfig.build_mapping_file_path(plugin_params.mapping_file)
+            # get custom parameters
+            encryption_key: str = self._custom_params.get("encryption_key")
+            key_type: str = self._custom_params.get("key_type")
+            queries: dict = self._custom_params.get("queries")
+
+            # check if key_type is supported
+            if key_type.lower() not in ["key", "textkey", "hexkey"]:
+                MutyLogger.get_instance().warning(
+                    "unsupported key type %s, defaulting to 'key'" % (key_type,)
                 )
-            )
-        except Exception as e:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+                key_type = "key"
 
-        tables_to_map = []
-        for mapping in custom_mappings:
-            tables_to_map.append(mapping.to_dict()["options"]["mapping_id"])
+        except Exception as ex:
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
-        MutyLogger.get_instance().debug(plugin_params)
-        MutyLogger.get_instance().debug(plugin_params.extra)
+        doc_idx = 0
 
-        encryption_key = plugin_params.extra.get("encryption_key", None)
-        key_type = plugin_params.extra.get("key_type", "key")
-        queries = plugin_params.extra.get("queries", {})
+        # these are the tables we are going to map, table names are our mapping_ids
+        mapping_ids = list(str(key) for key in self._mappings.keys())
 
-        # check if key_type is supported
-        if key_type.lower() not in ["key", "textkey", "hexkey"]:
-            MutyLogger.get_instance().warning(
-                "unsupported key type %s, defaulting to 'key'" % (key_type,)
-            )
-            key_type = "key"
-
-        tables_mappings = {}
-        for table in tables_to_map:
-            mapping_id = table
-            mapping_file = GulpConfig.build_mapping_file_path(
-                plugin_params.mapping_file
-            )
-            tables_mappings[mapping_id] = None
-            if mapping_file is not None:
-                try:
-                    tables_mappings[mapping_id] = (
-                        await mappings_helper.get_mapping_from_file(
-                            mapping_file, mapping_id
-                        )
-                    )
-                    MutyLogger.get_instance().info(
-                        "custom mapping for table %s found" % (table,)
-                    )
-                except ValueError:
-                    MutyLogger.get_instance().error(
-                        "custom mapping for table %s NOT found" % (table,)
-                    )
-
-        if custom_mapping.options.agent_type is None:
-            plugin = self.display_name()
-        else:
-            plugin = custom_mapping.options.agent_type
-            MutyLogger.get_instance().warning("using plugin name=%s" % (plugin))
-
-        ev_idx = 0
         try:
-            async with aiosqlite.connect(source) as db:
-                db.row_factory = Plugin.dict_factory
-
+            async with aiosqlite.connect(file_path) as db:
+                db.row_factory = Plugin._dict_factory
                 if encryption_key is not None:
+                    # unlock the database
                     async with db.execute(
                         "PRAGMA ?='?'", (key_type, encryption_key)
                     ) as cur:
@@ -318,8 +241,11 @@ class Plugin(GulpPluginBase):
                             % (await cur.fetchall())
                         )
 
-                all_tables = []
-                # get tables from both sqlite_master and sqlite_temp_master (TODO: should we 'split' tables and tmp_tables instead?)
+                # these are the tables found effectively matching the mapping_ids
+                tables_to_process = []
+
+                # get tables from both sqlite_master and sqlite_temp_master
+                # (TODO: should we 'split' tables and tmp_tables instead?)
                 async with db.execute(
                     """SELECT name FROM sqlite_master WHERE type='table'
                                         UNION
@@ -327,23 +253,13 @@ class Plugin(GulpPluginBase):
                 ) as cur:
                     for table in await cur.fetchall():
                         if (
-                            table["name"] in tables_mappings
+                            table["name"] in mapping_ids
                         ):  # ONLY MAP TABLES THAT HAVE A MAPPING
-                            all_tables.append(table["name"])  #
+                            tables_to_process.append(table["name"])
 
-                # no tables were provided, default to ALL tables in the DB
-                if len(tables_to_map) < 1:
-                    tables_to_map = all_tables
-                    for t in all_tables:
-                        tables_mappings[t] = None
-
-                for table in all_tables:
-                    if table not in tables_to_map:
-                        # table is not marked for mapping, skip
-                        continue
-
-                    # Parametrized queries are not supported for "FROM {}",
-                    table = self.sanitize_value(table)
+                for table in tables_to_process:
+                    # parametrized queries are not supported for "FROM {}",
+                    table = self._sanitize_value(table)
 
                     data_query: str = queries.get(table, None)
                     metadata_query = (
@@ -359,56 +275,40 @@ class Plugin(GulpPluginBase):
 
                     data_query = str(data_query).format(table=table)
 
+                    # process this table
                     async with db.execute(data_query) as cur:
                         for row in await cur.fetchall():
                             # print(f"gulp.sqlite.{db_name}.{table}.{column} = {value}")
-                            extra = {}
-                            extra["gulp.sqlite.db.name"] = db_name
-                            extra["gulp.sqlite.db.table.name"] = table
+                            d: dict = {}
+                            d["gulp.sqlite.db.name"] = os.path.basename(file_path)
+                            d["gulp.sqlite.db.table.name"] = table
 
+                            # use this mapping id
+                            self._mapping_id = table
+
+                            # get a record
                             original_id = None
                             async with db.execute(metadata_query) as cur_tmp:
                                 r = await cur_tmp.fetchone()
-                                # print(r)
-                                for c, v in r.items():
-                                    if v is not None:
+                                for _, v in r.items():
+                                    if v:
                                         original_id = v
                                         break
+                            d["original_id"] = row[original_id]
 
-                            # MutyLogger.get_instance().debug("Mapping: %s" % mapping)
                             try:
-                                fs, must_break = await self.process_record(
-                                    index,
-                                    row,
-                                    ev_idx,
-                                    self._record_to_gulp_document,
-                                    ws_id,
-                                    req_id,
-                                    operation_id,
-                                    client_id,
-                                    context,
-                                    source,
-                                    fs,
-                                    custom_mapping=tables_mappings[table],
-                                    index_type_mapping=index_type_mapping,
-                                    plugin=plugin,
-                                    plugin_params=plugin_params,
-                                    flt=flt,
-                                    original_id=row[original_id],
-                                    extra=deepcopy(extra),
-                                    **kwargs,
-                                )
-                                ev_idx += 1
-                                if must_break:
-                                    break
+                                await self.process_record(row, doc_idx, flt, data=d)
+                            except (RequestCanceledError, SourceCanceledError) as ex:
+                                MutyLogger.get_instance().exception(ex)
+                                await self._source_failed(ex)
+                                break
+                            doc_idx += 1
 
-                            except Exception as ex:
-                                fs = self._record_failed(fs, row, source, ex)
+                    if self._is_source_failed:
+                        break
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            return self._stats_status()

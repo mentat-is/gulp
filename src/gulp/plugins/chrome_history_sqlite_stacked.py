@@ -1,14 +1,14 @@
 from enum import Enum
+from typing import Any, override
 
-from gulp import plugin as gulp_plugin
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMapping
 from gulp.plugin import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginParameters
+from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -49,90 +49,63 @@ class Plugin(GulpPluginBase):
         visited_links = 17
         visits = 18
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
-
-        for r in record:
-            event: GulpDocument = r
-            # if we are handling a download, we can calculate event.duration with start_time and end_time
-            if "download_end_time" in event.extra.keys():
-                end_time = event.extra.get("download_end_time", 0)
-                start_time = event.extra.get("download_start_time", 0)
-
-                if start_time > 0 and end_time > 0:
-                    event.duration_nsec = end_time - start_time
+        self, record: GulpDocument, record_idx: int, data: Any
+    ) -> GulpDocument:
+        end_time = int(record.model_extra.get("download.end_time", 0))
+        if end_time > 0:
+            # calculate download duration
+            start_time = record.gulp_timestamp
+            if start_time > 0 and end_time > 0:
+                record.event_duration = end_time - start_time
 
         return record
 
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
 
-        await super().ingest_file(
-            index=index,
-            req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context_id=context,
-            source=source,
-            ws_id=ws_id,
-            plugin_params=plugin_params,
-            flt=flt,
-            **kwargs,
-        )
-        if plugin_params is None:
-            plugin_params = GulpPluginParameters()
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
+        # set as stacked
         try:
-            await self._initialize()(index, source, skip_mapping=True)
-            mod = gulp_plugin.load_plugin("sqlite", **kwargs)
+            lower = await self.setup_stacked_plugin("sqlite")
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            await self._source_failed(ex)
+            return GulpRequestStatus.FAILED
 
-        plugin_params.record_to_gulp_document_fun.append(self._record_to_gulp_document)
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
         plugin_params.mapping_file = "chrome_history.json"
-        plugin_params.extra = {
-            "queries": {
-                "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
-            }
+        plugin_params.model_extra["queries"] = {
+            "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
         }
-        return await mod.ingest_file(
-            index,
-            req_id,
-            client_id,
-            operation_id,
-            context,
-            source,
-            ws_id,
+
+        # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
+        return await lower.ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )

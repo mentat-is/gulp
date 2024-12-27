@@ -158,7 +158,7 @@ class GulpDocument(GulpBasicDocument):
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
         epoch_start: str = "1970-01-01T00:00:00Z"
-        # MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}")
+        #MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}")
         if not timestamp:
             # invalid timestamp
             return epoch_start, 0, True
@@ -178,7 +178,7 @@ class GulpDocument(GulpBasicDocument):
             return ts, ns, False
         except Exception as e:
             # invalid timestamp
-            # MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
+            #MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
 
     @override
@@ -258,14 +258,15 @@ class GulpDocument(GulpBasicDocument):
 
         # ensure timestamp is valid
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-            data["timestamp"],
+            str(data["timestamp"]),
             dayfirst=mapping.timestamp_dayfirst if mapping else None,
             yearfirst=mapping.timestamp_yearfirst if mapping else None,
             fuzzy=mapping.timestamp_fuzzy if mapping else None,
         )
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
-        data["invalid_timestamp"] = invalid
+        if invalid:
+            data["invalid_timestamp"] = invalid
 
         # add gulp_event_code (event code as a number)
         data["gulp_event_code"] = (
