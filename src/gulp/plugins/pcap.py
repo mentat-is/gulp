@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+from typing import Any, override
 
 import muty.crypto
 import muty.dict
@@ -14,35 +15,28 @@ import muty.time
 import muty.xml
 from muty.log import MutyLogger
 
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
+from sqlalchemy.ext.asyncio import AsyncSession
 
-try:
-    from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
-    from scapy.packet import Raw
-except Exception:
-    muty.os.install_package("scapy")
-    from scapy.all import PcapReader, PcapNgReader, Packet, FlagValue, EDecimal
-    from scapy.packet import Raw
+muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
+from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
+from scapy.packet import Raw
 
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
-from gulp.structs import GulpLogLevel
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
     """
-    windows evtx log file processor.
+    pcap file processor.
     """
-
-    def _normalize_loglevel(self, l: int | str) -> GulpLogLevel:
-        # TODO: if we really wanna be useful we should convert known-protocol error codes to loglevels here
-        # or maybe just the lastlayer
-
-        return GulpLogLevel.VERBOSE
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
@@ -56,12 +50,15 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng
         # hence a safe default could be pcapng regardless of type
         return [
-            GulpPluginSpecificParam(
-                "format", "str", "pcap format (pcap or pcapng)", default_value=None
+            GulpPluginCustomParameter(
+                name="format",
+                type="str",
+                desc="pcap format (pcap or pcapng)",
+                default_value=None,
             )
         ]
 
@@ -119,24 +116,13 @@ class Plugin(GulpPluginBase):
 
         # if this fails it is most likely a TypeError because of non JSON serializable type
         json.dumps(d)
-
         return d
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
+
         # process record
         # MutyLogger.get_instance().debug(record)
         evt_json = self._pkt_to_dict(record)
@@ -144,180 +130,135 @@ class Plugin(GulpPluginBase):
         # MutyLogger.get_instance().debug(evt_str)
 
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
-
+        d: dict = {}
         event_code = record.lastlayer()
         last_layer = event_code.name
-        if isinstance(event_code, Raw) and (len(record.layers()) > 1):
-            event_code = record.layers()[-2]
-        else:
-            event_code = record.lastlayer()
+        d["event.code"] = str(muty.crypto.hash_crc24(last_layer))
 
         # add top layer name to json
         evt_json["top_layer"] = (
             last_layer  # TODO: this sometimes is a Packet_metadata class instead of layer
         )
 
-        event_code = str(muty.crypto.hash_xxh64_int(last_layer))
-
+        # event_code = str(muty.crypto.hash_xxh64_int(last_layer))
         flattened = muty.json.flatten_json(evt_json)
-        fme: list[GulpMappingField] = []
+
+        # map
         for k, v in flattened.items():
-            e = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                k,
-                v,
-                index_type_mapping=index_type_mapping,
-                **kwargs,
-            )
-            if e is not None:
-                fme.extend(e)
+            mapped = self._process_key(k, v)
+            d.update(mapped)
 
-        # normalize time, convert to millis and keep nanos in timestamp_nsec
-        normalized = record.time.normalize(20)
-        t_ns = muty.time.float_to_epoch_nsec(float(normalized))
-        t = muty.time.nanos_to_millis(t_ns)
-
-        #  raw event as text
-        raw = record.build().hex()
+        # normalize timestamp
+        normalized: float = record.time.normalize(20)
+        ts: str = str(muty.time.float_to_epoch_nsec(float(normalized)))
+        d["@timestamp"] = ts
 
         # print(f"TEST IS {dir(event_code)}")
-        # print(f"NAME: {type(event_code.name)} ") #TODO: check if member_descriptor if so get value and/or place "unknown"
-
-        docs = self._build_gulpdocuments(
-            fme=fme,
-            idx=record_idx,
-            timestamp=t,
-            timestamp_nsec=t_ns,
-            operation_id=operation_id,
-            context=context,
-            plugin=self.display_name(),
-            client_id=client_id,
-            raw_event=raw,
-            original_id=str(record_idx),
-            src_file=os.path.basename(source),
-            event_code=event_code,
-            gulp_log_level=self._normalize_loglevel(0),
+        # print(f"NAME: {type(event_code.name)} ")
+        # #TODO: check if member_descriptor if so get value and/or place "unknown"
+        return GulpDocument(
+            self,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=record.build().hex(),
+            event_sequence=record_idx,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            **d,
         )
 
-        return docs
-
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-
         await super().ingest_file(
-            index=index,
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
             req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context_id=context,
-            source=source,
             ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )
-
-        parser = None
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
         try:
-            index_type_mapping, custom_mapping = await self._initialize()(
-                index,
-                source=source,
-                # mapping_file="pcap.json",
-                plugin_params=plugin_params,
-            )
+            # initialize plugin
+            await self._initialize(plugin_params)
+
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
-
-        file_format = plugin_params.extra.get("format", None)
-        if file_format is None:
-            # attempt to get format from source name (TODO: do it by checking bytes header instead?)
-            file_format = pathlib.Path(source).suffix.lower()[1:]
-
-        # check if a valid input was received/inferred
-        if file_format in ["cap", "pcap"]:
-            file_format = "pcap"
-        elif file_format in ["pcapng"]:
-            file_format = "pcapng"
-        else:
-            # fallback to pcap
-            file_format = "pcap"
-
-        MutyLogger.get_instance().debug(
-            "detected file format: %s for file %s" % (file_format, source)
-        )
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
         try:
-            MutyLogger.get_instance().debug("parsing file: %s" % source)
+
+            file_format = self._custom_params.get("format")
+            if file_format is None:
+                # attempt to get format from source name (TODO: do it by checking bytes header instead?)
+                file_format = pathlib.Path(file_path).suffix.lower()[1:]
+
+            # check if a valid input was received/inferred
+            if file_format in ["cap", "pcap"]:
+                file_format = "pcap"
+            elif file_format in ["pcapng"]:
+                file_format = "pcapng"
+            else:
+                # fallback to pcap
+                file_format = "pcap"
+
+            MutyLogger.get_instance().debug(
+                "detected file format: %s for file %s" % (file_format, file_path)
+            )
+
+            MutyLogger.get_instance().debug("parsing file: %s" % (file_path))
             if file_format == "pcapng":
                 MutyLogger.get_instance().debug(
-                    "using PcapNgReader reader on file: %s" % (source)
+                    "using PcapNgReader reader on file: %s" % (file_path)
                 )
-                parser = PcapNgReader(source)
+                parser = PcapNgReader(file_path)
             else:
                 MutyLogger.get_instance().debug(
-                    "using PcapReader reader on file: %s" % (source)
+                    "using PcapReader reader on file: %s" % (file_path)
                 )
-                parser = PcapReader(source)
+                parser = PcapReader(file_path)
             # TODO: support other scapy file readers like ERF?
         except Exception as ex:
             # cannot parse this file at all
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
-        ev_idx = 0
-
+        doc_idx = 0
         try:
             for pkt in parser:
                 try:
-                    fs, must_break = await self.process_record(
-                        index,
-                        pkt,
-                        ev_idx,
-                        self._record_to_gulp_document,
-                        ws_id,
-                        req_id,
-                        operation_id,
-                        client_id,
-                        context,
-                        source,
-                        fs,
-                        custom_mapping=custom_mapping,
-                        index_type_mapping=index_type_mapping,
-                        plugin_params=plugin_params,
-                        flt=flt,
-                        **kwargs,
-                    )
-
-                    ev_idx += 1
-                    if must_break:
-                        break
-                except Exception as ex:
-                    fs = self._record_failed(fs, pkt, source, ex)
+                    await self.process_record(pkt, doc_idx, flt)
+                except (RequestCanceledError, SourceCanceledError) as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    await self._source_failed(ex)
+                    break
+                doc_idx += 1
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            return self._stats_status()

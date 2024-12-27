@@ -262,6 +262,7 @@ async def test_systemd_journal():
     # wait for all processes to finish
     await _ws_loop(9243)
 
+
 @pytest.mark.asyncio
 async def test_win_reg():
     GulpAPICommon.get_instance().init(
@@ -292,6 +293,39 @@ async def test_win_reg():
 
     # wait for all processes to finish
     await _ws_loop(1206)
+
+
+@pytest.mark.asyncio
+async def test_pcap():
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    await GulpAPIDb.reset_as_admin()
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/pcap/220614_ip_flags_google.pcapng")]
+
+    # for each file, spawn a process using multiprocessing
+    for file in files:
+        p = multiprocessing.Process(
+            target=_process_file_in_worker_process,
+            args=(
+                TEST_HOST,
+                TEST_WS_ID,
+                TEST_REQ_ID,
+                TEST_INDEX,
+                "pcap",
+                None,
+                None,
+                file,
+                len(files),
+            ),
+        )
+        p.start()
+
+    # wait for all processes to finish
+    await _ws_loop(58)
+
 
 @pytest.mark.asyncio
 async def test_win_evtx():
