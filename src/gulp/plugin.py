@@ -960,6 +960,14 @@ class GulpPluginBase(ABC):
             return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
+        if (
+            fields_mapping.multiplier
+            and isinstance(source_value, int)
+            and fields_mapping.multiplier > 1
+        ):
+            # apply multiplier
+            source_value = int(source_value * fields_mapping.multiplier)
+
         if fields_mapping.is_timestamp_chrome:
             # timestamp chrome, turn to nanoseconds from epoch
             source_value = muty.time.chrome_epoch_to_nanos(int(source_value))

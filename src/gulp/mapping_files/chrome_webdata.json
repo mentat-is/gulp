@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "plugin": [
+      "sqlite.py"
+    ]
+  },
+  "mappings": {
+    "autofill": {
+      "event_code": "autofill_date_created",
+      "agent_type": "chromium",
+      "fields": {
+        "name": {
+          "ecs": "gulp.html.form.field.name"
+        },
+        "value": {
+          "ecs": "gulp.html.form.field.value"
+        },
+        "date_created": {
+          "ecs": "@timestamp",
+          "multiplier": 1000000000
+        },
+        "date_last_used": {
+          "extra_doc_with_event_code": "autofill_date_last_used",
+          "multiplier": 1000000000
+        }
+      }
+    }
+  }
+}

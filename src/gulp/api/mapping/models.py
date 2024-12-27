@@ -43,6 +43,10 @@ check `mftecmd_csv.json` for an example of this setting.
         False,
         description="if set, the corresponding value is a `webkit timestamp` (from 1601) and will be converted to nanoseconds from the unix epoch.",
     )
+    multiplier: Optional[float] = Field(
+        None,
+        description="if set and > 1, the corresponding value is multiplied by this value.",
+    )
 
 
 class GulpMapping(BaseModel):

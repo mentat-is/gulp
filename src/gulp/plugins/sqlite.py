@@ -286,7 +286,8 @@ class Plugin(GulpPluginBase):
                             # use this mapping id
                             self._mapping_id = table
 
-                            # get a record
+                            """
+                            # get record's original id
                             original_id = None
                             async with db.execute(metadata_query) as cur_tmp:
                                 r = await cur_tmp.fetchone()
@@ -295,7 +296,7 @@ class Plugin(GulpPluginBase):
                                         original_id = v
                                         break
                             d["original_id"] = row[original_id]
-
+                            """
                             try:
                                 await self.process_record(row, doc_idx, flt, data=d)
                             except (RequestCanceledError, SourceCanceledError) as ex:
