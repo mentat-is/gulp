@@ -143,6 +143,6 @@ class GulpMappingFile(BaseModel):
         min_length=1,
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
-        None,
+        ...,
         description="metadata for the mapping file.",
     )

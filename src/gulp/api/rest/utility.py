@@ -1,8 +1,8 @@
 import os
 import json
-import time
 import base64
 import muty.file
+from gulp.api.mapping.models import GulpMappingFile
 import gulp.config
 import gulp.gulp
 import gulp.plugin
@@ -10,9 +10,8 @@ import gulp.plugin
 from gulp.api.rest_api import GulpRestServer
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
-from fastapi import APIRouter, UploadFile, File, Depends, Query, WebSocket
+from fastapi import APIRouter, UploadFile, File, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -20,13 +19,14 @@ from gulp.api.rest.server_utils import (
     ServerUtils,
 )
 from gulp.api.collab.structs import (
-    GulpCollabFilter,
     GulpUserPermission,
-    MissingPermission,
 )
-
+from gulp.config import GulpConfig
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
+from muty.log import MutyLogger
+import muty.file
+import muty.uploadfile
 
 router: APIRouter = APIRouter()
 
@@ -83,7 +83,7 @@ async def request_cancel_handler(
 
 @router.get(
     "/plugin_list",
-    tags=["plugin_utility"],
+    tags=["plugin"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -208,7 +208,7 @@ async def plugin_list_handler(
 
 @router.get(
     "/plugin_get",
-    tags=["plugin_utility"],
+    tags=["plugin"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -268,7 +268,7 @@ async def plugin_get_handler(
 
 @router.delete(
     "/plugin_delete",
-    tags=["plugin_utility"],
+    tags=["plugin"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -325,7 +325,7 @@ async def plugin_delete_handler(
 
 @router.post(
     "/plugin_upload",
-    tags=["plugin_utility"],
+    tags=["plugin"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -401,7 +401,7 @@ async def plugin_upload_handler(
 
 @router.get(
     "/plugin_tags",
-    tags=["plugin_utility"],
+    tags=["plugin"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -486,310 +486,251 @@ async def get_version_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.post(
-#     "/mapping_file_upload",
-#     tags=["mapping_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"filename": "custom_mapping.json"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="upload a JSON mapping file.",
-#     description="file will be uploaded to the `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES` environment variable)",
-# )
-# async def mapping_file_upload_handler(
-#     token: Annotated[
-#         str, Header(description=gulp.structs.API_DESC_TOKEN + " with EDIT permission.")
-#     ],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-#     mapping_file: Annotated[
-#         UploadFile, File(description="the mapping json file")
-#     ] = None,
-#     allow_overwrite: Annotated[
-#         bool, Query(description="if set, will overwrite an existing mapping file.")
-#     ] = True,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(
-#             await collab_api.session(), token, GulpUserPermission.EDIT
-#         )
-#         filename = os.path.basename(mapping_file.filename)
-#         if not filename.lower().endswith(".json"):
-#             raise gulp.structs.InvalidArgument("mapping_file must be a JSON file.")
+@router.post(
+    "/mapping_file_upload",
+    tags=["mapping"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"filename": "custom_mapping.json"},
+                    }
+                }
+            }
+        }
+    },
+    summary="upload a JSON mapping file.",
+    description="""
+- token needs `edit` permission.
+- file will be uploaded to `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES` environment variable).
+""",
+)
+async def mapping_file_upload_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    mapping_file: Annotated[
+        UploadFile, File(description="the mapping json file")
+    ] = None,
+    allow_overwrite: Annotated[
+        bool, Query(description="if set, will overwrite an existing mapping file.")
+    ] = True,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    params = locals()
+    params["mapping_file"] = mapping_file.filename
+    ServerUtils.dump_params(params)
 
-#         full_mapping_file_path = GulpConfig.build_mapping_file_path(filename)
-#         if not allow_overwrite:
-#             # overwrite disabled
-#             if os.path.exists(full_mapping_file_path):
-#                 raise gulp.structs.ObjectAlreadyExists(
-#                     "mapping file %s already exists." % (filename)
-#                 )
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, [GulpUserPermission.EDIT])
 
-#         # ok, write file
+        filename: str = os.path.basename(mapping_file.filename)
+        content: dict = None
+        try:
+            # check if the file is a valid mapping file
+            content = json.loads(mapping_file.file.read())
+            GulpMappingFile.model_validate(content)
+        except Exception as ex:
+            # not a valid json or GulpMappingFile
+            raise ex
 
-#         await muty.uploadfile.to_path(
-#             mapping_file,
-#             dest_dir=GulpConfig.get_instance().path_mapping_files(),
-#         )
-#         return JSONResponse(
-#             muty.jsend.success_jsend(req_id=req_id, data={"filename": filename})
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+        if not filename.lower().endswith(".json"):
+            filename.append(".json")
 
+        mapping_file_path = GulpConfig.build_mapping_file_path(filename)
+        if not allow_overwrite:
+            # overwrite disabled
+            if os.path.exists(mapping_file_path):
+                raise gulp.structs.ObjectAlreadyExists(
+                    "mapping file %s already exists." % (filename)
+                )
 
-# @_app.get(
-#     "/mapping_file_list",
-#     tags=["mapping_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1725380334348,
-#                         "req_id": "7b37b846-e3e9-441f-bb4f-b0177ed76d86",
-#                         "data": [
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "autopsy_webform_autofill.json",
-#                                 "mapping_ids": ["Autopsy Web Form Autofill"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "JLECmd_csv.json",
-#                                 "mapping_ids": [
-#                                     "custom_destinations",
-#                                     "automatic_destinations",
-#                                 ],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["sqlite"]},
-#                                 "filename": "firefox_sqlite.json",
-#                                 "mapping_ids": ["moz_places", "moz_annos"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "PECmd_csv.json",
-#                                 "mapping_ids": ["timeline", "pecmd"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "RecentFileCacheParser_csv.json",
-#                                 "mapping_ids": ["recentfilecacheparser"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["sqlite"]},
-#                                 "filename": "chrome_history.json",
-#                                 "mapping_ids": ["urls", "downloads"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "autopsy_webhistory.json",
-#                                 "mapping_ids": ["Autopsy Web History"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["apache_error_clf"]},
-#                                 "filename": "apache_error_clf.json",
-#                                 "mapping_ids": [],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "mftecmd_csv.json",
-#                                 "mapping_ids": ["record", "boot", "j", "sds"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["systemd_journal"]},
-#                                 "filename": "systemd_journal.json",
-#                                 "mapping_ids": [],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["win_evtx", "csv"]},
-#                                 "filename": "windows.json",
-#                                 "mapping_ids": [],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["sqlite"]},
-#                                 "filename": "chrome_webdata.json",
-#                                 "mapping_ids": ["autofill"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "autopsy_usbdevices.json",
-#                                 "mapping_ids": ["Autopsy USBDevice"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["apache_access_clf"]},
-#                                 "filename": "apache_access_clf.json",
-#                                 "mapping_ids": [],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "SrumECmd.json",
-#                                 "mapping_ids": [
-#                                     "appresourceuseinfo",
-#                                     "apptimelineprovider",
-#                                     "energyusage",
-#                                     "networkconnections",
-#                                     "networkusages",
-#                                     "vfuprov",
-#                                 ],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["csv"]},
-#                                 "filename": "LECmd_csv.json",
-#                                 "mapping_ids": ["lecmd"],
-#                             },
-#                             {
-#                                 "metadata": {"plugin": ["pcap"]},
-#                                 "filename": "pcap.json",
-#                                 "mapping_ids": [],
-#                             },
-#                         ],
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="lists available mapping files.",
-# )
-# async def mapping_file_list_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         path = GulpConfig.get_instance().path_mapping_files()
-#         MutyLogger.get_instance().debug("listing mapping files in %s" % (path))
-#         files = await muty.file.list_directory_async(path)
-
-#         # purge paths
-#         purged = []
-#         for f in files:
-#             if f.lower().endswith(".json"):
-#                 # read file and get tags
-#                 content = await muty.file.read_file_async(f)
-#                 js = json.loads(content)
-#                 mtd = js.get("metadata", {})
-#                 base_f = os.path.basename(f)
-
-#                 # get also mapping_id for each mapping
-#                 mappings = js.get("mappings", [])
-#                 mapping_ids = []
-#                 for m in mappings:
-#                     opts = m.get("options", {})
-#                     mm = opts.get("mapping_id", None)
-#                     if mm:
-#                         mapping_ids.append(mm)
-#                 purged.append(
-#                     {"metadata": mtd, "filename": base_f, "mapping_ids": mapping_ids}
-#                 )
-
-#         return JSONResponse(muty.jsend.success_jsend(req_id=req_id, data=purged))
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex) from ex
+        # ok, write file
+        await muty.file.write_file_async(mapping_file_path, json.dumps(content, indent=2).encode())
+        return JSONResponse(
+            JSendResponse.success(req_id=req_id, data={"filename": filename})
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.get(
-#     "/mapping_file_get",
-#     tags=["mapping_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"windows.json": "base64 file content here"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="get a mapping file (i.e. for editing and reupload).",
-#     description="file content is returned as base64.",
-# )
-# async def mapping_file_get_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_TOKEN)],
-#     mapping_file: Annotated[
-#         str, Query(description='the mapping file to get (i.e. "windows.json")')
-#     ],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(await collab_api.session(), token)
-#         file_path = GulpConfig.build_mapping_file_path(mapping_file)
+@router.get(
+    "/mapping_file_list",
+    tags=["mapping"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1735294441540,
+                        "req_id": "test_req",
+                        "data": [
+                            {
+                                "metadata": {"plugin": ["splunk.py"]},
+                                "filename": "splunk.json",
+                                "mapping_ids": ["splunk"],
+                            },
+                            {
+                                "metadata": {"plugin": ["csv.py"]},
+                                "filename": "mftecmd_csv.json",
+                                "mapping_ids": ["record", "boot", "j", "sds"],
+                            },
+                            {
+                                "metadata": {"plugin": ["win_evtx.py"]},
+                                "filename": "windows.json",
+                                "mapping_ids": ["windows"],
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="lists available mapping files.",
+)
+async def mapping_file_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
 
-#         # read file content
-#         f = await muty.file.read_file_async(file_path)
-#         filename = os.path.basename(file_path)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(
-#                 req_id=req_id, data={filename: base64.b64encode(f).decode()}
-#             )
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token)
+
+        path = GulpConfig.get_instance().path_mapping_files()
+        MutyLogger.get_instance().info("listing mapping files in %s" % (path))
+        files = await muty.file.list_directory_async(path)
+
+        # for each file, get metadata and mapping_ids
+        d = []
+        for f in files:
+            if f.lower().endswith(".json"):
+                # read file
+                content = await muty.file.read_file_async(f)
+                js = json.loads(content)
+
+                # get metadata
+                mtd = js.get("metadata", {})
+
+                # get mapping_id for each mapping
+                mappings: dict = js.get("mappings", {})
+                mapping_ids = list(str(key) for key in mappings.keys())
+
+                d.append(
+                    {
+                        "metadata": mtd,
+                        "filename": os.path.basename(f),
+                        "mapping_ids": mapping_ids,
+                    }
+                )
+
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-# @_app.delete(
-#     "/mapping_file_delete",
-#     tags=["mapping_utility"],
-#     response_model=JSendResponse,
-#     response_model_exclude_none=True,
-#     responses={
-#         200: {
-#             "content": {
-#                 "application/json": {
-#                     "example": {
-#                         "status": "success",
-#                         "timestamp_msec": 1701266243057,
-#                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-#                         "data": {"filename": "windows.json"},
-#                     }
-#                 }
-#             }
-#         }
-#     },
-#     summary="deletes an existing mapping file.",
-# )
-# async def mapping_file_delete_handler(
-#     token: Annotated[str, Header(description=gulp.structs.API_DESC_ADMIN_TOKEN)],
-#     mapping_file: Annotated[
-#         str, Query(description='the mapping file to delete (i.e. "windows.json")')
-#     ],
-#     req_id: Annotated[str, Query(description=gulp.structs.API_DESC_REQID)] = None,
-# ) -> JSendResponse:
-#     req_id = gulp_utils.ensure_req_id(req_id)
-#     try:
-#         await GulpUserSession.check_token(
-#             await collab_api.session(), token, GulpUserPermission.ADMIN
-#         )
-#         file_path = GulpConfig.build_mapping_file_path(mapping_file)
+@router.get(
+    "/mapping_file_get",
+    tags=["mapping"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"windows.json": "base64 file content"},
+                    }
+                }
+            }
+        }
+    },
+    summary="get a mapping file (i.e. for editing and reupload).",
+    description="file content is returned as base64.",
+)
+async def mapping_file_get_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    mapping_file: Annotated[
+        str, Query(description='the mapping file to get (i.e. "windows.json")')
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
 
-#         # delete file
-#         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
-#         return JSONResponse(
-#             muty.jsend.success_jsend(req_id=req_id, data={"filename": mapping_file})
-#         )
-#     except Exception as ex:
-#         raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token)
+
+        mapping_file_path = GulpConfig.build_mapping_file_path(mapping_file)
+
+        # read file content
+        f = await muty.file.read_file_async(mapping_file_path)
+        filename = os.path.basename(mapping_file_path)
+        return JSONResponse(
+            JSendResponse.success(
+                req_id=req_id, data={filename: base64.b64encode(f).decode()}
+            )
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
+
+
+@router.delete(
+    "/mapping_file_delete",
+    tags=["mapping"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"filename": "windows.json"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an existing mapping file.",
+    description="""
+- token needs `edit` permission.
+- file will be deleted from the `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES` environment variable).
+""",
+)
+async def mapping_file_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    mapping_file: Annotated[
+        str, Query(description='the mapping file to delete (i.e. "windows.json")')
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+
+        mapping_file_path = GulpConfig.build_mapping_file_path(mapping_file)
+
+        # delete file
+        await muty.file.delete_file_or_dir_async(mapping_file_path, ignore_errors=False)
+        return JSONResponse(
+            JSendResponse.success(req_id=req_id, data={"filename": mapping_file})
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
