@@ -24,7 +24,7 @@ class GulpMappingField(BaseModel):
         },
     )
 
-    ecs: Optional[list[str]] = Field(
+    ecs: Optional[list[str] | str] = Field(
         None,
         description="one or more ECS field names to map the source field to in the resulting document.",
         min_length=1,

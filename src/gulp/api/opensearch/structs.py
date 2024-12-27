@@ -158,6 +158,7 @@ class GulpDocument(GulpBasicDocument):
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
         epoch_start: str = "1970-01-01T00:00:00Z"
+        # MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}")
         if not timestamp:
             # invalid timestamp
             return epoch_start, 0, True
@@ -165,7 +166,6 @@ class GulpDocument(GulpBasicDocument):
         try:
             # get iso8601 timestamp
             ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
-
             # we also need nanoseconds from the unix epoch
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch

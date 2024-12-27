@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "plugin": [
+      "apache_error_clf.py"
+    ]
+  },
+  "mappings": {
+    "default": {
+      "fields": {
+        "loglevel": {
+          "ecs": "gulp.log_level"
+        },
+        "pid": {
+          "ecs": "process.pid"
+        },
+        "tid": {
+          "ecs": "process.tid"
+        },
+        "client": {
+          "ecs": "source.type"
+        },
+        "ip": {
+          "ecs": "ip.source"
+        },
+        "message": {
+          "ecs": "message"
+        }
+      }
+    }
+  }
+}

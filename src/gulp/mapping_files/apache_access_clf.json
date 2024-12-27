@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "plugin": [
+      "apache_access_clf.py"
+    ]
+  },
+  "mappings": {
+    "default": {
+      "fields": {
+        "request_method": {
+          "ecs": "http.request.method"
+        },
+        "referrer": {
+          "ecs": "http.request.referrer"
+        },
+        "user": {
+          "ecs": "user.name"
+        },
+        "size": {
+          "ecs": "http.response.bytes"
+        },
+        "status": {
+          "ecs": [
+            "http.response.status_code",
+            "event.code"
+          ]
+        },
+        "request_version": {
+          "ecs": "http.version"
+        },
+        "host": {
+          "ecs": "source.ip"
+        },
+        "path": {
+          "ecs": [
+            "url.original",
+            "url.path"
+          ]
+        },
+        "query": {
+          "ecs": "url.query"
+        },
+        "agent": {
+          "ecs": "user_agent.original"
+        }
+      }
+    }
+  }
+}

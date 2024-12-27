@@ -109,7 +109,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, data: Any = None
     ) -> GulpDocument:
 
         event_original: str = record["data"]

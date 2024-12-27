@@ -254,6 +254,9 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             GulpRequestStatus.DONE,
         ]:
             # nothing to do, request is already done
+            MutyLogger.get_instance().debug(
+                'request "%s" is already done, status=%s' % (self.id, self.status)
+            )
             raise RequestCanceledError()
 
         # update
@@ -294,15 +297,15 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
 
         if self.source_processed == self.source_total:
             MutyLogger.get_instance().debug(
-                'source_processed == source_total, setting request "%s" to DONE'
-                % (self.id)
+                'source_processed: %d == source_total: %d, setting request "%s" to DONE'
+                % (self.source_processed, self.source_total, self.id)
             )
             self.status = GulpRequestStatus.DONE
 
         if self.source_failed == self.source_total:
             MutyLogger.get_instance().error(
-                'source_failed == source_total, setting request "%s" to FAILED'
-                % (self.id)
+                'source_failed: %d == source_total: %d, setting request "%s" to FAILED'
+                % (self.source_failed, self.source_total, self.id)
             )
             self.status = GulpRequestStatus.FAILED
 

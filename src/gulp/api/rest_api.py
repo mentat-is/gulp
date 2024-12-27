@@ -4,6 +4,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import os
 import ssl
+from typing import Any
 
 import muty.crypto
 import muty.file
@@ -122,7 +123,7 @@ class GulpRestServer:
         return self._shutdown
 
     async def _bad_request_exception_handler(
-        self, r: Request, ex: any
+        self, r: Request, ex: Any
     ) -> JSendResponse:
         """
         set error code 400 to generic bad requests

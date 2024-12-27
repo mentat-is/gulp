@@ -31,7 +31,7 @@ from gulp.api.collab.stats import (
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping, GulpMappingFile
+from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
     GulpBaseDocumentFilter,
@@ -376,7 +376,7 @@ class GulpPluginBase(ABC):
                     GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error()
                 ):
                     raise Exception(
-                        "elasticsearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
+                        "opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
                     )
         else:
             # use full chunk as ingested docs
@@ -827,7 +827,7 @@ class GulpPluginBase(ABC):
         return [doc.model_dump(by_alias=True)] + extra_docs
 
     async def _record_to_gulp_document(
-        self, record: any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, data: Any = None
     ) -> GulpDocument:
         """
         to be implemented in a plugin to convert a record to a GulpDocument.
@@ -866,7 +866,7 @@ class GulpPluginBase(ABC):
 
     async def _record_to_gulp_documents_wrapper(
         self,
-        record: any,
+        record: Any,
         record_idx: int,
         data: Any = None,
     ) -> list[dict]:
@@ -910,7 +910,7 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
-    def _process_key(self, source_key: str, source_value: any) -> dict:
+    def _process_key(self, source_key: str, source_value: Any) -> dict:
         """
         Maps the source key, generating a dictionary to be merged in the final gulp document.
 
@@ -924,10 +924,17 @@ class GulpPluginBase(ABC):
             a dictionary to be merged in the final gulp document
         """
 
-        def _try_map_ecs(fields_mapping: dict, d: dict, source_value: any) -> dict:
-            if fields_mapping.ecs:
+        def _try_map_ecs(
+            fields_mapping: GulpMappingField, d: dict, source_value: Any
+        ) -> dict:
+            mapping = fields_mapping.ecs
+            if isinstance(mapping, str):
+                # single mapping
+                mapping = [mapping]
+
+            if mapping:
                 # source key is mapped, add the mapped key to the document
-                for k in fields_mapping.ecs:
+                for k in mapping:
                     kk, vv = self._type_checks(k, source_value)
                     if vv:
                         d[kk] = vv
@@ -974,7 +981,7 @@ class GulpPluginBase(ABC):
 
     async def process_record(
         self,
-        record: any,
+        record: Any,
         record_idx: int,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
@@ -1008,8 +1015,7 @@ class GulpPluginBase(ABC):
             )
         except Exception as ex:
             # report failure
-            self._records_failed_per_chunk += 1
-            MutyLogger.get_instance().exception(ex)
+            self._record_failed(ex)
             return
 
         self._records_processed_per_chunk += 1
@@ -1216,7 +1222,7 @@ class GulpPluginBase(ABC):
             "got index type mappings with %d entries" % (len(self._index_type_mapping))
         )
 
-    def _type_checks(self, k: str, v: any) -> tuple[str, any]:
+    def _type_checks(self, k: str, v: Any) -> tuple[str, Any]:
         """
         check the type of a value and convert it if needed.
 
@@ -1362,6 +1368,14 @@ class GulpPluginBase(ABC):
             )
         """
         return ingested, skipped
+
+    def _record_failed(self, ex: Exception = None) -> None:
+        """
+        Handles a record failure during ingestion.
+        """
+        self._records_failed_per_chunk += 1
+        if ex:
+            MutyLogger.get_instance().exception(ex)
 
     async def _source_failed(
         self,
