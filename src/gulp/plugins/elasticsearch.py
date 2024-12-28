@@ -125,12 +125,16 @@ class Plugin(GulpPluginBase):
             yearfirst=mapping.timestamp_yearfirst if mapping else None,
             fuzzy=mapping.timestamp_fuzzy if mapping else None,
         )
+        # strip timestamp
+        doc.pop(timestamp_field, None)
 
         # map any other field
         d = {}
         for k, v in doc.items():
+            # do not
             mapped = self._process_key(k, v)
             d.update(mapped)
+
 
         """
         MutyLogger.get_instance().debug(
@@ -226,7 +230,7 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 q_options=q_options,
                 el=cl,
-                processor=self,
+                callback=self.process_record,
             )
             if total_count == 0:
                 MutyLogger.get_instance().warning("no results!")

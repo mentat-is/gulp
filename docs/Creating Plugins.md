@@ -116,7 +116,7 @@ Each mapping field ([FieldMappingEntry](/docs/html/classmapping_1_1models_1_1_fi
 | map_to | the field name to map to on the database |
 | is_timestamp | if true, gulp will attempt to parse the field as a timestamp and convert it automatically (default: false) |
 | is_timestamp_chrome | if true, the timestamp will be treated as a webkit/chrome epoch (01/01/1601 00:00:00)|
-| do_multiply | if value is numeric multiplies it by this value before saving it to te db (e.g. useful for converting ms to ns timestamps) |
+| multiplier | if value is numeric multiplies it by this value before saving it to te db (e.g. useful for converting ms to ns timestamps) |
 | event_code | if set overrides the event code for the generated events |
 
 > [!NOTE]

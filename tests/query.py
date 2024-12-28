@@ -757,7 +757,9 @@ async def test_splunk():
 
 @pytest.mark.asyncio
 async def test_elasticsearch():
-    async def _test_sigma_external_multi_ingest(token: str,):
+    async def _test_sigma_external_multi_ingest(
+        token: str,
+    ):
         # read sigmas
         current_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -778,7 +780,6 @@ async def test_elasticsearch():
             await GulpAPIDb.opensearch_delete_index(ingest_token, ingest_index)
         except:
             pass
-
 
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
@@ -807,6 +808,7 @@ async def test_elasticsearch():
                         q_options.external_parameters.plugin_params.model_extra[
                             "is_elasticsearch"
                         ] = False  # we are querying gulp ....
+                        q_options.fields = "*"
                         q_options.external_parameters.operation_id = TEST_OPERATION_ID
                         q_options.external_parameters.context_name = (
                             "elasticsearch_context"
@@ -870,7 +872,10 @@ async def test_elasticsearch():
             except websockets.exceptions.ConnectionClosed:
                 MutyLogger.get_instance().warning("WebSocket connection closed")
 
-        assert test_completed
+        try:
+            assert test_completed
+        finally:
+            await GulpAPIDb.opensearch_delete_index(ingest_token, ingest_index)
         MutyLogger.get_instance().info("test succeeded!")
 
     GulpAPICommon.get_instance().init(

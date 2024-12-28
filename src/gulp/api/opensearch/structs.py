@@ -221,7 +221,7 @@ class GulpDocument(GulpBasicDocument):
         # (i.e. turn "@timestamp" back to "timestamp")
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
 
-        # this is set by _finalize_process_record() in the mapping engine
+        # this is internal, set by _finalize_process_record() in the mapping engine
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
 
         # build initial data dict

@@ -276,7 +276,7 @@ class GulpQueryAdditionalParameters(BaseModel):
         description="""
 the set of fields to include in the returned documents.
 
-- ignored for `external` queries.
+- ignored for `external` queries, unless the plugin supports it.
 - default=`%s` (which are forcefully included anyway), or use `*` to return all fields.
 """
         % (QUERY_DEFAULT_FIELDS),
@@ -392,7 +392,7 @@ class GulpQueryHelpers:
         flt: GulpQueryFilter = None,
         q_options: GulpQueryAdditionalParameters = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
-        processor: "GulpPluginBase" = None,
+        callback: callable = None,
     ) -> tuple[int, int]:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
@@ -407,7 +407,9 @@ class GulpQueryHelpers:
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
             q_options(GulpQueryAdditionalParameters, optional): additional options to use
             el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
-            processor (GulpPluginBase): if set, processor.plugin_record() will be called for each document returned. defaults to None
+            callback (callable, optional): the callback to call for each document found. Defaults to None.
+                the callback must be defined as:
+                async def callback(doc: dict, idx: int, **kwargs) -> None
 
         Returns:
             tuple[int, int]: the number of documents processed and the total number of documents found
@@ -432,7 +434,7 @@ class GulpQueryHelpers:
             user_id=user_id,
             q_options=q_options,
             el=el,
-            processor=processor,
+            callback=callback,
         )
         return processed, total
 

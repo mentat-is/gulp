@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "plugin": [
+      "sqlite.py"
+    ]
+  },
+  "mappings": {
+    "moz_places": {
+      "event_code": "history",
+      "agent_type": "firefox",
+      "fields": {
+        "url": {
+          "ecs": [
+            "url.full",
+            "url.original"
+          ]
+        },
+        "last_visit_date": {
+          "ecs": "@timestamp"
+        }
+      }
+    }
+  }
+}

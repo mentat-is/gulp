@@ -1,0 +1,110 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "app_resource_use_info": {
+      "event_code": "app_resource_use_info",
+      "agent_type": "srumecmd",
+      "fields": {
+        "Timestamp": {
+          "ecs": "@timestamp"
+        },
+        "ExeInfo": {
+          "ecs": "file.path"
+        },
+        "Sid": {
+          "ecs": "user.id"
+        },
+        "UserName": {
+          "ecs": "user.name"
+        }
+      }
+    },
+    "app_timeline_provider": {
+      "event_code": "app_timeline_provider",
+      "agent_type": "srumecmd",
+      "fields": {
+        "Timestamp": {
+          "ecs": "@timestamp"
+        },
+        "ExeInfo": {
+          "ecs": "process.name"
+        },
+        "Sid": {
+          "ecs": "user.id"
+        },
+        "UserName": {
+          "ecs": "user.name"
+        },
+        "DurationMs": {
+          "ecs": "event.duration",
+          "multiplier": 1000000
+        }
+      }
+    },
+    "energy_usage": {
+      "event_code": "energy_usage",
+      "agent_type": "srumecmd",
+      "fields": {
+        "Timestamp": {
+          "ecs": "@timestamp"
+        }
+      }
+    },
+    "network_connections": {
+      "event_code": "network_connections",
+      "agent_type": "srumecmd",
+      "fields": {
+        "Timestamp": {
+          "ecs": "@timestamp"
+        },
+        "ConnectedTime": {
+          "ecs": "event.duration",
+          "multiplier": 1000000000
+        }
+      }
+    },
+    "network_usages": {
+      "event_code": "network_usages",
+      "agent_type": "srumecmd",
+      "fields": {
+        "Timestamp": {
+          "ecs": "@timestamp"
+        },
+        "ExeInfo": {
+          "ecs": "file.path"
+        },
+        "Sid": {
+          "ecs": "user.id"
+        },
+        "UserName": {
+          "ecs": "user.name"
+        }
+      }
+    },
+    "vfuprov": {
+      "event_code": "vfuprov",
+      "agent_type": "srumecmd",
+      "fields": {
+        "Timestamp": {
+          "ecs": "@timestamp"
+        },
+        "Sid": {
+          "ecs": "user.id"
+        },
+        "UserName": {
+          "ecs": "user.name"
+        },
+        "StartTime": {
+          "extra_doc_with_event_code": "vfu_start_time"
+        },
+        "EndTime": {
+          "extra_doc_with_event_code": "vfu_end_time"
+        }
+      }
+    }
+  }
+}

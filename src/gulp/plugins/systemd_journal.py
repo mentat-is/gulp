@@ -69,7 +69,6 @@ class Plugin(GulpPluginBase):
 
         # map timestamp manually
         time_str = event["__REALTIME_TIMESTAMP"]
-        # time_str = str(muty.time.string_to_nanos_from_unix_epoch(time_str))
         d["@timestamp"] = time_str
         d["event.code"] = str(record["PRIORITY"])
 

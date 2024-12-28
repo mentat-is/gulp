@@ -14,6 +14,7 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     python3 -m pytest ingest.py::test_eml &&
     python3 -m pytest ingest.py::test_mbox &&
     python3 -m pytest ingest.py::test_pcap &&
+    python3 -m pytest ingest.py::test_pfsense &&    
     python3 -m pytest ingest.py::test_raw &&
     python3 -m pytest ingest.py::test_systemd_journal &&
     python3 -m pytest ingest.py::test_teamviewer_regex_stacked &&

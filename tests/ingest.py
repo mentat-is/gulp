@@ -288,6 +288,12 @@ async def test_chrome_webdata():
 
 
 @pytest.mark.asyncio
+async def test_pfsense():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/pfsense/filter.log")]
+    await _test_generic(files, "pfsense", 61)
+
+@pytest.mark.asyncio
 async def test_win_evtx():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")

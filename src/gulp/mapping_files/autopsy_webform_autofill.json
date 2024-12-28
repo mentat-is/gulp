@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "autofill": {
+      "event_code": "autofill_date_created",
+      "agent_type": "autopsy",
+      "fields": {
+        "Date Accessed": {
+          "extra_doc_with_event_code": "autofill_date_last_used"
+        },
+        "Date Created": {
+          "ecs": "@timestamp"
+        },
+        "Username": {
+          "ecs": "user.name"
+        },
+        "Program Name": {
+          "ecs": "process.name"
+        }
+      }
+    }
+  }
+}

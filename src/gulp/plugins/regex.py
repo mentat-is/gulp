@@ -67,7 +67,6 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        print(d)
         # TODO: find a better solution(?)
         # currently we assume the following:
         # - timestamp is nanoseconds from unix epoch, if numeric
@@ -184,7 +183,7 @@ class Plugin(GulpPluginBase):
                         MutyLogger.get_instance().warning(
                             f"regex did not match: {line}"
                         )
-                        await self._record_failed()
+                        self._record_failed()
                     doc_idx += 1
 
         except Exception as ex:

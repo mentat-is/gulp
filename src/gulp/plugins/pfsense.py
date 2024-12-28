@@ -1,51 +1,33 @@
-import datetime
 import os
 import re
+from typing import Any, override
 
-import muty.dict
 import muty.jsend
 import muty.log
 import muty.os
 import muty.string
 import muty.time
 import muty.xml
-
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMappingField, GulpMapping
-from gulp.structs import GulpLogLevel
+from gulp.structs import GulpPluginParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def _normalize_loglevel(self, l: int | str) -> str:
-        """
-        int to str mapping
-        :param l:
-        :return:
-        """
-
-        ll = int(l)
-        if ll == journal.LOG_DEBUG:
-            return GulpLogLevel.VERBOSE
-        elif ll == journal.LOG_INFO:
-            return GulpLogLevel.INFO
-        elif ll == journal.LOG_WARNING:
-            return GulpLogLevel.WARNING
-        elif ll == journal.LOG_ERR:
-            return GulpLogLevel.ERROR
-        elif ll == journal.LOG_CRIT:
-            return GulpLogLevel.CRITICAL
-        else:
-            # shouldnt happen
-            return GulpLogLevel.ALWAYS
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return "pfsense filter.log file processor."
 
@@ -55,32 +37,16 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        extra: dict = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
 
         event: str = record
-        if extra is None:
-            extra = {}
+        flent: dict = {}
+        log_split: re.Match[str] = data["match"]
+        matches: tuple = log_split.groups()
 
-        flent = {}
-        log_split = self.pattern.match(event)
-        matches = log_split.groups()
-
-        all = event
         flent["time"] = matches[0]
         flent["host"] = matches[1]
         flent["rule"] = matches[2]
@@ -228,88 +194,73 @@ class Plugin(GulpPluginBase):
         # delete rule, as it contains the raw_event and it'd be duplicated
         del flent["rule"]
 
-        fme: list[GulpMappingField] = []
+        d: dict = {}
         for k, v in flent.items():
-            # each event item is a list[str]
-            e = self._map_source_key(plugin_params, custom_mapping, k, v, **kwargs)
-            for f in e:
-                fme.append(f)
+            mapped = self._process_key(k, v)
+            d.update(mapped)
 
-        time_nanosec = muty.time.string_to_epoch_nsec(flent["time"])
-        time_msec = muty.time.nanos_to_millis(time_nanosec)
-
-        docs = self._build_gulpdocuments(
-            fme,
-            idx=record_idx,
-            timestamp_nsec=time_nanosec,
-            timestamp=time_msec,
-            operation_id=operation_id,
-            context=context,
-            plugin=self.display_name(),
-            client_id=client_id,
-            raw_event=event,
-            original_id=str(record_idx),
-            event_code=flent["rulenum"],
-            src_file=os.path.basename(source),
-            # gulp_log_level=gulp_log_level,
-            # original_log_level=original_log_level,
+        # map timestamp and event code manually
+        d["@timestamp"] = flent["time"]
+        d["event.code"] = flent["rulenum"]
+        return GulpDocument(
+            self,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=event,
+            event_sequence=record_idx,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            **d,
         )
 
-        return docs
-
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+        )
         # taken from pfsense' parse_firewall_log_line function, these leve out some info (e.g. the pid of the filterlog process)
         rfc5424_pattern = (
             r"<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)$"
         )
         rfc3164_pattern = r"(.*)\s(.*)\sfilterlog\[[0-9]+\]:\s(.*)$"
 
-        self.rfc5424 = re.compile(rfc5424_pattern)
-        self.rfc3164 = re.compile(rfc3164_pattern)
-        self.pattern: re.Pattern = None
+        rfc5424_regex: re.Pattern = re.compile(rfc5424_pattern)
+        rfc3164_regex: re.Pattern = re.compile(rfc3164_pattern)
+        regex: re.Pattern = None
 
-        await super().ingest_file(
-            index=index,
-            req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context_id=context,
-            source=source,
-            ws_id=ws_id,
-            plugin_params=plugin_params,
-            flt=flt,
-            **kwargs,
-        )
-        fs = TmpIngestStats(source)
-
-        ev_idx = 0
-
-        # initialize mapping
+        doc_idx = 0
         try:
-            index_type_mapping, custom_mapping = await self._initialize()(
-                index, source, mapping_file="pfsense.json", plugin_params=plugin_params
-            )
-        except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            # initialize plugin
+            await self._initialize(plugin_params=plugin_params)
 
-        try:
-            with open(source, "r") as log_file:
+            with open(file_path, "r") as log_file:
                 # SNIPPET: peek first line and decide pattern to use
                 # peek=log_file.readline()
                 # self.pattern = self.rfc3164
@@ -318,51 +269,31 @@ class Plugin(GulpPluginBase):
                 # log_file.seek(0)
 
                 for rr in log_file:
-                    try:
-                        # pfsense does this check for every line in the log, we do too...
-                        # is it because they expect mixed logs-formats? else we should just decide based
-                        # on log's first line (see snippet above).
-                        self.pattern = self.rfc3164
-                        if rr.startswith("<"):
-                            self.pattern = self.rfc5424
+                    # pfsense does this check for every line in the log, we do too...
+                    # is it because they expect mixed logs-formats? else we should just decide based
+                    # on log's first line (see snippet above).
+                    regex = rfc3164_regex
+                    if rr.startswith("<"):
+                        regex = rfc5424_regex
 
-                        if self.pattern.match(rr) is None:
-                            fs = self._record_failed(
-                                fs,
-                                rr,
-                                source,
-                                f"Regex ({self.pattern}) did not match line ({rr})",
+                    m: re.Match[str] = regex.match(rr)
+                    if m:
+                        try:
+                            await self.process_record(
+                                rr, doc_idx, flt=flt, data={"match": m}
                             )
-                            continue
-
-                        fs, must_break = await self.process_record(
-                            index,
-                            rr,
-                            ev_idx,
-                            self._record_to_gulp_document,
-                            ws_id,
-                            req_id,
-                            operation_id,
-                            client_id,
-                            context,
-                            source,
-                            fs,
-                            custom_mapping=custom_mapping,
-                            index_type_mapping=index_type_mapping,
-                            plugin_params=plugin_params,
-                            flt=flt,
-                            **kwargs,
+                        except (RequestCanceledError, SourceCanceledError) as ex:
+                            MutyLogger.get_instance().exception(ex)
+                            await self._source_failed(ex)
+                    else:
+                        # no match
+                        self._record_failed(
+                            f"Regex ({self.pattern}) did not match line ({rr})"
                         )
-                        ev_idx += 1
-                        if must_break:
-                            break
-                    except Exception as ex:
-                        fs = self._record_failed(fs, rr, source, ex)
+                    doc_idx += 1
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            return self._stats_status()

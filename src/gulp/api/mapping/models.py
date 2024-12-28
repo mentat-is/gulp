@@ -34,7 +34,11 @@ class GulpMappingField(BaseModel):
         description="""
 if this is set, the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
 
-usually, in this setting, a mapping file shows a field `ecs` directly mapped as `@timestamp` (to indicate the *main* document) and one or more additional `extra_doc_with_event_code` fields.
+in this setting, the mapping file should:
+
+- map a **single** field directly as `@timestamp` (to indicate the *main* document)
+- set `mapping.event_code` to the *main* event code
+- add additional `extra_doc_with_event_code` fields to create further documents with their own event code.
 
 check `mftecmd_csv.json` for an example of this setting.
 """,

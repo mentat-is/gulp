@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "recent_file_cache_parser": {
+      "event_code": "source_created",
+      "agent_type": "recent_file_cache_parser",
+      "fields": {
+        "SourceFile": {
+          "map_to": "file.path"
+        },
+        "SourceCreated": {
+          "ecs": "@timestamp"
+        },
+        "SourceModified": {
+          "extra_doc_with_event_code": "source_modified"
+        },
+        "SourceAccessed": {
+          "extra_doc_with_event_code": "source_accessed"
+        }
+      }
+    }
+  }
+}

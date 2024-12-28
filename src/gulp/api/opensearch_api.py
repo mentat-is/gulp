@@ -1291,7 +1291,7 @@ class GulpOpenSearch:
         user_id: str = None,
         q_options: "GulpQueryAdditionalParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
-        processor: "GulpPluginBase" = None,
+        callback: callable = None,
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -1307,7 +1307,11 @@ class GulpOpenSearch:
             user_id (str, optional): The user ID performing the query
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
-            processor (GulpPluginBase): if set, processor.plugin_record() will be called for each document returned. defaults to None
+            callback (callable, optional): the callback to call for each document found. Defaults to None.
+                the callback must be defined as:
+                async def callback(doc: dict, idx: int, **kwargs) -> None
+
+                NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and assumed to be done by the callback.
 
         Return:
             tuple:
@@ -1344,10 +1348,10 @@ class GulpOpenSearch:
                 total_hits, docs, search_after = await self._search_dsl_internal(
                     index, parsed_options, q, el
                 )
-                if callable:
+                if callback:
                     # call the callback for each document
                     for idx, doc in enumerate(docs):
-                        await processor.process_record(doc, processed + idx)
+                        await callback(doc, processed + idx)
 
                 if q_options.loop:
                     # auto setup for next iteration
@@ -1385,7 +1389,7 @@ class GulpOpenSearch:
                 MutyLogger.get_instance().error("search_dsl: error=%s" % (ex))
                 raise ex
 
-            if ws_id:
+            if ws_id and not callback:
                 # build a GulpDocumentsChunk and send to websocket
                 chunk = GulpDocumentsChunkPacket(
                     docs=docs,
@@ -1419,7 +1423,7 @@ class GulpOpenSearch:
                         data=p.model_dump(exclude_none=True),
                     )
 
-            if q_options.note_parameters.create_notes:
+            if q_options.note_parameters.create_notes and not callback:
                 # automatically generate notes
                 await GulpNote.bulk_create_from_documents(
                     sess,

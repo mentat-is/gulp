@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "autopsy_usbdevice": {
+      "event_code": "usb_attached",
+      "agent_type": "autopsy",
+      "fields": {
+        "Source Name": {
+          "ecs": "source_name"
+        },
+        "Date/Time": {
+          "ecs": "@timestamp"
+        },
+        "Device Make": {
+          "ecs": "device_maker"
+        },
+        "Device Model": {
+          "ecs": "device_model"
+        },
+        "Device ID": {
+          "ecs": "device_id"
+        }
+      }
+    }
+  }
+}

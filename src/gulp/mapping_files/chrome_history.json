@@ -70,7 +70,7 @@
     },
     "visits": {
       "agent_type": "chromium",
-      "event_code": "visit",
+      "event_code": "history",
       "ignore": [
         "last_visit_time"
       ],

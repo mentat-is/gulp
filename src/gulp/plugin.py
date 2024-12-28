@@ -933,25 +933,11 @@ class GulpPluginBase(ABC):
         NOTE: called by the engine, do not call this function directly.
         """
 
-        """
-        # call record_to_gulp_document to generate a GulpDocument with record's data
-        if self._upper_record_to_gulp_document_fun:
-            # we're in a stacked plugin, call our record_to_gulp_document (the lower plugin)
-            doc = await self._record_to_gulp_document(record, record_idx, data)
-
-            # then call upper which will postprocess the document
-            doc = await self._upper_record_to_gulp_document_fun(doc, record_idx, data)
-        else:
-            # call our record_to_gulp_document
-            doc = await self._record_to_gulp_document(record, record_idx, data)
-
-        # generate extra documents if needed, using self._extra_docs which has been filled
-        # by _process_key called by _record_to_gulp_document
-        docs = self._finalize_process_record(doc)
-        """
-
         # process documents with our record_to_gulp_document
         doc = await self._record_to_gulp_document(record, record_idx, data)
+        if not doc:
+            return []
+
         docs = self._finalize_process_record(doc)
 
         if self._upper_record_to_gulp_document_fun:
@@ -1448,7 +1434,7 @@ class GulpPluginBase(ABC):
         """
         return ingested, skipped
 
-    def _record_failed(self, ex: Exception = None) -> None:
+    def _record_failed(self, ex: Exception | str = None) -> None:
         """
         Handles a record failure during ingestion.
         """

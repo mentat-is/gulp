@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "timeline": {
+      "fields": {
+        "agent_type": "pecmd",
+        "event_code": "timeline",
+        "RunTime": {
+          "ecs": "@timestamp"
+        },
+        "ExecutableName": {
+          "ecs": "file.path"
+        }
+      }
+    },
+    "pecmd": {
+      "event_code": "source_created",
+      "agent_type": "pecmd",
+      "fields": {
+        "SourceFilename": {
+          "ecs": "file.path"
+        },
+        "SourceCreated": {
+          "ecs": "@timestamp"
+        },
+        "SourceModified": {
+          "extra_doc_with_event_code": "source_modified"
+        },
+        "SourceAccessed": {
+          "extra_doc_with_event_code": "source_accessed"
+        },
+        "ExecutableName": {
+          "ecs": "process.name"
+        },
+        "Size": {
+          "ecs": "file.size"
+        },
+        "LastRun": {
+          "extra_doc_with_event_code": "last_run"
+        },
+        "PreviousRun0": {
+          "extra_doc_with_event_code": "previous_run_0"
+        },
+        "PreviousRun1": {
+          "extra_doc_with_event_code": "previous_run_1"
+        },
+        "PreviousRun2": {
+          "extra_doc_with_event_code": "previous_run_2"
+        },
+        "PreviousRun3": {
+          "extra_doc_with_event_code": "previous_run_3"
+        },
+        "PreviousRun4": {
+          "extra_doc_with_event_code": "previous_run_4"
+        },
+        "PreviousRun5": {
+          "extra_doc_with_event_code": "previous_run_5"
+        },
+        "PreviousRun6": {
+          "extra_doc_with_event_code": "previous_run_6"
+        },
+        "Volume0Created": {
+          "extra_doc_with_event_code": "volume0_created"
+        },
+        "Volume1Created": {
+          "extra_doc_with_event_code": "volume1_created"
+        },
+        "Directories": {
+          "ecs": "file.directory"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "web_history": {
+      "agent_type": "autopsy",
+      "event_code": "history",
+      "fields": {
+        "Source Name": {
+          "ecs": "source_name"
+        },
+        "Url": {
+          "ecs": "url"
+        },
+        "Date Accessed": {
+          "ecs": "@timestamp"
+        },
+        "Referrer URL": {
+          "ecs": "http.request.referrer"
+        },
+        "Title": {
+          "ecs": "url.title"
+        },
+        "Program Name": {
+          "ecs": "process.name"
+        },
+        "Domain": {
+          "ecs": "url.domain"
+        }
+      }
+    }
+  }
+}
