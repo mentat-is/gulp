@@ -14,6 +14,8 @@ from gulp.structs import GulpPluginParameters
 class Plugin(GulpPluginBase):
     """
     chrome based browsers history plugin stacked over the SQLITE plugin
+
+    ./test_scripts/ingest.py --plugin chrome_history_sqlite_stacked --path ~/Downloads/history.sqlite
     """
 
     def type(self) -> GulpPluginType:
@@ -51,14 +53,16 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: GulpDocument, record_idx: int, data: Any
-    ) -> GulpDocument:
-        end_time = int(record.model_extra.get("download.end_time", 0))
-        if end_time > 0:
-            # calculate download duration
-            start_time = record.gulp_timestamp
-            if start_time > 0 and end_time > 0:
-                record.event_duration = end_time - start_time
+        self, record: dict, record_idx: int, data: Any
+    ) -> dict:
+        event_code = record["event.code"]
+        if event_code == "download_end":
+            # download end event
+            end_time = record["gulp.timestamp"]
+            start_time = int(record["download.start_time"])
+            if end_time and start_time:
+                # calculate download duration
+                record["event.duration"] = end_time - start_time
 
         return record
 

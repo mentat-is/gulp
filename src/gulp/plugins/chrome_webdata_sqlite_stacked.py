@@ -14,6 +14,8 @@ from gulp.structs import GulpPluginParameters
 class Plugin(GulpPluginBase):
     """
     chrome based browser web data plugin stacked over the SQLITE plugin
+
+    ./test_scripts/ingest.py --plugin chrome_webdata_sqlite_stacked --path ~/Downloads/webdata.sqlite
     """
 
     def type(self) -> GulpPluginType:
@@ -66,8 +68,9 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: GulpDocument, record_idx: int, data: Any
-    ) -> GulpDocument:
+        self, record: dict, record_idx: int, data: Any
+    ) -> dict:
+        # do nothing ...
         return record
 
     async def ingest_file(
@@ -114,4 +117,3 @@ class Plugin(GulpPluginBase):
             plugin_params=plugin_params,
             flt=flt,
         )
-

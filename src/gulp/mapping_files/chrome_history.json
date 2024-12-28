@@ -22,7 +22,7 @@
       }
     },
     "downloads": {
-      "event_code": "download",
+      "event_code": "download_start",
       "agent_type": "chromium",
       "fields": {
         "site_url": {
@@ -32,12 +32,15 @@
           ]
         },
         "start_time": {
-          "ecs": "@timestamp",
+          "ecs": [
+            "@timestamp",
+            "download.start_time"
+          ],
           "is_timestamp_chrome": true
         },
         "end_time": {
-          "is_timestamp_chrome": true,
-          "ecs": "download.end_time"
+          "extra_doc_with_event_code": "download_end",
+          "is_timestamp_chrome": true
         },
         "hash": {
           "ecs": "file.hash"

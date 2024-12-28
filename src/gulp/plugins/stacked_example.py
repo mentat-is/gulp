@@ -44,12 +44,12 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: GulpDocument, record_idx: int, data: Any
-    ) -> GulpDocument:
+        self, record: dict, record_idx: int, data: Any
+    ) -> dict:
 
         # MutyLogger.get_instance().debug("record: %s" % record)
         # tweak event duration ...
-        record.event_duration = 9999
+        record["event.duration"] = 9999
         return record
 
     async def ingest_file(
