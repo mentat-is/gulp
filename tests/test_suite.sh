@@ -4,24 +4,29 @@ if [ "$1" == "--help" ]; then
     exit 1
 fi
 
-# win_evtx full test (tests ingestion + raw/gulp/single/sigma single/sigma group queries)
-# NOTE: must be run in sequence (query needs ingest data)
-python3 -m pytest ingest.py::test_win_evtx &&
+python3 -m pytest ingest.py::test_apache_access_clf &&
+    python3 -m pytest ingest.py::test_apache_error_clf &&
+    python3 -m pytest ingest.py::test_chrome_history &&
+    python3 -m pytest ingest.py::test_chrome_webdata &&
+    python3 -m pytest ingest.py::test_csv_standalone &&
+    python3 -m pytest ingest.py::test_csv_file_mapping &&
+    python3 -m pytest ingest.py::test_csv_stacked &&
+    python3 -m pytest ingest.py::test_pcap &&
+    python3 -m pytest ingest.py::test_systemd_journal &&
+    python3 -m pytest ingest.py::test_raw &&
+    # win_evtx is the most complete test, we test both ingestion and query (raw/gulp/single/sigma single/sigma group queries)
+    # NOTE: this should be valid also for other ingestion types, since query code is shared
+    python3 -m pytest ingest.py::test_win_evtx &&
     python3 -m pytest query.py::test_win_evtx &&
+    python3 -m pytest ingest.py::test_win_reg &&
+    python3 -m pytest ingest.py::test_ingest_zip &&
 
     # external plugins
     if [ "$PAID_PLUGINS" = "1" ]; then
         # splunk full test (test raw external query without ingestion, sigma group with ingestion)
         # TODO: currently needs private test data, just for the devteam reference...
-        python3 -m pytest /query.py::test_splunk
+        python3 -m pytest query.py::test_splunk
     fi &&
-
-    # others (will test also query_operations/query_max_min)
-    python3 -m pytest ingest.py::test_csv_file_mapping &&
-    python3 -m pytest ingest.py::test_csv_custom_mapping &&
-    python3 -m pytest ingest.py::test_csv_stacked &&
-    python3 -m pytest ingest.py::test_raw &&
-    python3 -m pytest ingest.py::test_zip &&
 
     # test collab
     python3 -m pytest user.py &&
@@ -37,5 +42,5 @@ python3 -m pytest ingest.py::test_win_evtx &&
     python3 -m pytest utility.py &&
     python3 -m pytest db.py &&
 
-    # !!! this must be run in the end, since will delete the whole data (both on opensearch and on collab db)
+    # this must be run in the end (will delete the whole data (both on opensearch and on collab db)
     python3 -m pytest operation.py

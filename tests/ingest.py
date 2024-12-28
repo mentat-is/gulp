@@ -111,7 +111,9 @@ def _process_file_in_worker_process(
     asyncio.run(_process_file_async())
 
 
-async def _ws_loop(total: int, check_on_source_done: bool = False):
+async def _ws_loop(
+    ingested: int, check_on_source_done: bool = False, processed: int = None
+):
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
@@ -133,11 +135,21 @@ async def _ws_loop(total: int, check_on_source_done: bool = False):
                     if stats_packet["status"] == "done":
                         # done
                         records_ingested = stats_packet.get("records_ingested", 0)
-                        if records_ingested == total:
+                        records_processed = stats_packet.get("records_processed", 0)
+                        if records_ingested == ingested:
                             MutyLogger.get_instance().info(
-                                "all %d records ingested!" % (total)
+                                "all %d records ingested!" % (ingested)
                             )
-                            test_completed = True
+                            if processed:
+                                # also check processed
+                                if records_processed == processed:
+                                    MutyLogger.get_instance().info(
+                                        "all %d records processed!" % (processed)
+                                    )
+                                    test_completed = True
+                            else:
+                                # just check ingested
+                                test_completed = True
                         break
                     elif (
                         stats_packet["status"] == "failed"
@@ -150,9 +162,9 @@ async def _ws_loop(total: int, check_on_source_done: bool = False):
                     if check_on_source_done:
                         source_done_packet = data["data"]
                         ingested = source_done_packet.get("docs_ingested", 0)
-                        if ingested == total:
+                        if ingested == ingested:
                             MutyLogger.get_instance().info(
-                                "all %d records ingested!" % (total)
+                                "all %d records ingested!" % (ingested)
                             )
                             test_completed = True
                         break
@@ -196,7 +208,7 @@ async def test_apache_access_clf():
         p.start()
 
     # wait for all processes to finish
-    await _ws_loop(4999)
+    await _ws_loop(1311)
 
 
 @pytest.mark.asyncio
@@ -228,7 +240,7 @@ async def test_apache_error_clf():
         p.start()
 
     # wait for all processes to finish
-    await _ws_loop(7032)
+    await _ws_loop(1178)
 
 
 @pytest.mark.asyncio
@@ -328,6 +340,70 @@ async def test_pcap():
 
 
 @pytest.mark.asyncio
+async def test_chrome_history():
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    await GulpAPIDb.reset_as_admin()
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/sqlite/chrome_history")]
+
+    # for each file, spawn a process using multiprocessing
+    for file in files:
+        p = multiprocessing.Process(
+            target=_process_file_in_worker_process,
+            args=(
+                TEST_HOST,
+                TEST_WS_ID,
+                TEST_REQ_ID,
+                TEST_INDEX,
+                "chrome_history_sqlite_stacked",
+                None,
+                None,
+                file,
+                len(files),
+            ),
+        )
+        p.start()
+
+    # wait for all processes to finish
+    await _ws_loop(19)
+
+
+@pytest.mark.asyncio
+async def test_chrome_webdata():
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    await GulpAPIDb.reset_as_admin()
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/sqlite/chrome_webdata")]
+
+    # for each file, spawn a process using multiprocessing
+    for file in files:
+        p = multiprocessing.Process(
+            target=_process_file_in_worker_process,
+            args=(
+                TEST_HOST,
+                TEST_WS_ID,
+                TEST_REQ_ID,
+                TEST_INDEX,
+                "chrome_webdata_sqlite_stacked",
+                None,
+                None,
+                file,
+                len(files),
+            ),
+        )
+        p.start()
+
+    # wait for all processes to finish
+    await _ws_loop(2, processed=1)
+
+
+@pytest.mark.asyncio
 async def test_win_evtx():
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
@@ -361,7 +437,7 @@ async def test_win_evtx():
 
 
 @pytest.mark.asyncio
-async def test_csv_custom_mapping():
+async def test_csv_standalone():
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
@@ -444,7 +520,7 @@ async def test_csv_file_mapping():
         p.start()
 
     # wait for all processes to finish
-    await _ws_loop(44)
+    await _ws_loop(44, processed=10)
 
 
 @pytest.mark.asyncio
@@ -514,7 +590,7 @@ async def test_raw():
 
 
 @pytest.mark.asyncio
-async def test_zip():
+async def test_ingest_zip():
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
@@ -537,4 +613,4 @@ async def test_zip():
     )
 
     # wait ws
-    await _ws_loop(98750)
+    await _ws_loop(13778, processed=13745)
