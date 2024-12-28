@@ -77,7 +77,7 @@ class Plugin(GulpPluginBase):
             return GulpRequestStatus.FAILED
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
-        return await lower.ingest_file(
+        res = await lower.ingest_file(
             sess=sess,
             stats=stats,
             user_id=user_id,
@@ -92,3 +92,5 @@ class Plugin(GulpPluginBase):
             plugin_params=plugin_params,
             flt=flt,
         )
+        await lower.unload()
+        return res

@@ -1,22 +1,27 @@
 import email
 import os
+from typing import Any, override
 
 import aiofiles
-import muty.crypto
 import muty.dict
 import muty.json
 import muty.os
 import muty.string
 import muty.time
+import muty.crypto
+from email.message import Message
+from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
-
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -29,10 +34,13 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginSpecificParam(
-                "decode", "bool", "attempt to decode messages wherever possible", True
+            GulpPluginCustomParameter(
+                name="decode",
+                type="bool",
+                desc="attempt to decode messages wherever possible",
+                default_value=True,
             )
         ]
 
@@ -64,148 +72,117 @@ class Plugin(GulpPluginBase):
 
         return value
 
+    
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        extra: dict = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
 
-        event: email.message.Message = record
-        d = {}
+        event: Message = record
+        email_dict = {}
         for k, v in event.items():
             k = f"email.{self._normalize_field(k)}"
-            d[k] = v
+            email_dict[k] = v
 
-        d["email.parts"] = []
+        email_dict["email.parts"] = []
 
         if event.is_multipart():
-            d["email.is_multipart"] = True
+            email_dict["email.is_multipart"] = True
             for part in event.walk():
-                msg = part.get_payload(decode=plugin_params.extra.get("decode", True))
+                msg = part.get_payload(decode=self._custom_params.get("decode"))
                 enc = part.get_content_charset()
 
                 if msg is None:
                     msg = ""
 
-                d["email.parts"].append(self._normalize_value(msg, enc))
+                email_dict["email.parts"].append(self._normalize_value(msg, enc))
         else:
             msg = event.get_payload(decode=True)
             enc = event.get_content_charset()
 
             if msg is None:
                 msg = ""
-            d["email.parts"].append(self._normalize_value(msg, enc))
+            email_dict["email.parts"].append(self._normalize_value(msg, enc))
 
-        d = muty.json.flatten_json(d)
+        email_dict = muty.json.flatten_json(email_dict)
 
-        fme: list[GulpMappingField] = []
-        for k, v in d.items():
-            e = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                k,
-                v,
-                index_type_mapping=index_type_mapping,
-                **kwargs,
-            )
-            fme.extend(e)
+        d: dict = {}
 
-        timestamp_nsec = muty.time.string_to_epoch_nsec(event["Date"])
-        timestamp = muty.time.nanos_to_millis(timestamp_nsec)
-        docs = self._build_gulpdocuments(
-            fme=fme,
-            idx=record_idx,
-            operation_id=operation_id,
-            context=context,
-            plugin=plugin,
-            client_id=client_id,
-            raw_event=str(event),
-            event_code=str(muty.crypto.hash_xxh64_int(event["From"])),
-            original_id=event["Message-Id"],
-            src_file=os.path.basename(source),
-            timestamp=timestamp,
-            timestamp_nsec=timestamp_nsec,
+        # map timestamp and event code manually
+        d["@timestamp"] = event["Date"]
+        d["event.code"] = str(muty.crypto.hash_xxh64_int(event["From"]))
+
+        # map
+        for k, v in muty.json.flatten_json(email_dict).items():
+            mapped = self._process_key(k, v)
+            d.update(mapped)
+
+        return GulpDocument(
+            self,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=str(event),
+            event_sequence=record_idx,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            **d,
         )
 
-        return docs
-
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize()(
-            index, source, plugin_params=plugin_params
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
         )
-
-        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
-
-        if custom_mapping.options.agent_type is None:
-            plugin = self.display_name()
-        else:
-            plugin = custom_mapping.options.agent_type
-            MutyLogger.get_instance().warning("using plugin name=%s" % (plugin))
-
-        # get options
-        # attempt_decode = plugin_params.extra.get("decode", True)
-
-        ev_idx = 0
         try:
-            async with aiofiles.open(source, mode="rb") as file:
-                # update stats and check for failure due to errors threshold
-
-                try:
-                    content = await file.read()
-                    message = email.message_from_bytes(content)
-                    fs, _ = await self.process_record(
-                        index,
-                        message,
-                        ev_idx,
-                        self._record_to_gulp_document,
-                        ws_id,
-                        req_id,
-                        operation_id,
-                        client_id,
-                        context,
-                        source,
-                        fs,
-                        custom_mapping=custom_mapping,
-                        index_type_mapping=index_type_mapping,
-                        plugin=self.display_name(),
-                        plugin_params=plugin_params,
-                        flt=flt,
-                        **kwargs,
-                    )
-
-                except Exception as ex:
-                    self._record_failed(fs, message, source, ex)
+            # initialize plugin
+            await self._initialize(plugin_params)
 
         except Exception as ex:
-            self._source_failed(fs, source, ex)
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs, flt
-        )
+        doc_idx = 0
+        try:
+            async with aiofiles.open(file_path, mode="rb") as file:
+                content = await file.read()
+                message = email.message_from_bytes(content)
+                try:
+                    await self.process_record(message, doc_idx, flt)
+                except (RequestCanceledError, SourceCanceledError) as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    await self._source_failed(ex)
+                doc_idx += 1
+
+        except Exception as ex:
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            return self._stats_status()

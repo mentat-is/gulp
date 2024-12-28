@@ -1,23 +1,34 @@
 import mailbox
+from typing import Any, override
 
 from muty.log import MutyLogger
-
-from gulp import plugin
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
+    """
+    this plugin demonstrates how to use another plugin to process the data, using the GulpPluginBase.load_plugin method
+
+    this allow to stack one plugin on top of another the data is processed by calling the lower plugin directly, bypassing the engine
+    """
+
     def __init__(
         self,
         path: str,
         **kwargs,
     ) -> None:
         super().__init__(path, **kwargs)
-        self._eml_parser = None
+        self._eml_parser: GulpPluginBase = None
 
     def desc(self) -> str:
         return """generic MBOX file processor"""
@@ -28,82 +39,98 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginSpecificParam(
-                "decode", "bool", "attempt to decode messages wherever possible", True
+            GulpPluginCustomParameter(
+                name="decode",
+                type="bool",
+                desc="attempt to decode messages wherever possible",
+                default_value=True,
             )
         ]
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
+    async def _record_to_gulp_document(
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
+        # document is processed by eml plugin
+        return await self._eml_parser._record_to_gulp_document(record, record_idx, data)
+
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-        # Load eml plugin
-        self._eml_parser = plugin.load_plugin("eml")
-
-        fs = TmpIngestStats(source)
-        # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize()(
-            index, source, plugin_params=plugin_params
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
         )
-
-        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
-
-        # get options
-        # attempt_decode = plugin_params.extra.get("decode", True)
-
-        # reuse the eml.py plugin record_to_gulp_document to parse the object
-        # (this can be done because mailbox.Message is a subclass of email.Message)
-        # _eml_parser = eml.Plugin(self.path)
-
-        ev_idx = 0
         try:
-            mbox = mailbox.mbox(source)
-            for message in mbox.itervalues():
-                try:
-                    fs, must_break = await self.process_record(
-                        index,
-                        message,
-                        ev_idx,
-                        self._eml_parser.record_to_gulp_document,
-                        ws_id,
-                        req_id,
-                        operation_id,
-                        client_id,
-                        context,
-                        source,
-                        fs,
-                        custom_mapping=custom_mapping,
-                        index_type_mapping=index_type_mapping,
-                        plugin=self.display_name(),
-                        plugin_params=plugin_params,
-                        flt=flt,
-                        **kwargs,
-                    )
-                    ev_idx += 1
-                    if must_break:
-                        break
-
-                except Exception as ex:
-                    fs = self._record_failed(fs, message, source, ex)
+            # initialize plugin
+            await self._initialize(plugin_params)
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs, flt
+        # load eml plugin
+        self._eml_parser = await self.load_plugin(
+            "eml",
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
         )
+
+        doc_idx = 0
+        try:
+            mbox = mailbox.mbox(file_path)
+            for message in mbox.itervalues():
+                try:
+                    await self.process_record(message, doc_idx, flt)
+                except (RequestCanceledError, SourceCanceledError) as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    await self._source_failed(ex)
+                doc_idx += 1
+
+        except Exception as ex:
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            await self._eml_parser.unload()
+            return self._stats_status()

@@ -179,15 +179,18 @@ async def _ws_loop(
     MutyLogger.get_instance().info("test succeeded!")
 
 
-@pytest.mark.asyncio
-async def test_apache_access_clf():
+async def _test_generic(
+    files: list[str],
+    plugin: str,
+    check_ingested: int,
+    check_processed: int = None,
+    plugin_params: GulpPluginParameters = None,
+    flt: GulpIngestionFilter = None,
+):
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
     await GulpAPIDb.reset_as_admin()
-
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    files = [os.path.join(current_dir, "../samples/apache_clf/access.log")]
 
     # for each file, spawn a process using multiprocessing
     for file in files:
@@ -198,9 +201,9 @@ async def test_apache_access_clf():
                 TEST_WS_ID,
                 TEST_REQ_ID,
                 TEST_INDEX,
-                "apache_access_clf",
-                None,
-                None,
+                plugin,
+                plugin_params,
+                flt,
                 file,
                 len(files),
             ),
@@ -208,82 +211,53 @@ async def test_apache_access_clf():
         p.start()
 
     # wait for all processes to finish
-    await _ws_loop(1311)
+    await _ws_loop(check_ingested, processed=check_processed)
+
+
+@pytest.mark.asyncio
+async def test_apache_access_clf():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/apache_clf/access.log")]
+    await _test_generic(files, "apache_access_clf", 1311)
 
 
 @pytest.mark.asyncio
 async def test_apache_error_clf():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../samples/apache_clf/error.log")]
-
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "apache_error_clf",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(1178)
+    await _test_generic(files, "apache_error_clf", 1178)
 
 
 @pytest.mark.asyncio
 async def test_systemd_journal():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../samples/systemd_journal/system.journal")]
-
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "systemd_journal",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(9243)
+    await _test_generic(files, "systemd_journal", 9243)
 
 
 @pytest.mark.asyncio
 async def test_win_reg():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/win_reg/NTUSER.DAT")]
+    await _test_generic(files, "win_reg", 1206)
+
+
+@pytest.mark.asyncio
+async def test_eml():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/eml/sample.eml")]
+    await _test_generic(files, "eml", 1)
+
+
+@pytest.mark.asyncio
+async def test_mbox():
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
     await GulpAPIDb.reset_as_admin()
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    files = [os.path.join(current_dir, "../samples/win_reg/NTUSER.DAT")]
+    files = [os.path.join(current_dir, "../samples/mbox/sample.mbox")]
 
     # for each file, spawn a process using multiprocessing
     for file in files:
@@ -294,7 +268,7 @@ async def test_win_reg():
                 TEST_WS_ID,
                 TEST_REQ_ID,
                 TEST_INDEX,
-                "win_reg",
+                "mbox",
                 None,
                 None,
                 file,
@@ -304,7 +278,7 @@ async def test_win_reg():
         p.start()
 
     # wait for all processes to finish
-    await _ws_loop(1206)
+    await _ws_loop(16)
 
 
 @pytest.mark.asyncio

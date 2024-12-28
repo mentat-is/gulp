@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from copy import copy
 from enum import StrEnum
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, override
 
 import muty.crypto
 import muty.dynload
@@ -752,6 +752,63 @@ class GulpPluginBase(ABC):
         )
         return GulpRequestStatus.ONGOING
 
+    async def load_plugin(
+        self,
+        plugin: str,
+        sess: AsyncSession = None,
+        stats: GulpRequestStats = None,
+        user_id: str = None,
+        req_id: str = None,
+        ws_id: str = None,
+        index: str = None,
+        operation_id: str = None,
+        context_id: str = None,
+        source_id: str = None,
+        file_path: str = None,
+        original_file_path: str = None,
+        plugin_params: GulpPluginParameters = None,
+    ) -> "GulpPluginBase":
+        """
+        loads and initializes a plugin to use its methods directly from another plugin, bypassing the engine.
+
+        Args:
+            plugin (str): the plugin to load.
+            sess (AsyncSession, optional): The database session. Defaults to None.
+            stats (GulpRequestStats, optional): The ingestion stats. Defaults to None.
+            user_id (str, optional): The user performing the ingestion (id on collab database). Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None.
+            ws_id (str, optional): The websocket ID to stream on. Defaults to None.
+            index (str, optional): The name of the target opensearch/elasticsearch index or datastream. Defaults to None.
+            operation_id (str, optional): id of the operation on collab database. Defaults to None.
+            context_id (str, optional): id of the context on collab database. Defaults to None.
+            source_id (str, optional): id of the source on collab database. Defaults to None.
+            file_path (str, optional): path to the file being ingested. Defaults to None.
+            original_file_path (str, optional): the original file path. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
+
+        Returns:
+            GulpPluginBase: the loaded plugin.
+        """
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
+
+        lower = await GulpPluginBase.load(plugin)
+
+        # initialize private fields
+        lower._sess = sess
+        lower._stats = stats
+        lower._ws_id = ws_id
+        lower._req_id = req_id
+        lower._user_id = user_id
+        lower._operation_id = operation_id
+        lower._context_id = context_id
+        lower._ingest_index = index
+        lower._file_path = file_path
+        lower._original_file_path = original_file_path
+        lower._source_id = source_id
+        await lower._initialize(plugin_params)
+        return lower
+
     async def setup_stacked_plugin(
         self, plugin: str, ignore_cache: bool = False, *args, **kwargs
     ) -> "GulpPluginBase":
@@ -761,7 +818,7 @@ class GulpPluginBase(ABC):
         the engine, when processing records, will check if the plugin is stacked and:
 
         - call the lower plugin's _record_to_gulp_document function
-        - then call the upper plugin's _upper_record_to_gulp_document_fun to postprocess the record
+        - then call the upper plugin's _upper_record_to_gulp_document_fun to postprocess the record/s
         - right before flushing buffered documents to opensearch, will do the same for _augment_documents (call lower then upper)
 
         Args:
