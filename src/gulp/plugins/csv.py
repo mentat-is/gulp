@@ -32,9 +32,7 @@ class Plugin(GulpPluginBase):
 
     the csv plugin may ingest any CSV file itself, but it is also used as a base plugin for other plugins (in "stacked" mode).
 
-    NOTE: since it is mandatory that for each document to have a `@timestamp`, a `GulpMapping` must be set with either `timestamp_field` or
-    a field directly set to "@timestamp".
-
+    NOTE: since each document must have a "@timestamp", a mapping file with "@timestamp" field mapped is advised.
 
     ### standalone mode
 
@@ -95,14 +93,14 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        timestamp = d.get("@timestamp")
+        """timestamp = d.get("@timestamp")
         if not timestamp:
             # not mapped, last resort is to use the timestamp field, if set
-            timestamp = record.get(self.selected_mapping().timestamp_field)
+            timestamp = record.get(self.selected_mapping().timestamp_field)"""
 
         return GulpDocument(
             self,
-            timestamp=timestamp,
+            # timestamp=timestamp,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
@@ -154,12 +152,6 @@ class Plugin(GulpPluginBase):
             # initialize plugin
             await self._initialize(plugin_params)
 
-            # csv plugin needs a mapping or a timestamp field
-            selected_mapping = self.selected_mapping()
-            if not selected_mapping.fields and not selected_mapping.timestamp_field:
-                raise ValueError(
-                    "if no mapping_file or mappings specified, timestamp_field must be set in GulpMapping !"
-                )
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)

@@ -8,12 +8,15 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     python3 -m pytest ingest.py::test_apache_error_clf &&
     python3 -m pytest ingest.py::test_chrome_history &&
     python3 -m pytest ingest.py::test_chrome_webdata &&
-    python3 -m pytest ingest.py::test_csv_standalone &&
+    python3 -m pytest ingest.py::test_csv_standalone_and_query_operations &&
     python3 -m pytest ingest.py::test_csv_file_mapping &&
     python3 -m pytest ingest.py::test_csv_stacked &&
+    python3 -m pytest ingest.py::test_eml &&
+    python3 -m pytest ingest.py::test_mbox &&
     python3 -m pytest ingest.py::test_pcap &&
-    python3 -m pytest ingest.py::test_systemd_journal &&
     python3 -m pytest ingest.py::test_raw &&
+    python3 -m pytest ingest.py::test_systemd_journal &&
+    python3 -m pytest ingest.py::test_teamviewer_regex_stacked &&
     # win_evtx is the most complete test, we test both ingestion and query (raw/gulp/single/sigma single/sigma group queries)
     # NOTE: this should be valid also for other ingestion types, since query code is shared
     python3 -m pytest ingest.py::test_win_evtx &&

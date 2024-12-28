@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Any, override
 
 import aiofiles
 import muty.dict
@@ -7,15 +8,19 @@ import muty.json
 import muty.os
 import muty.time
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Match
-
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -28,190 +33,162 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
+
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginSpecificParam(
-                "regex",
-                "str",
-                "regex to apply - must use named groups",
+            GulpPluginCustomParameter(
+                name="regex",
+                type="str",
+                desc="regex to apply - must use named groups",
                 default_value=None,
             ),
-            GulpPluginSpecificParam(
-                "flags", "int", "flags to apply to regex", default_value=0
+            GulpPluginCustomParameter(
+                name="flags",
+                type="int",
+                desc="flags to apply to regex",
+                default_value=0,
             ),
         ]
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        **kwargs,
+        self, record: Any, record_idx: int, data: Any = None
     ) -> GulpDocument:
-
         event: Match = record
+        data: dict = data
+        line = data["line"]
 
-        line = kwargs.get("line", None)
+        d: dict = {}
 
-        d = {}
-        fme: list[GulpMappingField] = []
+        # map
         for k, v in event.groupdict().items():
-            d[k] = v
-            e = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                k,
-                v,
-                index_type_mapping=index_type_mapping,
-                **kwargs,
-            )
-            fme.extend(e)
+            mapped = self._process_key(k, v)
+            d.update(mapped)
 
-        # TODO: find a better solution(?) to parse timestamp so that it is usable by GulpDocument/stackable plugins
-        timestamp = d.get("timestamp", 0)
-        if timestamp.isnumeric():
-            # FIXME: timestamp, both millis and nanos, should be an integer, not float
-            # also, are we assuming here that the timestamp is in nanos ? millis ?
-            # timestamp = float(timestamp)
-            timestamp = int(timestamp)
-            timestamp_nsec = int(timestamp)
-        else:
-            timestamp_nsec = muty.time.string_to_epoch_nsec(timestamp)
-            timestamp = muty.time.nanos_to_millis(timestamp_nsec)
+        print(d)
+        # TODO: find a better solution(?)
+        # currently we assume the following:
+        # - timestamp is nanoseconds from unix epoch, if numeric
+        timestamp: str = d.get("@timestamp", "0")
+        if not timestamp.isnumeric():
+            timestamp = muty.time.string_to_nanos_from_unix_epoch(timestamp)
+        d["@timestamp"] = timestamp
 
-        docs = self._build_gulpdocuments(
-            fme=fme,
-            idx=record_idx,
-            timestamp=timestamp,
-            timestamp_nsec=timestamp_nsec,
-            operation_id=operation_id,
-            context=context,
-            plugin=plugin,
-            original_id=str(record_idx),
-            client_id=client_id,
-            raw_event=line,
-            src_file=os.path.basename(source),
+        return GulpDocument(
+            self,
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=line,
+            event_sequence=record_idx,
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            **d,
         )
 
-        return docs
-
+    @override
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
-        index_type_mapping, custom_mapping = await self._initialize()(
-            index, source, plugin_params=plugin_params
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
         )
-
-        MutyLogger.get_instance().debug("custom_mapping=%s" % (custom_mapping))
-
-        # get options
-        regex = plugin_params.extra.get("regex", None)
-        flags = plugin_params.extra.get("flags", 0)
-
         try:
-            regex = re.compile(regex, flags)
+            if not plugin_params:
+                plugin_params = GulpPluginParameters()
 
-            # make sure we have at least 1 named group
-            if regex.groups == 0:
-                MutyLogger.get_instance().error(
-                    "no named groups provided, invalid regex"
-                )
-                fs = self._source_failed(fs, source, "no named groups provided")
-                return await self._finish_ingestion(
-                    index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-                )
+            if not plugin_params.mappings:
+                plugin_params.mappings = {}
 
-            # check if we have at least one field named timestamp
-            valid = False
-            for k in regex.groupindex:
-                if k.casefold() == "timestamp":
-                    valid = True
+            mappings = plugin_params.mappings.get("default")
+            if not mappings:
+                mappings = {
+                    "default": GulpMapping(
+                        fields={"timestamp": GulpMappingField(ecs="@timestamp")}
+                    )
+                }
+                plugin_params.mappings = mappings
 
-            if not valid:
-                MutyLogger.get_instance().error(
-                    "no timestamp named group provided, invalid regex"
-                )
-                fs = self._source_failed(
-                    fs, source, "no timestamp named group provided"
-                )
-                return await self._finish_ingestion(
-                    index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-                )
+            # initialize plugin
+            await self._initialize(plugin_params)
 
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
+            await self._source_failed(ex)
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
+
+        regex = self._custom_params["regex"]
+        regex = re.compile(regex, self._custom_params["flags"])
+
+        # make sure we have at least 1 named group
+        if regex.groups == 0:
+            await self._source_failed("no named groups provided, invalid regex")
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
+
+        # make sure we have at least one field named timestamp
+        valid = False
+        for k in regex.groupindex:
+            if k.casefold() == "timestamp":
+                valid = True
+
+        if not valid:
+            await self._source_failed(
+                "no timestamp named group provided, invalid regex"
             )
+            await self._source_done(flt)
+            return GulpRequestStatus.FAILED
 
-        ev_idx = 0
+        # we can process!
+        doc_idx = 0
         try:
-            async with aiofiles.open(source, mode="r") as file:
-                # update stats and check for failure due to errors threshold
-
+            async with aiofiles.open(file_path, mode="r") as file:
                 async for line in file:
-                    try:
-                        m = regex.match(line)
-                        if m is not None:
-                            fs, must_break = await self.process_record(
-                                index,
-                                m,
-                                ev_idx,
-                                self._record_to_gulp_document,
-                                ws_id,
-                                req_id,
-                                operation_id,
-                                client_id,
-                                context,
-                                source,
-                                fs,
-                                custom_mapping=custom_mapping,
-                                index_type_mapping=index_type_mapping,
-                                plugin=self.display_name(),
-                                plugin_params=plugin_params,
-                                flt=flt,
-                                original_id=ev_idx,
-                                line=line,
-                                **kwargs,
+                    m = regex.match(line)
+                    if m:
+                        try:
+                            await self.process_record(
+                                m, doc_idx, flt, data={"line": line}
                             )
-                        else:
-                            fs = self._record_failed(
-                                fs, line, source, "pattern doesn't match"
-                            )
+                        except (RequestCanceledError, SourceCanceledError) as ex:
+                            MutyLogger.get_instance().exception(ex)
+                            await self._source_failed(ex)
+                    else:
+                        # no match
+                        MutyLogger.get_instance().warning(
+                            f"regex did not match: {line}"
+                        )
+                        await self._record_failed()
+                    doc_idx += 1
 
-                        ev_idx += 1
-                        if must_break:
-                            break
-                    except Exception as ex:
-                        fs = self._record_failed(fs, line, source, ex)
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-
-        # done
-        return await self._finish_ingestion(
-            index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-        )
-
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+            return self._stats_status()

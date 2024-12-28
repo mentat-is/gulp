@@ -34,7 +34,7 @@ class Plugin(GulpPluginBase):
 
     when used by itself, it is sufficient to ingest a SQLITE file with the default settings (no extra parameters needed).
 
-    NOTE: since each document stored on elasticsearch must have a "@timestamp", either a mapping file is provided,  or "timestamp_field" is set to a field name in an SQLITE table.
+    NOTE: since each document must have a "@timestamp", a mapping file with "@timestamp" field mapped is advised.
 
     ### stacked mode
 

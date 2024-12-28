@@ -8,6 +8,7 @@ from muty.log import MutyLogger
 import websockets
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_NAME,
@@ -251,199 +252,61 @@ async def test_eml():
 
 @pytest.mark.asyncio
 async def test_mbox():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../samples/mbox/sample.mbox")]
-
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "mbox",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(16)
+    await _test_generic(files, "mbox", 16)
 
 
 @pytest.mark.asyncio
 async def test_pcap():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../samples/pcap/220614_ip_flags_google.pcapng")]
+    await _test_generic(files, "pcap", 58)
 
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "pcap",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
 
-    # wait for all processes to finish
-    await _ws_loop(58)
+@pytest.mark.asyncio
+async def test_teamviewer_regex_stacked():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [
+        os.path.join(current_dir, "../samples/teamviewer/connections_incoming.txt")
+    ]
+    await _test_generic(files, "teamviewer_regex_stacked", 2)
 
 
 @pytest.mark.asyncio
 async def test_chrome_history():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../samples/sqlite/chrome_history")]
-
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "chrome_history_sqlite_stacked",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(19)
+    await _test_generic(files, "chrome_history_sqlite_stacked", 19)
 
 
 @pytest.mark.asyncio
 async def test_chrome_webdata():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../samples/sqlite/chrome_webdata")]
-
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "chrome_webdata_sqlite_stacked",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(2, processed=1)
+    await _test_generic(files, "chrome_webdata_sqlite_stacked", 2, check_processed=1)
 
 
 @pytest.mark.asyncio
 async def test_win_evtx():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
     files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
-
-    # for each file, spawn a process using multiprocessing
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "win_evtx",
-                None,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(98631)
+    await _test_generic(files, "win_evtx", 98631)
 
 
 @pytest.mark.asyncio
-async def test_csv_standalone():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
+async def test_csv_standalone_and_query_operations():
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    samples_dir = os.path.join(current_dir, "../samples/mftecmd")
-    files = [os.path.join(samples_dir, "sample_record.csv")]
-
-    # for each file, spawn a process using multiprocessing
+    files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
     plugin_params = GulpPluginParameters(
-        mappings={"test_mapping": {"timestamp_field": "Created0x10"}}
+        mappings={
+            "test_mapping": GulpMapping(
+                fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+            )
+        }
     )
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "csv",
-                plugin_params,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(10)
+    await _test_generic(files, "csv", 10, plugin_params=plugin_params)
 
     # test query operations
     guest_token = await GulpAPIUser.login("guest", "guest")
@@ -463,74 +326,28 @@ async def test_csv_standalone():
 
 @pytest.mark.asyncio
 async def test_csv_file_mapping():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    samples_dir = os.path.join(current_dir, "../samples/mftecmd")
-    files = [os.path.join(samples_dir, "sample_record.csv")]
-
-    # for each file, spawn a process using multiprocessing
+    files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
     plugin_params = GulpPluginParameters(
         mapping_file="mftecmd_csv.json", mapping_id="record"
     )
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "csv",
-                plugin_params,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(44, processed=10)
+    await _test_generic(
+        files, "csv", 44, check_processed=10, plugin_params=plugin_params
+    )
 
 
 @pytest.mark.asyncio
 async def test_csv_stacked():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_as_admin()
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    samples_dir = os.path.join(current_dir, "../samples/mftecmd")
-    files = [os.path.join(samples_dir, "sample_record.csv")]
-
-    # for each file, spawn a process using multiprocessing
+    files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
     plugin_params = GulpPluginParameters(
-        mappings={"test_mapping": {"timestamp_field": "Created0x10"}}
+        mappings={
+            "test_mapping": GulpMapping(
+                fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+            )
+        }
     )
-    for file in files:
-        p = multiprocessing.Process(
-            target=_process_file_in_worker_process,
-            args=(
-                TEST_HOST,
-                TEST_WS_ID,
-                TEST_REQ_ID,
-                TEST_INDEX,
-                "stacked_example",
-                plugin_params,
-                None,
-                file,
-                len(files),
-            ),
-        )
-        p.start()
-
-    # wait for all processes to finish
-    await _ws_loop(10)
+    await _test_generic(files, "stacked_example", 10, plugin_params=plugin_params)
 
     # TODO: check documents (all documents duration set to 9999 and augmented=True set)
 

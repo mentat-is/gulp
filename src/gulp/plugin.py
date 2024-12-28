@@ -1000,6 +1000,9 @@ class GulpPluginBase(ABC):
         def _try_map_ecs(
             fields_mapping: GulpMappingField, d: dict, source_value: Any
         ) -> dict:
+            # fields are added to d if found
+
+            # print(fields_mapping)
             mapping = fields_mapping.ecs
             if isinstance(mapping, str):
                 # single mapping
@@ -1027,9 +1030,9 @@ class GulpPluginBase(ABC):
             # ignore this key
             return {}
 
-        fields_mapping = mapping.fields.get(source_key, None)
+        fields_mapping = mapping.fields.get(source_key)
         if not fields_mapping:
-            # missing mapping at all
+            # missing mapping at all (no ecs and no timestamp field)
             return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
@@ -1043,7 +1046,9 @@ class GulpPluginBase(ABC):
 
         if fields_mapping.is_timestamp_chrome:
             # timestamp chrome, turn to nanoseconds from epoch
-            source_value = muty.time.chrome_epoch_to_nanos(int(source_value))
+            source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
+                int(source_value)
+            )
 
         if fields_mapping.extra_doc_with_event_code:
             # this will trigger the creation of an extra document

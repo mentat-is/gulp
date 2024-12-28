@@ -1,18 +1,19 @@
+from typing import Any, override
 import muty.os
 import muty.string
 import muty.xml
 import muty.time
 
 
+from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
-import gulp.plugin as gulp_plugin
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.collab.stats import TmpIngestStats
-from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.mapping.models import GulpMappingField, GulpMapping
 from gulp.plugin import GulpPluginType
 from gulp.plugin import GulpPluginBase
-from gulp.plugin_internal import GulpPluginParameters
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -32,91 +33,46 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
+    @override
     async def _record_to_gulp_document(
-        self,
-        operation_id: int,
-        client_id: int,
-        context: str,
-        source: str,
-        fs: TmpIngestStats,
-        record: any,
-        record_idx: int,
-        custom_mapping: GulpMapping = None,
-        index_type_mapping: dict = None,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-        **kwargs,
-    ) -> list[GulpDocument]:
+        self, record: dict, record_idx: int, data: Any
+    ) -> dict:
+        end_time = record.pop("gulp.unmapped.endtime", 0)
+        if end_time:
+            # set connection.end_time and event.duration
+            end_time = muty.time.string_to_nanos_from_unix_epoch(end_time)
+            start_time = record["gulp.timestamp"]
+            record["connection.end_time"] = end_time
+            record["event.duration"] = end_time - start_time
 
-        for r in record:
-            event: GulpDocument = r
-            fme: list[GulpMappingField] = []
-            for k, v in event.extra.items():
-                e = self._map_source_key(
-                    plugin_params,
-                    custom_mapping,
-                    k,
-                    v,
-                    index_type_mapping=index_type_mapping,
-                    **kwargs,
-                )
-                fme.extend(e)
-
-            # we receive nanos from the regex plugin
-            # event.timestamp_nsec = event.timestamp
-            # event.timestamp = muty.time.nanos_to_millis(event.timestamp)
-            endtime = muty.time.string_to_epoch_nsec(
-                event.extra.get("gulp.unmapped.endtime", None)
-            )
-
-            event.duration_nsec = endtime - event.timestamp_nsec
-
+        record["event.code"] = "teamviewer_connection"
         return record
 
     async def ingest_file(
         self,
-        index: str,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
+        user_id: str,
         req_id: str,
-        client_id: int,
-        operation_id: int,
-        context: str,
-        source: str | list[dict],
         ws_id: str,
+        index: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        file_path: str,
+        original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs,
     ) -> GulpRequestStatus:
 
-        await super().ingest_file(
-            index=index,
-            req_id=req_id,
-            client_id=client_id,
-            operation_id=operation_id,
-            context_id=context,
-            source=source,
-            ws_id=ws_id,
-            plugin_params=plugin_params,
-            flt=flt,
-            **kwargs,
-        )
-
-        if plugin_params is None:
-            plugin_params = GulpPluginParameters()
-        fs = TmpIngestStats(source)
-
-        # initialize mapping
+        # set as stacked
         try:
-            await self._initialize()(index, source, skip_mapping=True)
-            mod = gulp_plugin.load_plugin("regex", **kwargs)
+            lower = await self.setup_stacked_plugin("regex")
         except Exception as ex:
-            fs = self._source_failed(fs, source, ex)
-            return await self._finish_ingestion(
-                index, source, req_id, client_id, ws_id, fs=fs, flt=flt
-            )
+            await self._source_failed(ex)
+            return GulpRequestStatus.FAILED
 
-        # parse connections_incoming.txt
         # TODO: instead get regexes form mapping file based on mapping_id
-        plugin_params.extra = {}
         regex = r"\s+".join(
             [
                 r"(?P<userid>[0-9]+)",
@@ -128,20 +84,23 @@ class Plugin(GulpPluginBase):
                 r"(?P<guid>{.*})",
             ]
         )
+        plugin_params.model_extra["regex"] = regex
 
-        plugin_params.record_to_gulp_document_fun.append(self._record_to_gulp_document)
-        plugin_params.extra["regex"] = regex
-        # plugin_params.extra["flags"] = re.MULTILINE
-
-        return await mod.ingest_file(
-            index,
-            req_id,
-            client_id,
-            operation_id,
-            context,
-            source,
-            ws_id,
+        # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
+        res = await lower.ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )
+        await lower.unload()
+        return res

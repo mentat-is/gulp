@@ -150,7 +150,7 @@ class Plugin(GulpPluginBase):
 
         # normalize timestamp
         normalized: float = record.time.normalize(20)
-        ts: str = str(muty.time.float_to_epoch_nsec(float(normalized)))
+        ts: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
         d["@timestamp"] = ts
 
         # print(f"TEST IS {dir(event_code)}")

@@ -95,27 +95,27 @@ class Plugin(GulpPluginBase):
             # initialize plugin
             await self._initialize(plugin_params)
 
+            # load eml plugin
+            self._eml_parser = await self.load_plugin(
+                "eml",
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+            )
+
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
-
-        # load eml plugin
-        self._eml_parser = await self.load_plugin(
-            "eml",
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-        )
 
         doc_idx = 0
         try:
