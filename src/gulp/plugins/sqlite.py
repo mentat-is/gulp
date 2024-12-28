@@ -298,7 +298,7 @@ class Plugin(GulpPluginBase):
                             d["original_id"] = row[original_id]
                             """
                             try:
-                                await self.process_record(row, doc_idx, flt, data=d)
+                                await self.process_record(row, doc_idx, flt=flt, data=d)
                             except (RequestCanceledError, SourceCanceledError) as ex:
                                 MutyLogger.get_instance().exception(ex)
                                 await self._source_failed(ex)

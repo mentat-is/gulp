@@ -174,7 +174,7 @@ class Plugin(GulpPluginBase):
                     if m:
                         try:
                             await self.process_record(
-                                m, doc_idx, flt, data={"line": line}
+                                m, doc_idx, flt=flt, data={"line": line}
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)

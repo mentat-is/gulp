@@ -72,7 +72,7 @@ class Plugin(GulpPluginBase):
 
         return value
 
-    
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, data: Any = None
@@ -175,7 +175,7 @@ class Plugin(GulpPluginBase):
                 content = await file.read()
                 message = email.message_from_bytes(content)
                 try:
-                    await self.process_record(message, doc_idx, flt)
+                    await self.process_record(message, doc_idx, flt=flt)
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)

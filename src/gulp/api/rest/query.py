@@ -1,5 +1,5 @@
 from asyncio import Task
-from copy import deepcopy
+from copy import copy, deepcopy
 import json
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Any, Optional
@@ -160,6 +160,7 @@ async def _query_internal(
     """
     totals = 0
     mod = None
+
     try:
         if queries[0].external_plugin:
             # external query, load plugin (it is guaranteed it is the same for all queries)
@@ -167,6 +168,8 @@ async def _query_internal(
 
         async with GulpCollab.get_instance().session() as sess:
             for gq in queries:
+                #MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
+
                 try:
                     if not mod:
                         # local query, gq.q is a dict
@@ -242,8 +245,10 @@ async def _spawn_query_group_workers(
             if not q_opt.name in gq.tags:
                 gq.tags.append(q_opt.name)
 
-            q_opt.note_parameters.note_tags = gq.tags
-            q_opt.external_parameters.plugin_params = gq.external_plugin_params
+            q_opt.note_parameters.note_tags = copy(gq.tags)
+            q_opt.external_parameters.plugin_params = deepcopy(
+                gq.external_plugin_params
+            )
 
             # add task
             d = dict(
@@ -316,6 +321,18 @@ async def _spawn_query_group_workers(
             source_total=len(queries),
         )
 
+    if q_options.external_parameters.ingest_index:
+        # make sure the index to ingest into exists
+        exists = await GulpOpenSearch.get_instance().datastream_exists(
+            q_options.external_parameters.ingest_index
+        )
+        if not exists:
+            # create
+            await GulpOpenSearch.get_instance().datastream_create(
+                q_options.external_parameters.ingest_index
+            )
+    
+    # run queries
     await GulpProcess.get_instance().coro_pool.spawn(_worker_coro(kwds))
 
 
@@ -698,7 +715,9 @@ async def query_stored_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     stored_query_ids: Annotated[
         list[str],
-        Body(description="one or more stored query IDs.", examples=["query_2", "query_2"]),
+        Body(
+            description="one or more stored query IDs.", examples=["query_2", "query_2"]
+        ),
     ],
     q_options: Annotated[
         GulpQueryAdditionalParameters,

@@ -21,6 +21,8 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     # NOTE: this should be valid also for other ingestion types, since query code is shared
     python3 -m pytest ingest.py::test_win_evtx &&
     python3 -m pytest query.py::test_win_evtx &&
+    # this is preliminary since we are just using gulp's opensearch as external source (anyway, should mostly work...)
+    python3 -m pytest query.py::test_elasticsearch
     python3 -m pytest ingest.py::test_win_reg &&
     python3 -m pytest ingest.py::test_ingest_zip &&
 

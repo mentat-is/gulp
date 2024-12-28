@@ -220,7 +220,7 @@ class Plugin(GulpPluginBase):
             for rr in parser.records():
                 doc_idx += 1
                 try:
-                    await self.process_record(rr, doc_idx, flt)
+                    await self.process_record(rr, doc_idx, flt=flt)
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)

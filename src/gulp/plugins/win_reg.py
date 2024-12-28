@@ -193,7 +193,7 @@ class Plugin(GulpPluginBase):
                 if len(entry.values) < 1:
                     continue
                 try:
-                    await self.process_record(entry, doc_idx, flt)
+                    await self.process_record(entry, doc_idx, flt=flt)
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)

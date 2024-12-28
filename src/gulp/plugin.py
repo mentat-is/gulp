@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from copy import copy
 from enum import StrEnum
 from types import ModuleType
-from typing import Any, Callable, override
+from typing import Any, Callable
 
 import muty.crypto
 import muty.dynload
@@ -34,7 +34,6 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
-    GulpBaseDocumentFilter,
     GulpDocumentFilterResult,
     GulpIngestionFilter,
     GulpQueryFilter,
@@ -45,7 +44,7 @@ from gulp.api.opensearch.query import (
     GulpQueryNoteParameters,
     GulpQuerySigmaParameters,
 )
-from gulp.api.opensearch.structs import GulpDocument, GulpRawDocument
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
@@ -275,6 +274,7 @@ class GulpPluginBase(ABC):
         # additional options
         self._ingestion_enabled: bool = True
         self._note_parameters: GulpQueryNoteParameters = GulpQueryNoteParameters()
+        self._external_plugin_params: GulpPluginParameters = GulpPluginParameters()
 
     @abstractmethod
     def display_name(self) -> str:
@@ -574,7 +574,7 @@ class GulpPluginBase(ABC):
             - this function *MUST NOT* raise exceptions.
 
         Returns:
-            tuple[int, int]: the number of documents processed(ingested) and the total number of documents found
+            tuple[int, int]: total documents found, total processed(ingested)
         Raises:
             ObjectNotFound: if no document is found.
         """
@@ -605,20 +605,11 @@ class GulpPluginBase(ABC):
         self._source_id = src.id
         self._context_id = ctx.id
         self._note_parameters = q_options.note_parameters
+        self._external_plugin_params = q_options.external_parameters.plugin_params
 
         if q_options.external_parameters.ingest_index:
             # ingestion is enabled
             self._ingest_index = q_options.external_parameters.ingest_index
-
-            # make sure the index to ingest into exists
-            exists = await GulpOpenSearch.get_instance().datastream_exists(
-                q_options.external_parameters.ingest_index
-            )
-            if not exists:
-                await GulpOpenSearch.get_instance().datastream_create(
-                    q_options.external_parameters.ingest_index
-                )
-
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
@@ -1074,9 +1065,9 @@ class GulpPluginBase(ABC):
         self,
         record: Any,
         record_idx: int,
+        data: Any = None,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-        data: Any = None,
     ) -> None:
         """
         Processes a single record by converting it to one or more documents.
@@ -1086,9 +1077,9 @@ class GulpPluginBase(ABC):
         Args:
             record (any): The record to process.
             record_idx (int): The index of the record.
+            data (Any, optional): Additional data to pass to `_record_to_gulp_documents` in the plugin. Defaults to None.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
-            data (Any, optional): Additional data to pass to `_record_to_gulp_documents` in the plugin. Defaults to None.
         Returns:
             None
         """
@@ -1283,8 +1274,12 @@ class GulpPluginBase(ABC):
             )
         )
 
-        # check any custom plugin paramter (they're passed in plugin_params.model_extra)
+        # check any custom plugin paramter (they're passed in plugin_params.model_extra and external_plugin_params.model_extra)
         custom_params = self.custom_parameters()
+        if self._external_plugin_params.model_extra:
+            for k, v in self._external_plugin_params.model_extra.items():
+                plugin_params.model_extra[k] = v
+
         for p in custom_params:
             k = p.name
             if p.required and k not in plugin_params.model_extra:

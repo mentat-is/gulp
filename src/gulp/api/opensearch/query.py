@@ -3,12 +3,15 @@ from typing import Any, Optional
 import muty.string
 from elasticsearch import AsyncElasticsearch
 from muty.pydantic import autogenerate_model_example_by_class
+from opensearchpy import AsyncOpenSearch
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from typing import TYPE_CHECKING
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
-from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.structs import GulpPluginParameters, GulpSortOrder
+
+if TYPE_CHECKING:
+    from gulp.plugin import GulpPluginBase
 
 
 class GulpQuery(BaseModel):
@@ -388,7 +391,8 @@ class GulpQueryHelpers:
         index: str,
         flt: GulpQueryFilter = None,
         q_options: GulpQueryAdditionalParameters = None,
-        el: AsyncElasticsearch = None,
+        el: AsyncElasticsearch | AsyncOpenSearch = None,
+        processor: "GulpPluginBase" = None,
     ) -> tuple[int, int]:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
@@ -402,8 +406,9 @@ class GulpQueryHelpers:
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
             q_options(GulpQueryAdditionalParameters, optional): additional options to use
-            el(AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
-            user_id(str, optional): the user id of the requestor (default=use the token to get the user id)
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
+            processor (GulpPluginBase): if set, processor.plugin_record() will be called for each document returned. defaults to None
+
         Returns:
             tuple[int, int]: the number of documents processed and the total number of documents found
         Raises:
@@ -416,6 +421,8 @@ class GulpQueryHelpers:
             # merge with filter
             q = flt.merge_to_opensearch_dsl(q)
 
+        from gulp.api.opensearch_api import GulpOpenSearch
+
         processed, total = await GulpOpenSearch.get_instance().search_dsl(
             sess=sess,
             index=index,
@@ -425,6 +432,7 @@ class GulpQueryHelpers:
             user_id=user_id,
             q_options=q_options,
             el=el,
+            processor=processor,
         )
         return processed, total
 
@@ -432,7 +440,7 @@ class GulpQueryHelpers:
     async def query_single(
         index: str,
         doc_id: str,
-        el: AsyncElasticsearch = None,
+        el: AsyncElasticsearch | AsyncOpenSearch = None,
     ) -> dict:
         """
         Perform a single document query using the given document id on gulp's opensearch/elasticsearch, and return the document as a GulpDocument dictionary.
@@ -441,7 +449,7 @@ class GulpQueryHelpers:
             req_id (str): the request id
             index (str): the opensearch/elasticsearch index/datastream to target
             doc_id (str): the document id to query
-            el (AsyncElasticsearch, optional): the optional elasticsearch client to use (default=use gulp OpenSearch client)
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
 
         Returns:
             dict: the document as a GulpDocument dictionary
@@ -449,6 +457,8 @@ class GulpQueryHelpers:
         Raises:
             ObjectNotFound: if the document is not found.
         """
+        from gulp.api.opensearch_api import GulpOpenSearch
+
         return await GulpOpenSearch.get_instance().query_single_document(
             index, doc_id, el=el
         )

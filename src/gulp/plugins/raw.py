@@ -98,7 +98,7 @@ class Plugin(GulpPluginBase):
                 doc_idx += 1
 
                 try:
-                    await self.process_record(rr, doc_idx, flt)
+                    await self.process_record(rr, doc_idx, flt=flt)
                 except RequestCanceledError as ex:
                     MutyLogger.get_instance().exception(ex)
                     break

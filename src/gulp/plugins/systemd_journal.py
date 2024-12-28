@@ -141,7 +141,7 @@ class Plugin(GulpPluginBase):
                 log_file.log_level(journal.LOG_DEBUG)
                 for rr in log_file:
                     try:
-                        await self.process_record(rr, doc_idx, flt)
+                        await self.process_record(rr, doc_idx, flt=flt)
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)

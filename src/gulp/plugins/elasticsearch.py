@@ -1,3 +1,4 @@
+from typing import Any, override
 import muty.dict
 import muty.jsend
 import muty.log
@@ -8,37 +9,38 @@ import muty.xml
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
-
-import gulp.api.ws_api
-from gulp.api import opensearch_api
-from gulp.api.collab.base import GulpRequestStatus
-from gulp.api.elastic.query import QueryResult
-from gulp.api.elastic.query_utils import (
-    adjust_fields_filter,
-    check_canceled_or_failed,
-    process_event_timestamp,
+from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.mapping.models import GulpMapping
+from gulp.api.opensearch.query import (
+    GulpQuery,
+    GulpQueryAdditionalParameters,
+    GulpQueryHelpers,
+    GulpQuerySigmaParameters,
 )
-from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
-from gulp.api.opensearch.structs import GulpQueryOptions, gulpqueryflt_to_elastic_dsl
-from gulp.api.rest import ws as ws_api
+from gulp.api.opensearch.sigma import to_gulp_query_struct
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.structs import (
+    GulpDocument,
+)
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.plugin_internal import GulpPluginParameters, GulpPluginSpecificParam
-from gulp.structs import InvalidArgument, ObjectNotFound
+from gulp.structs import (
+    GulpNameDescriptionEntry,
+    GulpPluginCustomParameter,
+    GulpPluginParameters,
+    GulpPluginSigmaSupport,
+)
 
-"""
-Query plugins
+muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.5, <2")
+muty.os.check_and_install_package("elasticsearch", ">=8.1.5, <9")
 
-Query plugins are used to query data from external sources, such as databases, APIs, etc.
-
-The plugin must implement the following methods:
-- type() -> GulpPluginType: return the plugin type.
-- desc() -> str: return a description of the plugin.
-- name() -> str: return the plugin name.
-- version() -> str: return the plugin version.
-- options() -> list[GulpPluginOption]: for the UI, this is usually the options to be put into GulpPluginParameters.extra when calling query().
-- query(client_id: int, ws_id: str, flt: GulpQueryFilter, params: GulpPluginParameters) -> int: query data from the external source.
-
-"""
+from sigma.backends.opensearch import OpensearchLuceneBackend
+from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
+from sigma.backends.elasticsearch.elasticsearch_lucene import LuceneBackend
+from sigma.pipelines.elasticsearch.zeek import (
+    ecs_zeek_beats,
+    ecs_zeek_corelight,
+    zeek_raw,
+)
 
 
 class Plugin(GulpPluginBase):
@@ -66,8 +68,9 @@ class Plugin(GulpPluginBase):
     """
 
     def type(self) -> GulpPluginType:
-        return GulpPluginType.QUERY
+        return GulpPluginType.EXTERNAL
 
+    @override
     def desc(self) -> str:
         return "Query data from elasticsearch."
 
@@ -77,443 +80,254 @@ class Plugin(GulpPluginBase):
     def version(self) -> str:
         return "1.0"
 
-    def custom_parameters(self) -> list[GulpPluginSpecificParam]:
+    @override
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
-            GulpPluginSpecificParam(
-                "url",
-                "str",
-                "opensearch/elasticsearch server URL, i.e. http://localhost:9200.",
-                default_value=None,
-            ),  # TODO
-            GulpPluginSpecificParam(
-                "is_elasticsearch",
-                "bool",
-                "True if the server is an ElasticSearch server, False if is an OpenSearch server.",
-                default_value=True,
+            GulpPluginCustomParameter(
+                name="offset_msec",
+                type="int",
+                desc="""
+                    offset in milliseconds to be added to documents timestamp.
+
+                    - to subtract, use a negative offset.
+                    """,
+                default_value=0,
             ),
-            GulpPluginSpecificParam(
-                "username",
-                "str",
-                "Username.",
-                default_value=None,
-            ),
-            GulpPluginSpecificParam(
-                "password",
-                "str",
-                "Password.",
-                default_value=None,
-            ),
-            GulpPluginSpecificParam(
-                "index",
-                "str",
-                "Index name.",
-                default_value=None,
-            ),
-            GulpPluginSpecificParam(
-                "timestamp_offset_msec",
-                "int",
-                'if set, this is used to rebase "@timestamp" (and "gulp.timestamp.nsec") in the query results.',
-                default_value="_time",
-            ),
-            GulpPluginSpecificParam(
-                "timestamp_field",
-                "str",
-                'timestamp field to be used for querying external sources in "query_external" API, if different from the default.',
+            GulpPluginCustomParameter(
+                name="timestamp_field",
+                type="str",
+                desc="the main timestamp field in the documents.",
                 default_value="@timestamp",
             ),
-            GulpPluginSpecificParam(
-                "timestamp_is_string",
-                "bool",
-                "if set, timestamp is a string (not numeric).",
-                default_value=None,
-            ),
-            GulpPluginSpecificParam(
-                "timestamp_format_string",
-                "str",
-                'if set, the format string used to parse the timestamp if "timestamp_is_string" is True.',
-                default_value=None,
-            ),
-            GulpPluginSpecificParam(
-                "timestamp_day_first",
-                "bool",
-                "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with dayfirst=True.",
-                default_value=False,
-            ),
-            GulpPluginSpecificParam(
-                "timestamp_year_first",
-                "bool",
-                "if set and timestamp is a string, parse the timestamp using dateutil.parser.parse() with yearfirst=True.",
+            GulpPluginCustomParameter(
+                name="is_elasticsearch",
+                type="bool",
+                desc="if True, connect to elasticsearch, otherwise connect to opensearch.",
                 default_value=True,
-            ),
-            GulpPluginSpecificParam(
-                "timestamp_unit",
-                "str",
-                'if timestamp is a number, this is the unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).',
-                default_value="ms",
             ),
         ]
 
-    def _get_parameters(
-        self, plugin_params: GulpPluginParameters
-    ) -> tuple[
-        str, bool, str, str, str, bool, str, bool, str, str, str, str, int, dict
-    ]:
+    @override
+    async def _record_to_gulp_document(
+        self, record: Any, record_idx: int, data: Any = None
+    ) -> GulpDocument:
+        # record is a dict
+        doc: dict = record
+
+        offset_msec: int = self._custom_params.get("offset_msec", 0)
+        timestamp_field: str = self._custom_params.get("timestamp_field", "@timestamp")
+
+        # convert timestamp to nanoseconds
+        mapping = self.selected_mapping()
+        _, ts_nsec, _ = GulpDocument.ensure_timestamp(
+            doc[timestamp_field],
+            dayfirst=mapping.timestamp_dayfirst if mapping else None,
+            yearfirst=mapping.timestamp_yearfirst if mapping else None,
+            fuzzy=mapping.timestamp_fuzzy if mapping else None,
+        )
+
+        # map any other field
+        d = {}
+        for k, v in doc.items():
+            mapped = self._process_key(k, v)
+            d.update(mapped)
+
         """
-        get elasticsearch parameters from plugin_params
-
-        Args:
-        plugin_params (GulpPluginParameters): plugin parameters
-
-        Returns:
-        tuple: url, is_elasticsearch, elastic_user, password, index, timestamp_is_string, timestamp_format_string, timestamp_day_first, timestamp_year_first, timestamp_unit, timestamp_field, timestamp_offset_msec, mapping
-        """
-        if plugin_params is None or plugin_params.extra is None:
-            raise InvalidArgument("invalid plugin parameters (extra is None)")
-
-        url: str = plugin_params.extra.get("url")
-        is_elasticsearch: bool = plugin_params.extra.get("is_elasticsearch", True)
-        elastic_user: str = plugin_params.extra.get("username")
-        password: str = plugin_params.extra.get("password")
-        index: str = plugin_params.extra.get("index")
-        timestamp_is_string: bool = plugin_params.extra.get("timestamp_is_string", True)
-        timestamp_format_string: str = plugin_params.extra.get(
-            "timestamp_format_string", None
-        )
-        timestamp_day_first: bool = plugin_params.extra.get(
-            "timestamp_day_first", False
-        )
-        timestamp_year_first: bool = plugin_params.extra.get(
-            "timestamp_year_first", True
-        )
-        timestamp_unit: str = plugin_params.extra.get("timestamp_unit", "ms")
-        timestamp_field: str = plugin_params.extra.get("timestamp_field", "@timestamp")
-        timestamp_offset_msec: int = plugin_params.extra.get("timestamp_offset_msec", 0)
-        mapping: dict = plugin_params.extra.get("mapping", None)
-
-        # TODO: add support for client and CA certificates, i.e. dumping the certificates to temporary files and using them
-        if not url or not index or not elastic_user:
-            raise InvalidArgument(
-                "missing required parameters (url=%s, username=%s, index=%s)"
-                % (url, elastic_user, index)
-            )
-        if not url.startswith("http"):
-            # default to http
-            MutyLogger.get_instance().warning(
-                "url does not start with http, adding default http:// prefix!"
-            )
-            url = "http://" + url
-
-        return (
-            url,
-            is_elasticsearch,
-            elastic_user,
-            password,
-            index,
-            timestamp_is_string,
-            timestamp_format_string,
-            timestamp_day_first,
-            timestamp_year_first,
-            timestamp_unit,
-            timestamp_field,
-            timestamp_offset_msec,
-            mapping,
-        )
-
-    def _gulpqueryflt_to_elastic_dsl_generic(
-        self,
-        flt: GulpQueryFilter,
-        options: GulpQueryOptions = None,
-        timestamp_field: str = "@timestamp",
-    ) -> tuple[dict, GulpQueryOptions]:
-        """
-        Build a generic Elasticsearch query based on the provided filter and options.
-        Args:
-            flt (GulpQueryFilter): The filter criteria for the query: "start_msec", "end_msec", "extra" (everything else is ignored).
-            options (GulpQueryOptions, optional): The options for the query: "limit", "sort", "fields_filter" (everything else is ignored).
-        Returns:
-            tuple[dict, GulpQueryOptions]: A tuple containing the Elasticsearch query dictionary and the modified query options dictionary.
-        """
-        if options is None:
-            options = GulpQueryOptions()
-
-        f = GulpQueryFilter()
-        o = GulpQueryOptions()
-
-        # only these filters are supported
-        f.start_msec = flt.start_msec
-        f.end_msec = flt.end_msec
-        f.extra = flt.extra
-
-        # only these options are supported
-        o.limit = options.limit
-        o.sort = options.sort
-        o.fields_filter = adjust_fields_filter(
-            QUERY_DEFAULT_FIELDS, options.fields_filter
-        )
-
-        q = gulpqueryflt_to_elastic_dsl(f, options, timestamp_field)
-        return q, o
-
-    def _process_event(
-        self,
-        e: dict,
-        timestamp_offset_msec: int,
-        timestamp_is_string: bool,
-        timestamp_format_string: str,
-        timestamp_day_first: bool,
-        timestamp_year_first: bool,
-        timestamp_unit: str,
-        timestamp_field: str,
-        mapping: dict,
-    ) -> dict:
-        """
-        process an event from elasticsearch: adjust timestamp, map fields using the mapping.
-
-        Args:
-            e (dict): the event to be processed.
-            timestamp_offset_msec (int): timestamp offset in milliseconds.
-            timestamp_is_string (bool): if True, timestamp is a string.
-            timestamp_format_string (str): if timestamp is a string, this is the format string.
-            timestamp_day_first (bool): if True, timestamp is a string and day is first.
-            timestamp_year_first (bool): if True, timestamp is a string and year is first.
-            timestamp_unit (str): if timestamp is a number, this is the unit: can be "s" (seconds from epoch) or "ms" (milliseconds from epoch).
-            timestamp_field (str): the timestamp field name.
-            mapping (dict): the mapping of the source keys to the destination keys.
-
-        Returns:
-            dict: the processed event.
-        """
-        ts = process_event_timestamp(
-            e,
-            timestamp_offset_msec,
-            timestamp_is_string,
-            timestamp_format_string,
-            timestamp_day_first,
-            timestamp_year_first,
-            timestamp_unit,
-            timestamp_field,
-        )
-        e["gulp.timestamp.nsec"] = ts
-        e["@timestamp"] = ts / muty.time.MILLISECONDS_TO_NANOSECONDS
-        e["_source_plugin"] = self.filename()
-        if mapping is not None:
-            # map source keys using the mapping
-            self._remap_event_fields(e, mapping)
-
-        if "event.duration" not in e:
-            # default
-            e["event.duration"] = 1
-        return e
-
-    async def query_single(
-        self,
-        plugin_params: GulpPluginParameters,
-        event: dict,
-    ) -> dict:
-        # get parameters
-        (
-            url,
-            is_elasticsearch,
-            elastic_user,
-            password,
-            index,
-            timestamp_is_string,
-            timestamp_format_string,
-            timestamp_day_first,
-            timestamp_year_first,
-            timestamp_unit,
-            timestamp_field,
-            timestamp_offset_msec,
-            mapping,
-        ) = self._get_parameters(plugin_params)
-        if is_elasticsearch:
-            # connect to elastic
-            cl: AsyncElasticsearch = AsyncElasticsearch(
-                url,
-                basic_auth=(elastic_user, password),
-                verify_certs=False,
-            )
-            MutyLogger.get_instance().debug(
-                "connected to elasticsearch at %s, instance=%s" % (url, cl)
-            )
-        else:
-            # opensearch
-            cl: AsyncOpenSearch = AsyncOpenSearch(
-                url,
-                http_auth=(elastic_user, password),
-                verify_certs=False,
-            )
-            MutyLogger.get_instance().debug(
-                "connected to opensearch at %s, instance=%s" % (url, cl)
-            )
-
-        # get the event from elasticsearch
-        e = await opensearch_api.query_single_event(cl, index, event["_id"])
-        e = self._process_event(
-            e,
-            timestamp_offset_msec,
-            timestamp_is_string,
-            timestamp_format_string,
-            timestamp_day_first,
-            timestamp_year_first,
-            timestamp_unit,
-            timestamp_field,
-            mapping,
-        )
-        return e
-
-    async def query(
-        self,
-        operation_id: int,
-        client_id: int,
-        user_id: int,
-        username: str,
-        ws_id: str,
-        req_id: str,
-        plugin_params: GulpPluginParameters,
-        flt: GulpQueryFilter,
-        options: GulpQueryOptions = None,
-    ) -> tuple[int, GulpRequestStatus]:
         MutyLogger.get_instance().debug(
-            "querying elasticsearch, params=%s, filter: %s" % (plugin_params, flt)
+            "operation_id=%s, context_id=%s, source_id=%s, doc=\n%s"
+            % (
+                self._operation_id,
+                self._context_id,
+                self._source_id,
+                json.dumps(d, indent=2),
+            )
+        )"""
+
+        # create a gulp document
+        return GulpDocument(
+            self,
+            timestamp=str(
+                ts_nsec + (offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS)
+            ),
+            operation_id=self._operation_id,
+            context_id=self._context_id,
+            source_id=self._source_id,
+            event_original=str(doc),
+            event_sequence=record_idx,
+            **d,
         )
 
-        # get parameters
-        (
-            url,
-            is_elasticsearch,
-            elastic_user,
-            password,
-            index,
-            timestamp_is_string,
-            timestamp_format_string,
-            timestamp_day_first,
-            timestamp_year_first,
-            timestamp_unit,
-            timestamp_field,
-            timestamp_offset_msec,
-            mapping,
-        ) = self._get_parameters(plugin_params)
+    async def query_external(
+        self,
+        sess: AsyncSession,
+        user_id: str,
+        req_id: str,
+        ws_id: str,
+        index: Any,
+        q: Any,
+        q_options: GulpQueryAdditionalParameters,
+        flt: GulpQueryFilter = None,
+    ) -> tuple[int, int]:
 
-        # convert basic filter and options to a raw query, ensure only start_msec, end_msec, extra is present
-        q, o = self._gulpqueryflt_to_elastic_dsl_generic(flt, options, timestamp_field)
-        raw_query_dict = q["query"]
-        if is_elasticsearch:
-            # connect to elastic
-            cl: AsyncElasticsearch = AsyncElasticsearch(
-                url,
-                basic_auth=(elastic_user, password),
-                verify_certs=False,
-            )
-            api = opensearch_api.query_raw_elastic
-            MutyLogger.get_instance().debug(
-                "connected to elasticsearch at %s, instance=%s" % (url, cl)
-            )
-        else:
-            # opensearch
-            cl: AsyncOpenSearch = AsyncOpenSearch(
-                url,
-                http_auth=(elastic_user, password),
-                verify_certs=False,
-            )
-            api = opensearch_api.query_raw
-            MutyLogger.get_instance().debug(
-                "connected to opensearch at %s, instance=%s" % (url, cl)
+        await super().query_external(
+            sess, user_id, req_id, ws_id, index, q, q_options, flt
+        )
+        if q_options.external_parameters.plugin_params.is_empty():
+            # use default
+            q_options.external_parameters.plugin_params = GulpPluginParameters(
+                mappings={"default": GulpMapping(fields={})},
+                # these may be set, keep it
+                additional_mapping_files=q_options.external_parameters.plugin_params.additional_mapping_files,
             )
 
-        # initialize result
-        query_res = QueryResult()
-        query_res.query_name = "%s_%s" % (req_id, muty.string.generate_unique())
-        query_res.req_id = req_id
-        if o.include_query_in_result:
-            query_res.query_raw = raw_query_dict
-        processed: int = 0
-        chunk: int = 0
-        status = GulpRequestStatus.DONE
+        # load any mapping set
+        await self._initialize(q_options.external_parameters.plugin_params)
 
+        # connect
+        is_elasticsearch = self._custom_params.get("is_elasticsearch")
+        uri = q_options.external_parameters.uri
+        user = q_options.external_parameters.username
+        password = q_options.external_parameters.password
+        MutyLogger.get_instance().info(
+            "connecting to %s, is_elasticsearch=%r, user=%s"
+            % (uri, is_elasticsearch, user)
+        )
         try:
-            while True:
-                MutyLogger.get_instance().debug(
-                    "querying, query=%s, options=%s" % (q, o)
+            if is_elasticsearch:
+                # elastic
+                cl: AsyncElasticsearch = AsyncElasticsearch(
+                    uri,
+                    basic_auth=(user, password),
+                    verify_certs=False,
                 )
-                try:
-                    r = await api(cl, index, raw_query_dict, o)
-                except ObjectNotFound as ex:
-                    MutyLogger.get_instance().error("no more data found!")
-                    break
-                except Exception as ex:
-                    raise ex
-
-                # get data
-                evts = r.get("results", [])
-                aggs = r.get("aggregations", None)
-                len_evts = len(evts)
-
-                for e in evts:
-                    # process the event (timestamp, mapping, ...)
-                    e = self._process_event(
-                        e,
-                        timestamp_offset_msec,
-                        timestamp_is_string,
-                        timestamp_format_string,
-                        timestamp_day_first,
-                        timestamp_year_first,
-                        timestamp_unit,
-                        timestamp_field,
-                        mapping,
-                    )
-
-                # fill query result
-                query_res.search_after = r.get("search_after", None)
-                query_res.total_hits = r.get("total", 0)
-                MutyLogger.get_instance().debug(
-                    "%d results (TOTAL), this chunk=%d"
-                    % (query_res.total_hits, len_evts)
+            else:
+                # opensearch
+                cl: AsyncOpenSearch = AsyncOpenSearch(
+                    uri,
+                    http_auth=(user, password),
+                    verify_certs=False,
                 )
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+            await self._query_external_done(q_options.name, 0, ex)
+            return 0, 0
 
-                query_res.events = evts
-                query_res.aggregations = aggs
-                if len_evts == 0 or len_evts < options.limit:
-                    query_res.last_chunk = True
-
-                # send QueryResult over websocket
-                ws_api.shared_queue_add_data(
-                    gulp.api.ws_api.GulpWsQueueDataType.QUERY_RESULT,
-                    req_id,
-                    query_res.to_dict(),
-                    client_id=client_id,
-                    operation_id=operation_id,
-                    username=username,
-                    ws_id=ws_id,
-                )
-
-                # processed an event chunk (evts)
-                processed += len_evts
-                chunk += 1
-                MutyLogger.get_instance().error(
-                    "sent %d events to ws, num processed events=%d, chunk=%d ..."
-                    % (len(evts), processed, chunk)
-                )
-                if await check_canceled_or_failed(req_id):
-                    status = GulpRequestStatus.CANCELED
-                    break
-
-                query_res.chunk += 1
-                if query_res.search_after is None:
-                    MutyLogger.get_instance().debug(
-                        "search_after=None or search_after_loop=False, query done!"
-                    )
-                    break
-
-                o.search_after = query_res.search_after
-                MutyLogger.get_instance().debug(
-                    "search_after=%s, total_hits=%d, running another query to get more results ...."
-                    % (query_res.search_after, query_res.total_hits)
-                )
-
-            return query_res.total_hits, status
-        finally:
-            await cl.close()
-            MutyLogger.get_instance().debug(
-                "elasticsearch connection instance=%s closed!" % (cl)
+        # query
+        query_error = None
+        total_count = 0
+        try:
+            total_count, processed = await GulpQueryHelpers.query_raw(
+                sess=sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                q=q,
+                index=index,
+                flt=flt,
+                q_options=q_options,
+                el=cl,
+                processor=self,
             )
+            if total_count == 0:
+                MutyLogger.get_instance().warning("no results!")
+                await self._query_external_done(
+                    q_options.name,
+                    0,
+                )
+                return 0, 0
+
+            MutyLogger.get_instance().debug(
+                "elasticsearch/opensearch query done, total=%d, processed=%d!"
+                % (total_count, processed)
+            )
+            return total_count, processed
+
+        except Exception as ex:
+            # error during query
+            MutyLogger.get_instance().exception(ex)
+            query_error = ex
+            return 0, 0
+
+        finally:
+            # last flush
+            await self._source_done()
+
+            # and signal websocket
+            await self._query_external_done(
+                q_options.name,
+                total_count,
+                error=query_error,
+            )
+            MutyLogger.get_instance().debug("closing client ...")
+            await cl.close()
+
+    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
+        return [
+            GulpPluginSigmaSupport(
+                backends=[
+                    GulpNameDescriptionEntry(
+                        name="elasticsearch_lucene",
+                        description="Lucene backend for pySigma",
+                    ),
+                    GulpNameDescriptionEntry(
+                        name="opensearch",
+                        description="OpenSearch backend for pySigma",
+                    ),
+                ],
+                pipelines=[
+                    GulpNameDescriptionEntry(
+                        name="ecs_windows",
+                        description="ECS mapping for Windows event logs ingested with Winlogbeat.",
+                    ),
+                    GulpNameDescriptionEntry(
+                        name="ecs_windows_old",
+                        description="ECS mapping for Windows event logs ingested with Winlogbeat <= 6.x.",
+                    ),
+                    GulpNameDescriptionEntry(
+                        name="ecs_zeek_beats",
+                        description=" Zeek ECS mapping from Elastic.",
+                    ),
+                    GulpNameDescriptionEntry(
+                        name="ecs_zeek_corelight",
+                        description="Zeek ECS mapping from Corelight.",
+                    ),
+                    GulpNameDescriptionEntry(
+                        name="zeek_raw",
+                        description="Zeek raw JSON log fields.",
+                    ),
+                ],
+                output_formats=[
+                    GulpNameDescriptionEntry(
+                        name="dsl_lucene",
+                        description="DSL with embedded Lucene queries.",
+                    )
+                ],
+            )
+        ]
+
+    def sigma_convert(
+        self,
+        sigma: str,
+        s_options: GulpQuerySigmaParameters,
+    ) -> list[GulpQuery]:
+
+        # select pipeline, backend and output format to use
+        backend, pipeline, output_format = self._check_sigma_support(s_options)
+
+        if pipeline == "ecs_windows":
+            pipeline = ecs_windows()
+        elif pipeline == "ecs_windows_old":
+            pipeline = ecs_windows_old()
+        elif pipeline == "ecs_zeek_beats":
+            pipeline = ecs_zeek_beats()
+        elif pipeline == "ecs_zeek_corelight":
+            pipeline = ecs_zeek_corelight()
+        elif pipeline == "zeek_raw":
+            pipeline = zeek_raw()
+
+        if backend == "opensearch":
+            # this is not guaranteed to work with all pipelines, though...
+            backend = OpensearchLuceneBackend(processing_pipeline=pipeline)
+        else:
+            backend = LuceneBackend(processing_pipeline=pipeline)
+        return to_gulp_query_struct(sigma, backend, output_format=output_format)

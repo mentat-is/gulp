@@ -9,12 +9,11 @@ import muty.string
 import muty.time
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
-from opensearchpy import AsyncOpenSearch, NotFoundError, RequestError
+from opensearchpy import AsyncOpenSearch, NotFoundError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
@@ -33,6 +32,7 @@ from gulp.structs import ObjectNotFound
 
 if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+    from gulp.plugin import GulpPluginBase
 
 
 class GulpOpenSearch:
@@ -1172,7 +1172,7 @@ class GulpOpenSearch:
         self,
         datastream: str,
         id: str,
-        el: AsyncElasticsearch = None,
+        el: AsyncElasticsearch | AsyncOpenSearch = None,
     ) -> dict:
         """
         Get a single event from OpenSearch.
@@ -1180,7 +1180,7 @@ class GulpOpenSearch:
         Args:
             datastream (str): The name of the datastream or index to query
             id (str): The ID of the document to retrieve
-            el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
         Returns:
             dict: The query result.
 
@@ -1214,7 +1214,11 @@ class GulpOpenSearch:
             )
 
     async def _search_dsl_internal(
-        self, index: str, parsed_options: dict, q: dict, el: AsyncElasticsearch = None
+        self,
+        index: str,
+        parsed_options: dict,
+        q: dict,
+        el: AsyncElasticsearch | AsyncOpenSearch = None,
     ) -> tuple[int, list[dict], list[dict]]:
         """
         Executes a raw DSL query on OpenSearch and returns the results.
@@ -1223,7 +1227,7 @@ class GulpOpenSearch:
             index (str): Name of the index (or datastream) to query.
             parsed_options (dict): The parsed query options.
             q (dict): The DSL query to execute.
-            el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
 
         Returns:
             tuple:
@@ -1234,31 +1238,36 @@ class GulpOpenSearch:
         Raises:
             ObjectNotFound: If no more hits are found.
         """
+        body = q
+        body["track_total_hits"] = True
+        for k, v in parsed_options.items():
+            if v:
+                body[k] = v
+        MutyLogger.get_instance().debug(
+            "query_raw body=%s" % (json.dumps(body, indent=2))
+        )
+
+        headers = {
+            "content-type": "application/json",
+        }
+
         if el:
-            # use the ElasticSearch client provided
-            res = await el.search(
-                index=index,
-                track_total_hits=True,
-                query=q["query"],
-                sort=parsed_options["_sort"],
-                size=parsed_options["_size"],
-                search_after=parsed_options["search_after"],
-                source=parsed_options["source"],
-            )
+            if isinstance(el, AsyncElasticsearch):
+                # use the ElasticSearch client provided
+                res = await el.search(
+                    index=index,
+                    track_total_hits=True,
+                    query=q["query"],
+                    sort=parsed_options["sort"],
+                    size=parsed_options["size"],
+                    search_after=parsed_options["search_after"],
+                    source=parsed_options["_source"],
+                )
+            else:
+                # external opensearch
+                res = await el.search(body=body, index=index, headers=headers)
         else:
             # use the OpenSearch client (default)
-            body = q
-            body["track_total_hits"] = True
-            for k, v in parsed_options.items():
-                if v:
-                    body[k] = v
-            MutyLogger.get_instance().debug(
-                "query_raw body=%s" % (json.dumps(body, indent=2))
-            )
-
-            headers = {
-                "content-type": "application/json",
-            }
             res = await self._opensearch.search(body=body, index=index, headers=headers)
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (json.dumps(res, indent=2)))
@@ -1281,7 +1290,8 @@ class GulpOpenSearch:
         ws_id: str = None,
         user_id: str = None,
         q_options: "GulpQueryAdditionalParameters" = None,
-        el: AsyncElasticsearch = None,
+        el: AsyncElasticsearch | AsyncOpenSearch = None,
+        processor: "GulpPluginBase" = None,
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -1296,7 +1306,8 @@ class GulpOpenSearch:
             ws_id (str, optional): The websocket ID to send the results to
             user_id (str, optional): The user ID performing the query
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
-            el (AsyncElasticSearch, optional): the ElasticSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
+            processor (GulpPluginBase): if set, processor.plugin_record() will be called for each document returned. defaults to None
 
         Return:
             tuple:
@@ -1319,7 +1330,8 @@ class GulpOpenSearch:
         if el:
             # force use_elasticsearch_api if el is provided
             MutyLogger.get_instance().debug(
-                "search_dsl: using provided ElasticSearch client %s" % (el)
+                "search_dsl: using provided ElasticSearch/OpenSearch client %s, class=%s"
+                % (el, el.__class__)
             )
 
         parsed_options: dict = q_options.parse()
@@ -1332,6 +1344,10 @@ class GulpOpenSearch:
                 total_hits, docs, search_after = await self._search_dsl_internal(
                     index, parsed_options, q, el
                 )
+                if callable:
+                    # call the callback for each document
+                    for idx, doc in enumerate(docs):
+                        await processor.process_record(doc, processed + idx)
 
                 if q_options.loop:
                     # auto setup for next iteration
