@@ -42,7 +42,7 @@ json5==0.9.25
 lxml==5.3.0
 MarkupSafe==2.1.5
 multidict==6.1.0
-muty@git+https://github.com/mentat-is/muty-python.git@refactorq
+muty@git+https://github.com/mentat-is/muty-python.git@refactor
 ntplib==0.4.0
 opensearch-py==2.7.1
 packaging==24.1
