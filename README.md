@@ -20,11 +20,15 @@ _made with :heart: by Mentat._
 
 </div>
 
-## Description
+## description
 
 Gulp is a powerful software tool designed to streamline incident response and analysis. Its core features include:
 
-### Current features
+## architecture
+
+[GULP architecture](./docs/Architecture.md)
+
+### current features
 
 - **Data Ingestion Plugins**: Gulp can ingest data from a variety of sources, thanks to its versatile plugin system.
 - **OpenSearch and ECS**: Gulp is built on OpenSearch and uses the _Elasticsearch Common Scheme (ECS)_ as its ingestion format, ensuring compatibility and ease of use.
@@ -34,25 +38,25 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Innovative UI**: Gulp's user interface includes multiple on-screen per-context(i.e. a log source) zoomable timelines for visualizing events, making it easier to understand and analyze incidents.
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
-- **UI clients**: While [a full fledged web-ui](https://github.com/mentat-is/gulpui-web) is in the works, in the meantime you can use most of the features using the .NET client we use ourself to testdrive during development.
+- **WEB UI client**: [a full fledged web-ui](https://github.com/mentat-is/gulpui-web) is available!
 
-## Timeline
+## timeline
 
 Here's the rough timeline we put together, it is subject to change:
 
 ![timeline](.images/timeline.png)
 
-## Moca 2024 presentation
+## MOCA 2024 presentation
 
 [here is our presentation](https://docs.google.com/presentation/d/e/2PACX-1vTynDHQqr2hN6d3Mlq7UGADR-SAePDUD_M9CdPd2VrS5n11JkrrWMj00KQb9flhG8i2VUlKOn2tr5Ny/pub?start=false&loop=false&delayms=3000) at [MOCA2024](https://moca.camp).
 
-## Installation
+## installation
 
 ### TLDR ;)
 
 | :warning: WARNING                                                                          |
 | :----------------------------------------------------------------------------------------- |
-| [READ THIS TO INSTALL until we have a fix :)](https://github.com/mentat-is/gulp/issues/37) |
+| [READ THIS TO INSTALL until we have a stable solution](https://github.com/mentat-is/gulp/issues/37) |
 
 <del>
 #### docker
@@ -67,7 +71,7 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 ~~~
 </del>
 
-### Exposed services
+### exposed services
 
 > using the default configuration
 
@@ -82,13 +86,13 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
   - **user/pwd: `admin/Gulp1234!`**
   - [elasticvue on http://localhost:8082](http://localhost:8082)
 
-### Installation details
+### installation details
 
 - [docker](<./docs/Install Docker.md>)
 - [install from sources](<./docs/Install Dev.md>)
 - [installing extra plugins](<./docs/Install Dev.md/#-installing-extra-plugins>)
 
-### Environment variables
+### environment variables
 
 the following environment variables may be set to override configuration options.
 
@@ -127,70 +131,22 @@ to use HTTPS, the following certificates must be available:
   - `$PATH_CERTS/gulp.pem`
   - `$PATH_CERTS/gulp.key`
 
-### Run
+## clients
+
+### web UI
+
+get it [here](https://github.com/mentat-is/gulpui-web) !
+
+- usage demo, uses the old .NET UI
+
+  [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1349)
+
+## run
 
 [with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
 
 > currently, we recommend to install from sources!
->
-#### Test
 
-[testing docs](./docs/Testing%20Plugins.md)
+## test
 
-## Architecture
-
-[GULP architecture](./docs/Architecture.md)
-
-## Clients
-
-### Web UI
-
-get it [here](https://github.com/mentat-is/gulpui-web) !
-
-### .NET Client
-
-deprecated, use [the web UI](https://github.com/mentat-is/gulpui-web) !
-
-<del>
-> [!IMPORTANT] ⚠ the .NET client is to be considered an internal-test version, this is the tool we use internally to testdrive the backend development.
-> It is not feature complete and far from being production ready :).
-> Feel free to open issues, but any contribution should go towards the new WIP [web client](https://github.com/mentat-is/gulpui-web)
-
-If you want to use the .NET client "as-is", you can use the Windows binary from [here](https://github.com/mentat-is/gulp/releases/download/legacy/GUiLP_legacy_bin.7z).
-
-To run the executable on Linux, follow these steps:
-
-1. start gulp backend with
-
-~~~bash
-# add --reset-collab --reset-index indexname if reset/initialization is needed
-BIND_TO=0.0.0.0:8080 gulp
-~~~
-
-2. start the UI
-
-  on `arch linux (endeavouros)`, other OS should be similar (just package names changes, if any)
-
-  ~~~bash
-  paru -S wine wine-mono winetricks
-  winetricks -q dotnetdesktop6
-  chmod 755 ./GUiLP.exe
-  ./GUiLP.exe
-  ~~~
-
-3. make sure the ui points to `http://localhost:8080`
-
-![select host](./screenshot-select-host.png)
-
-4. profit!
-
-![UI](./screenshot-ui.png)
-
-- legacy UI documentation (should be enough to get you up and running)
-
-  [.NET UI documentation](https://docs.google.com/document/d/e/2PACX-1vT2BwplEQeXmlSScGkmQkQ2TLTQlRLwxMDaaV1npdUB78pKJ12AJXFzFsP9oWpqBtiH9L4s_B1FPm9w/pub)
-
-- usage demo
-
-  [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1349)
-</del>
+[read here](./docs/Testing%20Plugins.md)
