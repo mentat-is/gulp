@@ -4,6 +4,10 @@
     - [external](#external)
     - [extension](#extension)
 - [architecture](#architecture)
+  - [plugin internals](#plugin-internals)
+    - [ingestion plugins](#ingestion-plugins)
+    - [external plugins](#external-plugins)
+    - [extension plugins](#extension-plugins)
   - [mapping files](#mapping-files)
     - [example](#example)
       - [metadata](#metadata)
@@ -11,10 +15,10 @@
           - [mapping\_id and fields](#mapping_id-and-fields)
   - [stacked plugins](#stacked-plugins)
     - [flow](#flow)
-  - [extension plugins](#extension-plugins)
+  - [extension plugins](#extension-plugins-1)
 - [addendum: query using sigma rules](#addendum-query-using-sigma-rules)
   - [gulp](#gulp)
-  - [external plugins](#external-plugins)
+  - [external plugins](#external-plugins-1)
 
 [TOC]
 
@@ -88,6 +92,146 @@ other optional entrypoints are:
 - `version`: the plugin version string
 - `desc`: the plugin description
 - `depends_on`: if the plugin dependens on other plugins, they are listed here.
+
+## plugin internals
+
+the base class [GulpPluginBase](../src/gulp/plugin.py) handles most of the complex orchestration while the plugin focuses on the external source specific implementations.
+
+the base class provides:
+
+- Document buffering and batch processing
+- Websocket streaming
+- Ingestion into Gulp's Opensearch
+- Statistics tracking
+- Mapping file handling
+
+the plugins must implement:
+
+- for `ingestion` plugins:
+  - format parser to extract single records.
+- for `external` plugins:
+  - the logic to connect to the external server.
+  - query conversion
+  - record format conversion
+- for `extension` plugins, they may install additional `API routes` during gulp initialization.
+
+> optionally, both `ingestion` and `external` plugins may implement `sigma_convert` and `sigma_support` to allow querying both gulp and the external sources via sigma rules: this is done through implementing [pysigma](https://github.com/SigmaHQ/pySigma) backend and pipeline/s to convert i.e. windows-specific sigma rules to target DSL query.
+
+### ingestion plugins
+
+this is how the data flows through an `ingestion plugin` when ingesting into gulp through `ingest_file` API.
+
+~~~mermaid
+sequenceDiagram
+    participant Engine as Gulp Engine
+    participant Base as GulpPluginBase  
+    participant Plugin as Plugin
+    participant Parser as Format parser
+    participant Mapper as Field Mapper
+
+    Engine->>Plugin: ingest_file(file_path)
+    Plugin->>Base: super().ingest_file()
+    Base-->>Plugin: Initialize state
+    Plugin->>Base: _initialize()
+    Base-->>Plugin: Load windows.json mappings
+    
+    Plugin->>Parser: Initialize source file parser
+    
+    loop For each record
+        Parser-->>Plugin: Get next record
+        Plugin->>Plugin: _record_to_gulp_document()
+        Plugin->>Plugin: Parse event data
+        
+        loop For each record element
+            Plugin->>Base: _process_key()
+            Base->>Mapper: Map fields to ECS
+            Mapper-->>Plugin: Return mapped fields
+        end
+        
+        Plugin->>Plugin: _map_evt_code()
+        Plugin->>Base: process_record()
+        Base->>Base: Buffer records
+        opt When buffer full
+            Base->>Base: _process_docs_chunk()
+            Base-->>Engine: Stream to websocket
+            Base-->>Engine: Ingest to OpenSearch
+        end
+    end
+    
+    Plugin->>Base: _source_done()
+    Base-->>Engine: Send completion status
+~~~
+
+### external plugins
+
+this is how the data flows through an `external plugin` when querying (and possibly ingesting from) an external source.
+
+~~~mermaid
+sequenceDiagram
+    participant Engine as Gulp Engine
+    participant Base as GulpPluginBase
+    participant Plugin as ExternalSource Plugin
+    participant ExternalSource as External Server
+
+    Engine->>Plugin: query_external()
+    Plugin->>Base: super().query_external()
+    Base-->>Plugin: Initialize state
+    Plugin->>Base: _initialize()
+    Base-->>Plugin: Load mappings
+    
+    Plugin->>ExternalSource: Connect & execute query
+    ExternalSource-->>Plugin: Stream results
+    
+    loop For each record
+        Plugin->>Plugin: _record_to_gulp_document()
+        Plugin->>Base: process_record()
+        Base->>Base: Buffer records
+        Base->>Base: _process_docs_chunk()
+        Base-->>Engine: Stream to websocket
+        opt If ingestion enabled
+            Base-->>Engine: Ingest to OpenSearch
+        end
+    end
+    
+    Plugin->>Base: _source_done()
+    Plugin->>Base: _query_external_done()
+    Base-->>Engine: Send completion status
+~~~
+
+### extension plugins
+
+> this is [just an example](../src/gulp/plugins/extension/example.py) which adds a REST API entrypoint and runs sample code in a worker when the API is called.
+
+~~~mermaid
+sequenceDiagram
+    participant App as FastAPI App
+    participant Plugin as Extension Plugin
+    participant Base as GulpPluginBase
+    participant Worker as Worker Process
+    participant WS as WebSocket Queue
+
+    Note over Plugin: Plugin Initialization
+    Plugin->>Base: Inherit from GulpPluginBase
+    Plugin->>Base: super().__init__(path, pickled)
+    
+    alt Main Process Init
+        Plugin->>App: _add_api_routes()
+        App-->>Plugin: Register /example_extension endpoint
+    else Worker Process Init
+        Plugin->>Plugin: Re-initialize in worker
+    end
+
+    Note over Plugin: API Request Handling
+    App->>Plugin: example_extension_handler()
+    Plugin->>Base: Check user session
+    Plugin->>Worker: Spawn _example_task in worker
+    
+    Worker->>Worker: _run_in_worker()
+    Worker->>WS: Send updates via WebSocket
+    
+    Worker-->>Plugin: Task completion
+    Plugin-->>App: Return JSendResponse
+~~~
 
 ## mapping files
 
