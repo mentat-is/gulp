@@ -1,5 +1,9 @@
+- [docker Installation](#docker-installation)
+  - [pull image directly from docker hub](#pull-image-directly-from-docker-hub)
+  - [(re)build image from a dev environment](#rebuild-image-from-a-dev-environment)
+  - [run with docker-compose](#run-with-docker-compose)
 
-# Docker Installation
+# docker Installation
 
 > THIS IS OUTDATED, NEEDS REVIEW.
 

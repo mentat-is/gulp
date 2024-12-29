@@ -24,18 +24,17 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
+    @override
     def desc(self) -> str:
         return """generic regex file processor"""
 
     def display_name(self) -> str:
         return "regex"
 
-    def version(self) -> str:
-        return "1.0"
-
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(

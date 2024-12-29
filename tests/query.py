@@ -4,7 +4,7 @@ import json
 import pytest
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import (
-    GulpQueryAdditionalParameters,
+    GulpQueryParameters,
 )
 from gulp.api.rest.test_values import (
     TEST_HOST,
@@ -64,7 +64,7 @@ async def test_win_evtx():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.sigma_parameters.plugin = plugin
                         q_options.group = "test group"
                         await GulpAPIQuery.query_sigma(
@@ -138,7 +138,7 @@ async def test_win_evtx():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters(group="test group")
+                        q_options = GulpQueryParameters(group="test group")
                         await GulpAPIQuery.query_stored(
                             token,
                             TEST_INDEX,
@@ -207,7 +207,7 @@ async def test_win_evtx():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         await GulpAPIQuery.query_stored(
                             token,
                             TEST_INDEX,
@@ -263,7 +263,7 @@ async def test_win_evtx():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.sigma_parameters.plugin = plugin
                         await GulpAPIQuery.query_sigma(
                             token,
@@ -316,7 +316,7 @@ async def test_win_evtx():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.name = "test_raw_query"
                         await GulpAPIQuery.query_raw(
                             token,
@@ -374,7 +374,7 @@ async def test_win_evtx():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.name = "test_gulp_query"
                         await GulpAPIQuery.query_gulp(
                             token,
@@ -467,7 +467,7 @@ async def test_splunk():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.name = "test_raw_query_splunk"
                         q_options.sigma_parameters.plugin = "splunk"
                         q_options.group = "test group"
@@ -560,7 +560,7 @@ async def test_splunk():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.external_parameters.uri = "http://localhost:8089"
                         q_options.external_parameters.username = "admin"
                         q_options.external_parameters.password = "Valerino74!"
@@ -622,7 +622,7 @@ async def test_splunk():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.name = "test_raw_query_splunk"
                         q_options.external_parameters.plugin = "splunk"
                         q_options.external_parameters.uri = "http://localhost:8089"
@@ -693,7 +693,7 @@ async def test_splunk():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.external_parameters.uri = "http://localhost:8089"
                         q_options.external_parameters.username = "admin"
                         q_options.external_parameters.password = "Valerino74!"
@@ -797,7 +797,7 @@ async def test_elasticsearch():
 
                     if data["type"] == "ws_connected":
                         # run test
-                        q_options = GulpQueryAdditionalParameters()
+                        q_options = GulpQueryParameters()
                         q_options.name = "test_external_elasticsearch"
                         q_options.sigma_parameters.plugin = "elasticsearch"
                         q_options.group = "test group"

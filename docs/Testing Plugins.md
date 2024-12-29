@@ -1,138 +1,69 @@
+- [testing gulp](#testing-gulp)
+  - [running the test suite](#running-the-test-suite)
+  - [running single tests manually](#running-single-tests-manually)
+  - [ingestion tool](#ingestion-tool)
+
 [TOC]
 
-# Intro
-Testing plugins can be achieved by 2 methods, the simplest is to just use the plugin via the GUI and check data is being ingested and treated correcly,
-the second way is to use the [test_ingest.sh](https://github.com/mentat-is/gulp/test_scripts/test_ingest.sh), a simple bash script which user `curl` to perform ingestion onto the host.
+# testing gulp
 
-## Usage
-Here's the `-h` output of the `test_ingest.sh` script:
-```
-ingest SINGLE file, zipfile or directory in GULP.
+> `GULP_INTEGRATION_TEST` should always be set during tests, since it deactivates debug options even if they are activated in the configuration!
 
-usage: ./test_scripts/test_ingest.sh -p <path/to/file/zipfile/directory> [-l to test raw ingestion, -p is ignored]
- [-q to use the given req_id] [-o <offset> to start file transfer at offset, ignored for raw]
- [-f to filter during ingestion (TEST_INGESTION_FILTER json env variable is used if set)]
- [-i to use ingest_zip_simple instead of ingest_zip for zip file (hardcoded win_evtx plugin, *.evtx mask)]
- [-x to reset collaboration/elasticsearch first]
+to start tests, start gulp first!
 
-host,operation,context,client_id,plugin,index,user,password are set respectively to "localhost:8080", 1 (test operation), "testcontext", 1 (test client), "win_evtx", "testidx", "ingest", "ingest".
+~~~bash
+# run gulp on localhost:8080
+GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
+cd tests
+~~~
 
-most of the parameters can be changed via environment variables:
- TEST_HOST, TEST_OPERATION, TEST_CONTEXT, TEST_CLIENT, TEST_PLUGIN, TEST_INDEX, TEST_USER, TEST_PASSWORD,
- TEST_PLUGIN_PARAMS, TEST_MASK, TEST_WS_ID.
+## running the test suite
 
-a token can also be provided to avoid login via environment variable TEST_TOKEN.
-```
+the test suite tests all the gulp rest API and plugins, including ingestion and query (checking the results too)
 
-# Examples
+~~~bash
+# run test suite (covers the whole API, including ingestion and query)
+./test_suite.sh
 
-Here are a few examples on how to use the [test_ingest.sh](https://github.com/mentat-is/gulp/test_scripts/test_ingest.sh) script.
+# also test paid plugins
+PAID_PLUGINS=1 ./test_suite.sh
+~~~
 
-## win_evtx plugin
+## running single tests manually
 
-Source: [win_evtx.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/win_evtx.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=win_evtx ./test_scripts/test_ingest.sh -p samples/win_evtx
-```
+single tests in the [test suite](../tests) may also be run manually
 
-## win_reg plugin
+~~~bash
+# run single api test manually, i.e.
+# run windows ingest/query test (including sigma and stored queries)
+python3 -m pytest query.py::test_win_evtx
 
-Source: [win_reg.py](https://github.com/mentat-is/gulp/src/gulp/plugins/win_reg.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=win_reg ./test_scripts/test_ingest.sh -p samples/win_reg
-```
+# run collab notes test (including user ACL)
+python3 -m pytest note.py
+~~~
 
-## apache_access_clf plugin
+## ingestion tool
 
-Source: [apache_access_clf.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/apache_access_clf.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=apache_access_clf ./test_scripts/test_ingest.sh -p samples/apache_access_clf/access.log.sample
-```
+to quickly test ingestion with a particular plugin manually i.e. during plugin dev, you may use [ingest.py](../test_scripts/ingest.py):
 
-## apache_error_clf plugin
+> ingest_py script does not check for upload correctness, you must do it manually!
 
-Source: [apache_error_clf.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/apache_error_clf.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=apache_error_clf ./test_scripts/test_ingest.sh -p samples/apache_error_clf/error.log
-```
+~~~bash
+# win_evtx
+# 98633 records, 1 record failed, 1 skipped, 98631 ingested
+./test_scripts/ingest.py --path ./samples/win_evtx
 
-## chrome_history_sqlite_stacked plugin
-
-Source: [chrome_history_sqlite_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_history_sqlite_stacked.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=chrome_history_sqlite_stacked ./test_scripts/test_ingest.sh -p $HOME/.config/chromium/Profile\ 1/History
-```
-
-## chrome_webdata_sqlite_stacked plugin
-
-Source: [chrome_webdata_sqlite_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_webdata_sqlite_stacked.py)
-
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=chrome_webdata_sqlite_stacked ./test_scripts/test_ingest.sh -p $HOME/.config/chromium/Profile\ 1/Web\ Data
-```
-
-## eml plugin
-
-Source: [eml.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/eml.py)
-
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=eml ./test_scripts/test_ingest.sh -p samples/eml/
-```
-
-This plugin supports the following options:
-- `decode`: if set to `True` it automatically decodes multipart eml messages (e.g. base64, etc)
-
-## mbox plugin
-
-Source: [mbox.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/mbox.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=mbox ./test_scripts/test_ingest.sh -p samples/mbox/
-```
-
-This plugin supports the same options as the `eml` plugin.
-
-## teamviewer_regex_stacked plugin
-
-Source: [teamviewer_regex_stacked.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/teamviewer_regex_stacked.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=teamviewer_regex_stacked ./test_scripts/test_ingest.sh -p samples/teamviwer/connections_incoming.txt
-```
-
-## regex plugin
-
-Source: [regex.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/regex.py)
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN_PARAMS='{"extra":{"regex":"(?P<test>.*)-(?P<timestamp>.*)"}}' TEST_PLUGIN=regex ./test_scripts/test_ingest.sh -x -p samples/regex/test.sample
-```
-
-This plugin requires the following options to be set in order to work:
-- `regex`: the regex to match
-- `flags`: regex flags to apply (refer to [flags](https://docs.python.org/3/library/re.html#flags) for the values)
-
-The `regex` parameter must satisfy the following requirements:
-- must contain **named groups**
-- must contain one named group named **timestamp** (case-sensitive)
-
-## systemd_journal plugin
-
-Source: [systemd_journal.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/systemd_journal.py)
-
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=systemd_journal ./test_scripts/test_ingest.sh -p ./samples/systemd_journal/system.journal
-```
-
-## csv plugin
-
-Source: [csv.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/csv.py)
-
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=csv TEST_PLUGIN_PARAMS='{"mapping_file": "mftecmd_csv.json", "mapping_id": "record"}' ./test_scripts/test_ingest.sh -p ./samples/mftecmd/sample_record.csv
-```
-
-## sqlite plugin
-
-Source: [sqlite.py](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/sqlite.py)
-
-```sh
-TEST_WS_ID="websocket_id" TEST_PLUGIN=sqlite TEST_PLUGIN_PARAMS='{"mapping_file": "chrome_webdata.json"}' ./test_scripts/test_ingest.sh -p ./samples/chrome-webdata/webdata.sqlite
-```
+# csv without mapping
+# 10 records, 10 ingested
+./test_scripts/ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mappings": {
+      "test_mapping": {
+        "fields": {
+          "Created0x10": {
+            "ecs": "@timestamp",
+            "is_timestamp_chrome": false
+          }
+        }
+      }
+    }
+  }'
+~~~

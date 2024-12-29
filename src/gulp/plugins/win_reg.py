@@ -47,14 +47,12 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return """Windows registry file processor"""
 
     def display_name(self) -> str:
         return "win_reg"
-
-    def version(self) -> str:
-        return "1.0"
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

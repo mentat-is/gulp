@@ -31,6 +31,7 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
+import asyncio_atexit
 
 
 class GulpRestServer:
@@ -108,7 +109,7 @@ class GulpRestServer:
         """
         Sets the global `_shutting_down` flag to True.
         """
-        MutyLogger.get_instance().debug("shutting down!")
+        MutyLogger.get_instance().debug("setting shutdown=True !")
         self._shutdown = True
 
     def is_shutdown(self) -> bool:
@@ -353,11 +354,39 @@ class GulpRestServer:
             MutyLogger.get_instance().warning("HTTP!")
             uvicorn.run(self._app, host=address, port=port)
 
+    async def _cleanup(self):
+        """
+        called when lifespan handler returns from yield, to cleanup
+        """
+        MutyLogger.get_instance().info("gulp shutting down!")
+        self.set_shutdown()
+
+        await self._unload_extension_plugins()
+        try:
+            # close shared ws and process pool
+            await GulpConnectedSockets.get_instance().cancel_all()
+            GulpSharedWsQueue.get_instance().close()
+            await GulpProcess.get_instance().close_process_pool()
+
+            # close clients in the main process
+            await GulpCollab.get_instance().shutdown()
+            await GulpOpenSearch.get_instance().shutdown()
+
+            # close coro and thread pool in the main process
+            await GulpProcess.get_instance().close_coro_pool()
+            await GulpProcess.get_instance().close_thread_pool()
+        except:
+            pass
+
+        MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
+
     async def _lifespan_handler(self, app: FastAPI):
         """
         fastapi lifespan handler
         """
         MutyLogger.get_instance().info("gULP main server process is starting!")
+        asyncio_atexit.register(self._cleanup)
+
         main_process = GulpProcess.get_instance()
 
         # check configuration directories
@@ -406,25 +435,7 @@ class GulpRestServer:
         # wait for shutdown
         yield
 
-        MutyLogger.get_instance().info("gulp shutting down!")
-        self.set_shutdown()
-
-        await self._unload_extension_plugins()
-
-        # close shared ws and process pool
-        await GulpConnectedSockets.get_instance().cancel_all()
-        GulpSharedWsQueue.get_instance().close()
-        await GulpProcess.get_instance().close_process_pool()
-
-        # close clients in the main process
-        await GulpCollab.get_instance().shutdown()
-        await GulpOpenSearch.get_instance().shutdown()
-
-        # close coro and thread pool in the main process
-        await GulpProcess.get_instance().close_coro_pool()
-        await GulpProcess.get_instance().close_thread_pool()
-
-        MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
+        # cleaning up will be done through _cleanup called via atexit
 
     def _delete_first_run_file(self) -> None:
         """

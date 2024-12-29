@@ -34,9 +34,6 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "pfsense"
 
-    def version(self) -> str:
-        return "1.0"
-
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, data: Any = None

@@ -5,7 +5,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_INDEX,
@@ -733,7 +733,7 @@ the query filter, to filter for common fields, including:
 
     def param_query_additional_parameters_optional(
         q_options: Annotated[
-            Optional[GulpQueryAdditionalParameters],
+            Optional[GulpQueryParameters],
             Body(
                 description="""
 additional parameters for querying, including:
@@ -756,7 +756,7 @@ additional parameters for querying, including:
         Returns:
             dict: The query options.
         """
-        return q_options or GulpQueryAdditionalParameters()
+        return q_options or GulpQueryParameters()
 
     def param_collab_flt_optional(
         flt: Annotated[

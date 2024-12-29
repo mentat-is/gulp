@@ -21,14 +21,16 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return """chrome based browsers history sqlite stacked plugin"""
 
     def display_name(self) -> str:
         return "chrome_history_sqlite_stacked"
 
-    def version(self) -> str:
-        return "1.0"
+    @override
+    def depends_on(self) -> list[str]:
+        return ["sqlite"]
 
     class ChromeHistoryTable(Enum):
         cluster_keywords = 0

@@ -32,14 +32,12 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return "Apache access.log CLF file processor."
 
     def display_name(self) -> str:
         return "apache_access_clf"
-
-    def version(self) -> str:
-        return "1.0"
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

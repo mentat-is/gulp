@@ -22,23 +22,18 @@ class Plugin(GulpPluginBase):
     this allow to stack one plugin on top of another the data is processed by calling the lower plugin directly, bypassing the engine
     """
 
-    def __init__(
-        self,
-        path: str,
-        **kwargs,
-    ) -> None:
-        super().__init__(path, **kwargs)
-        self._eml_parser: GulpPluginBase = None
-
+    @override
     def desc(self) -> str:
         return """generic MBOX file processor"""
 
     def display_name(self) -> str:
         return "mbox"
 
-    def version(self) -> str:
-        return "1.0"
+    @override
+    def depends_on(self) -> list[str]:
+        return ["eml"]
 
+    @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(

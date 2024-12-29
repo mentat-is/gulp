@@ -31,10 +31,8 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 
 ## internals
 
-- they may extend api through `rest_api.fastapi_app().add_api_route()`.
+- they may extend api through `GulpRestServer.get_instance().add_api_route()`.
 - `their init runs in the MAIN process context`
-- they may use aiopool and process_executor from rest_api as usual, **as long as they are run from the MAIN process (in this example, "example_task" is running in the MAIN process)**.
-
 """
 
 
@@ -46,7 +44,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> None:
 
-        # extensions must support pickling
+        # extensions must support pickling to be able to be re-initialized in worker processes
         super().__init__(path, pickled, **kwargs)
         MutyLogger.get_instance().debug(
             "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)

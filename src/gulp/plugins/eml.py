@@ -25,15 +25,14 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
+    @override
     def desc(self) -> str:
         return """generic EML file processor"""
 
     def display_name(self) -> str:
         return "eml"
-
-    def version(self) -> str:
-        return "1.0"
-
+    
+    @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(

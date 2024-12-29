@@ -66,7 +66,7 @@ class GulpAPIWebsocket:
 
             MutyLogger.get_instance().debug(f"ws accepted for ws_id={params.ws_id}")
             ws = GulpConnectedSockets.get_instance().add(
-                websocket, params.ws_id, params.type, params.operation_id
+                websocket, params.ws_id, params.types, params.operation_ids
             )
 
             # aknowledge connection
@@ -120,50 +120,3 @@ class GulpAPIWebsocket:
             if websocket.client_state == WebSocketState.CONNECTED:
                 # close gracefully
                 await websocket.close()
-
-    @router.websocket("/ws")
-    @staticmethod
-    async def ws_handler(websocket: WebSocket):
-        """
-        handles the websocket connection
-
-        the websocket protocol is really simple:
-
-        1. client sends a json request { "token": ..., "ws_id": ...}
-        2. server checks the token and ws_id, and accepts the connection
-        3. server sends messages to the client with the same ws_id (plus broadcasting CollabObj objects to the other connected websockets)
-
-        Args:
-            websocket (WebSocket): The websocket object.
-        """
-        ws = None
-        try:
-            await websocket.accept()
-            js = await websocket.receive_json()
-            params = GulpWsAuthPacket.model_validate(js)
-            async with GulpCollab.get_instance().session() as sess:
-                await GulpUserSession.check_token(
-                    sess, params.token, GulpUserPermission.READ
-                )
-
-            MutyLogger.get_instance().debug(f"ws accepted for ws_id={params.ws_id}")
-            ws = GulpConnectedSockets.get_instance().add(
-                websocket, params.ws_id, params.type, params.operation_id
-            )
-
-            # blocks until exception/disconnect
-            await ws.run_loop()
-
-        except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().warning(f"webSocket disconnected: {ex}")
-        except Exception as ex:
-            MutyLogger.get_instance().error(f"ws error: {ex}")
-        finally:
-            if ws:
-                try:
-                    await GulpConnectedSockets.get_instance().remove(websocket)
-                    if websocket.client_state == WebSocketState.CONNECTED:
-                        # close gracefully
-                        await websocket.close()
-                except Exception as ex:
-                    MutyLogger.get_instance().error(f"error during ws cleanup: {ex}")

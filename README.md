@@ -135,49 +135,7 @@ to use HTTPS, the following certificates must be available:
 >
 #### Test
 
-```bash
-# run gulp on localhost:8080
-GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
-cd tests
-
-# run test suite (covers the whole API, including ingestion and query)
-./test_suite.sh
-
-# also test paid plugins
-PAID_PLUGINS=1 ./test_suite.sh
-
-# run single api test manually, i.e.
-# run windows ingest/query test (including sigma and stored queries)
-python3 -m pytest query.py::test_win_evtx
-
-# run collab notes test (including user ACL)
-python3 -m pytest note.py
-
-```
-
-to test single plugins manually i.e. during plugin dev, you may use [ingest.py](./test_scripts/ingest.py):
-
-> the manual ingest_py script does not check for upload correctness, you must do it manually!
-
-~~~bash
-# win_evtx
-# 98633 records, 1 record failed, 1 skipped, 98631 ingested
-./test_scripts/ingest.py --path ./samples/win_evtx
-
-# csv without mapping
-# 10 records, 10 ingested
-./test_scripts/ingest.py --path ./samples/mftecmd/sample_record.csv --plugin csv --plugin_params '{"mappings": {
-      "test_mapping": {
-        "fields": {
-          "Created0x10": {
-            "ecs": "@timestamp",
-            "is_timestamp_chrome": false
-          }
-        }
-      }
-    }
-  }'
-~~~
+[testing docs](./docs/Testing%20Plugins.md)
 
 ## Architecture
 

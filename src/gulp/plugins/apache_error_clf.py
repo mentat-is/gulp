@@ -32,14 +32,12 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return "Apache error.log CLF file processor."
 
     def display_name(self) -> str:
         return "apache_error_clf"
-
-    def version(self) -> str:
-        return "1.0"
 
     @override
     async def _record_to_gulp_document(

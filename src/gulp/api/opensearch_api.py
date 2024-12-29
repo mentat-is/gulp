@@ -31,7 +31,7 @@ from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
 if TYPE_CHECKING:
-    from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+    from gulp.api.opensearch.query import GulpQueryParameters
     from gulp.plugin import GulpPluginBase
 
 
@@ -231,9 +231,9 @@ class GulpOpenSearch:
             dict: The mapping dict.
         """
         # query first
-        from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+        from gulp.api.opensearch.query import GulpQueryParameters
 
-        options = GulpQueryAdditionalParameters()
+        options = GulpQueryParameters()
         options.limit = 1000
         options.fields = ["*"]
         q = {
@@ -1289,7 +1289,7 @@ class GulpOpenSearch:
         req_id: str = None,
         ws_id: str = None,
         user_id: str = None,
-        q_options: "GulpQueryAdditionalParameters" = None,
+        q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: callable = None,
     ) -> tuple[int, int]:
@@ -1322,11 +1322,11 @@ class GulpOpenSearch:
             ValueError: argument error
             Exception: If an error occurs during the query.
         """
-        from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+        from gulp.api.opensearch.query import GulpQueryParameters
 
         if not q_options:
             # use defaults
-            q_options = GulpQueryAdditionalParameters()
+            q_options = GulpQueryParameters()
 
         if q_options.note_parameters.create_notes and not sess:
             raise ValueError("sess is required if create_notes is set!")

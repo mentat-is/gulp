@@ -1,286 +1,280 @@
+- [plugins](#plugins)
+  - [plugin types](#plugin-types)
+    - [ingestion](#ingestion)
+    - [external](#external)
+    - [extension](#extension)
+- [architecture](#architecture)
+  - [mapping files](#mapping-files)
+    - [example](#example)
+      - [metadata](#metadata)
+        - [mappings](#mappings)
+          - [mapping\_id and fields](#mapping_id-and-fields)
+  - [stacked plugins](#stacked-plugins)
+    - [flow](#flow)
+  - [extension plugins](#extension-plugins)
+- [addendum: query using sigma rules](#addendum-query-using-sigma-rules)
+  - [gulp](#gulp)
+  - [external plugins](#external-plugins)
+
 [TOC]
 
-# Ingestion plugins
+# plugins
 
-Gulp's architecture allows developers and users to add supported files for ingestion.
+gulp is made of plugins, each serving different purposes:
 
-Gulp supports a bunch of different log formats for ingestion.
-We currently support the following:
+- `ingestion` plugins for ingesting data from local sources (i.e. log files)
+- `external` plugins to query external sources (i.e. a SIEM), and possibly ingest data into gulp at the same time
+- `extension` plugins to extend the gulp [REST api](../src/gulp/api/rest/)
+  
+currently, we have the following plugins:
 
-  - Apache's standard `access.log` and `error.log`
-  - Windows `evtx`
-  - Windows `registry` hives
-  - Systemd `journal` files
-  - A few of the Zimmerman tools' output files
-  - A few Autopsy exports files
-  - Chrome `history` and `webdata` db files
-  - Network capture `pcap` and `pcapng` files
-  - Email message boxes using `mbox` and plain `eml` files
-  - Teamviewer's `connection_incoming.txt`
-  - Generic `sqlite` databases
-  - Generic single-line text files via the `regex` plugin
-  - Generic `csv` files
+## plugin types
+
+gulp support different plugin types, even if they share all [the same architecture](../src/gulp/plugin.py).
+
+### ingestion
+
+- Apache's standard `access.log` and `error.log`
+- Windows `evtx`
+- Windows `registry` hives
+- Systemd `journal` files
+- A few of the Zimmerman tools' output files
+- A few Autopsy exports files
+- Chrome `history` and `webdata` db files
+- Network capture `pcap` and `pcapng` files
+- Email message boxes using `mbox` and plain `eml` files
+- Teamviewer's `connection_incoming.txt`
 
 Along side the specific ones we also provide some generic "base" plugins which can be used as a base to build your own plugins!
 
-Gulp dives ingestion plugins in 3 major categories:
+- Generic `sqlite` databases
+- Generic single-line text files via the `regex` plugin
+- Generic `csv` files
 
-  - mapping files
-  - stacked plugins
-  - python plugins
+### external
 
-## Mapping files
+- `elasticsearch` to query and ingest from an external source based on `Elasticsearch` or `Opensearch` (i.e. Wazuh)
 
-While mapping files are not technically plugins, they serve a very similar purpose, with some limitations.
-A mapping file basically instructs an existing plugins how to parse the various fields from the log, using a simplified `json` stucture.
+### extension
 
-While making mappings, try to adhere to one of the following conventions (ordered from most to least preferred):
+TODO
+
+# architecture
+
+While plugins can be as complex as needed, a basic plugin **must** implement the functions:
+
+- `display_name`: returns the display name of the plugin
+- `type`: may be `ingestion`, `extension`, `external`
+- `_record_to_gulp_document`: this is called automatically by the engine on each record in the source being processed
+
+then depending on `type`, different entrypoints may be implemented:
+
+- `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
+  - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
+- `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocument`s
+  - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
+- `query_external`: implemented by `external` plugins, this is to query (and possibly ingest from at the same time) an external source.
+  - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
+- `sigma_support`: this lists the [pysigma](https://github.com/SigmaHQ/pySigma) backends and pipelines the plugin supports, to support sigma rules conversion into queries for different targets.
+  - these are returned by the `plugin_list` API.
+- `sigma_convert`: this implements the actual sigma rule conversion using the selected `pysigma backend` and `pipeline` which are passed into `GulpPluginParameters` to the plugin.
+  - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for implementation (it supports converting windows sigma rules to gulp queries)
+
+other optional entrypoints are:
+
+- `custom_parameters`: returned by the `plugin_list` API, this defines each custom parameter the plugin support and may be used by the UI to build a configurator for the plugin.
+  - they are available in each plugin after initialization via `self._custom_params`
+- `tags`: returned by the `plugin_list` API, defines tags to categorize the plugin
+- `version`: the plugin version string
+- `desc`: the plugin description
+- `depends_on`: if the plugin dependens on other plugins, they are listed here.
+
+## mapping files
+
+`ingestion` and `external` plugins both support mapping files through [GulpPluginParameters](../src/gulp/structs.py) and [GulpQueryParameters.external_parameters.plugin_params](../src/gulp/api/opensearch/structs.py), to customize both ingested documents and/or documents returned from an `external` query.
+
+mapping files may be used standalone (i.e. with the `csv` plugin without having another plugin) or together with an existing one by setting parameters when the plugin calls `_initialize`.
+
+a mapping file basically instructs an existing plugin how to parse fields from the log, using a simplified `json` stucture.
+
+while making mappings, try to adhere to one of the following conventions (ordered from most to least preferred):
+
   1. `ECS` standard defined by elastic [here](https://www.elastic.co/guide/en/ecs/current/index.html)
   2. `gulp.<meaningful_name>.*` such as `gulp.http.query.params.<name>` or `gulp.pcap.<protocol>.field`
   3. anything else
 
-Remember, the more standardized the logs we collect are, the easier it will be to create and share detection rules and query snippets!
+remember, the more standardized the logs we collect are, the easier it will be to create and share detection rules and query snippets!
 
-Mapping files are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins.
+> [Mapping files](../src/gulp/mapping_files/) are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins.
 
-Here's a minimal example taken from the `RecentFileCacheParser_csv.json` file under `src/gulp/mapping_files` folder, where mappings are typically placed.
+### example
+
+Here's a commented example, further details in the [model definition source](../src/gulp/api/mapping/models.py)
 
 ```json
-{
+{    
   "metadata": {
+    // lists the plugins this mapping file supports: this allows the UI to correlate plugins and mapping files via the `mapping_file_list` API
     "plugin": [
-      "csv.py"
+      "sqlite.py"
     ]
   },
-  "mappings": [
-    {
+  // one or more supported mappings, each key is a `mapping_id`
+  "mappings": {
+    // the `mapping_id`
+    "autofill": {
+      // optional: if set, sets `event.code` for all(*) the documents generated by this mapping. either, it is plugin responsibility to set it.
+      // (*): this is ignored for extra documents generated with `extra_doc_with_event_code`, as explained later.
+      "event_code": "autofill_date_created",
+      // optional: if set, sets `agent.type` for all the documents generated by this mapping. either, it is plugin responsibility to set it.
+      "agent_type": "chromium",
+      // optional: if set, matching fields in the source document are ignored and not included in the generated document/s.      
+      "exclude": ["field1", "field2"],
+      // optional: if set, only matching fields in the source document are processed and included in the generated document/s.      
+      "include": ["field1", "field2"],
+      // the following are advanced options to control how timestamp strings are handled by the gulp's engine, and their usage should be rarely needed.
+      //
+      // anyway, they map 1:1 to options in python's [dateutil.parser.parse](https://dateutil.readthedocs.io/en/stable/parser.html).
+      "timestamp_dayfirst": null, // defaults to False
+      "timestamp_yearfirst": null, // defaults to False
+      "timestamp_fuzzy": null, // defaults to False
+      // the fields to map: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
-        "SourceFile": {
-          "map_to": "file.path"
+        // the field name
+        "name": {
+          // this may be a string or a []: this allows mapping a single field to one or more target document fields.
+          "ecs": "gulp.html.form.field.name"
         },
-        "SourceCreated": {
-          "is_timestamp": true,
-          "event_code": "Created"
+        "value": {
+          "ecs": "gulp.html.form.field.value"
         },
-        "SourceModified": {
-          "is_timestamp": true,
-          "event_code": "Modified"
+        "date_created": {
+          // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.
+          // the engine, with the plugin's cooperation if needed, will take care of the necessary conversion ("@timestamp" is stored as an ISO-8601 string) and also generates `gulp.timestamp` as `nanoseconds from unix epoch`.
+          "ecs": "@timestamp",
+          // this is a special flag to indicate the **original** timestamp (prior to gulp's processing) is an int or a numeric string and needs to be multiplied: this may also be a fraction (i.e. 0.5) to indicate division.
+          "multiplier": 1000000000
         },
-        "SourceAccessed": {
-          "is_timestamp": true,
-          "event_code": "Accessed"
+        "a_chrome_timestamp": {
+          "ecs": "chrome_ts",
+          // this is a special flag to indicate the **original** timestamp (prior to gulp's processing) is a `webkit` timestamp from 1601, so gulp will perform the necessary conversions.
+          "is_timestamp_chrome": true
+        },        
+        "date_last_used": {
+          // if this is set, this field represents a timestamp and a further document will be generated alongside the `main` document.
+          // 
+          // in this example, in the extra document the following will be set:
+          //
+          // - "@timestamp" will be set to this "date_last_used" value (flags like `multiplier` or `is_timestamp_chrome` are processed as well, if set)
+          // - "event.code" will be set to "autofill_date_last_used" (so the mapping's `event_code` flag above is ignored here)
+          //
+          // for this to work, one main timestamp must be selected as the main and mapped as "@timestamp", i.e.
+          // 
+          // "field_name": {
+          //    "ecs": "@timestamp"
+          // }
+          //
+          // and mapping's "event_code" must be set to indicate the main `event.code`.
+          //
+          // setting `extra_doc_with_event_code` for multiple fields allows to generate multiple documents from a single source (i.e. if an event has multiple timestamp like `creation_time`, `modify_time`, ...)
+          //
+          "extra_doc_with_event_code": "autofill_date_last_used",
+          "multiplier": 1000000000
         }
-      },
-      "options": {
-        "event_code": "RecentFileCacheParser",
-        "agent_type": "RecentFileCacheParser",
-        "mapping_id": "recentfilecacheparser"
       }
     }
-  ]
+  }
 }
 ```
+
+#### metadata
 
 Let's break it down, starting from `metadata`.
 This field contains useful information the server uses to categorize and suggest plugins to its clients.
 
 In particular, `plugin` array lists all (*bare filenames of, i.e. name.py*) plugins which gulp should suggest this mapping for, in our case it's the `csv` plugin.
 
-The next section is the `mappings` section, the core of the mapping file, this is a list of objects which are composed of 2 fields:
+The next section is the `mappings` section, the core of the mapping file, this is a dictionary of `mapping_ids` with each representing a category of data this mapping file handles.
 
-  - mapping : which contains the actual field-by-field mappings
-  - options : options specific for each mapping (such as the `mapping_id`, `event_code`, `agent_type`)
+##### mappings
 
-Starting from the `mapping`, under this section we specify the fields and what to map them to.
-In our example, the log contains the following fields, which we want to map to the following mappings:
+each key in the `mappings` dictionary is a `mapping_id`, representing a category of data this mapping file handles.
 
-  - **SourceFile**: indicates the name of the file
-  - **SourceCreated**: this field in the log specifies when the file has been **created**
-  - **SourceModified**: similarly this contains the last **modified** date of the file
-  - **SourceModified**: finally, this contains the last **accessed** date of the file
+###### mapping_id and fields
 
-Every mapping **must contain** at least one field specified as `is_timestamp` (or a `map_to` set to `@timestamp`), in order to allow indexing by the backing database.
-The `is_timestamp` parameter implies `@timestamp`, moreover, when `is_timestamp` is set a new event is generated for each field indicated as timestamp.
+this is the mapping itself, and includes `fields` with multiple optional flags as described in the example.
 
-Other options are described in more detail in the [mapping_fields](#mapping_fields) section.
+currently defined `mapping` flags are:
 
-At the end of the mapping field, the `options` field contains some, well, options for this specific mapping,
-such as the value to fill the `event.code` field with, a `mapping_id`, etc.
+- `event_code`
+- `agent_type`
+- `exclude`
+- `include`
+- `timestamp_dayfirst`
+- `timestamp_yearfirst`
+- `timestamp_fuzzy`
 
-### mapping fields
+each `field` represents a `source` key to be mapped, and may have optional flags as well as described in the example.
 
-Each mapping field ([FieldMappingEntry](/docs/html/classmapping_1_1models_1_1_field_mapping_entry.html)) must contain the `map_to` field, additionally they can contain any of the following attributes:
+currently defined field flags are:
 
-| name    | description |
-| -------- | ------- |
-| map_to | the field name to map to on the database |
-| is_timestamp | if true, gulp will attempt to parse the field as a timestamp and convert it automatically (default: false) |
-| is_timestamp_chrome | if true, the timestamp will be treated as a webkit/chrome epoch (01/01/1601 00:00:00)|
-| multiplier | if value is numeric multiplies it by this value before saving it to te db (e.g. useful for converting ms to ns timestamps) |
-| event_code | if set overrides the event code for the generated events |
+- `is_timestamp_chrome`
+- `multiplier`
+- `extra_doc_with_event_code`
 
-> [!NOTE]
-> If `map_to` is set to `@timestamp` the field will be mapped as timestamp and will be assumed to be in **milliseconds**.
-> This is equivalent to setting `is_timestamp` to `True`, but without any parsing/conversion applied.
+## stacked plugins
 
-### options field
+plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can augment it.
 
-| name    | description |
-| -------- | ------- |
-| default_event_code | the default event code to apply to each event |
-| agent_type | name of the plugin/mapping |
-| mapping_id | a unique identifier, to identify a specific mapping in a file (in case multiple mappings are present) |
+Stacked plugins are usually based on generic python *ingestion* plugins such as `csv`, `sqlite`.
 
-## Stacked plugins
+An example of a basic extension plugin is [stacked_example](../src/gulp/plugins/stacked_example.py), or for a real one you may look at [chrome_history](../src/gulp/plugins/chrome_history_sqlite_stacked.py) which sits on top of the [sqlite](../src/gulp/plugins/sqlite.py) plugin.
 
-Stacked plugins are python *ingestion* plugins which are base upon other plugins, usually generic plugins (such as `csv`, `sqlite`, etc),
-but require a little more logic than a plain [mapping files](#mapping_files).
+### flow
 
-Instead of receiving a raw event from the log file, stacked plugins receive a `GulpDocument`,
-which can be further modified before it gets ingested.
+stacking is handled by the engine, which basically does this `for every record` being processed in the source document:
 
-While you can **technically** stack as many plugins as you want, it is advised against for 3 main reasons:
-
-  - readibility: quite self explanatory
-  - performance: you go through more functions for each event in each file, this may impact performance depending on how performant each function is
-  - KISS principle: if an event requires logic that is split into many different files to be parsed correctly, maybe it'd be better to write a [python plugin](#python_plugins) instead!
-
-Let's get down to business!
-A quite simple example of a stacked plugin is the [chrome_history_sqlite_stacked](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/chrome_history_sqlite_stacked.py) plugin, which is based onto the [sqlite](https://github.com/mentat-is/gulp/src/gulp/plugins/ingestion/sqlite.py) generic plugin.
-
-Since the logic behind acquiring data from an `sqlite` plugin is generic enough, it is a good foundation to build upon.
-Here's a quick overview of how the data flows:
+- calls plugin's own `_record_to_gulp_document`
+- if there is a plugin stacked on top, calls its `_record_to_gulp_document` with the `GulpDocument` returned as `dict`.
+- if the stacked plugin also implements `_augment_documents`, this is called with each chunk of documents `right before` storing in gulp.
 
 ```mermaid
 flowchart TD
     A(Log file) -->|parsed by| B[Base plugin]
     B --> |Generates GulpDocument| C[Stacked plugin]
-    C --> |Modifies GulpDocument| D(Ingest events)
+    C --> |Modifies GulpDocument.model_dump| D(Ingest events)
 ```
 
-```python
-async def ingest(
-    self,
-    index: str,
-    req_id: str,
-    client_id: int,
-    operation_id: int,
-    context: str,
-    source: str | list[dict],
-    ws_id: str,
-    plugin_params: GulpPluginParams = None,
-    flt: GulpIngestionFilter = None,
-    **kwargs,
-) -> GulpRequestStatus:
+so, as every other plugin, they must implement `_record_to_gulp_document`, but instead of a `GulpDocument` object they receives (and returns) `record` as its `dict` representation: here they can postprocess the record (i.e. change/add/delete fields).
 
-    #...
-    try:
-        mod = gulp_plugin.load_plugin("sqlite", self.collab, self.elastic, **kwargs)
-        if plugin_params is None:
-            plugin_params = GulpPluginParams()
-    except Exception:
-        Plugin.logger().exception("error!")
-        return GulpRequestStatus.FAILED
+- they must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed)
 
-    plugin_params.record_to_gulp_document_fun.append(self.record_to_gulp_document)
-    plugin_params.mapping_file = "chrome_history.json"
+- some plugins may want to bypass the engine and call lower's `_record_to_gulp_document` by itself: so, they must use `load_plugin` instead of `setup_stacked_pugin` in their initialization: for an example of this, look at the [mbox](../src/gulp/plugins/mbox.py) which sits on top of the [eml](../src/gulp/plugins/eml.py) plugin.
 
-    #...
-```
+## extension plugins
 
-Here the plugin loads the base plugin and appends it's own `record_to_gulp_document` function to be executed after the base plugin.
-In this example, it also hardcodes a specific `mapping_file` to point to the one providing the mappings for Note that here the plugin does not .
+extensions plugins starts with gulp and mostly runs **in the main process context**, even if it is supported to spwan them across worker processes.
 
-The other big difference from the [Python plugins](#Python_plugins) is that the `record_to_gulp_document` function does **not** receive
-a raw event, but instead receives a `GulpDocument`.
+they may be used to extend gulp API, i.e. implement new sign-in code, ...
 
-```python
-async def record_to_gulp_document(
-   #...
-) -> list[GulpDocument]:
-    for r in record:
-        event: GulpDocument = r
+- they are currently not used, just a [test implementation](../src/gulp/plugins/extension/example.py) is available here.
 
-        fme: list[FieldMappingEntry] = []
-        for k, v in event.to_dict().items():
-            e = self._map_source_key(
-                plugin_params,
-                custom_mapping,
-                k,
-                v,
-                index_type_mapping=index_type_mapping,
-                **kwargs,
-            )
-            fme.extend(e)
+# addendum: query using sigma rules
 
-        # replace gulp event code with a value of the table
-        extra = kwargs["extra"]
-        event.gulp_event_code = self.ChromeHistoryTable[
-            extra["gulp.sqlite.db.table.name"]
-        ].value
-        event_code = event.extra.get("event.code", None)
+a sigma rule must be converted to the target DSL first, i.e. to query gulp with sigma rules we need OpenSearch pysigma backend support.
 
-        #TODO update with newset code
-        # if we are handling a download, we can calculate event.duration with start_time and end_time
-        if event_code in ["download_start", "download_end"]:
-            end_time = event.extra.get("download_end_time", 0)
-            start_time = event.extra.get("download_start_time", 0)
+querying through sigma rules is fully supported both for gulp and `external` sources.
 
-            if start_time > 0 and end_time > 0:
-                event.duration_nsec = end_time - start_time
+> queries using standard query follows the same path, just `query_gulp`, `query_raw`, `query_stored` API is used instead.
 
-    return record
-```
+## gulp
 
-For this plugin the only real change to the ingested document we perform is to calculate the
-`event.duration` of the event, to make it render nicely on the GUI.
+we must setup [GulpQueryParameters.sigma_parameters.plugin](../src/gulp/api/opensearch/structs.py) to the plugin implementing `sigma_convert` for an OpenSearch backend, for example the [win_evtx](../src/gulp/plugins/win_evtx.py) plugin implements windows-specific sigma rules conversion for OpenSearch backend.
 
-## Python plugins
+- look at [test_win_evtx](../tests/query.py) in the query tests for an example
 
-Python plugins are the most versatile kind of extensions, allowing for parsing of complex log formats,
-converting data and handling more complex scenarios.
+## external plugins
 
-A few good examples of python plugins are the `win_evtx` and `systemd_journal` which allow parsing of binary formats for
-Windows System logs and Systemd journal files respectively.
+to query an external plugin, we must fill the needed parameters (i.e. `username`, `password`, `uri`, `plugin`) in [GulpQueryParameters.external_parameters](../src/gulp/api/opensearch/structs.py) as well as [GulpQueryParameters.sigma_parameters.plugin](../src/gulp/api/opensearch/structs.py) to indicate the plugin used to perform the conversion (which may be the same as the one used for querying).
 
-While plugins can be as complex as needed, a simple plugin **must** implement the functions:
-
-- `name`
-- `type`
-- `ingest`
-- `record_to_gulp_document`
-
-The first function, `name`, should return the name of the plugin.
-The second, `type`, should return one of the supported `GulpPluginType`, for ingestion plugins this is always set to: `GulpPluginType.INGESTION`.
-
-The `ingest` function the entry point to the plugin, it is typically used to setup the parsing of a file, which usually translates: to opening the file,
-iterating through the records, updating stats, handling errors, etc.
-
-The `record_to_gulp_document` function is responsible for applying custom mappings and translating the record into a `GulpDocument`.
-
-Plugins can accept parameters via the [GulpPluginOption](/docs/html/classgulp_1_1plugin__internal_1_1_gulp_plugin_option.html), these can be used
-to modify the behavior of the plugin as needed (e.g. provide decryption keys for encrypted log files, automatically decode data, etc.).
-These should be specified in the `options` implementation of the plugin.
-
-Further documentation about plugins can be found looking for the [Plugin](/docs/html/namespacegulp_1_1plugin.html) class in the docs.
-
-# Extension plugins
-
-Extensions plugins are useful for extending gulp's API.
-
-- they run at gulp's startup **in the main process context**.
-
-they are currently not used, just a [test implementation](../src/gulp/plugins/extension/example.py) is available here: but, they will come handy when i.e. we will implement a web-management UI which will extend the REST API.
-
-# Sigma plugins
-
-Sigma plugins are useful for transforming sigma rules into elastic queries.
-
-[the only one currently implemented](../src/gulp/plugins/sigma/windows.py) is used to transform Windows sigma rules to queries in the ECS format used by gulp.
-
-**NOTE: Sigma plugins may be removed in the future.**
-
-# Query plugins
-
-This kind of plugin allows Gulp to query external sources through the [query_external API](../src/gulp/api/rest/query.py#async-def-query_external), i.e. SIEM **without ingesting their data**.
- 
+- look at [test_elasticsearch](../tests/query.py) in the query tests for an example

@@ -1,9 +1,18 @@
 
-## Troubleshooting
+- [troubleshooting](#troubleshooting)
+  - [docker](#docker)
+  - [general](#general)
+  - [os](#os)
+  - [opensearch / elasticsearch](#opensearch--elasticsearch)
+  - [postgreSQL](#postgresql)
+
+[TOC]
+
+# troubleshooting
 
 **before opening issues**, please check the following:
 
-### docker
+## docker
 
 - if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
 
@@ -43,11 +52,11 @@ this is due to the fact you are having the default `postgres_data` directory in 
 
 you either move the directory temporarly, [set it to user owned](#general), reconfigure gulp to point to another folder, or just delete it (**you will loose your collab data then**).
 
-### general
+## general
 
 - environment variables to customize postgresql and opensearch installations are defined in [.env](./.env) which is automatically read by docker-compose when starting the containers.
 
-### os
+## os
 
 - on linux, usually `vm.max_map_count` should be increased for OpenSearch, i.e. you see something like this in the error log when OpenSearch is starting up:
 
@@ -77,7 +86,7 @@ you either move the directory temporarly, [set it to user owned](#general), reco
 
   or reboot.
 
-### opensearch / elasticsearch
+## opensearch / elasticsearch
 
 - couple of errors about cannot connecting to opensearch **are normal if gulp is run immediately right after `docker compose up -d`**: no worries, it just notifies it is retrying to connect until it is up, it will retry for up to 2 minutes.
   - **just wait a bit to allow full opensearch startup, the very first time it starts it may take up to ~1 minute...**
@@ -104,10 +113,9 @@ a possible (temporary) solution is to disable disk thresholds in opensearch's co
   curl -k -u "opensearch:Gulp1234!" -XPUT -H "Content-Type: application/json" https://localhost:9200/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'
   ~~~
 
-### postgreSQL
+## postgreSQL
 
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
   - in gulp configuration, check `multiprocessing_batch_size`: it is advised to keep it 0 to perform operation in batches of *number of cores*, raising this value may speed up ingestion a lot but it is more prone to errors.
   - in postgres configuration, increase `max_connections`
   - **better solution is to scale up (increase cores and/or postgres cluster size)**
-

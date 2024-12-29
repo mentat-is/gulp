@@ -1,7 +1,7 @@
 """Gulp global definitions."""
 
 from enum import StrEnum
-from typing import Any, Literal, Optional, override
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 

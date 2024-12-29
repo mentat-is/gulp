@@ -301,11 +301,11 @@ class GulpWsAuthPacket(BaseModel):
     """,
     )
     ws_id: str = Field(..., description="the WebSocket ID.")
-    operation_id: Optional[list[str]] = Field(
+    operation_ids: Optional[list[str]] = Field(
         None,
         description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
     )
-    type: Optional[list[GulpWsQueueDataType]] = Field(
+    types: Optional[list[GulpWsQueueDataType]] = Field(
         None,
         description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
     )
@@ -633,8 +633,8 @@ class GulpConnectedSockets:
         self,
         ws: WebSocket,
         ws_id: str,
-        type: list[GulpWsQueueDataType] = None,
-        operation_id: list[str] = None,
+        types: list[GulpWsQueueDataType] = None,
+        operation_ids: list[str] = None,
     ) -> ConnectedSocket:
         """
         Adds a websocket to the connected sockets list.
@@ -642,14 +642,14 @@ class GulpConnectedSockets:
         Args:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
-            type (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
-            operation_id (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
+            types (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
+            operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
 
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
         wws = ConnectedSocket(
-            ws=ws, ws_id=ws_id, types=type, operation_ids=operation_id
+            ws=ws, ws_id=ws_id, types=types, operation_ids=operation_ids
         )
         self._sockets[str(id(ws))] = wws
         MutyLogger.get_instance().debug(f"added connected ws: {wws}")

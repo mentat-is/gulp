@@ -41,15 +41,14 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return "PCAP log file processor."
 
     def display_name(self) -> str:
         return "pcap"
 
-    def version(self) -> str:
-        return "1.0"
-
+    @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng
         # hence a safe default could be pcapng regardless of type

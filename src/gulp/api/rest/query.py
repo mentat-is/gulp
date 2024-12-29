@@ -19,7 +19,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import (
     GulpQuery,
     GulpQueryHelpers,
-    GulpQueryAdditionalParameters,
+    GulpQueryParameters,
     GulpQuerySigmaParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
@@ -152,7 +152,7 @@ async def _query_internal(
     ws_id: str,
     index: str,
     queries: list[GulpQuery],
-    q_options: GulpQueryAdditionalParameters,
+    q_options: GulpQueryParameters,
     flt: GulpQueryFilter,
 ) -> int:
     """
@@ -168,7 +168,7 @@ async def _query_internal(
 
         async with GulpCollab.get_instance().session() as sess:
             for gq in queries:
-                #MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
+                # MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
 
                 try:
                     if not mod:
@@ -212,7 +212,7 @@ async def _spawn_query_group_workers(
     ws_id: str,
     index: str,
     queries: list[GulpQuery],
-    q_options: GulpQueryAdditionalParameters,
+    q_options: GulpQueryParameters,
     flt: GulpQueryFilter,
 ) -> None:
     """
@@ -331,7 +331,7 @@ async def _spawn_query_group_workers(
             await GulpOpenSearch.get_instance().datastream_create(
                 q_options.external_parameters.ingest_index
             )
-    
+
     # run queries
     await GulpProcess.get_instance().coro_pool.spawn(_worker_coro(kwds))
 
@@ -367,7 +367,7 @@ async def query_gulp_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
     q_options: Annotated[
-        GulpQueryAdditionalParameters,
+        GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -455,7 +455,7 @@ or a query in the external source DSL.
         ),
     ],
     q_options: Annotated[
-        GulpQueryAdditionalParameters,
+        GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
     ] = None,
     flt: Annotated[
@@ -598,7 +598,7 @@ async def query_sigma_handler(
         ),
     ],
     q_options: Annotated[
-        GulpQueryAdditionalParameters,
+        GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
     ] = None,
     flt: Annotated[
@@ -720,7 +720,7 @@ async def query_stored_handler(
         ),
     ],
     q_options: Annotated[
-        GulpQueryAdditionalParameters,
+        GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
     ] = None,
     flt: Annotated[

@@ -61,15 +61,14 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return """generic SQLITE file processor"""
 
     def display_name(self) -> str:
         return "sqlite"
 
-    def version(self) -> str:
-        return "1.0"
-
+    @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(

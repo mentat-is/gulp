@@ -1,6 +1,6 @@
 from typing import Any, Optional
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryAdditionalParameters
+from gulp.api.opensearch.query import GulpQueryParameters
 from tests.api.common import GulpAPICommon
 from muty.log import MutyLogger
 
@@ -15,7 +15,7 @@ class GulpAPIQuery:
         token: str,
         index: str,
         stored_query_ids: list[str],
-        q_options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
         req_id: str = None,
@@ -57,7 +57,7 @@ class GulpAPIQuery:
         token: str,
         index: str,
         sigmas: list[str],
-        q_options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
         req_id: str = None,
@@ -99,7 +99,7 @@ class GulpAPIQuery:
         token: str,
         index: str,
         flt: GulpQueryFilter = None,
-        q_options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryParameters = None,
         expected_status: int = 200,
         req_id: str = None,
     ) -> dict:
@@ -165,7 +165,7 @@ class GulpAPIQuery:
         index: str,
         q: Any,
         flt: GulpQueryFilter = None,
-        q_options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryParameters = None,
         expected_status: int = 200,
         req_id: str = None,
     ) -> dict:
@@ -227,7 +227,7 @@ class GulpAPIQuery:
         )
         return res
 
-    @staticmethod 
+    @staticmethod
     async def query_max_min_per_field(
         token: str,
         index: str,
@@ -257,7 +257,7 @@ class GulpAPIQuery:
 
         res = await api_common.make_request(
             "POST",
-            "query_max_min_per_field", 
+            "query_max_min_per_field",
             params=params,
             body=body,
             token=token,

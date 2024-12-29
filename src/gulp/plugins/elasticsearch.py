@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.query import (
     GulpQuery,
-    GulpQueryAdditionalParameters,
+    GulpQueryParameters,
     GulpQueryHelpers,
     GulpQuerySigmaParameters,
 )
@@ -77,9 +77,6 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "query_elasticsearch"
 
-    def version(self) -> str:
-        return "1.0"
-
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
@@ -135,7 +132,6 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-
         """
         MutyLogger.get_instance().debug(
             "operation_id=%s, context_id=%s, source_id=%s, doc=\n%s"
@@ -169,7 +165,7 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         index: Any,
         q: Any,
-        q_options: GulpQueryAdditionalParameters,
+        q_options: GulpQueryParameters,
         flt: GulpQueryFilter = None,
     ) -> tuple[int, int]:
 

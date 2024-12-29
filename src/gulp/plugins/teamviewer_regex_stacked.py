@@ -24,14 +24,16 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return """teamviewer connections_incoming.txt regex stacked plugin"""
 
     def display_name(self) -> str:
         return "teamviewer_regex_stacked"
 
-    def version(self) -> str:
-        return "1.0"
+    @override
+    def depends_on(self) -> list[str]:
+        return ["regex"]
 
     @override
     async def _record_to_gulp_document(

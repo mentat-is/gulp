@@ -224,7 +224,7 @@ if set, name of the context to associate with the ingestion.
     )
 
 
-class GulpQueryAdditionalParameters(BaseModel):
+class GulpQueryParameters(BaseModel):
     """
     additional options for a query.
     """
@@ -390,7 +390,7 @@ class GulpQueryHelpers:
         q: dict,
         index: str,
         flt: GulpQueryFilter = None,
-        q_options: GulpQueryAdditionalParameters = None,
+        q_options: GulpQueryParameters = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: callable = None,
     ) -> tuple[int, int]:
@@ -405,7 +405,7 @@ class GulpQueryHelpers:
             q(dict): the dsl query in OpenSearch/Elasticsearch DSL language to use
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
-            q_options(GulpQueryAdditionalParameters, optional): additional options to use
+            q_options(GulpQueryParameters, optional): additional options to use
             el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
             callback (callable, optional): the callback to call for each document found. Defaults to None.
                 the callback must be defined as:
@@ -417,7 +417,7 @@ class GulpQueryHelpers:
             Exception: if an error occurs during the query
         """
         if not q_options:
-            q_options = GulpQueryAdditionalParameters()
+            q_options = GulpQueryParameters()
 
         if flt and not flt.is_empty():
             # merge with filter

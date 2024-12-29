@@ -33,10 +33,6 @@ class Plugin(GulpPluginBase):
         return """stacked plugin on top of csv example"""
 
     @override
-    def version(self) -> str:
-        return "1.0"
-
-    @override
     async def _augment_documents(self, docs: list[dict], data: Any) -> list[dict]:
         for doc in docs:
             doc["augmented"] = True

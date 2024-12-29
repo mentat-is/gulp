@@ -54,6 +54,7 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def display_name(self) -> str:
         return "csv"
 
@@ -71,10 +72,6 @@ class Plugin(GulpPluginBase):
                 default_value=",",
             )
         ]
-
-    @override
-    def version(self) -> str:
-        return "1.0"
 
     @override
     async def _record_to_gulp_document(

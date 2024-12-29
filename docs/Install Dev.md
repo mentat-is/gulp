@@ -1,11 +1,23 @@
-
-# Install From Sources
+- [install from sources](#install-from-sources)
+  - [install using the setup script](#install-using-the-setup-script)
+  - [install manually](#install-manually)
+    - [1. install OS dependencies](#1-install-os-dependencies)
+    - [2. clone repositories](#2-clone-repositories)
+    - [3. create and enter virtualenv](#3-create-and-enter-virtualenv)
+    - [4. prepare directories and configuration](#4-prepare-directories-and-configuration)
+    - [5. install gulp](#5-install-gulp)
+    - [6. run](#6-run)
+    - [7. optional: installing extra plugins](#7-optional-installing-extra-plugins)
+  - [install the client](#install-the-client)
+  - [troubleshoot](#troubleshoot)
 
 [TOC]
 
-## Using the setup script
+# install from sources
 
-Installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
+## install using the setup script
+
+installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
 
 ```bash
 curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
@@ -13,34 +25,13 @@ chmod +x gulp_setup.sh
 sudo ./gulp_setup.sh --dev -d ./gulp
 ```
 
-If your OS is not supported please refer to the [manual installation](<#Manual installation>) instructions below.
+if your OS is not supported please refer to the [manual installation](<#manual installation>) instructions below.
 
-## Install the client
+## install manually
 
-Download the gULP client, either follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/README.md#installation) to install the web client,
-or grab the `7z` containing for our [binary legacy client](https://github.com/mentat-is/gulp/releases/download/legacy/GUiLP_legacy_bin.7z).
-
-### Legacy client on Linux
-
-The legacy client is runnable via [wine](https://winehq.org).
-
-To get running on Linux, download and install the **Desktop Runtime for .NET** using `wine` from [here](https://dotnet.microsoft.com/en-us/download/dotnet/6.0),
-then simply run `wine GUiLP.exe`.
-
-In case the UI presents some artifacts or is hard to read, run `winecfg` and make sure the colors for:
-
-- Menu Text
-- Message Box Text
-- Controls Text
-- Window Text
-
-under `Desktop Integration->Item` are set to **white**, otherwise some text might not be readable.
-
-For larger resolutions, it is also suggested to set the screen resolution to higher DPIs (under `Graphics->Screen resolution`) to help with readibility the screen.
-
-## Manual installation
-
-### 1. Install OS dependencies
+> this is the recommended installation method!
+>
+### 1. install OS dependencies
 
 This depends on your OS, on EndeavourOS(arch):
 
@@ -49,7 +40,7 @@ This depends on your OS, on EndeavourOS(arch):
 sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs
 ~~~
 
-### 2. Clone repositories
+### 2. clone repositories
 
 ~~~bash
 mkdir ./repos && cd ./repos
@@ -59,7 +50,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 # note: git-lfs is used to track samples and .zip files in test_scripts
 ~~~
 
-### 3. Create and enter virtualenv
+### 3. create and enter virtualenv
 
 ~~~bash
 cd ./gulp
@@ -69,7 +60,7 @@ virtualenv --python=/usr/bin/python3.12 ./.venv
 source ./.venv/bin/activate
 ~~~
 
-### 4. Prepare directories and configuration
+### 4. prepare directories and configuration
 
 ~~~bash
 # create configuration directory (ensure its empty)
@@ -80,7 +71,7 @@ mkdir -p ~/.config/gulp
 cp ./gulp_cfg_template.json ~/.config/gulp_cfg.json
 ~~~
 
-### 5. Install gulp
+### 5. install gulp
 
 install all packages as editable
 
@@ -89,7 +80,7 @@ install all packages as editable
 pip3 install -e . && pip3 install -e ../muty-python
 ~~~
 
-### 6. Run
+### 6. run
 
 > you may need to ensure proper docker cleanup first (i.e. previous installation) with [reset_docker](../reset_docker.sh)
 
@@ -102,7 +93,7 @@ docker compose up -d
 BIND_TO=0.0.0.0:8080 gulp
 ~~~
 
-### 7. Installing extra plugins
+### 7. optional: installing extra plugins
 
 plugins are just files, so it is enough to copy/symlink them in `GULP_INSTALL_DIR/src/gulp/plugins`.
 
@@ -110,6 +101,10 @@ plugins are just files, so it is enough to copy/symlink them in `GULP_INSTALL_DI
 >
 > if the plugin needs `mapping files`, they must be copied/symlinked as well into `PATH_MAPPING_FILES`, default=`GULP_INSTALL_DIR/src/gulp/mapping_files`.
 
-## 4. Troubleshoot
+## install the client
+
+download the gULP client, either follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/README.md#installation) to install the web client.
+
+## troubleshoot
 
 [troubleshoot](./Troubleshooting.md)

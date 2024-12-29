@@ -51,15 +51,13 @@ class Plugin(GulpPluginBase):
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
+    @override
     def desc(self) -> str:
         return "Systemd journal log file processor."
 
     def display_name(self) -> str:
         return "systemd_journal"
-
-    def version(self) -> str:
-        return "1.0"
-
+    
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, data: Any = None

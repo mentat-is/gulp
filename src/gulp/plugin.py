@@ -40,7 +40,7 @@ from gulp.api.opensearch.filters import (
 )
 from gulp.api.opensearch.query import (
     GulpQuery,
-    GulpQueryAdditionalParameters,
+    GulpQueryParameters,
     GulpQueryNoteParameters,
     GulpQuerySigmaParameters,
 )
@@ -292,7 +292,7 @@ class GulpPluginBase(ABC):
         """
         Returns plugin version.
         """
-        return "1.0"
+        return ""
 
     def desc(self) -> str:
         """
@@ -313,7 +313,7 @@ class GulpPluginBase(ABC):
 
     def depends_on(self) -> list[str]:
         """
-        Returns a list of plugin "name" this plugin depends on.
+        Returns a list of plugins this plugin depends on.
         """
         return []
 
@@ -551,7 +551,7 @@ class GulpPluginBase(ABC):
         ws_id: str,
         index: Any,
         q: Any,
-        q_options: GulpQueryAdditionalParameters,
+        q_options: GulpQueryParameters,
         flt: GulpQueryFilter = None,
     ) -> tuple[int, int]:
         """
@@ -566,7 +566,7 @@ class GulpPluginBase(ABC):
             user (str): the user performing the query
             index (Any): the index to query on the external source (format is plugin specific)
             q(Any): the query to perform, format is plugin specific. If set, `flt` is ignored.
-            q_options (GulpQueryAdditionalParameters): additional query options, `q_options.external_parameters` must be set accordingly.
+            q_options (GulpQueryParameters): additional query options, `q_options.external_parameters` must be set accordingly.
             flt: (GulpQueryFilter, optional): if set, `q` is ignored and (at least) `int_filter` will be converted in a query to the external source. Defaults to None.
 
         Notes:
@@ -1003,7 +1003,10 @@ class GulpPluginBase(ABC):
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
 
-        if mapping.ignore and source_key in mapping.ignore:
+        if mapping.exclude and source_key in mapping.exclude:
+            # ignore this key
+            return {}
+        if mapping.include and source_key not in mapping.include:
             # ignore this key
             return {}
 
@@ -1776,9 +1779,7 @@ class GulpPluginBase(ABC):
                 "sigma_support": [
                     o.model_dump(exclude_none=True) for o in p.sigma_support()
                 ],
-                "additional_parameters": [
-                    o.model_dump() for o in p.custom_parameters()
-                ],
+                "custom_parameters": [o.model_dump() for o in p.custom_parameters()],
                 "depends_on": p.depends_on(),
                 "tags": p.tags(),
                 "version": p.version(),
