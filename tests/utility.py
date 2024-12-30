@@ -1,5 +1,6 @@
 import pytest
-import shutil, os
+import shutil
+import os
 import pathlib
 import tempfile
 from muty.log import MutyLogger
@@ -43,7 +44,8 @@ async def test():
     assert p
 
     # create copy of plugin to get deleted
-    csv_plugin = pathlib.Path(GulpConfig.get_instance().path_plugins()) / "csv.py"
+    csv_plugin = pathlib.Path(
+        GulpConfig.get_instance().path_plugins()) / "csv.py"
     to_be_deleted = (
         pathlib.Path(GulpConfig.get_instance().path_plugins())
         / "utility_test_delete_me.py"
@@ -59,17 +61,20 @@ async def test():
     assert not os.path.exists(to_be_deleted)
 
     # create copy of plugin to get deleted
-    csv_plugin = pathlib.Path(GulpConfig.get_instance().path_plugins()) / "csv.py"
+    csv_plugin = pathlib.Path(
+        GulpConfig.get_instance().path_plugins()) / "csv.py"
     to_be_uploaded = str(
         pathlib.Path(tmp_dir) / "upload_me.py"
     )
     shutil.copy(csv_plugin, to_be_uploaded)
 
     u = await GulpAPIUtility.plugin_upload(guest_token, to_be_uploaded, expected_status=401)
-    assert not pathlib.Path(pathlib.Path(GulpConfig.get_instance().path_plugins()) / "upload_me.py").exists()
+    assert not pathlib.Path(pathlib.Path(
+        GulpConfig.get_instance().path_plugins()) / "upload_me.py").exists()
 
     u = await GulpAPIUtility.plugin_upload(admin_token, to_be_uploaded)
-    assert pathlib.Path(pathlib.Path(GulpConfig.get_instance().path_plugins()) / "upload_me.py").exists()
+    assert pathlib.Path(pathlib.Path(
+        GulpConfig.get_instance().path_plugins()) / "upload_me.py").exists()
 
     await GulpAPIUtility.plugin_delete(admin_token, "upload_me.py")
 
@@ -78,6 +83,9 @@ async def test():
 
     v = await GulpAPIUtility.version(admin_token)
     assert v
+
+    l = await GulpAPIUtility.mapping_file_list(admin_token)
+    assert l
 
     # clear temp_dir
     shutil.rmtree(tmp_dir)
