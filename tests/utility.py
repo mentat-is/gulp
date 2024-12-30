@@ -87,7 +87,35 @@ async def test():
     l = await GulpAPIUtility.mapping_file_list(admin_token)
     assert l
 
-    # clear temp_dir
+    l = await GulpAPIUtility.mapping_file_list(guest_token)
+    assert l
+
+    g = await GulpAPIUtility.mapping_file_get(admin_token, "windows.json")
+    assert g
+
+    g = await GulpAPIUtility.mapping_file_get(guest_token, "windows.json")
+    assert g
+
+    windows_mapping = pathlib.Path(
+        GulpConfig.get_instance().path_mapping_files()) / "windows.json"
+    to_be_uploaded = str(pathlib.Path(tmp_dir) / "upload_me.json")
+    shutil.copy(windows_mapping, to_be_uploaded)
+    to_be_deleted = pathlib.Path(GulpConfig.get_instance(
+    ).path_mapping_files())/"upload_me.json"
+
+    u = await GulpAPIUtility.mapping_file_upload(guest_token, to_be_uploaded, expected_status=401)
+    assert not to_be_deleted.exists()
+
+    u = await GulpAPIUtility.mapping_file_upload(admin_token, to_be_uploaded)
+    assert to_be_deleted.exists()
+
+    d = await GulpAPIUtility.mapping_file_delete(guest_token, "upload_me.json", expected_status=401)
+    assert to_be_deleted.exists()
+
+    d = await GulpAPIUtility.mapping_file_delete(admin_token, "upload_me.json")
+    assert not to_be_deleted.exists()
+
+# clear temp_dir
     shutil.rmtree(tmp_dir)
 
     MutyLogger.get_instance().info("all UTILITY tests succeeded!")

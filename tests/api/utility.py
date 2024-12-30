@@ -148,13 +148,14 @@ class GulpAPIUtility:
 
     @staticmethod
     async def mapping_file_get(token: str, mapping_file: str, expected_status: int = 200) -> dict:
-        api_common = GulpAPICommon.get_instnace()
+        api_common = GulpAPICommon.get_instance()
 
         params = {"mapping_file": mapping_file}
 
         res = await api_common.make_request(
             "GET",
             "mapping_file_get",
+            token=token,
             params=params,
             body=None,
             expected_status=expected_status
@@ -169,8 +170,9 @@ class GulpAPIUtility:
         params = {"mapping_file": mapping_file}
 
         res = await api_common.make_request(
-            "GET",
+            "DELETE",
             "mapping_file_delete",
+            token=token,
             params=params,
             body=None,
             expected_status=expected_status
@@ -187,7 +189,7 @@ class GulpAPIUtility:
         filename = os.path.basename(mapping_file_path)
 
         files = {
-            "plugin": (
+            "mapping_file": (
                 filename,
                 open(mapping_file_path, "rb"),
                 "application/octet-stream",
@@ -197,6 +199,7 @@ class GulpAPIUtility:
         res = await api_common.make_request(
             "POST",
             "mapping_file_upload",
+            token=token,
             params=params,
             files=files,
             body=None,
