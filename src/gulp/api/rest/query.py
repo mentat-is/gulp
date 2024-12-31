@@ -242,7 +242,7 @@ async def _spawn_query_group_workers(
 
             # query name in note tags (this will allow to identify the results in the end)
             gq.tags.append(gq.name)
-            if not q_opt.name in gq.tags:
+            if q_opt.name not in gq.tags:
                 gq.tags.append(q_opt.name)
 
             q_opt.note_parameters.note_tags = copy(gq.tags)

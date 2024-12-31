@@ -259,7 +259,8 @@ async def plugin_get_handler(
 
             return JSONResponse(
                 JSendResponse.success(
-                    req_id=req_id, data={filename: base64.b64encode(f).decode()}
+                    req_id=req_id, data={
+                        filename: base64.b64encode(f).decode()}
                 )
             )
     except Exception as ex:
@@ -349,7 +350,8 @@ async def plugin_upload_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     plugin: Annotated[UploadFile, File(description="the plugin file to upload")],
     is_extension: Annotated[
-        bool, Query(description="True if the plugin is an extension, False otherwise")
+        bool, Query(
+            description="True if the plugin is an extension, False otherwise")
     ],
     filename: Annotated[
         str,
@@ -358,8 +360,9 @@ async def plugin_upload_handler(
         ),
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(description="if set, will overwrite an existing plugin file.")
-    ] = True,
+        bool, Query(
+            description="if set, will overwrite an existing plugin file.")
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     params = locals()
@@ -381,7 +384,8 @@ async def plugin_upload_handler(
             _, ext = os.path.splitext(filename.lower())
 
             if ext not in [".py", ".pyc"]:
-                raise gulp.structs.InvalidArgument("plugin must be a .py/.pyc file.")
+                raise gulp.structs.InvalidArgument(
+                    "plugin must be a .py/.pyc file.")
 
             if not allow_overwrite:
                 # overwrite disabled
@@ -393,7 +397,8 @@ async def plugin_upload_handler(
             # ok, write file
             await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(plugin_path))
             return JSONResponse(
-                JSendResponse.success(req_id=req_id, data={"filename": filename})
+                JSendResponse.success(req_id=req_id, data={
+                                      "filename": filename})
             )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -517,8 +522,9 @@ async def mapping_file_upload_handler(
         UploadFile, File(description="the mapping json file")
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(description="if set, will overwrite an existing mapping file.")
-    ] = True,
+        bool, Query(
+            description="if set, will overwrite an existing mapping file.")
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     params = locals()
@@ -730,7 +736,8 @@ async def mapping_file_delete_handler(
         # delete file
         await muty.file.delete_file_or_dir_async(mapping_file_path, ignore_errors=False)
         return JSONResponse(
-            JSendResponse.success(req_id=req_id, data={"filename": mapping_file})
+            JSendResponse.success(req_id=req_id, data={
+                                  "filename": mapping_file})
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex

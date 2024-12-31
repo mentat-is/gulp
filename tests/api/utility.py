@@ -1,5 +1,6 @@
 from tests.api.common import GulpAPICommon
-import io, os
+import io
+import os
 
 
 class GulpAPIUtility:
@@ -130,3 +131,79 @@ class GulpAPIUtility:
 
         return res
 
+    @staticmethod
+    async def mapping_file_list(token: str, expected_status: int = 200) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        res = await api_common.make_request(
+            "GET",
+            "mapping_file_list",
+            params={},
+            token=token,
+            body=None,
+            expected_status=expected_status
+        )
+
+        return res
+
+    @staticmethod
+    async def mapping_file_get(token: str, mapping_file: str, expected_status: int = 200) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        params = {"mapping_file": mapping_file}
+
+        res = await api_common.make_request(
+            "GET",
+            "mapping_file_get",
+            token=token,
+            params=params,
+            body=None,
+            expected_status=expected_status
+        )
+
+        return res
+
+    @staticmethod
+    async def mapping_file_delete(token: str, mapping_file: str, expected_status: int = 200) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        params = {"mapping_file": mapping_file}
+
+        res = await api_common.make_request(
+            "DELETE",
+            "mapping_file_delete",
+            token=token,
+            params=params,
+            body=None,
+            expected_status=expected_status
+        )
+
+        return res
+
+    @staticmethod
+    async def mapping_file_upload(token: str, mapping_file_path: str, allow_overwrite: bool = False, expected_status: int = 200) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        params = {"allow_overwrite": allow_overwrite}
+
+        filename = os.path.basename(mapping_file_path)
+
+        files = {
+            "mapping_file": (
+                filename,
+                open(mapping_file_path, "rb"),
+                "application/octet-stream",
+            ),
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "mapping_file_upload",
+            token=token,
+            params=params,
+            files=files,
+            body=None,
+            expected_status=expected_status
+        )
+
+        return res
