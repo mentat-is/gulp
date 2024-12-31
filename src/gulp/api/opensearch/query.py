@@ -402,7 +402,7 @@ class GulpQueryHelpers:
             user_id(str): the user id of the requestor
             req_id(str): the request id
             ws_id(str): the websocket id
-            q(dict): the dsl query in OpenSearch/Elasticsearch DSL language to use
+            q(dict): the dsl query to be used in OpenSearch/Elasticsearch DSL language, must have "query" set.
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
             q_options(GulpQueryParameters, optional): additional options to use
@@ -418,6 +418,9 @@ class GulpQueryHelpers:
         """
         if not q_options:
             q_options = GulpQueryParameters()
+
+        if "query" not in q.keys():
+            raise ValueError("q must have 'query' set")
 
         if flt and not flt.is_empty():
             # merge with filter
