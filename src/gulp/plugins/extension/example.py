@@ -44,14 +44,15 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> None:
 
-        # extensions must support pickling to be able to be re-initialized in worker processes
+        # extensions may support pickling to be able to be re-initialized in worker processes
         super().__init__(path, pickled, **kwargs)
         MutyLogger.get_instance().debug(
             "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)
         )
 
-        # add api routes for this plugin
-        if not self._pickled:
+        # by calling is_running_in_main_process() they can distinguish between main and worker process
+        # add api routes only once, in the main process
+        if self.is_running_in_main_process():
             # in the first init, add api routes (we are in the MAIN process here)
             self._add_api_routes()
             MutyLogger.get_instance().debug(

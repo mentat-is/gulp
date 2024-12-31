@@ -198,6 +198,7 @@ class GulpPluginBase(ABC):
 
         # if set, this plugin have another plugin on top
         self._stacked = False
+
         # plugin file path
         self.path = path
 
@@ -287,6 +288,12 @@ class GulpPluginBase(ABC):
         """
         the supported plugin types.
         """
+
+    def is_running_in_main_process(self) -> bool:
+        """
+        Returns True if the plugin is running in the main process.
+        """
+        return not self._pickled
 
     def version(self) -> str:
         """
@@ -1683,7 +1690,9 @@ class GulpPluginBase(ABC):
             *args: Additional arguments (args[0]: pickled).
             **kwargs: Additional keyword arguments.
         """
-        # this is set in __reduce__
+        # this is set in __reduce__(), which is called when the plugin is pickled(=loaded in another process)
+        # pickled=True: running in worker
+        # pickled=False: running in main process
         pickled = args[0] if args else False
 
         if plugin.startswith("/"):

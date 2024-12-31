@@ -46,6 +46,19 @@ class GulpConfig:
         """
         return self._config
 
+    def get(self, key: str, default=None):
+        """
+        Returns the value of a key in the configuration dictionary.
+
+        Args:
+            key (str): the key
+            default: the default value
+
+        Returns:
+            any: the value of the key
+        """
+        return self._config.get(key, default)
+
     def path_config(self) -> str:
         """
         get the configuration file path (default: ~/.config/gulp/gulp_cfg.json)
@@ -83,7 +96,7 @@ class GulpConfig:
             MutyLogger.get_instance().warning(
                 "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug features disabled!"
             )
-            
+
         return n is not None
 
     @staticmethod
