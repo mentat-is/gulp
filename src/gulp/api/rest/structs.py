@@ -19,8 +19,8 @@ from gulp.structs import GulpPluginParameters
 import muty.string
 import re
 
-# 5-16 characters length, only letters, numbers, underscore, dot, dash allowed
-REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.-]).{4,16}$"
+# 5-16 characters length, only letters, numbers, underscore, dot, @, dash allowed
+REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.@-]).{4,16}$"
 
 # 8-64 characters length, at least one uppercase, one lowercase, one digit, one special char
 REGEX_CHECK_PASSWORD = (

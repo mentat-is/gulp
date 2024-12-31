@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
+from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -285,9 +286,12 @@ class GulpRestServer:
         self._app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
-            allow_credentials=False,
+            allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+        )
+        self._app.add_middleware(
+            SessionMiddleware, secret_key=muty.string.generate_unique()
         )
 
         # add our custom exception handlers

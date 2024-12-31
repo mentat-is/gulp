@@ -687,7 +687,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             id = muty.string.generate_unique()
         else:
             # check id is a valid string for a primary key (not having spaces, ...)
-            if " " in id or not re.match("^[a-zA-Z0-9_-]+$", id):
+            if " " in id or not re.match("^[a-zA-Z0-9_\-@\.]+$", id):
                 raise ValueError(f"invalid id: {id}")
 
         # set the time created
