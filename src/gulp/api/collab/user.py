@@ -116,7 +116,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             permission.append(GulpUserPermission.READ)
 
         object_data = {
-            "pwd_hash": muty.crypto.hash_sha256(password),
+            "pwd_hash": muty.crypto.hash_sha256(password) if password else "-",
             "permission": permission,
             "email": email,
             "glyph_id": glyph_id,
@@ -218,7 +218,12 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
     @staticmethod
     async def login(
-        sess: AsyncSession, user_id: str, password: str, ws_id: str, req_id: str
+        sess: AsyncSession,
+        user_id: str,
+        password: str,
+        ws_id: str,
+        req_id: str,
+        skip_password_check: bool = False,
     ) -> "GulpUserSession":
         """
         Asynchronously logs in a user and creates a session (=obtain token).
@@ -227,6 +232,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             password (str): The password of the user to log in.
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
+            skip_password_check (bool, optional): Whether to skip the password check, internal usage only. Defaults to False.
 
         Returns:
             GulpUserSession: The created session object.
@@ -247,9 +253,10 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             await sess.flush()
             await sess.refresh(u)
 
-        # check password
-        if u.pwd_hash != muty.crypto.hash_sha256(password):
-            raise WrongUsernameOrPassword("wrong password for user_id=%s" % (user_id))
+        if not skip_password_check:
+            # check password
+            if u.pwd_hash != muty.crypto.hash_sha256(password):
+                raise WrongUsernameOrPassword("wrong password for user_id=%s" % (user_id))
 
         # get expiration time
         if GulpConfig.get_instance().debug_no_token_expiration():

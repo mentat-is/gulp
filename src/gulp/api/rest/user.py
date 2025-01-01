@@ -308,9 +308,8 @@ async def user_delete_handler(
     },
     summary="updates an existing user on the platform.",
     description="""
-- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
-    
-- `password`, `permission`, `email`, `glyph_id` are optional, depending on what needs to be updated, and can be set independently (**but at least one must be set**).
+- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.    
+- `password`, `permission`, `email`, `glyph_id`, `user_data` are optional depending on what needs to be updated, and can be set independently (**but at least one must be set**).
     """,
 )
 async def user_update_handler(
@@ -475,7 +474,7 @@ async def user_get_by_id(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpUser.get_by_id_wrapper(token, user_id, nested=True)
+        d = await GulpUser.get_by_id_wrapper(token, user_id, nested=True, enforce_owner=True)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

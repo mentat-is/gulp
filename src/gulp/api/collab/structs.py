@@ -1250,6 +1250,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         with_for_update: bool = False,
         permission: list[GulpUserPermission] = [GulpUserPermission.READ],
         nested: bool = False,
+        enforce_owner: bool = False,
     ) -> dict:
         """
         helper to get an object by ID, handling session
@@ -1260,6 +1261,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
             permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
             nested (bool, optional): If True, nested relationships will be loaded. Defaults to False.
+            enforce_owner (bool, optional): If True, the user must be the owner of the object (or admin). Defaults to False.
 
         Returns:
             dict: The object as a dictionary
@@ -1277,7 +1279,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             )
 
             # token needs at least read permission (or be the owner)
-            await GulpUserSession.check_token(sess, token, permission=permission, obj=n)
+            await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=n, enforce_owner=enforce_owner
+            )
             return n.to_dict(exclude_none=True, nested=nested)
 
     @classmethod
