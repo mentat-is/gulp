@@ -3,6 +3,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 import os
+import signal
 import ssl
 from typing import Any
 
@@ -351,31 +352,48 @@ class GulpRestServer:
             MutyLogger.get_instance().warning("HTTP!")
             uvicorn.run(self._app, host=address, port=port)
 
+    def _kill_gulp_processes(self) -> None:
+        """
+        kills all processes with 'gulp' in their command line
+
+        TODO: this is a last resort to kill any stale processes, should be investigated why they are left behind (by aiomultiprocess?)
+        """
+        try:
+            # Get process list with PIDs
+            ps_output = os.popen("ps -aux | grep gulp").read()
+
+            # extract PIDs
+            pids = []
+            output = ps_output.splitlines()
+            for line in output:
+                if "gulp" in line and not "resource_tracker" in line:
+                    try:
+                        tokens = line.strip().split()
+                        pids.append(int(tokens[1].strip()))
+                    except (IndexError, ValueError) as ex:
+                        MutyLogger.get_instance().exception(
+                            "cannot parse %s (%s)" % (ex)
+                        )
+                        continue
+
+            # kill each process
+            for pid in pids:
+                try:
+                    # check if its not the current pid
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGKILL)
+                        # MutyLogger.get_instance().debug(f"killed gulp process {pid}")
+                except ProcessLookupError:
+                    continue
+        except Exception as e:
+            MutyLogger.get_instance().error(f"error killing gulp processes: {e}")
+
     async def _cleanup(self):
         """
         called when lifespan handler returns from yield, to cleanup
         """
-        MutyLogger.get_instance().info("gulp shutting down!")
-        self.set_shutdown()
-
-        await self._unload_extension_plugins()
-        try:
-            # close shared ws and process pool
-            await GulpConnectedSockets.get_instance().cancel_all()
-            GulpSharedWsQueue.get_instance().close()
-            await GulpProcess.get_instance().close_process_pool()
-
-            # close clients in the main process
-            await GulpCollab.get_instance().shutdown()
-            await GulpOpenSearch.get_instance().shutdown()
-
-            # close coro and thread pool in the main process
-            await GulpProcess.get_instance().close_coro_pool()
-            await GulpProcess.get_instance().close_thread_pool()
-        except:
-            pass
-
-        MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
+        MutyLogger.get_instance().info("atexit() cleanup")
+        self._kill_gulp_processes()
 
     async def _lifespan_handler(self, app: FastAPI):
         """
@@ -432,6 +450,25 @@ class GulpRestServer:
         yield
 
         # cleaning up will be done through _cleanup called via atexit
+        MutyLogger.get_instance().info("gulp shutting down!")
+        self.set_shutdown()
+
+        await self._unload_extension_plugins()
+
+        # close shared ws and process pool
+        await GulpConnectedSockets.get_instance().cancel_all()
+        GulpSharedWsQueue.get_instance().close()
+        await GulpProcess.get_instance().close_process_pool()
+
+        # close clients in the main process
+        await GulpCollab.get_instance().shutdown()
+        await GulpOpenSearch.get_instance().shutdown()
+
+        # close coro and thread pool in the main process
+        await GulpProcess.get_instance().close_coro_pool()
+        await GulpProcess.get_instance().close_thread_pool()
+
+        MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
 
     def _delete_first_run_file(self) -> None:
         """

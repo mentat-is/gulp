@@ -712,7 +712,7 @@ class GulpConnectedSockets:
             MutyLogger.get_instance().debug("canceling ws %s..." % (cws.ws_id))
             cws.receive_task.cancel()
             cws.send_task.cancel()
-            await cws
+            
         MutyLogger.get_instance().debug(
             "all active websockets closed, len=%d!" % (len(self._sockets))
         )

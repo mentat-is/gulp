@@ -139,7 +139,12 @@ class GulpProcess:
             MutyLogger.get_instance().debug("closing mp pool...")
             self.process_pool.close()
             self.process_pool.terminate()
-            await self.process_pool.join()
+            try:
+                await self.process_pool.join()
+            except asyncio.exceptions.CancelledError:
+                pass
+
+            self.process_pool = None
             MutyLogger.get_instance().debug("mp pool closed!")
 
     async def recreate_process_pool_and_shared_queue(self):
@@ -149,6 +154,7 @@ class GulpProcess:
 
         each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
         """
+        MutyLogger.get_instance().debug("recreating process pool and shared queue ...")
         if not self._main_process:
             raise RuntimeError("only the main process can recreate the process pool")
 
