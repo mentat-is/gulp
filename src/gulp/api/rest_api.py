@@ -435,7 +435,7 @@ class GulpRestServer:
         except Exception as ex:
             if first_run:
                 # allow restart on first run
-                self._delete_first_run_file()
+                self._reset_first_run()
             raise ex
 
         # init the main process
@@ -470,7 +470,7 @@ class GulpRestServer:
 
         MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
 
-    def _delete_first_run_file(self) -> None:
+    def _reset_first_run(self) -> None:
         """
         deletes the ".first_run_done" file in the config directory.
         """
@@ -488,7 +488,6 @@ class GulpRestServer:
             bool: True if this is the first run, False otherwise.
         """
         # check if this is the first run
-
         config_directory = GulpConfig.get_instance().config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
@@ -505,19 +504,3 @@ class GulpRestServer:
             f.write("gulp!")
         return True
 
-    def _reset_first_run() -> None:
-        """
-        Resets the first run flag.
-        """
-
-        config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(config_directory, ".first_run_done")
-        if os.path.exists(check_first_run_file):
-            muty.file.delete_file_or_dir(check_first_run_file)
-            MutyLogger.get_instance().info(
-                "first run file deleted: %s" % (check_first_run_file)
-            )
-        else:
-            MutyLogger.get_instance().warning(
-                "first run file does not exist: %s" % (check_first_run_file)
-            )

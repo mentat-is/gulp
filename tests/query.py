@@ -479,7 +479,7 @@ async def test_splunk():
                         q_options.external_parameters.context_name = "splunk_context"
 
                         # set ingest index
-                        q_options.external_parameters.ingest_index = "test_idx"
+                        q_options.external_parameters.ingest_index = TEST_INDEX
 
                         # also use additional windows mapping
                         q_options.external_parameters.plugin_params.additional_mapping_files = [
@@ -701,7 +701,7 @@ async def test_splunk():
                         q_options.external_parameters.context_name = "splunk_context"
 
                         # set ingest index
-                        q_options.external_parameters.ingest_index = "test_idx"
+                        q_options.external_parameters.ingest_index = TEST_INDEX
 
                         index = "incidente_183651"
                         await GulpAPIQuery.query_stored(
