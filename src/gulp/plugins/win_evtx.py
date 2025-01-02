@@ -11,7 +11,11 @@ import muty.xml
 from evtx import PyEvtxParser
 from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.opensearch.sigma import to_gulp_query_struct
+from gulp.api.opensearch.sigma import (
+    GulpPluginSigmaSupport,
+    GulpQuerySigmaParameters,
+    to_gulp_query_struct,
+)
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -21,14 +25,12 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.query import (
     GulpQuery,
-    GulpQuerySigmaParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
     GulpNameDescriptionEntry,
     GulpPluginParameters,
-    GulpPluginSigmaSupport,
 )
 from muty.log import MutyLogger
 
@@ -45,8 +47,8 @@ class Plugin(GulpPluginBase):
     windows evtx log file processor.
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     def display_name(self) -> str:
         return "win_evtx"

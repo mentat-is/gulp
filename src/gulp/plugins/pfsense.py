@@ -24,8 +24,8 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 
 class Plugin(GulpPluginBase):
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def desc(self) -> str:

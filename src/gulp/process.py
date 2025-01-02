@@ -224,20 +224,24 @@ class GulpProcess:
                 "initializing worker process, q=%s ..." % (q)
             )
 
-        # sys.path fix is needed to load plugins from the plugins directories correctly
-        plugins_path = GulpConfig.get_instance().path_plugins()
-        ext_plugins_path = GulpConfig.get_instance().path_plugins(extension=True)
-        MutyLogger.get_instance().debug(
-            "plugins_path=%s, extension plugins_path=%s"
-            % (plugins_path, ext_plugins_path)
-        )
-        if plugins_path not in sys.path:
-            sys.path.append(plugins_path)
-        if ext_plugins_path not in sys.path:
-            sys.path.append(ext_plugins_path)
-
         # read configuration
         GulpConfig.get_instance()
+
+        # sys.path fix is needed to load plugins from the plugins directories correctly
+        plugins_path = GulpConfig.get_instance().path_plugins_default()
+        plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
+
+        def _add_to_syspath(p: str):
+            if p and p not in sys.path:
+                extension_path = os.path.join(p, "extension")
+                MutyLogger.get_instance().debug(
+                    "adding %s and %s to sys.path" % (p, extension_path)
+                )
+                sys.path.append(p)
+                sys.path.append(extension_path)
+
+        _add_to_syspath(plugins_path)
+        _add_to_syspath(plugins_path_extra)
 
         # initializes executors
         await self.close_coro_pool()

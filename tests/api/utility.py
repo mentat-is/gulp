@@ -96,26 +96,6 @@ class GulpAPIUtility:
         return res
 
     @staticmethod
-    async def plugin_tags(
-        token: str, plugin: str, is_extension: bool = False, expected_status: int = 200
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-
-        params = {"plugin": plugin, "is_extension": is_extension}
-
-        """Get plugin tags"""
-        res = await api_common.make_request(
-            "GET",
-            "plugin_tags",
-            params=params,
-            token=token,
-            body=None,
-            expected_status=expected_status,
-        )
-
-        return res
-
-    @staticmethod
     async def version(token: str, expected_status: int = 200) -> dict:
         api_common = GulpAPICommon.get_instance()
 

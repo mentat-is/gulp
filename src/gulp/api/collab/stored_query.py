@@ -10,7 +10,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.mapping.models import GulpMapping
 from gulp.structs import GulpPluginParameters
-from gulp.api.opensearch.query import GulpQuerySigmaParameters
+from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from sqlalchemy.dialects.postgresql import JSONB
 
 
@@ -51,7 +51,7 @@ this must be set if this is a sigma query.
     @override
     @classmethod
     def example(cls) -> dict:
-        from gulp.api.opensearch.query import GulpQuerySigmaParameters
+        from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 
         d = super().example()
         d["q"] = ["example query"]

@@ -1,16 +1,12 @@
 import multiprocessing
 import os
-import pathlib
 from copy import deepcopy
 from importlib import resources as impresources
 
-import aiofiles.ospath
 import json5
 import muty.file
 import muty.os
 from muty.log import MutyLogger
-
-from gulp import mapping_files
 
 
 class GulpConfig:
@@ -98,62 +94,6 @@ class GulpConfig:
             )
 
         return n is not None
-
-    @staticmethod
-    async def check_copy_mappings_and_plugins_to_custom_directories():
-        """
-        checks configured custom directories for mapping files and plugins and copies the default directories to the custom directories if they are different.
-
-        doing so, the user can have custom mapping files and plugins directories without touching the default ones.
-
-        Returns:
-            None
-        """
-
-        async def _copy_if_different(default_path, custom_path, description):
-            if (
-                custom_path
-                and pathlib.Path(default_path).resolve()
-                != pathlib.Path(custom_path).resolve()
-            ):
-                # we will use custom_path so, copy the whole directory there
-                if not await aiofiles.ospath.exists(custom_path):
-                    MutyLogger.get_instance().info(
-                        f"copying {description} to custom directory: {custom_path}"
-                    )
-                    await muty.file.copy_dir_async(default_path, custom_path)
-                else:
-                    MutyLogger.get_instance().warning(
-                        f"custom {description} directory already exists: {custom_path}"
-                    )
-
-        # defaults
-        default_mapping_files_path = os.path.abspath(
-            impresources.files("gulp.mapping_files")
-        )
-        default_plugins_path = os.path.abspath(impresources.files("gulp.plugins"))
-
-        # custom folders
-        custom_mapping_files_path = os.path.abspath(
-            GulpConfig.get_instance().path_mapping_files() or ""
-        )
-        custom_plugins_path = os.path.abspath(
-            GulpConfig.get_instance().path_plugins() or ""
-        )
-
-        MutyLogger.get_instance().debug(
-            f"default_mapping_files_path: {default_mapping_files_path}"
-        )
-        MutyLogger.get_instance().debug(
-            f"custom_mapping_files_path: {custom_mapping_files_path}"
-        )
-        MutyLogger.get_instance().debug(f"default_plugins_path: {default_plugins_path}")
-        MutyLogger.get_instance().debug(f"custom_plugins_path: {custom_plugins_path}")
-
-        await _copy_if_different(
-            default_mapping_files_path, custom_mapping_files_path, "mapping files"
-        )
-        await _copy_if_different(default_plugins_path, custom_plugins_path, "plugins")
 
     def _read_config(self) -> None:
         """
@@ -577,31 +517,31 @@ class GulpConfig:
         n = self._config.get("opensearch_verify_certs", False)
         return n
 
-    def path_plugins(self, extension: bool = False) -> str:
+    def path_plugins_default(self) -> str:
         """
-        returns the plugins path
-
-        Args:
-            extension (bool, optional): whether to return the extension plugins path. Defaults to False.
-
-        Returns:
-            str: the plugins path
+        Returns the default plugins path.
         """
-        default_path = impresources.files("gulp.plugins")
-        # try env
-        p = os.getenv("PATH_PLUGINS", None)
-        if not p:
-            # try configuration
-            p = self._config.get("path_plugins", None)
-            if not p:
-                # use default
-                p = default_path
+        return str(impresources.files("gulp.plugins"))
 
-        pp = os.path.expanduser(p)
-        # MutyLogger.get_instance().debug("plugins path: %s" % (pp))
-        if extension:
-            return muty.file.safe_path_join(pp, "extension")
-        return pp
+    def path_plugins_extra(self) -> str:
+        """
+        Returns the extra plugins path.
+        """
+        p = os.getenv("PATH_PLUGINS_EXTRA", None)
+        return p
+
+    def path_mapping_files_default(self) -> str:
+        """
+        Returns the default path of the mapping files.
+        """
+        return str(impresources.files("gulp.mapping_files"))
+
+    def path_mapping_files_extra(self) -> str:
+        """
+        Returns the extra path of the mapping files.
+        """
+        p = os.getenv("PATH_MAPPING_FILES_EXTRA", None)
+        return p
 
     def path_index_template(self) -> str:
         """
@@ -620,23 +560,6 @@ class GulpConfig:
 
         pp = os.path.expanduser(p)
         MutyLogger.get_instance().debug("path_index_template: %s" % (pp))
-        return p
-
-    def path_mapping_files(self) -> str:
-        """
-        Returns the directory where mapping files for plugins are stored (default=None=GULPDIR/mapping_files).
-        """
-        # try env
-        default_path = impresources.files("gulp.mapping_files")
-        p = os.getenv("PATH_MAPPING_FILES", None)
-        if not p:
-            # try configuration
-            p = self._config.get("path_mapping_files", None)
-            if not p:
-                p = default_path
-
-        pp = os.path.expanduser(p)
-        MutyLogger.get_instance().debug("mapping files path: %s" % (pp))
         return p
 
     def path_certs(self) -> str:
@@ -687,10 +610,9 @@ class GulpConfig:
         n = self._config.get("plugin_cache_enabled", True)
         return n
 
-    @staticmethod
-    def build_mapping_file_path(filename: str) -> str:
+    def build_mapping_file_path(self, filename: str) -> str:
         """
-        get path of a file in the gulp/mapping_files directory (or the overridden one from configuration/env)
+        get mapping file path, giving precedence to the extra path if set and the file exists
 
         @return the full path of a file in the mapping_files directory
         """
@@ -698,11 +620,14 @@ class GulpConfig:
         if not filename:
             return None
 
-        configured_mappings_path = GulpConfig.get_instance().path_mapping_files()
-        if configured_mappings_path is not None:
+        extra_path = GulpConfig.get_instance().path_mapping_files_extra()
+        if extra_path:
             # use provided
-            p = muty.file.safe_path_join(configured_mappings_path, filename)
-        else:
-            # default, internal mapping_files directory with default mappings
-            p = muty.file.safe_path_join(impresources.files(mapping_files), filename)
+            p = muty.file.safe_path_join(extra_path, filename)
+            if os.path.exists(p):
+                return p
+
+        # default path
+        default_path = GulpConfig.get_instance().path_mapping_files_default()
+        p = muty.file.safe_path_join(default_path, filename)
         return p

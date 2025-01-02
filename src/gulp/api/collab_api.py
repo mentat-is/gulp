@@ -332,7 +332,7 @@ class GulpCollab:
         from gulp.api.collab.operation import GulpOperation
         from gulp.api.collab.source import GulpSource
         from gulp.api.collab.stored_query import GulpStoredQuery
-        from gulp.api.opensearch.query import GulpQuerySigmaParameters
+        from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
         from gulp.structs import GulpPluginParameters
         from gulp.api.collab.structs import (
             PERMISSION_MASK_DELETE,

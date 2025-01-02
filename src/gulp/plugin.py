@@ -5,20 +5,24 @@ import asyncio
 import ipaddress
 import json
 import os
+from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
 from copy import copy
 from enum import StrEnum
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import muty.crypto
 import muty.dynload
 import muty.file
 import muty.jsend
 import muty.log
+import muty.pydantic
 import muty.string
 import muty.time
 from muty.log import MutyLogger
+from opensearchpy import Field
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
@@ -42,8 +46,8 @@ from gulp.api.opensearch.query import (
     GulpQuery,
     GulpQueryParameters,
     GulpQueryNoteParameters,
-    GulpQuerySigmaParameters,
 )
+from gulp.api.opensearch.sigma import GulpPluginSigmaSupport, GulpQuerySigmaParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
@@ -57,8 +61,94 @@ from gulp.config import GulpConfig
 from gulp.structs import (
     GulpPluginCustomParameter,
     GulpPluginParameters,
-    GulpPluginSigmaSupport,
 )
+
+
+class GulpPluginType(StrEnum):
+    """
+    specifies the plugin types
+
+    - INGESTION: support ingestion
+    - EXTERNAL: support query to/ingestion from external sources
+    - EXTENSION: extension plugin
+    """
+
+    INGESTION = "ingestion"
+    EXTENSION = "extension"
+    EXTERNAL = "external"
+
+
+class GulpPluginEntry(BaseModel):
+    """
+    Gulp plugin entry for the plugin_list API
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "display_name": "win_evtx",
+                    "type": ["ingestion"],
+                    "desc": "Windows Event Log plugin.",
+                    "path": "/path/to/win_evtx.py",
+                    "filename": "win_evtx.py",
+                    "sigma_support": [
+                        muty.pydantic.autogenerate_model_example_by_class(
+                            GulpPluginSigmaSupport
+                        ),
+                    ],
+                    "custom_parameters": [
+                        muty.pydantic.autogenerate_model_example_by_class(
+                            GulpPluginCustomParameter
+                        ),
+                    ],
+                    "tags": ["event", "windows", "log"],
+                    "version": "1.0",
+                }
+            ]
+        },
+    )
+    display_name: str = Field(
+        ...,
+        description="The plugin display name.",
+    )
+    type: list[GulpPluginType] = Field(
+        ...,
+        description="The supported plugin types.",
+    )
+    desc: Optional[str] = Field(
+        None,
+        description="A description of the plugin.",
+    )
+    path: str = Field(
+        ...,
+        description="The file path associated with the plugin.",
+    )
+    filename: str = Field(
+        ...,
+        description="This is the bare filename without extension (aka the `internal plugin name`, to be used as `plugin` throughout the whole gulp API).",
+    )
+    sigma_support: Optional[list[GulpPluginSigmaSupport]] = Field(
+        [],
+        description="The supported backends/pipelines/output_formats.",
+    )
+    custom_parameters: Optional[list[GulpPluginCustomParameter]] = Field(
+        [],
+        description="A list of custom parameters this plugin supports.",
+    )
+    depends_on: Optional[list[str]] = Field(
+        [],
+        description="A list of plugins this plugin depends on.",
+    )
+    tags: Optional[list[str]] = Field(
+        [],
+        description="A list of tags for the plugin.",
+    )
+    version: Optional[str] = Field(
+        None,
+        description="The plugin version.",
+    )
 
 
 class GulpPluginCache:
@@ -137,20 +227,6 @@ class GulpPluginCache:
         if name in self._cache:
             MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
-
-
-class GulpPluginType(StrEnum):
-    """
-    specifies the plugin types
-
-    - INGESTION: support ingestion
-    - EXTERNAL: support query to/ingestion from external sources
-    - EXTENSION: extension plugin
-    """
-
-    INGESTION = "ingestion"
-    EXTENSION = "extension"
-    EXTERNAL = "external"
 
 
 class GulpPluginBase(ABC):
@@ -245,10 +321,9 @@ class GulpPluginBase(ABC):
         self._upper_record_to_gulp_document_fun: Callable = None
         self._augment_documents_fun: Callable = None
 
-        s = os.path.basename(self.path)
-        s = os.path.splitext(s)[0]
         # to have faster access to the plugin filename
-        self.bare_filename = s
+        self.filename = os.path.basename(self.path)
+        self.bare_filename = os.path.splitext(self.filename)[0]
 
         # to have faster access to the plugin name
         self.name = self.display_name()
@@ -1191,7 +1266,9 @@ class GulpPluginBase(ABC):
                         "using plugin_params.mapping_file=%s"
                         % (plugin_params.mapping_file)
                     )
-                    mapping_file_path = GulpConfig.build_mapping_file_path(mapping_file)
+                    mapping_file_path = (
+                        GulpConfig.get_instance().build_mapping_file_path(mapping_file)
+                    )
                     f = await muty.file.read_file_async(mapping_file_path)
                     js = json.loads(f)
                     if not js:
@@ -1229,7 +1306,7 @@ class GulpPluginBase(ABC):
                 )
                 for f in plugin_params.additional_mapping_files:
                     # each entry is a tuple (file, mapping_id)
-                    additional_mapping_file_path = GulpConfig.build_mapping_file_path(
+                    additional_mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
                         f[0]
                     )
                     additional_mapping_id = f[1]
@@ -1249,7 +1326,7 @@ class GulpPluginBase(ABC):
                         % (
                             additional_mapping_file_path,
                             additional_mapping_id,
-                            self.bare_filename,
+                            self.filename,
                             self._mapping_id,
                         )
                     )
@@ -1265,7 +1342,7 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug(
             "---> _initialize: plugin=%s, plugin_params=%s"
             % (
-                self.bare_filename,
+                self.filename,
                 json.dumps(plugin_params.model_dump(), indent=2),
             )
         )
@@ -1595,45 +1672,6 @@ class GulpPluginBase(ABC):
         )
 
     @staticmethod
-    async def path_by_name(name: str, extension: bool = False) -> str:
-        """
-        Get the path of a plugin by name.
-
-        Args:
-            name (str): The name of the plugin.
-            extension (bool, optional): Whether the plugin is an extension. Defaults to False.
-        Returns:
-            str: The path of the plugin.
-        Raises:
-            FileNotFoundError: If the plugin is not found.
-        """
-
-        async def _path_by_name_internal(name: str, base_path: str) -> str:
-            path_py = muty.file.safe_path_join(base_path, f"{name}.py")
-            path_pyc = muty.file.safe_path_join(base_path, f"{name}.pyc")
-            if await muty.file.exists_async(path_py):
-                MutyLogger.get_instance().debug(
-                    f"Plugin {name}.py found in {base_path} !"
-                )
-                return path_py
-            if await muty.file.exists_async(path_pyc):
-                MutyLogger.get_instance().debug(
-                    f"Plugin {name}.pyc found in {base_path} !"
-                )
-                return path_pyc
-            raise FileNotFoundError(f"Plugin {name} not found !")
-
-        # ensure name is stripped of .py/.pyc
-        name = os.path.splitext(name)[0]
-        if extension:
-            return await _path_by_name_internal(
-                name, GulpConfig.get_instance().path_plugins(extension=True)
-            )
-        return await _path_by_name_internal(
-            name, GulpConfig.get_instance().path_plugins()
-        )
-
-    @staticmethod
     def load_sync(
         plugin: str,
         extension: bool = False,
@@ -1653,7 +1691,7 @@ class GulpPluginBase(ABC):
         """
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # If there's already a running event loop, run the coroutine in a separate thread
+            # if there's already a running event loop, run the coroutine in a separate thread
             from gulp.process import GulpProcess
 
             executor = GulpProcess.get_instance().thread_pool
@@ -1662,15 +1700,11 @@ class GulpPluginBase(ABC):
                 GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs),
             )
             return future.result()
-        else:
-            # Otherwise, create a new event loop to run the coroutine
-            return loop.run_until_complete(
-                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
-            )
 
-        # return asyncio.run(
-        #    GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
-        # )
+        # either, create a new event loop to run the coroutine
+        return loop.run_until_complete(
+            GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+        )
 
     @staticmethod
     async def load(
@@ -1695,12 +1729,10 @@ class GulpPluginBase(ABC):
         # pickled=False: running in main process
         pickled = args[0] if args else False
 
-        if plugin.startswith("/"):
-            path = plugin
-        else:
-            # get plugin full path by name
-            path = await GulpPluginBase.path_by_name(plugin, extension)
-
+        # get plugin full path by name
+        path = GulpPluginBase.path_from_plugin(
+            plugin, extension, raise_if_not_found=True
+        )
         bare_name = os.path.splitext(os.path.basename(path))[0]
         m = GulpPluginCache.get_instance().get(bare_name)
         if ignore_cache:
@@ -1724,7 +1756,8 @@ class GulpPluginBase(ABC):
         )
         p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
         MutyLogger.get_instance().debug(f"LOADED plugin m={m}, p={p}, name()={p.name}")
-        GulpPluginCache.get_instance().add(m, bare_name)
+        if not ignore_cache:
+            GulpPluginCache.get_instance().add(m, bare_name)
         return p
 
     async def unload(self) -> None:
@@ -1747,53 +1780,178 @@ class GulpPluginBase(ABC):
         GulpPluginCache.get_instance().remove(self.name)
 
     @staticmethod
-    async def list(name: str = None) -> list[dict]:
+    def path_from_plugin(
+        plugin: str, is_extension: bool = False, raise_if_not_found: bool = False
+    ) -> str:
         """
-        List all available plugins.
+        Get the path of a plugin.
 
         Args:
-            name (str, optional): if set, only plugins with filename matching this will be returned. Defaults to None.
+            plugin (str): The name of the plugin, may include ".py/.pyc" extension.
+            is_extension (bool, optional): Whether the plugin is an extension. Defaults to False.
+            raise_if_not_found (bool, optional): Whether to raise an exception if the plugin is not found. Defaults to False.
         Returns:
-            list[dict]: The list of available plugins.
+            str: The path of the plugin, or None
+        Raises:
+            FileNotFoundError: If the plugin is not found and raise_if_not_found is True.
         """
-        path_plugins = GulpConfig.get_instance().path_plugins()
-        path_extension = GulpConfig.get_instance().path_plugins(extension=True)
-        plugins = await muty.file.list_directory_async(path_plugins, "*.py*")
-        extensions = await muty.file.list_directory_async(path_extension, "*.py*")
-        files = plugins + extensions
-        l = []
-        for f in files:
-            if "__init__" in f or "__pycache__" in f:
-                continue
 
-            if "/extension/" in f:
-                extension = True
-            else:
-                extension = False
-            try:
-                p = await GulpPluginBase.load(f, extension=extension, ignore_cache=True)
-            except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
-                MutyLogger.get_instance().error("could not load plugin %s" % (f))
-                continue
-            if name is not None:
-                # filter by name
-                if name.lower() not in p.display_name().lower():
+        def _check_path(path: str) -> str:
+            """
+            check if a file exists with .py or .pyc extension.
+
+            Args:
+                path (str): full path of the file, with or without extension
+            Returns:
+                str: the full path of the file if found, None otherwise
+            """
+
+            # check if extension is already there
+            if path.endswith(".py") or path.endswith(".pyc"):
+                if os.path.exists(path):
+                    # return full path
+                    return os.path.abspath(os.path.expanduser(path))
+
+            # return py or pyc file if found
+            for ext in [".py", ".pyc"]:
+                with_ext_path = f"{path}{ext}"
+                if os.path.exists(with_ext_path):
+                    # return full path
+                    p = os.path.abspath(os.path.expanduser(with_ext_path))
+                    return p
+            return None
+
+        def _get_plugin_path(plugin: str, is_extension: bool) -> str:
+            """
+            Check if a plugin exists in the default or extra path.
+
+            Args:
+                plugin (str): The name of the plugin.
+                is_extension (bool): Whether the plugin is an extension.
+            Returns:
+                str: The path of the plugin if found.
+            """
+            extra_path = GulpConfig.get_instance().path_plugins_extra()
+            default_path = GulpConfig.get_instance().path_plugins_default()
+            if is_extension:
+                # add extension
+                extra_path = muty.file.safe_path_join(extra_path, "extension")
+                default_path = muty.file.safe_path_join(default_path, "extension")
+
+            # first we check in extra_path
+            if extra_path and os.path.exists(extra_path):
+                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
+                if p:
+                    return p
+
+            # then in default path
+            return _check_path(muty.file.safe_path_join(default_path, plugin.lower()))
+
+        # check if its already an absolute path
+        if os.path.abspath(plugin) == plugin and os.path.exists(plugin):
+            return os.path.abspath(os.path.expanduser(plugin))
+
+        # get plugin path
+        p = _get_plugin_path(plugin, is_extension)
+        if not p and raise_if_not_found:
+            raise FileNotFoundError(f"plugin {plugin} not found !")
+        return p
+
+    @staticmethod
+    async def list(
+        name: str = None, extension_only: bool = False
+    ) -> list[GulpPluginEntry]:
+        """
+        List available plugins.
+
+        Args:
+            name (str, optional): if set, only plugins with filename matching (case-insensitive) this will be returned. Defaults to None.
+            extension_only (bool, optional): if set, only extensions will be returned. Defaults to False.
+        Returns:
+            list[GulpPluginEntry]: The list of available plugins.
+        """
+
+        def _exists(l: list[GulpPluginEntry], filename: str) -> bool:
+            # check if filename exists in the list
+            for p in l:
+                if p.filename.lower() == filename.lower():
+                    return True
+            return False
+
+        async def _list_internal(
+            l: list[GulpPluginEntry],
+            path: str,
+            name: str = None,
+            extension_only: bool = False,
+        ) -> None:
+            """
+            append found plugins to l list.
+            """
+            MutyLogger.get_instance().debug("listing plugins in %s ..." % (path))
+            path_extension = os.path.join(path, "extension")
+            plugins = await muty.file.list_directory_async(path, "*.py*")
+            extensions = await muty.file.list_directory_async(path_extension, "*.py*")
+            files = plugins + extensions
+            for f in files:
+                if "__init__" in f or "__pycache__" in f:
                     continue
-            n = {
-                "display_name": p.display_name(),
-                "type": p.type(),
-                "desc": p.desc(),
-                "filename": p.bare_filename,
-                "sigma_support": [
-                    o.model_dump(exclude_none=True) for o in p.sigma_support()
-                ],
-                "custom_parameters": [o.model_dump() for o in p.custom_parameters()],
-                "depends_on": p.depends_on(),
-                "tags": p.tags(),
-                "version": p.version(),
-            }
-            l.append(n)
-            await p.unload()
 
+                if "/extension/" in f:
+                    extension = True
+                else:
+                    extension = False
+
+                if extension_only and not extension:
+                    continue
+
+                try:
+                    p = await GulpPluginBase.load(
+                        f, extension=extension, ignore_cache=True
+                    )
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    MutyLogger.get_instance().error("could not load plugin %s" % (f))
+                    continue
+                if name is not None:
+                    # filter by name
+                    if name.lower() not in p.bare_filename.lower():
+                        continue
+
+                if _exists(l, p.filename):
+                    MutyLogger.get_instance().warning(
+                        "skipping plugin %s, already exists in list (in another path)"
+                        % (f)
+                    )
+                    await p.unload()
+                    continue
+
+                entry = GulpPluginEntry(
+                    path=f,
+                    display_name=p.display_name(),
+                    type=p.type(),
+                    desc=p.desc(),
+                    filename=p.filename,
+                    sigma_support=p.sigma_support(),
+                    custom_parameters=p.custom_parameters(),
+                    depends_on=p.depends_on(),
+                    tags=p.tags(),
+                    version=p.version(),
+                )
+
+                l.append(entry)
+                await p.unload()
+
+        l: list[GulpPluginEntry] = []
+
+        # list extra folder first, if any
+        p = GulpConfig.get_instance().path_plugins_extra()
+        if p:
+            await _list_internal(l, p, name, extension_only)
+            MutyLogger.get_instance().debug(
+                "found %d plugins in extra path=%s" % (len(l), p)
+            )
+
+        # list default path
+        default_path = GulpConfig.get_instance().path_plugins_default()
+        await _list_internal(l, default_path, name, extension_only)
         return l

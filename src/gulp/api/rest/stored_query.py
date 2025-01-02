@@ -10,7 +10,7 @@ from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
 )
-from gulp.api.opensearch.query import (
+from gulp.api.opensearch.sigma import (
     GulpQuerySigmaParameters,
 )
 from gulp.api.rest.server_utils import (

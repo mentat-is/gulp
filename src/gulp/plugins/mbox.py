@@ -44,8 +44,8 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     async def _record_to_gulp_document(

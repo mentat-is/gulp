@@ -51,8 +51,8 @@ class Plugin(GulpPluginBase):
     ~~~
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def display_name(self) -> str:

@@ -4,9 +4,7 @@ import base64
 import muty.file
 from gulp.api.mapping.models import GulpMappingFile
 import gulp.config
-import gulp.gulp
-import gulp.plugin
-
+from gulp.plugin import GulpPluginBase
 from gulp.api.rest_api import GulpRestServer
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
@@ -27,6 +25,8 @@ from gulp.api.rest.test_values import TEST_REQ_ID
 from muty.log import MutyLogger
 import muty.file
 import muty.uploadfile
+
+from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
 
@@ -200,8 +200,13 @@ async def plugin_list_handler(
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
 
-            l = await gulp.plugin.GulpPluginBase.list()
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+            l = await GulpPluginBase.list()
+
+            # turn to model_dump
+            ll: list[dict] = []
+            for p in l:
+                ll.append(p.model_dump(exclude_none=True))
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -219,13 +224,22 @@ async def plugin_list_handler(
                         "status": "success",
                         "timestamp_msec": 1701546711919,
                         "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
-                        "data": {"win_evt.py": "base64 file content here"},
+                        "data": {
+                            "filename": "win_evtx.py",
+                            "path": "/opt/gulp/plugins/win_evtx.py",
+                            "content": "base64 file content here",
+                        },
                     }
                 }
             }
         }
     },
     summary="get plugin content (i.e. for editing and reupload).",
+    description="""
+- token needs `edit` permission.
+- file is read from the `PATH_PLUGINS_EXTRA` directory if set, either from the main plugins directory.
+- file content is returned as base64.
+""",
 )
 async def plugin_get_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -244,13 +258,9 @@ async def plugin_get_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # should only admins be able to read all( including paid) plugins?
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
-            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins(
-                extension=is_extension
-            )
-            file_path = muty.file.safe_path_join(
-                path_plugins, plugin, allow_relative=True
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+            file_path = GulpPluginBase.path_from_plugin(
+                plugin, is_extension=is_extension, raise_if_not_found=True
             )
 
             # read file content
@@ -259,8 +269,12 @@ async def plugin_get_handler(
 
             return JSONResponse(
                 JSendResponse.success(
-                    req_id=req_id, data={
-                        filename: base64.b64encode(f).decode()}
+                    req_id=req_id,
+                    data={
+                        "filename": filename,
+                        "path": file_path,
+                        "content": base64.b64encode(f).decode(),
+                    },
                 )
             )
     except Exception as ex:
@@ -280,13 +294,20 @@ async def plugin_get_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"filename": "win_evtx.py"},
+                        "data": {
+                            "filename": "win_evtx.py",
+                            "path": "/opt/gulp/plugins/win_evtx.py",
+                        },
                     }
                 }
             }
         }
     },
     summary="deletes an existing plugin file.",
+    description="""
+- token needs `edit` permission.
+- plugin will be deleted from the `PATH_PLUGINS_EXTRA` directory, which must be set since the main plugins directly may not be writable.
+""",
 )
 async def plugin_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -305,20 +326,22 @@ async def plugin_delete_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # should only admins be able to read all( including paid) plugins?
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
-            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins(
-                extension=is_extension
+            file_path = GulpPluginBase.path_from_plugin(
+                plugin, is_extension=is_extension
             )
-            file_path = muty.file.safe_path_join(
-                path_plugins, plugin, allow_relative=True
-            )
+
+            # cannot delete base plugins (may be in a container)
+            if GulpConfig.get_instance().path_plugins_default() in file_path:
+                raise Exception("cannot delete plugin in base path: %s" % (file_path))
 
             # delete file
             await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
             return JSONResponse(
-                JSendResponse.success(req_id=req_id, data={"filename": plugin})
+                JSendResponse.success(
+                    req_id=req_id, data={"filename": plugin, "path": file_path}
+                )
             )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -337,21 +360,26 @@ async def plugin_delete_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"filename": "custom_plugin.py"},
+                        "data": {
+                            "filename": "custom_plugin.py",
+                            "path": "/opt/gulp/plugins/custom_plugin.py",
+                        },
                     }
                 }
             }
         }
     },
-    summary="upload a .py plugin file.",
-    description="file will be uploaded to the `gulp/plugins` directory (which can be overridden by `PATH_PLUGINS` environment variable)",
+    summary="upload a .py/.pyc plugin file.",
+    description="""
+- token needs `edit` permission.
+- to upload plugins, define `PATH_PLUGINS_EXTRA` environment variable since the default plugins directory is not writable.
+""",
 )
 async def plugin_upload_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     plugin: Annotated[UploadFile, File(description="the plugin file to upload")],
     is_extension: Annotated[
-        bool, Query(
-            description="True if the plugin is an extension, False otherwise")
+        bool, Query(description="True if the plugin is an extension, False otherwise")
     ],
     filename: Annotated[
         str,
@@ -360,8 +388,7 @@ async def plugin_upload_handler(
         ),
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(
-            description="if set, will overwrite an existing plugin file.")
+        bool, Query(description="if set, will overwrite an existing plugin file.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
@@ -371,81 +398,37 @@ async def plugin_upload_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+
+            if not GulpConfig.get_instance().path_plugins_extra():
+                raise Exception("to upload plugins, define PATH_PLUGINS_EXTRA.")
+
             await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
             if not filename:
                 # use default filename
                 filename = os.path.basename(plugin.filename)
 
-            path_plugins = gulp.config.GulpConfig.get_instance().path_plugins(
-                extension=is_extension
-            )
-            plugin_path = muty.file.safe_path_join(path_plugins, filename)
-
-            _, ext = os.path.splitext(filename.lower())
-
-            if ext not in [".py", ".pyc"]:
-                raise gulp.structs.InvalidArgument(
-                    "plugin must be a .py/.pyc file.")
+            # upload path
+            extra_path = GulpConfig.get_instance().path_plugins_extra()
+            file_path = muty.file.safe_path_join(extra_path, filename.lower())
+            MutyLogger.get_instance().debug("saving plugin to: %s" % (file_path))
 
             if not allow_overwrite:
                 # overwrite disabled
-                if os.path.exists(plugin_path):
-                    raise gulp.structs.ObjectAlreadyExists(
-                        "plugin %s already exists." % (filename)
-                    )
+                if os.path.exists(file_path):
+                    raise ObjectAlreadyExists("plugin %s already exists." % (filename))
 
             # ok, write file
-            await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(plugin_path))
+            await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(file_path))
             return JSONResponse(
-                JSendResponse.success(req_id=req_id, data={
-                                      "filename": filename})
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={
+                        "filename": filename,
+                        "path": file_path,
+                    },
+                )
             )
-    except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
-
-
-@router.get(
-    "/plugin_tags",
-    tags=["plugin"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1716386497525,
-                        "req_id": "99ca9c5b-7f84-4181-87bc-9ffc2064406b",
-                        "data": ["process", "file" "network"],
-                    }
-                }
-            }
-        }
-    },
-    summary="get tags for the given plugin, if they are set: this allow to better identify plugin capabilities.",
-)
-async def plugin_tags_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    plugin: Annotated[
-        str, Query(description="the plugin for which we should get the tags")
-    ],
-    is_extension: Annotated[
-        bool, Query(description="the plugin is an extension plugin")
-    ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSendResponse:
-    ServerUtils.dump_params(locals())
-
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
-
-            p = await gulp.plugin.GulpPluginBase.load(plugin, extension=is_extension)
-            tags = p.tags()
-            await p.unload()
-
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=tags))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -504,7 +487,10 @@ async def get_version_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"filename": "custom_mapping.json"},
+                        "data": {
+                            "filename": "custom_mapping.json",
+                            "path": "/opt/gulp/mapping_files/custom_mapping.json",
+                        },
                     }
                 }
             }
@@ -513,7 +499,7 @@ async def get_version_handler(
     summary="upload a JSON mapping file.",
     description="""
 - token needs `edit` permission.
-- file will be uploaded to `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES` environment variable).
+- to upload mapping files, define `PATH_MAPPING_FILES_EXTRA` environment variable since the default mapping files directory is not writable.
 """,
 )
 async def mapping_file_upload_handler(
@@ -522,8 +508,7 @@ async def mapping_file_upload_handler(
         UploadFile, File(description="the mapping json file")
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(
-            description="if set, will overwrite an existing mapping file.")
+        bool, Query(description="if set, will overwrite an existing mapping file.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
@@ -535,6 +520,11 @@ async def mapping_file_upload_handler(
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(sess, token, [GulpUserPermission.EDIT])
 
+        extra_path = GulpConfig.get_instance().path_mapping_files_extra()
+        if not extra_path:
+            raise Exception("to upload mapping files, define PATH_MAPPING_FILES_EXTRA.")
+
+        # load file
         filename: str = os.path.basename(mapping_file.filename)
         content: dict = None
         try:
@@ -548,18 +538,25 @@ async def mapping_file_upload_handler(
         if not filename.lower().endswith(".json"):
             filename.append(".json")
 
-        mapping_file_path = GulpConfig.build_mapping_file_path(filename)
+        # upload path
+        file_path = muty.file.safe_path_join(extra_path, filename.lower())
+        MutyLogger.get_instance().debug("saving mapping file to: %s" % (file_path))
+
         if not allow_overwrite:
             # overwrite disabled
-            if os.path.exists(mapping_file_path):
-                raise gulp.structs.ObjectAlreadyExists(
-                    "mapping file %s already exists." % (filename)
+            if os.path.exists(file_path):
+                raise ObjectAlreadyExists(
+                    "mapping file %s already exists." % (file_path)
                 )
 
         # ok, write file
-        await muty.file.write_file_async(mapping_file_path, json.dumps(content, indent=2).encode())
+        await muty.file.write_file_async(
+            file_path, json.dumps(content, indent=2).encode()
+        )
         return JSONResponse(
-            JSendResponse.success(req_id=req_id, data={"filename": filename})
+            JSendResponse.success(
+                req_id=req_id, data={"filename": filename, "path": file_path}
+            )
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -582,16 +579,19 @@ async def mapping_file_upload_handler(
                             {
                                 "metadata": {"plugin": ["splunk.py"]},
                                 "filename": "splunk.json",
+                                "path": "/opt/gulp/mapping_files/splunk.json",
                                 "mapping_ids": ["splunk"],
                             },
                             {
                                 "metadata": {"plugin": ["csv.py"]},
                                 "filename": "mftecmd_csv.json",
+                                "path": "/opt/gulp/mapping_files/mftecmd_csv.json",
                                 "mapping_ids": ["record", "boot", "j", "sds"],
                             },
                             {
                                 "metadata": {"plugin": ["win_evtx.py"]},
                                 "filename": "windows.json",
+                                "path": "/opt/gulp/mapping_files/windows.json",
                                 "mapping_ids": ["windows"],
                             },
                         ],
@@ -608,36 +608,67 @@ async def mapping_file_list_handler(
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
 
+    def _exists(d: list[dict], filename: str) -> bool:
+        for f in d:
+            if f["filename"].lower() == filename.lower():
+                return True
+        return False
+
+    async def _list_mapping_files_internal(path: str, d: list[dict]) -> None:
+        """
+        lists mapping files in path and append to d
+        """
+        MutyLogger.get_instance().info("listing mapping files in %s" % (path))
+        if not path:
+            return
+
+        files = await muty.file.list_directory_async(path)
+
+        # for each file, get metadata and mapping_ids
+        for f in files:
+            if not f.lower().endswith(".json"):
+                continue
+
+            filename = os.path.basename(f)
+            if _exists(d, filename):
+                MutyLogger.get_instance().warning(
+                    "skipping mapping file %s (already exists)" % (f)
+                )
+                continue
+
+            # read file
+            content = await muty.file.read_file_async(f)
+            js = json.loads(content)
+
+            # get metadata
+            mtd = js.get("metadata", {})
+
+            # get mapping_id for each mapping
+            mappings: dict = js.get("mappings", {})
+            mapping_ids = list(str(key) for key in mappings.keys())
+
+            d.append(
+                {
+                    "metadata": mtd,
+                    "filename": filename.lower(),
+                    "path": f,
+                    "mapping_ids": mapping_ids,
+                }
+            )
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(sess, token)
 
-        path = GulpConfig.get_instance().path_mapping_files()
-        MutyLogger.get_instance().info("listing mapping files in %s" % (path))
-        files = await muty.file.list_directory_async(path)
+        d: list[dict] = []
+        default_path = GulpConfig.get_instance().path_mapping_files_default()
+        extra_path = GulpConfig.get_instance().path_mapping_files_extra()
 
-        # for each file, get metadata and mapping_ids
-        d = []
-        for f in files:
-            if f.lower().endswith(".json"):
-                # read file
-                content = await muty.file.read_file_async(f)
-                js = json.loads(content)
+        # extra_path first
+        await _list_mapping_files_internal(extra_path, d)
 
-                # get metadata
-                mtd = js.get("metadata", {})
-
-                # get mapping_id for each mapping
-                mappings: dict = js.get("mappings", {})
-                mapping_ids = list(str(key) for key in mappings.keys())
-
-                d.append(
-                    {
-                        "metadata": mtd,
-                        "filename": os.path.basename(f),
-                        "mapping_ids": mapping_ids,
-                    }
-                )
+        # then default
+        await _list_mapping_files_internal(default_path, d)
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -657,14 +688,21 @@ async def mapping_file_list_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"windows.json": "base64 file content"},
+                        "data": {
+                            "filename": "windows.json",
+                            "path": "/opt/gulp/mapping_files/windows.json",
+                            "content": "base64 file content",
+                        },
                     }
                 }
             }
         }
     },
     summary="get a mapping file (i.e. for editing and reupload).",
-    description="file content is returned as base64.",
+    description="""
+- token needs `edit` permission.
+- file is read from the `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES_EXTRA` environment variable).    
+""",
 )
 async def mapping_file_get_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -677,16 +715,21 @@ async def mapping_file_get_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token)
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
-        mapping_file_path = GulpConfig.build_mapping_file_path(mapping_file)
+        file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
 
         # read file content
-        f = await muty.file.read_file_async(mapping_file_path)
-        filename = os.path.basename(mapping_file_path)
+        f = await muty.file.read_file_async(file_path)
+        filename = os.path.basename(file_path)
         return JSONResponse(
             JSendResponse.success(
-                req_id=req_id, data={filename: base64.b64encode(f).decode()}
+                req_id=req_id,
+                data={
+                    "filename": filename,
+                    "path": file_path,
+                    "content": base64.b64encode(f).decode(),
+                },
             )
         )
     except Exception as ex:
@@ -706,7 +749,10 @@ async def mapping_file_get_handler(
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"filename": "windows.json"},
+                        "data": {
+                            "filename": "windows.json",
+                            "path": "/opt/gulp/mapping_files/windows.json",
+                        },
                     }
                 }
             }
@@ -731,13 +777,18 @@ async def mapping_file_delete_handler(
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
-        mapping_file_path = GulpConfig.build_mapping_file_path(mapping_file)
+        file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
+
+        # cannot delete base plugins (may be in a container)
+        if GulpConfig.get_instance().path_mapping_files_default() in file_path:
+            raise Exception("cannot delete mapping file in base path: %s" % (file_path))
 
         # delete file
-        await muty.file.delete_file_or_dir_async(mapping_file_path, ignore_errors=False)
+        await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
         return JSONResponse(
-            JSendResponse.success(req_id=req_id, data={
-                                  "filename": mapping_file})
+            JSendResponse.success(
+                req_id=req_id, data={"filename": mapping_file, "path": file_path}
+            )
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex

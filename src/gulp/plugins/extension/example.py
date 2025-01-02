@@ -188,8 +188,8 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Extension example."
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.EXTENSION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.EXTENSION]
 
     def display_name(self) -> str:
         return "extension_example"

@@ -136,53 +136,6 @@ class GulpNameDescriptionEntry(BaseModel):
     )
 
 
-class GulpPluginSigmaSupport(BaseModel):
-    """
-    indicates the sigma support for a plugin, to be returned by the plugin.sigma_support() method.
-
-    refer to [sigma-cli](https://github.com/SigmaHQ/sigma-cli) for parameters (backend=-t, pipeline=-p, output=-f).
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "backends": [
-                        {
-                            "name": "opensearch",
-                            "description": "OpenSearch.",
-                        }
-                    ],
-                    "pipelines": [
-                        {
-                            "name": "ecs_windows",
-                            "description": "ECS Mapping for windows event logs ingested with Winlogbeat or Gulp.",
-                        }
-                    ],
-                    "output_formats": [
-                        {
-                            "name": "dsl_lucene",
-                            "description": "DSL with embedded Lucene queries.",
-                        }
-                    ],
-                }
-            ]
-        }
-    )
-    backends: list[GulpNameDescriptionEntry] = Field(
-        ...,
-        description="one or more pysigma backend supported by the plugin: `opensearch` is the one to use to query Gulp.",
-    )
-    pipelines: list[GulpNameDescriptionEntry] = Field(
-        ...,
-        description="one or more pysigma pipelines supported by the plugin.",
-    )
-    output_formats: list[GulpNameDescriptionEntry] = Field(
-        ...,
-        description="one or more output formats supported by the plugin.",
-    )
-
-
 class GulpSortOrder(StrEnum):
     """
     specifies the sort types for API accepting the "sort" parameter

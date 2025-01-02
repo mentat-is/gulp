@@ -43,8 +43,8 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     def _normalize_field(self, name: str) -> str:
         name = name.lower()

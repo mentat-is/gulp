@@ -13,8 +13,8 @@ to start tests, start gulp first!
 
 ~~~bash
 # run gulp on localhost:8080
-GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset-index test_idx
-cd tests
+# (extra paths may be omitted)
+GULP_INTEGRATION_TEST=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins gulp
 ~~~
 
 ## running the test suite
@@ -23,7 +23,9 @@ the test suite tests all the gulp rest API and plugins, including ingestion and 
 
 ~~~bash
 # run test suite (covers the whole API, including ingestion and query)
-./test_suite.sh
+# (PAID_PLUGINS and extra paths may be omitted)
+cd tests
+PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins ./test_suite.sh
 
 # also test paid plugins
 PAID_PLUGINS=1 ./test_suite.sh

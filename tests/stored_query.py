@@ -2,7 +2,7 @@ import pprint
 import pytest
 from muty.log import MutyLogger
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
-from gulp.api.opensearch.query import GulpQuerySigmaParameters
+from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from gulp.api.opensearch.structs import GulpBasicDocument
 from tests.api.common import GulpAPICommon
 from tests.api.object_acl import GulpAPIObjectACL

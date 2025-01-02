@@ -31,8 +31,8 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "regex"
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:

@@ -6,12 +6,9 @@ from muty.pydantic import autogenerate_model_example_by_class
 from opensearchpy import AsyncOpenSearch
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import TYPE_CHECKING
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
+from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from gulp.structs import GulpPluginParameters, GulpSortOrder
-
-if TYPE_CHECKING:
-    from gulp.plugin import GulpPluginBase
 
 
 class GulpQuery(BaseModel):
@@ -119,46 +116,6 @@ class GulpQueryNoteParameters(BaseModel):
     note_private: bool = Field(
         False,
         description="if set, the notes to create on match are private, default=False",
-    )
-
-
-class GulpQuerySigmaParameters(BaseModel):
-    """
-    represents options for a sigma query, to customize automatic note creation or to customize
-    the conversion using specific backend/pipeline/output format.
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "plugin": "win_evtx",
-                    "pipeline": None,
-                    "backend": None,
-                    "output_format": None,
-                }
-            ]
-        }
-    )
-    plugin: str = Field(
-        None,
-        description="""
-the plugin to be used to convert the sigma rule.
-
-- must implement `backend`, `pipeline`, `output_format`.
-""",
-    )
-    pipeline: str = Field(
-        None,
-        description="the pipeline to use when converting the sigma rule, defaults to None (use plugin's default)",
-    )
-    backend: str = Field(
-        None,
-        description="this is only used for `external` queries: the backend to use when converting the sigma rule, defaults to None (use plugin's default)",
-    )
-    output_format: str = Field(
-        None,
-        description="this is only used for `external` queries: the output format to use when converting the sigma rule, defaults to None (use plugin's default)",
     )
 
 

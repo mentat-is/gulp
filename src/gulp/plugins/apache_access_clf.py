@@ -29,8 +29,8 @@ class Plugin(GulpPluginBase):
     common access.log format file processor.
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def desc(self) -> str:

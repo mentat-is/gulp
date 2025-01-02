@@ -27,8 +27,8 @@ class Plugin(GulpPluginBase):
     the input for this plugin is a list of GulpDocument dictionaries coming from i.e. a SIEM agent.
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     def display_name(self) -> str:
         return "raw"

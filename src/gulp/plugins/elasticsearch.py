@@ -15,9 +15,12 @@ from gulp.api.opensearch.query import (
     GulpQuery,
     GulpQueryParameters,
     GulpQueryHelpers,
-    GulpQuerySigmaParameters,
 )
-from gulp.api.opensearch.sigma import to_gulp_query_struct
+from gulp.api.opensearch.sigma import (
+    GulpPluginSigmaSupport,
+    GulpQuerySigmaParameters,
+    to_gulp_query_struct,
+)
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import (
     GulpDocument,
@@ -27,7 +30,6 @@ from gulp.structs import (
     GulpNameDescriptionEntry,
     GulpPluginCustomParameter,
     GulpPluginParameters,
-    GulpPluginSigmaSupport,
 )
 
 muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.5, <2")
@@ -68,7 +70,7 @@ class Plugin(GulpPluginBase):
     """
 
     def type(self) -> GulpPluginType:
-        return GulpPluginType.EXTERNAL
+        return [GulpPluginType.EXTERNAL]
 
     @override
     def desc(self) -> str:

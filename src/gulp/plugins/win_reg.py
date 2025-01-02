@@ -44,8 +44,8 @@ class Plugin(GulpPluginBase):
     - `partial_hive_type`: the hive type can be specified if this is a partial hive, or if auto-detection fails (default=None)
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def desc(self) -> str:

@@ -97,12 +97,22 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 the following environment variables may be set to override configuration options.
 
 - `BIND_TO`: if set, gulp will listen to this interface and port (either, the default `0.0.0.0:8080` is used)
+
 - `PATH_CONFIG`: if set, will be used as path for the configuration file (either, `~/.config/gulp/gulp_cfg.json` will be used)
-- `PATH_PLUGINS`: if set, will be used as path for `plugins` directory (either, the default `$INSTALLDIR/plugins` will be used)
-- `PATH_MAPPING_FILES`: if set, will be used as path for the mapping files to be used by plugins (either, the default is `$INSTALLDIR/mapping_files`)
-- `PATH_INDEX_TEMPLATE`: if set, will be used as the path for the index template to be used when creating new indexes (either, [default](./src/gulp/api/mapping/index_template/template.json) is used)
-- `PATH_CERTS`: if set, overrides `path_certs` in the configuration (for HTTPS).
-- `OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration.
+
+- `PATH_PLUGINS_EXTRA`: if set, an extra directory where to search plugins into.
+  - also have an `extension` subdirectory for `extension` plugins
+  - plugins are loaded by default from `$INSTALLDIR/plugins`
+  - if a plugin exists in both directories, `$PATH_PLUGINS_EXTRA`have precedence (i.e. to load newer version)
+
+- `PATH_MAPPING_FILES_EXTRA`: if set, an extra directory where to search mapping files into.
+  - mapping files are loaded by default from `$INSTALLDIR/mapping_files`
+  - if a mapping file exists in both directories, `$PATH_MAPPING_FILES_EXTRA` has precedence (i.e. to allow newer mapping versions)  
+  -
+- `PATH_INDEX_TEMPLATE`: if set, path to load the index template used when setting up new indexes (either, the [default](./src/gulp/api/mapping/index_template/template.json) template is used).
+
+- `PATH_CERTS`: if set, overrides `path_certs` in the configuration to specify a path to load SSL certificates from (for HTTPS).
+- `OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
 - `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
 - `GULP_INTEGRATION_TEST`: **TEST ONLY**, this must be set to 1 during integration testing (i.e. client api) to disable debug features which may interfere.
 

@@ -91,20 +91,13 @@ class GulpRestServer:
         load available extension plugins
         """
         MutyLogger.get_instance().debug("loading extension plugins ...")
-        path_plugins = GulpConfig.get_instance().path_plugins(extension=True)
-        files = await muty.file.list_directory_async(
-            path_plugins, "*.py*", recursive=True
-        )
-        for f in files:
-            if "__init__" not in f and "__pycache__" not in f:
-                # get base filename without extension
-                p = await GulpPluginBase.load(f, extension=True)
-                self._extension_plugins.append(p)
+        l = await GulpPluginBase.list(extension_only=True)
+        count: int = 0
+        for p in l:
+            p = await GulpPluginBase.load(p.path, extension=True)
+            count += 1
 
-        MutyLogger.get_instance().debug(
-            "loaded %d extension plugins: %s"
-            % (len(self._extension_plugins), self._extension_plugins)
-        )
+        MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
 
     def set_shutdown(self, *args):
         """
@@ -393,9 +386,8 @@ class GulpRestServer:
 
         main_process = GulpProcess.get_instance()
 
-        # check configuration directories
-        cfg = GulpConfig.get_instance()
-        await cfg.check_copy_mappings_and_plugins_to_custom_directories()
+        # load configuration
+        GulpConfig.get_instance()
 
         first_run: bool = False
         if self._check_first_run():

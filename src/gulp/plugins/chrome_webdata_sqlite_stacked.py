@@ -18,8 +18,8 @@ class Plugin(GulpPluginBase):
     ./test_scripts/ingest.py --plugin chrome_webdata_sqlite_stacked --path ~/Downloads/webdata.sqlite
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def desc(self) -> str:

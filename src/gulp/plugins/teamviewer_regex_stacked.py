@@ -21,8 +21,8 @@ class Plugin(GulpPluginBase):
     teamviewer connections_incoming.txt plugin stacked over the REGEX plugin
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def desc(self) -> str:

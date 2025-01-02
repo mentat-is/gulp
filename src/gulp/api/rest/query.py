@@ -20,8 +20,8 @@ from gulp.api.opensearch.query import (
     GulpQuery,
     GulpQueryHelpers,
     GulpQueryParameters,
-    GulpQuerySigmaParameters,
 )
+from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import (

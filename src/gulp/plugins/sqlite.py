@@ -58,8 +58,8 @@ class Plugin(GulpPluginBase):
     chorme: cookie, file downloaded, autofill forms, history, searches, account and usernames.
     """
 
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     @override
     def desc(self) -> str:

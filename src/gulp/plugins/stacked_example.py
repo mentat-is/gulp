@@ -22,11 +22,11 @@ except Exception:
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> GulpPluginType:
-        return GulpPluginType.INGESTION
+    def type(self) -> list[GulpPluginType]:
+        return [GulpPluginType.INGESTION]
 
     def display_name(self) -> str:
-        return "csv"
+        return "stacked_example"
 
     @override
     def desc(self) -> str:

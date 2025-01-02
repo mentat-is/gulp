@@ -271,7 +271,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             if not self.errors:
                 self.errors = []
             if isinstance(error, Exception):
-                # MutyLogger.get_instance().error(f"PRE-COMMIT: ex error={error}")
+                MutyLogger.get_instance().exception(error)
                 error = str(error)
                 if error not in self.errors:
                     self.errors.append(error)
