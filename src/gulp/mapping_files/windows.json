@@ -6,6 +6,7 @@
     },
     "mappings": {
         "windows": {
+            "allow_prefixed": true,
             "fields": {
                 "AccountDomain": {
                     "ecs": [
@@ -73,7 +74,7 @@
                     "ecs": [
                         "winlog.computer_name"
                     ]
-                },                
+                },
                 "ComputerName": {
                     "ecs": [
                         "winlog.computer_name"
@@ -151,12 +152,12 @@
                         "winlog.record_id"
                     ]
                 },
-                "Execution.ProcessID": {
+                "ProcessID": {
                     "ecs": [
                         "process.pid"
                     ]
                 },
-                "Execution.ThreadID": {
+                "ThreadID": {
                     "ecs": [
                         "process.thread.id"
                     ]

@@ -67,6 +67,7 @@ class GulpMapping(BaseModel):
                     "description": "test description.",
                     "agent_type": "win_evtx",
                     "event_code": "1234",
+                    "allow_prefixed": False,
                     "timestamp_dayfirst": False,
                     "timestamp_yearfirst": True,
                     "timestamp_fuzzy": False,
@@ -111,6 +112,13 @@ class GulpMapping(BaseModel):
     timestamp_fuzzy: Optional[bool] = Field(
         None,
         description="controls how timestamp strings are parsed, for advanced usage: if set, allows parsing of strings like 'Today is January 1, 2047 at 8:21:00AM' (default=dateutil.parser default=False)",
+    )
+    allow_prefixed: Optional[bool] = Field(
+        False,
+        description="""
+if set, the source field can be prefixed and only the part after the last "_" is used for mapping.
+i.e. if in the source document the field is 'this_is_a_field' and the "ecs" has "field".
+""",
     )
 
 
