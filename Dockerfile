@@ -6,6 +6,7 @@ FROM python:3.12.3-bullseye
 # Add build argument for pip cache
 ARG _VERSION
 ENV _VERSION=${_VERSION}
+
 ENV PORT=8080
 ENV ADDRESS=0.0.0.0
 
@@ -25,6 +26,7 @@ COPY ./src /app/src
 COPY ./docs /app/docs
 COPY ./gulp_cfg_template.json /app
 COPY ./pyproject.docker.toml /app/pyproject.toml
+COPY ./VERSION /app/VERSION
 COPY ./MANIFEST.in /app
 COPY ./LICENSE.GULP.md /app
 COPY ./LICENSE.AGPL-3.0.md /app
@@ -49,11 +51,9 @@ RUN echo "[.] Python version: " && python3 --version
 RUN echo "[.] Python sys.path: " && python3 -c "import sys; print('\n'.join(sys.path))"    
 RUN echo "[.] Installed packages:" && pip3 list -v
 
-# Check environment variables
-#RUN set -e
+# show version during build
 RUN python3 -m gulp --version
 
 EXPOSE ${PORT}
 
-CMD ["gulp","--bind-to ${ADDRESS}","${PORT}"]
-
+CMD ["sh","-c","gulp ${ARGS:---log-level level info}"]

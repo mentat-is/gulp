@@ -9,7 +9,7 @@ authors = [{ name = "Mentat", email = "info@mentat.is" }]
 description = "gULP - (generic) Unified Log Processor."
 readme = "README.md"
 requires-python = ">=3.12"
-version = "2025.01.01"
+version = { file = "VERSION" }
 
 [project.scripts]
 gulp = "gulp.__main__:main"
@@ -23,4 +23,3 @@ include-package-data = true
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 optional-dependencies = {dev = { file = ["requirements-dev.txt"] }}
-
