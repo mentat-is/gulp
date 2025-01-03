@@ -14,7 +14,7 @@ to start tests, start gulp first!
 ~~~bash
 # run gulp on localhost:8080
 # (extra paths may be omitted)
-GULP_INTEGRATION_TEST=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins gulp
+GULP_INTEGRATION_TEST=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins gulp
 ~~~
 
 ## running the test suite
@@ -23,12 +23,11 @@ the test suite tests all the gulp rest API and plugins, including ingestion and 
 
 ~~~bash
 # run test suite (covers the whole API, including ingestion and query)
-# (PAID_PLUGINS and extra paths may be omitted)
 cd tests
-PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins ./test_suite.sh
+PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files ./test_suite.sh
 
 # also test paid plugins
-PAID_PLUGINS=1 ./test_suite.sh
+PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
 ~~~
 
 if running `test_suite.sh` with `PAID_PLUGIN=1` make sure the `gulp-paid-plugin` package is installed in your environment (`pip install -e /path/to/gulp-paid-plugins`).
