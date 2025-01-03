@@ -3,7 +3,7 @@ import json
 import pytest
 from muty.log import MutyLogger
 import websockets
-from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.rest.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -13,6 +13,7 @@ from gulp.api.rest.test_values import (
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from tests.api.common import GulpAPICommon
+from tests.api.object_acl import GulpAPIObjectACL
 from tests.api.query import GulpAPIQuery
 from tests.api.user import GulpAPIUser
 from tests.api.operation import GulpAPIOperation
@@ -79,6 +80,9 @@ async def test():
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
@@ -118,14 +122,28 @@ async def test():
     )
 
     # list operations (the one created and the default one)
-    operations = await GulpAPIOperation.operation_list(guest_token)
+    operations = await GulpAPIOperation.operation_list(ingest_token)
     assert operations and len(operations) == 2
+    operations = await GulpAPIOperation.operation_list(admin_token)
+    assert operations and len(operations) == 2
+
+    # for now, guest can see only the default operation
+    operations = await GulpAPIOperation.operation_list(guest_token)
+    assert len(operations) == 1
+
+    # allow user to see operations
+    await GulpAPIObjectACL.object_add_granted_user(
+        token=ingest_token,
+        object_id=updated["id"],
+        object_type=GulpCollabType.OPERATION,
+        user_id="guest",
+    )
 
     # operation filter by name
     operations = await GulpAPIOperation.operation_list(
         guest_token, GulpCollabFilter(names=["test_op"])
     )
-    assert operations and len(operations) == 1
+    assert operations and len(operations) == 1 and operations[0]["id"] == updated["id"]
 
     # editor cannot delete operation
     await GulpAPIOperation.operation_delete(
@@ -140,9 +158,18 @@ async def test():
 
     # back to test operation only
     operations = await GulpAPIOperation.operation_list(guest_token)
-    assert operations and len(operations) == 1
+    assert len(operations) == 1
+    await GulpAPIObjectACL.object_add_granted_user(
+        token=ingest_token,
+        object_id=TEST_OPERATION_ID,
+        object_type=GulpCollabType.OPERATION,
+        user_id="guest",
+    )
+    operations = await GulpAPIOperation.operation_list(guest_token)
+    assert (
+        operations and len(operations) == 1 and operations[0]["id"] == TEST_OPERATION_ID
+    )
 
-    # list contexts
     contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
     assert contexts and len(contexts) == 1
     context_id = contexts[0]["id"]
@@ -185,8 +212,8 @@ async def test():
     )
 
     # check data on opensearch (should be empty)
-    #res = await GulpAPIQuery.query_operations(ingest_token, TEST_INDEX)
-    #assert not res
+    # res = await GulpAPIQuery.query_operations(ingest_token, TEST_INDEX)
+    # assert not res
 
     # verify that the operation is deleted
     operations = await GulpAPIOperation.operation_list(guest_token)

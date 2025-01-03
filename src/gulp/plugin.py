@@ -125,6 +125,10 @@ class GulpPluginEntry(BaseModel):
         ...,
         description="The file path associated with the plugin.",
     )
+    data: Optional[dict] = Field(
+        None,
+        description="Arbitrary data for the UI.",
+    )
     filename: str = Field(
         ...,
         description="This is the bare filename without extension (aka the `internal plugin name`, to be used as `plugin` throughout the whole gulp API).",
@@ -393,6 +397,12 @@ class GulpPluginBase(ABC):
         """
         return []
 
+    def data(self) -> dict:
+        """
+        Returns plugin data: this is an arbitrary dictionary that can be used to store any data.
+        """
+        return {}
+    
     def depends_on(self) -> list[str]:
         """
         Returns a list of plugins this plugin depends on.
@@ -512,7 +522,6 @@ class GulpPluginBase(ABC):
                     tags=self._note_parameters.note_tags,
                     color=self._note_parameters.note_color,
                     glyph_id=self._note_parameters.note_glyph_id,
-                    private=self._note_parameters.note_private,
                 )
 
         # check if the request is cancelled ()
@@ -1939,6 +1948,7 @@ class GulpPluginBase(ABC):
                     depends_on=p.depends_on(),
                     tags=p.tags(),
                     version=p.version(),
+                    data=p.data(),
                 )
 
                 l.append(entry)

@@ -113,10 +113,6 @@ class GulpQueryNoteParameters(BaseModel):
         None,
         description="id of the glyph of the notes to create on match, defaults to None (query group glyph if set, otherwise use notes default).",
     )
-    note_private: bool = Field(
-        False,
-        description="if set, the notes to create on match are private, default=False",
-    )
 
 
 class GulpQueryExternalParameters(BaseModel):

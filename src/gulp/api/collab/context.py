@@ -126,6 +126,13 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             id=src_id,
             owner_id=user_id,
         )
+
+        # add same grants to the source as the context
+        for u in self.granted_user_ids:
+            await src.add_user_grant(sess, u)
+        for g in self.granted_user_group_ids:
+            await src.add_group_grant(sess, g)
+
         await sess.refresh(self)
 
         MutyLogger.get_instance().info(

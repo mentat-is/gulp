@@ -664,11 +664,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
     @classmethod
     def build_base_object_dict(
-        cls,
-        object_data: dict,
-        owner_id: str,
-        id: str = None,
-        private: bool = False,
+        cls, object_data: dict, owner_id: str, id: str = None, private: bool = True
     ) -> dict:
         """
         build a dictionary to create a new base object
@@ -702,10 +698,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         object_data["time_updated"] = time_created
         object_data["owner_user_id"] = owner_id
         object_data["granted_user_group_ids"] = []
-        object_data["granted_user_ids"] = []
         if private:
-            # set the object as private
-            object_data["granted_user_ids"].append(owner_id)
+            object_data["granted_user_ids"] = [owner_id]
+        else:
+            object_data["granted_user_ids"] = []
 
         if not object_data.get("name", None):
             # set the name to the id if not provided
@@ -723,7 +719,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_queue_datatype: "GulpWsQueueDataType" = None,
         ws_data: dict = None,
         req_id: str = None,
-        private: bool = False,
+        private: bool = True,
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -738,7 +734,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
             ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
-            private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to False.
+            private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
         Returns:
             T: The created instance of the class.
         Raises:
@@ -836,16 +832,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "User group %s not in granted list on object %s" % (group_id, self.id)
             )
 
-    async def add_user_grant(
-        self, sess: AsyncSession, user_id: str, raise_if_already_granted: bool = True
-    ) -> None:
+    async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         """
         grant a user access to the object
 
         Args:
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to add.
-            raise_if_already_granted (bool): If True, raise an exception if the user is already granted access.
         Returns:
             None
         """
@@ -860,21 +853,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MutyLogger.get_instance().warning(
                 "User %s already granted on object %s" % (user_id, self.id)
             )
-            if raise_if_already_granted:
-                raise ObjectAlreadyExists(
-                    f"User {user_id} already granted on object {self.id}"
-                )
 
-    async def remove_user_grant(
-        self, sess: AsyncSession, user_id: str, raise_if_not_found: bool = True
-    ) -> None:
+    async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         """
         remove a user access to the object
 
         Args:
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to remove.
-            raise_if_not_found (bool): If True, raise an exception if the user is not granted access.
         Returns:
             None
         """
@@ -889,10 +875,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MutyLogger.get_instance().warning(
                 "User %s not in granted list on object %s" % (user_id, self.id)
             )
-            if raise_if_not_found:
-                raise ObjectNotFound(
-                    f"User {user_id} not in granted list on object {self.id}"
-                )
 
     async def delete(
         self,
@@ -1334,6 +1316,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         )
                     )
 
+            MutyLogger.get_instance().debug(
+                "User %s get_by_filter_result: %s"
+                % (
+                    s.user.id,
+                    json.dumps(data, indent=2),
+                )
+            )
+
             return data
 
     @classmethod
@@ -1436,7 +1426,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         object_data: dict,
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         id: str = None,
-        private: bool = False,
+        private: bool = True,
     ) -> dict:
         """
         helper to create a new object, handling session

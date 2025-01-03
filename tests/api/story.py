@@ -16,7 +16,6 @@ class GulpAPIStory:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
-        private: bool = False,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -25,7 +24,6 @@ class GulpAPIStory:
             "operation_id": operation_id,
             "name": name,
             "color": color,
-            "private": private,
             "glyph_id": glyph_id,
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,

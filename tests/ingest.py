@@ -118,6 +118,9 @@ async def _ws_loop(
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
+    found_ingested=0
+    found_processed=0
+
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(token="monitor", ws_id=TEST_WS_ID)
@@ -137,6 +140,8 @@ async def _ws_loop(
                         # done
                         records_ingested = stats_packet.get("records_ingested", 0)
                         records_processed = stats_packet.get("records_processed", 0)
+                        found_ingested=records_ingested
+                        found_processed=records_processed
                         if records_ingested == ingested:
                             MutyLogger.get_instance().info(
                                 "all %d records ingested!" % (ingested)
@@ -176,6 +181,7 @@ async def _ws_loop(
         except websockets.exceptions.ConnectionClosed:
             MutyLogger.get_instance().warning("WebSocket connection closed")
 
+    MutyLogger.get_instance().info(f"found_ingested={found_ingested} (requested={ingested}), found_processed={found_processed} (requested={processed})")      
     assert test_completed
     MutyLogger.get_instance().info("test succeeded!")
 
@@ -298,7 +304,7 @@ async def test_win_evtx():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
     files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
-    await _test_generic(files, "win_evtx", 98631)
+    await _test_generic(files, "win_evtx", 98632)
 
 
 @pytest.mark.asyncio

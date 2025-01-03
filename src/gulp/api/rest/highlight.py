@@ -4,7 +4,7 @@ gulp highlights rest api
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.highlight import GulpHighlight
 from gulp.api.collab.structs import (
@@ -63,7 +63,9 @@ async def highlight_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    private: Annotated[
+        bool, Depends(APIDependencies.param_private_optional)
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())

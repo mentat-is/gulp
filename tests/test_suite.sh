@@ -14,7 +14,7 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     python3 -m pytest ingest.py::test_eml &&
     python3 -m pytest ingest.py::test_mbox &&
     python3 -m pytest ingest.py::test_pcap &&
-    python3 -m pytest ingest.py::test_pfsense &&    
+    python3 -m pytest ingest.py::test_pfsense &&
     python3 -m pytest ingest.py::test_raw &&
     python3 -m pytest ingest.py::test_systemd_journal &&
     python3 -m pytest ingest.py::test_teamviewer_regex_stacked &&
@@ -23,7 +23,7 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     python3 -m pytest ingest.py::test_win_evtx &&
     python3 -m pytest query.py::test_win_evtx &&
     # this is preliminary since we are just using gulp's opensearch as external source (anyway, should mostly work...)
-    python3 -m pytest query.py::test_elasticsearch
+    python3 -m pytest query.py::test_elasticsearch &&
     python3 -m pytest ingest.py::test_win_reg &&
     python3 -m pytest ingest.py::test_ingest_zip &&
 
@@ -31,7 +31,7 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     if [ "$PAID_PLUGINS" = "1" ]; then
         # TODO: currently needs private test data, just for the devteam reference...
         python3 -m pytest query.py::test_paid_plugins &&
-        python3 -m pytest ingest.py::test_paid_plugins
+            python3 -m pytest ingest.py::test_paid_plugins
         # && python3 -m pytest extension.py::test_paid_plugins
     fi &&
 

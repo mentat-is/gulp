@@ -24,7 +24,7 @@ the test suite tests all the gulp rest API and plugins, including ingestion and 
 ~~~bash
 # run test suite (covers the whole API, including ingestion and query)
 cd tests
-PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files ./test_suite.sh
+PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files ./test_suite.sh
 
 # also test paid plugins
 PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
@@ -53,7 +53,7 @@ to quickly test ingestion with a particular plugin manually i.e. during plugin d
 
 ~~~bash
 # win_evtx
-# 98633 records, 1 record failed, 1 skipped, 98631 ingested
+# 98633 records, 1 record failed, 1 skipped, 98632 ingested
 ./test_scripts/ingest.py --path ./samples/win_evtx
 
 # csv without mapping

@@ -19,7 +19,6 @@ class GulpAPINote:
         name: str = None,
         tags: list[str] = None,
         color: str = None,
-        private: bool = False,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -31,7 +30,6 @@ class GulpAPINote:
             "time_pin": time_pin,
             "name": name,
             "color": color,
-            "private": private,
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
@@ -62,7 +60,6 @@ class GulpAPINote:
         name: str = None,
         tags: list[str] = None,
         color: str = None,
-        private: bool = None,
         expected_status: int = 200,
     ) -> dict:
 
@@ -71,7 +68,6 @@ class GulpAPINote:
             "object_id": object_id,
             "time_pin": time_pin,
             "color": color,
-            "private": private,
             "name": name,
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,

@@ -378,6 +378,7 @@ class GulpCollab:
                     "img": user_b,
                 },
                 owner_id=admin_user.id,
+                private=False
             )
 
             operation_glyph = await GulpGlyph._create(
@@ -387,6 +388,7 @@ class GulpCollab:
                     "img": operation_b,
                 },
                 owner_id=admin_user.id,
+                private=False
             )
 
             await admin_user.update(
@@ -414,6 +416,7 @@ class GulpCollab:
                 },
                 id="test_stored_sigma_1",
                 owner_id=admin_user.id,
+                private=False
             )
 
             GulpStoredQuery = await GulpStoredQuery._create(
@@ -427,6 +430,7 @@ class GulpCollab:
                 },
                 id="test_stored_sigma_2",
                 owner_id=admin_user.id,
+                private=False
             )
 
             GulpStoredQuery = await GulpStoredQuery._create(
@@ -454,6 +458,7 @@ class GulpCollab:
                 },
                 id="test_stored_raw",
                 owner_id=admin_user.id,
+                private=False
             )
 
             # some splunk queries
@@ -476,6 +481,7 @@ class GulpCollab:
                 },
                 id="test_stored_sigma_splunk",
                 owner_id=admin_user.id,
+                private=False
             )
 
             GulpStoredQuery = await GulpStoredQuery._create(
@@ -489,6 +495,7 @@ class GulpCollab:
                 },
                 id="test_stored_raw_splunk",
                 owner_id=admin_user.id,
+                private=False
             )
 
             # create user groups
@@ -500,6 +507,7 @@ class GulpCollab:
                     "permission": [GulpUserPermission.ADMIN],
                 },
                 owner_id=admin_user.id,
+                private=False
             )
             # add admin to group
             await group.add_user(sess, admin_user.id)
@@ -523,6 +531,15 @@ class GulpCollab:
                 name=TEST_CONTEXT_NAME,
             )
             await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
+
+            # add user grants to everyone
+            await operation.add_user_grant(sess, "ingest")
+            await operation.add_user_grant(sess, "editor")
+            await operation.add_user_grant(sess, "power")
+            await operation.add_user_grant(sess, "guest")
+
+            # add group grants to the operation
+            await operation.add_group_grant(sess, "administrators")
 
             operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
             for op in operations:

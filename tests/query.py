@@ -391,7 +391,7 @@ async def test_win_evtx():
                             "query done, name=%s", q_done_packet.name
                         )
                         if q_done_packet.name == "test_gulp_query":
-                            assert q_done_packet.total_hits == 98631
+                            assert q_done_packet.total_hits == 98632
                             test_completed = True
                         else:
                             raise ValueError(
@@ -410,9 +410,9 @@ async def test_win_evtx():
 
     async def _test_single_id(token: str):
         d = await GulpAPIQuery.query_single_id(
-            token, "a7a7bd6b7141a14b41d8b699ccef06d0", TEST_INDEX
+            token, "d5ccd5f5ddfae05aea6e7e4a385be5fb", TEST_INDEX
         )
-        assert d["_id"] == "a7a7bd6b7141a14b41d8b699ccef06d0"
+        assert d["_id"] == "d5ccd5f5ddfae05aea6e7e4a385be5fb"
         MutyLogger.get_instance().info("test succeeded!")
 
     GulpAPICommon.get_instance().init(

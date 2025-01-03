@@ -4,7 +4,7 @@ gulp stories rest api
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.story import GulpStory
 from gulp.api.collab.structs import (

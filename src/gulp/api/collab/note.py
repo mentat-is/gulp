@@ -9,12 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
-    bindparam,
-    case,
-    func,
     insert,
-    select,
-    update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +17,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy.ext.mutable import MutableList
 from gulp.api.collab.structs import (
-    GulpCollabBase,
     GulpCollabFilter,
     GulpCollabObject,
     GulpCollabType,
@@ -33,7 +27,6 @@ from gulp.api.ws_api import (
     GulpSharedWsQueue,
     GulpWsQueueDataType,
 )
-from gulp.structs import GulpSortOrder
 
 
 class GulpNoteEdit(BaseModel):
@@ -180,8 +173,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         name: str,
         tags: list[str] = None,
         color: str = None,
-        glyph_id: str = None,
-        private: bool = False,
+        glyph_id: str = None
     ) -> int:
         """
         creates a note for each document in the list, using bulk insert
@@ -196,7 +188,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             tags (list[str], optional): the tags to add to the notes. Defaults to None (set to ["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
             glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
-            private (bool, optional): whether the notes are private. Defaults to False.
 
         Returns:
             the number of notes created
@@ -236,9 +227,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             )
 
             note_dict = GulpNote.build_base_object_dict(
-                object_data=object_data,
-                owner_id=user_id,
-                private=private,
+                object_data=object_data, owner_id=user_id, private=False
             )
             notes.append(note_dict)
 

@@ -15,7 +15,6 @@ class GulpAPIGlyph:
         token: str,
         img: str,
         name: str = None,
-        private: bool = False,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -24,7 +23,6 @@ class GulpAPIGlyph:
         files = {"img": (os.path.basename(img), BytesIO(buffer))}
         params = {
             "name": name,
-            "private": private,
             "req_id": api_common.req_id,
         }
 

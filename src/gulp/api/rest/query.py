@@ -794,7 +794,7 @@ async def query_stored_handler(
                             "buckets": [
                                 {
                                     "*": {
-                                        "doc_count": 98631,
+                                        "doc_count": 98632,
                                         "max_event.code": 62171,
                                         "min_gulp.timestamp": 1289373941000000000,
                                         "max_gulp.timestamp": 1637340783836550912,
@@ -802,7 +802,7 @@ async def query_stored_handler(
                                     }
                                 }
                             ],
-                            "total": 98631,
+                            "total": 98632,
                         },
                     }
                 }
@@ -864,7 +864,7 @@ async def query_max_min_per_field(
                                     {
                                         "name": "test_context",
                                         "id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
-                                        "doc_count": 98631,
+                                        "doc_count": 98632,
                                         "plugins": [
                                             {
                                                 "name": "win_evtx",

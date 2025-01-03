@@ -18,7 +18,6 @@ class GulpAPIHighlight:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
-        private: bool = False,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -30,7 +29,6 @@ class GulpAPIHighlight:
             "name": name,
             "glyph_id": glyph_id,
             "color": color,
-            "private": private,
             "req_id": api_common.req_id,
         }
 

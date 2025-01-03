@@ -1552,7 +1552,6 @@ class GulpOpenSearch:
                     tags=q_options.note_parameters.note_tags,
                     color=q_options.note_parameters.note_color,
                     glyph_id=q_options.note_parameters.note_glyph_id,
-                    private=q_options.note_parameters.note_private,
                 )
 
             # next chunk

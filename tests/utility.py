@@ -15,6 +15,9 @@ from tests.api.user import GulpAPIUser
 from tests.api.utility import GulpAPIUtility
 import os
 
+# NOTE:
+# this needs to be run with PATH_PLUGINS_EXTRA and PATH_MAPPING_FILES_EXTRA set, since it must be able to update/delete mapping files and plugins
+
 
 @pytest.mark.asyncio
 async def test():

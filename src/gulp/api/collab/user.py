@@ -256,7 +256,9 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         if not skip_password_check:
             # check password
             if u.pwd_hash != muty.crypto.hash_sha256(password):
-                raise WrongUsernameOrPassword("wrong password for user_id=%s" % (user_id))
+                raise WrongUsernameOrPassword(
+                    "wrong password for user_id=%s" % (user_id)
+                )
 
         # get expiration time
         if GulpConfig.get_instance().debug_no_token_expiration():
@@ -405,20 +407,20 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             return False
 
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
-            # no granted users or groups, allow access
-            # MutyLogger.get_instance().debug("allowing access to object without granted users or groups")
+            # public object, always granted
+            MutyLogger.get_instance().debug("allowing access to object without granted users or groups, user=%s" % (self.id))
             return True
 
         # check if the user is in the granted groups
         if obj.granted_user_group_ids:
             for group in self.groups:
                 if group.id in obj.granted_user_group_ids:
-                    # MutyLogger.get_instance().debug("allowing access to granted group")
+                    MutyLogger.get_instance().debug("allowing access to granted group %s" % (group.id))
                     return True
 
         # check if the user is in the granted users
         if obj.granted_user_ids and self.id in obj.granted_user_ids:
-            # MutyLogger.get_instance().debug("allowing access to granted user")
+            MutyLogger.get_instance().debug("allowing access to granted user %s" % (self.id))
             return True
 
         if throw_on_no_permission:

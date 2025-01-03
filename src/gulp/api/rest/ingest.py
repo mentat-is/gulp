@@ -442,7 +442,7 @@ async def ingest_file_handler(
                 user_id=user_id,
                 name=payload.original_file_path or os.path.basename(file_path),
             )
-
+            
         # run ingestion in a coroutine in one of the workers
         MutyLogger.get_instance().debug("spawning ingestion task ...")
         kwds = dict(

@@ -68,7 +68,9 @@ async def glyph_create_handler(
         str,
         Depends(APIDependencies.param_display_name_optional),
     ] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    private: Annotated[
+        bool, Depends(APIDependencies.param_private_optional)
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()

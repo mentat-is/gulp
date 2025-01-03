@@ -18,7 +18,6 @@ class GulpAPIStoredQuery:
         tags: list[str] = None,
         description: str = None,
         glyph_id: str = None,
-        private: bool = False,
         expected_status: int = 200,
     ) -> dict:
         """Create a new stored query"""
@@ -26,7 +25,6 @@ class GulpAPIStoredQuery:
 
         params = {
             "name": name,
-            "private": private,
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
             "glyph_id": glyph_id,
