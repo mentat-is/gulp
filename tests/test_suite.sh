@@ -29,9 +29,10 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
 
     # external plugins
     if [ "$PAID_PLUGINS" = "1" ]; then
-        # splunk full test (test raw external query without ingestion, sigma group with ingestion)
         # TODO: currently needs private test data, just for the devteam reference...
-        python3 -m pytest query.py::test_splunk
+        python3 -m pytest query.py::test_paid_plugins &&
+        python3 -m pytest ingest.py::test_paid_plugins
+        # && python3 -m pytest extension.py::test_paid_plugins
     fi &&
 
     # test collab

@@ -409,14 +409,38 @@ class GulpOpenSearch:
                 "timestamp_invalid": {"type": "boolean"},
             }
         }
+
+        # add dynamic templates for unmapped fields
         dtt = []
+
+        # handle object fields
         dtt.append(
             {
-                # force unknown mapping to string
-                "force_unmapped_to_string": {
-                    "match": "%s.*" % (GulpOpenSearch.UNMAPPED_PREFIX),
-                    # "match":"*",
-                    "mapping": {"type": "keyword"},
+                "objects": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_mapping_type": "object",
+                    "mapping": {"type": "object", "dynamic": True},
+                }
+            }
+        )
+
+        # handle string fields (all unmapped to keyword)
+        dtt.append(
+            {
+                "hex_values": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_pattern": "regex",
+                    "match": "^0[xX][0-9a-fA-F]+$",
+                    "mapping": {"type": "keyword", "ignore_above": 1024},
+                }
+            }
+        )
+        dtt.append(
+            {
+                "unmapped_fields": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_mapping_type": "*",
+                    "mapping": {"type": "keyword", "ignore_above": 1024},
                 }
             }
         )
@@ -428,12 +452,13 @@ class GulpOpenSearch:
             # mappings['date_detection'] = True
             # mappings['numeric_detection'] = True
             # mappings['dynamic'] = False
+
+            mappings["numeric_detection"] = False
+            mappings["date_detection"] = False
             mappings["properties"]["@timestamp"] = {
                 "type": "date_nanos",
                 "format": "strict_date_optional_time_nanos",
             }
-
-            mappings["numeric_detection"] = False
 
             # support for original event both as keyword and text
             mappings["properties"]["event"]["properties"]["original"] = {
@@ -597,6 +622,98 @@ class GulpOpenSearch:
         ]
 
         return result
+
+    async def update_documents(
+        self,
+        index: str,
+        docs: list[dict],
+        wait_for_refresh: bool = False,
+        replace: bool = False,
+    ) -> tuple[int, list[dict]]:
+        """
+        updates documents in an OpenSearch datastream using update_by_query.
+
+        NOTE: this method is not recommended for large updates as it can be slow and resource intensive, but it is ok to use for small updates.
+
+        Args:
+            index (str): Name of the datastream/index to update documents in
+            docs (list[dict]): List of documents to update. Each doc must have _id field
+            wait_for_refresh (bool): Whether to wait for index refresh. Defaults to False
+            replace (bool): Whether to completely replace documents keeping only _id. Defaults to False
+
+        Returns:
+            tuple:
+            - number of successfully updated documents
+            - list of errors if any occurred
+
+        Raises:
+            ValueError: If doc is missing _id field
+        """
+        if not docs:
+            return 0, []
+
+        # Build document updates
+        update_operations = []
+        for doc in docs:
+            if "_id" not in doc:
+                raise ValueError("Document missing _id field")
+
+            doc_id = doc["_id"]
+            update_fields = {k: v for k, v in doc.items() if k != "_id"}
+
+            if replace:
+                # replace entire document except _id
+                operation = {
+                    "script": {
+                        "source": "ctx._source.clear(); for (entry in params.updates.entrySet()) { ctx._source[entry.getKey()] = entry.getValue(); }",
+                        "lang": "painless",
+                        "params": {"updates": update_fields},
+                    },
+                    "query": {"term": {"_id": doc_id}},
+                }
+            else:
+                # update only specified fields
+                operation = {
+                    "script": {
+                        "source": """
+                            for (entry in params.updates.entrySet()) {
+                                ctx._source[entry.getKey()] = entry.getValue();
+                            }
+                        """,
+                        "lang": "painless",
+                        "params": {"updates": update_fields},
+                    },
+                    "query": {"term": {"_id": doc_id}},
+                }
+
+            update_operations.append(operation)
+
+        # set parameters
+        params = {"conflicts": "abort", "wait_for_completion": "true"}
+        if wait_for_refresh:
+            params["refresh"] = "true"
+
+        # Execute updates
+        headers = {"accept": "application/json", "content-type": "application/json"}
+
+        success_count = 0
+        errors = []
+
+        try:
+            for operation in update_operations:
+                try:
+                    res = await self._opensearch.update_by_query(
+                        index=index, body=operation, params=params, headers=headers
+                    )
+                    success_count += res.get("updated", 0)
+                except Exception as e:
+                    errors.append({"query": operation["query"], "error": str(e)})
+
+        except Exception as e:
+            MutyLogger.get_instance().error(f"error updating documents: {str(e)}")
+            return 0, [{"error": str(e)}]
+
+        return success_count, errors
 
     async def bulk_ingest(
         self,

@@ -395,6 +395,10 @@ class GulpRestServer:
         MutyLogger.get_instance().info("atexit() cleanup")
         self._kill_gulp_processes()
 
+    async def _test(self):
+        # to quick test code snippets, called by lifespan_handler
+        pass
+
     async def _lifespan_handler(self, app: FastAPI):
         """
         fastapi lifespan handler
@@ -445,6 +449,10 @@ class GulpRestServer:
 
         # load extension plugins
         await self._load_extension_plugins()
+
+        if __debug__:
+            # to test some snippet with gulp freshly initialized
+            await self._test()
 
         # wait for shutdown
         yield
@@ -503,4 +511,3 @@ class GulpRestServer:
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")
         return True
-

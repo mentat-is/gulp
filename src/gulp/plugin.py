@@ -1084,6 +1084,9 @@ class GulpPluginBase(ABC):
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
+        if mapping.allow_prefixed:
+            # consider only the last part (i.e. "this_is_a_sourcekey" -> "sourcekey")
+            source_key = source_key.split("_")[-1]
 
         if mapping.exclude and source_key in mapping.exclude:
             # ignore this key
@@ -1306,8 +1309,8 @@ class GulpPluginBase(ABC):
                 )
                 for f in plugin_params.additional_mapping_files:
                     # each entry is a tuple (file, mapping_id)
-                    additional_mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
-                        f[0]
+                    additional_mapping_file_path = (
+                        GulpConfig.get_instance().build_mapping_file_path(f[0])
                     )
                     additional_mapping_id = f[1]
                     f = await muty.file.read_file_async(additional_mapping_file_path)

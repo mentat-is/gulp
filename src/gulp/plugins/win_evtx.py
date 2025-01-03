@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, override
 
@@ -9,7 +10,6 @@ import muty.string
 import muty.time
 import muty.xml
 from evtx import PyEvtxParser
-from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.sigma import (
     GulpPluginSigmaSupport,
@@ -109,6 +109,73 @@ class Plugin(GulpPluginBase):
 
         return {}
 
+    def _process_leaf(self, path: str, value: Any, result: dict):
+        if not value or path.endswith("xmlns"):
+            # skip these
+            return
+        if path.endswith("_Name"):
+            # remove _Name from path, key name will be the previous segment (assuming "allow_prefixed" is set)
+            path = path.replace("_Name", "")
+        elif path.endswith("_#text"):
+            # remove #text from path, key name will be the previous segment (assuming "allow_prefixed" is set)
+            path = path.replace("_#text", "")
+        elif "_Execution_" in path:
+            # remove Execution from path, key name will be the previous segment (assuming "allow_prefixed" is set)
+            path = path.replace("_Execution_", "_")
+
+        if path.endswith("#attributes"):
+            # skip
+            return
+
+        # map the key
+        mapped = self._process_key(path, value)
+        result.update(mapped)
+
+    def _parse_dict(self, data: dict, path_segments: list = None) -> dict:
+        """
+        recursively parse dictionary and call process_leaf() for each leaf node
+
+        Args:
+            data: Dictionary to parse
+            path_segments: List of path segments (used in recursion)
+        Returns:
+            dict
+        """
+        result = {}
+        if path_segments is None:
+            path_segments = []
+
+        for key, value in data.items():
+            current_path = path_segments + [key]
+
+            if value is None:
+                continue
+
+            elif isinstance(value, dict):
+                if value:
+                    nested_results = self._parse_dict(value, current_path)
+                    result.update(nested_results)
+
+            elif isinstance(value, list):
+                if value:
+                    for i, item in enumerate(value):
+                        if isinstance(item, dict):
+                            if item:
+                                nested_results = self._parse_dict(
+                                    item, current_path + [str(i)]
+                                )
+                                result.update(nested_results)
+                        else:
+                            if item not in (None, ""):
+                                self._process_leaf(
+                                    "_".join(current_path + [str(i)]), item, result
+                                )
+            else:
+                if value != "":
+                    self._process_leaf("_".join(current_path), value, result)
+
+        return result
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, data: Any = None
@@ -116,50 +183,19 @@ class Plugin(GulpPluginBase):
 
         event_original: str = record["data"]
         timestamp = record["timestamp"]
-        data_elem = etree.fromstring(event_original.encode("utf-8"))
-        e_tree: etree.ElementTree = etree.ElementTree(data_elem)
 
-        d = {}
-        for e in e_tree.iter():
-            e.tag = muty.xml.strip_namespace(e.tag)
-            # MutyLogger.get_instance().debug("found e_tag=%s, value=%s" % (e.tag, e.text))
-
-            # map attrs and values
-            if len(e.attrib) == 0:
-                # no attribs, i.e. <Opcode>0</Opcode>
-                if not e.text or not e.text.strip():
-                    # none/empty text
-                    # MutyLogger.get_instance().error('skipping e_tag=%s, value=%s' % (e.tag, e.text))
-                    continue
-
-                # MutyLogger.get_instance().warning('processing e.attrib=0: e_tag=%s, value=%s' % (e.tag, e.text))
-                mapped = self._process_key(e.tag, e.text)
-                d.update(mapped)
-            else:
-                # attribs, i.e. <TimeCreated SystemTime="2019-11-08T23:20:54.670500400Z" />
-                for attr_k, attr_v in e.attrib.items():
-                    if not attr_v or not attr_v.strip():
-                        # MutyLogger.get_instance().error('skipping e_tag=%s, attr_k=%s, attr_v=%s' % (e.tag, attr_k, attr_v))
-                        continue
-                    if attr_k == "Name":
-                        if e.text:
-                            text = e.text.strip()
-                            k = attr_v
-                            v = text
-                        else:
-                            k = e.tag
-                            v = attr_v
-                        # MutyLogger.get_instance().warning('processing Name attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
-                    else:
-                        k = "%s_%s" % (e.tag, attr_k)
-                        v = attr_v
-                        # MutyLogger.get_instance().warning('processing attrib: e_tag=%s, k=%s, v=%s' % (e.tag, k, v))
-                    mapped = self._process_key(k, v)
-                    d.update(mapped)
+        # parse record
+        js_record = json.loads(event_original)
+        d = self._parse_dict(js_record)
 
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
+
+        if d.get("event.code") == "0":
+            MutyLogger.get_instance().debug(json.dumps(d, indent=2))
+            muty.os.exit_now()
+
         return GulpDocument(
             self,
             timestamp=timestamp,
@@ -219,7 +255,7 @@ class Plugin(GulpPluginBase):
 
         doc_idx = 0
         try:
-            for rr in parser.records():
+            for rr in parser.records_json():
                 doc_idx += 1
                 try:
                     await self.process_record(rr, doc_idx, flt=flt)
