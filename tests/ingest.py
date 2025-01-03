@@ -415,5 +415,5 @@ async def test_ingest_zip():
 @pytest.mark.asyncio
 async def test_paid_plugins():
     import importlib
-    m = importlib.import_module("gulp-paid-plugins.tests.query")
+    m = importlib.import_module("gulp-paid-plugins.tests.ingest")
     assert await m.test_all()
