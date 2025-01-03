@@ -409,14 +409,38 @@ class GulpOpenSearch:
                 "timestamp_invalid": {"type": "boolean"},
             }
         }
+
+        # add dynamic templates for unmapped fields
         dtt = []
+        
+        # handle object fields
         dtt.append(
             {
-                # force unknown mapping to string
-                "force_unmapped_to_string": {
-                    "match": "%s.*" % (GulpOpenSearch.UNMAPPED_PREFIX),
-                    # "match":"*",
-                    "mapping": {"type": "keyword"},
+                "objects": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_mapping_type": "object",
+                    "mapping": {"type": "object", "dynamic": True},
+                }
+            }
+        )
+
+        # handle string fields (all unmapped to keyword)
+        dtt.append(
+            {
+                "hex_values": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_pattern": "regex",
+                    "match": "^0[xX][0-9a-fA-F]+$",
+                    "mapping": {"type": "keyword", "ignore_above": 1024},
+                }
+            }
+        )
+        dtt.append(
+            {
+                "unmapped_fields": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_mapping_type": "*",
+                    "mapping": {"type": "keyword", "ignore_above": 1024},
                 }
             }
         )
@@ -428,12 +452,13 @@ class GulpOpenSearch:
             # mappings['date_detection'] = True
             # mappings['numeric_detection'] = True
             # mappings['dynamic'] = False
+
+            mappings["numeric_detection"] = False
+            mappings["date_detection"] = False
             mappings["properties"]["@timestamp"] = {
                 "type": "date_nanos",
                 "format": "strict_date_optional_time_nanos",
             }
-
-            mappings["numeric_detection"] = False
 
             # support for original event both as keyword and text
             mappings["properties"]["event"]["properties"]["original"] = {
