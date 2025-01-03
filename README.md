@@ -157,6 +157,8 @@ get it [here](https://github.com/mentat-is/gulpui-web) !
 
 > currently, we recommend to install from sources!
 
+Updates soon...
+
 ## test
 
 [read here](./docs/Testing%20Plugins.md)
