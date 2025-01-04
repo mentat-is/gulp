@@ -75,7 +75,7 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         Returns:
             bool: True if all parameters are None, False otherwise
         """
-        if self.mappings is not None or self.mapping_file is not None:
+        if self.mappings is not None or self.mapping_file is not None or len(self.model_extra) > 0:
             return False
         return True
 

@@ -1,3 +1,4 @@
+import json
 from typing import Any, override
 import muty.dict
 import muty.jsend
@@ -143,10 +144,11 @@ class Plugin(GulpPluginBase):
                 self._source_id,
                 json.dumps(d, indent=2),
             )
-        )"""
+        )
+        """
 
         # create a gulp document
-        return GulpDocument(
+        d = GulpDocument(
             self,
             timestamp=str(
                 ts_nsec + (offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS)
@@ -158,6 +160,8 @@ class Plugin(GulpPluginBase):
             event_sequence=record_idx,
             **d,
         )
+        # MutyLogger.get_instance().debug(d)
+        return d
 
     async def query_external(
         self,
@@ -174,16 +178,6 @@ class Plugin(GulpPluginBase):
         await super().query_external(
             sess, user_id, req_id, ws_id, index, q, q_options, flt
         )
-        if q_options.external_parameters.plugin_params.is_empty():
-            # use default
-            q_options.external_parameters.plugin_params = GulpPluginParameters(
-                mappings={"default": GulpMapping(fields={})},
-                # these may be set, keep it
-                additional_mapping_files=q_options.external_parameters.plugin_params.additional_mapping_files,
-            )
-
-        # load any mapping set
-        await self._initialize(q_options.external_parameters.plugin_params)
 
         # connect
         is_elasticsearch = self._custom_params.get("is_elasticsearch")
@@ -215,6 +209,7 @@ class Plugin(GulpPluginBase):
             return 0, 0
 
         # query
+        q_options.fields = "*"
         query_error = None
         total_count = 0
         try:

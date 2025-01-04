@@ -361,7 +361,7 @@ async def test_csv_stacked():
     )
     await _test_generic(files, "stacked_example", 10, plugin_params=plugin_params)
 
-    # TODO: check documents (all documents duration set to 9999 and augmented=True set)
+    # TODO: check documents (all documents duration set to 9999 and enriched=True set)
 
 
 @pytest.mark.asyncio

@@ -102,25 +102,25 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
         try:
             if not plugin_params:
                 plugin_params = GulpPluginParameters()
 
+            await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
             if not plugin_params.mappings:
                 plugin_params.mappings = {}
 
@@ -132,9 +132,6 @@ class Plugin(GulpPluginBase):
                     )
                 }
                 plugin_params.mappings = mappings
-
-            # initialize plugin
-            await self._initialize(plugin_params)
 
         except Exception as ex:
             await self._source_failed(ex)

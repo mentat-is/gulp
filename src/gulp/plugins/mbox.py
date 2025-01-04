@@ -52,7 +52,7 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, data: Any = None
     ) -> GulpDocument:
         # document is processed by eml plugin
-        return await self._eml_parser._record_to_gulp_document(record, record_idx, data)
+        return await self._eml_parser._record_to_gulp_document(record, record_idx, data=data)
 
     @override
     async def ingest_file(
@@ -71,24 +71,23 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
         try:
-            # initialize plugin
-            await self._initialize(plugin_params)
+
+            await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
 
             # load eml plugin
             self._eml_parser = await self.load_plugin(

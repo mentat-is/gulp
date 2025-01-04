@@ -33,9 +33,9 @@ class Plugin(GulpPluginBase):
         return """stacked plugin on top of csv example"""
 
     @override
-    async def _augment_documents(self, docs: list[dict], data: Any) -> list[dict]:
+    async def _enrich_documents_chunk(self, docs: list[dict], data: Any) -> list[dict]:
         for doc in docs:
-            doc["augmented"] = True
+            doc["enriched"] = True
         return docs
 
     @override

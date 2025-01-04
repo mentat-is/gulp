@@ -227,35 +227,31 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
-        # taken from pfsense' parse_firewall_log_line function, these leve out some info (e.g. the pid of the filterlog process)
-        rfc5424_pattern = (
-            r"<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)$"
-        )
-        rfc3164_pattern = r"(.*)\s(.*)\sfilterlog\[[0-9]+\]:\s(.*)$"
-
-        rfc5424_regex: re.Pattern = re.compile(rfc5424_pattern)
-        rfc3164_regex: re.Pattern = re.compile(rfc3164_pattern)
-        regex: re.Pattern = None
-
-        doc_idx = 0
         try:
-            # initialize plugin
-            await self._initialize(plugin_params=plugin_params)
+            await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
+            # taken from pfsense' parse_firewall_log_line function, these leve out some info (e.g. the pid of the filterlog process)
+            rfc5424_pattern = r"<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)$"
+            rfc3164_pattern = r"(.*)\s(.*)\sfilterlog\[[0-9]+\]:\s(.*)$"
+
+            rfc5424_regex: re.Pattern = re.compile(rfc5424_pattern)
+            rfc3164_regex: re.Pattern = re.compile(rfc3164_pattern)
+            regex: re.Pattern = None
+
+            doc_idx = 0
 
             with open(file_path, "r") as log_file:
                 # SNIPPET: peek first line and decide pattern to use

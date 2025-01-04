@@ -507,7 +507,7 @@ or a query in the external source DSL.
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "pending",
+                        "status": "success",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
                         "data": autogenerate_model_example_by_class(GulpDocument),
@@ -787,7 +787,7 @@ async def query_stored_handler(
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "pending",
+                        "status": "success",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
                         "data": {
@@ -853,7 +853,7 @@ async def query_max_min_per_field(
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "pending",
+                        "status": "success",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
                         "data": [

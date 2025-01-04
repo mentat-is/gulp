@@ -68,25 +68,24 @@ class Plugin(GulpPluginBase):
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
-        await super().ingest_raw(
-            sess=sess,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            chunk=chunk,
-            stats=stats,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
         try:
             # initialize plugin
             if not plugin_params:
                 plugin_params = GulpPluginParameters()
-            await self._initialize(plugin_params)
+            await super().ingest_raw(
+                sess=sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                chunk=chunk,
+                stats=stats,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)

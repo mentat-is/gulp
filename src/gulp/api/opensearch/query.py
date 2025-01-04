@@ -306,6 +306,8 @@ for pagination, this should be set to the `search_after` returned by the previou
         else:
             # use the given set
             fields = self.fields
+
+        n["_source"] = None
         if fields != "*":
             # if "*", return all (so we do not set "_source"). either, only return these fields and be sure they include the defaults
             for f in QUERY_DEFAULT_FIELDS:
@@ -314,6 +316,7 @@ for pagination, this should be set to the `search_after` returned by the previou
             n["_source"] = fields
 
         # pagination: doc limit
+        n["size"] = None
         if self.limit is not None:
             # use provided
             n["size"] = self.limit
@@ -346,6 +349,9 @@ class GulpQueryHelpers:
         q_options: GulpQueryParameters = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: callable = None,
+        callback_args: dict = None,
+        callback_chunk: callable = None,
+        callback_chunk_args: dict = None,
     ) -> tuple[int, int]:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
@@ -363,7 +369,11 @@ class GulpQueryHelpers:
             callback (callable, optional): the callback to call for each document found. Defaults to None.
                 the callback must be defined as:
                 async def callback(doc: dict, idx: int, **kwargs) -> None
-
+            callback_args (dict, optional): further arguments to pass to the callback. Defaults to None.
+            callback_chunk (callable, optional): the callback to call for each chunk of documents found. Defaults to None.
+                the callback must be defined as:
+                async def callback_chunk(docs: list[dict], **kwargs) -> None
+            callback_chunk_args (dict, optional): further arguments to pass to the callback_chunk. Defaults to None.
         Returns:
             tuple[int, int]: the number of documents processed and the total number of documents found
         Raises:
@@ -391,6 +401,9 @@ class GulpQueryHelpers:
             q_options=q_options,
             el=el,
             callback=callback,
+            callback_args=callback_args,
+            callback_chunk=callback_chunk,
+            callback_chunk_args=callback_chunk_args,
         )
         return processed, total
 

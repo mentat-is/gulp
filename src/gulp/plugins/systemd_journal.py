@@ -57,7 +57,7 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "systemd_journal"
-    
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, data: Any = None
@@ -104,29 +104,28 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
         try:
             # initialize plugin
             if not plugin_params or plugin_params.is_empty():
                 plugin_params = GulpPluginParameters(
                     mapping_file="systemd_journal.json"
                 )
-            await self._initialize(plugin_params)
 
+            await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)

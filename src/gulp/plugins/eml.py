@@ -31,7 +31,7 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "eml"
-    
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
@@ -70,7 +70,6 @@ class Plugin(GulpPluginBase):
                 value = value.hex()
 
         return value
-
 
     @override
     async def _record_to_gulp_document(
@@ -144,25 +143,22 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
         try:
-            # initialize plugin
-            await self._initialize(plugin_params)
-
+            await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)

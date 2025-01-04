@@ -3,11 +3,13 @@
     - [ingestion](#ingestion)
     - [external](#external)
     - [extension](#extension)
+    - [enrichment](#enrichment)
 - [architecture](#architecture)
   - [plugin internals](#plugin-internals)
     - [ingestion plugins](#ingestion-plugins)
     - [external plugins](#external-plugins)
     - [extension plugins](#extension-plugins)
+    - [enrichment plugins](#enrichment-plugins)
   - [mapping files](#mapping-files)
     - [example](#example)
       - [metadata](#metadata)
@@ -63,6 +65,10 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 TODO
 
+### enrichment
+
+TODO
+
 # architecture
 
 While plugins can be as complex as needed, a basic plugin **must** implement the functions:
@@ -113,9 +119,13 @@ the plugins must implement:
   - the logic to connect to the external server.
   - query conversion
   - record format conversion
+- for `enrichment` plugins:
+  - the logic to enrich a set of documents
 - for `extension` plugins, they may install additional `API routes` during gulp initialization.
 
 > optionally, both `ingestion` and `external` plugins may implement `sigma_convert` and `sigma_support` to allow querying both gulp and the external sources via sigma rules: this is done through implementing [pysigma](https://github.com/SigmaHQ/pySigma) backend and pipeline/s to convert i.e. windows-specific sigma rules to target DSL query.
+
+> optionally, `ingestion` plugins may implement `_enrich_documents_chunk`, which will perform enrichment before storing the chunk to Opensearch.
 
 ### ingestion plugins
 
@@ -128,6 +138,7 @@ sequenceDiagram
     participant Plugin as Plugin
     participant Parser as Format parser
     participant Mapper as Field Mapper
+    participant Enrich as Enrichment
 
     Engine->>Plugin: ingest_file(file_path)
     Plugin->>Base: super().ingest_file()
@@ -152,7 +163,10 @@ sequenceDiagram
         Plugin->>Base: process_record()
         Base->>Base: Buffer records
         opt When buffer full
-            Base->>Base: _process_docs_chunk()
+            Base->>Base: _flush_buffer()
+            Base-->>Enrich: _enrich_documents_chunk(), if implemented
+            Enrich-->>Base: Return enriched documents
+            Base->>Base: _ingest_chunk_and_or_send_to_ws()
             Base-->>Engine: Stream to websocket
             Base-->>Engine: Ingest to OpenSearch
         end
@@ -186,7 +200,7 @@ sequenceDiagram
         Plugin->>Plugin: _record_to_gulp_document()
         Plugin->>Base: process_record()
         Base->>Base: Buffer records
-        Base->>Base: _process_docs_chunk()
+        Base->>Base: _ingest_chunk_and_or_send_to_ws()
         Base-->>Engine: Stream to websocket
         opt If ingestion enabled
             Base-->>Engine: Ingest to OpenSearch
@@ -232,6 +246,14 @@ sequenceDiagram
     Worker-->>Plugin: Task completion
     Plugin-->>App: Return JSendResponse
 ~~~
+
+### enrichment plugins
+
+enrichment plugins takes one or more `GulpDocuments` and returns them augmented with extra data.
+
+they must implement `enrich_documents`, `enrich_single_documents` and `_enrich_documents_chunk`.
+
+a preliminary example is [here](../src/gulp/plugins/enrich_example.py).
 
 ## mapping files
 
@@ -368,7 +390,7 @@ currently defined field flags are:
 
 ## stacked plugins
 
-plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can augment it.
+plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can `enrich` it.
 
 Stacked plugins are usually based on generic python *ingestion* plugins such as `csv`, `sqlite`.
 
@@ -380,7 +402,7 @@ stacking is handled by the engine, which basically does this `for every record` 
 
 - calls plugin's own `_record_to_gulp_document`
 - if there is a plugin stacked on top, calls its `_record_to_gulp_document` with the `GulpDocument` returned as `dict`.
-- if the stacked plugin also implements `_augment_documents`, this is called with each chunk of documents `right before` storing in gulp.
+- if the stacked plugin also implements `_is is called with each chunk of documents`right before` storing in gulp.
 
 ```mermaid
 flowchart TD

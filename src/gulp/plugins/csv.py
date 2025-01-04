@@ -123,31 +123,27 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
-        await super().ingest_file(
-            sess=sess,
-            stats=stats,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            file_path=file_path,
-            original_file_path=original_file_path,
-            plugin_params=plugin_params,
-            flt=flt,
-        )
-
-        # stats must be created by the caller, get it
-        stats: GulpRequestStats = await GulpRequestStats.get_by_id(sess, id=req_id)
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
         try:
-            # initialize plugin
-            if not plugin_params:
-                plugin_params = GulpPluginParameters()
+            await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+            )
 
-            # initialize plugin
-            await self._initialize(plugin_params)
+            # stats must be created by the caller, get it
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(sess, id=req_id)
 
         except Exception as ex:
             await self._source_failed(ex)

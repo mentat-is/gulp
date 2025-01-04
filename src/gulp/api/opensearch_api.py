@@ -1361,7 +1361,7 @@ class GulpOpenSearch:
             if v:
                 body[k] = v
         MutyLogger.get_instance().debug(
-            "query_raw body=%s" % (json.dumps(body, indent=2))
+            "query_raw body=%s, parsed_options=%s" % (json.dumps(body, indent=2), json.dumps(parsed_options, indent=2))
         )
 
         headers = {
@@ -1409,6 +1409,9 @@ class GulpOpenSearch:
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: callable = None,
+        callback_args: dict = None,
+        callback_chunk: callable = None,
+        callback_chunk_args: dict = None,
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -1428,8 +1431,14 @@ class GulpOpenSearch:
                 the callback must be defined as:
                 async def callback(doc: dict, idx: int, **kwargs) -> None
 
-                NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and assumed to be done by the callback.
+                NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must be done by the callback if needed.
+            callback_args (dict, optional): further arguments to pass to the callback. Defaults to None.
+            callback_chunk (callable, optional): the callback to call for each chunk of documents found. Defaults to None.
+                the callback must be defined as:
+                async def callback_chunk(docs: list[dict], **kwargs) -> None
 
+                NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must done by the callback if needed.
+            callback_chunk_args (dict, optional): further arguments to pass to the callback_chunk. Defaults to None.
         Return:
             tuple:
             - processed (int): The number of documents processed.
@@ -1468,7 +1477,11 @@ class GulpOpenSearch:
                 if callback:
                     # call the callback for each document
                     for idx, doc in enumerate(docs):
-                        await callback(doc, processed + idx)
+                        await callback(doc, processed + idx, **callback_args if callback_args else {})
+
+                if callback_chunk:
+                    # call the callback for each chunk of documents
+                    await callback_chunk(docs, total_hits=total_hits, last=last, chunk_num=chunk_num, **callback_chunk_args if callback_chunk_args else {})
 
                 if q_options.loop:
                     # auto setup for next iteration
@@ -1506,7 +1519,7 @@ class GulpOpenSearch:
                 MutyLogger.get_instance().error("search_dsl: error=%s" % (ex))
                 raise ex
 
-            if ws_id and not callback:
+            if ws_id and not callback and not callback_chunk:
                 # build a GulpDocumentsChunk and send to websocket
                 chunk = GulpDocumentsChunkPacket(
                     docs=docs,
@@ -1540,7 +1553,11 @@ class GulpOpenSearch:
                         data=p.model_dump(exclude_none=True),
                     )
 
-            if q_options.note_parameters.create_notes and not callback:
+            if (
+                q_options.note_parameters.create_notes
+                and not callback
+                and not callback_chunk
+            ):
                 # automatically generate notes
                 await GulpNote.bulk_create_from_documents(
                     sess,

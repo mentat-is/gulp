@@ -210,6 +210,7 @@ class GulpRestServer:
         from gulp.api.rest.object_acl import router as object_acl_router
         from gulp.api.rest.utility import router as utility_router
         from gulp.api.rest.query import router as query_router
+        from gulp.api.rest.enrich import router as enrich_router
 
         self._app.include_router(db_router)
         self._app.include_router(operation_router)
@@ -226,6 +227,7 @@ class GulpRestServer:
         self._app.include_router(object_acl_router)
         self._app.include_router(utility_router)
         self._app.include_router(query_router)
+        self._app.include_router(enrich_router)
 
         """
         import gulp.api.rest.utility

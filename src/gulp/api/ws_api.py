@@ -366,6 +366,10 @@ class GulpDocumentsChunkPacket(BaseModel):
         None,
         description="for query only: to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
     )
+    enriched: Optional[bool] = Field(
+        False,
+        description="if the documents have been enriched.",
+    )
 
 
 class GulpWsData(BaseModel):
@@ -529,7 +533,9 @@ class ConnectedSocket:
                 raise WebSocketDisconnect("client disconnected")
 
             # this will raise WebSocketDisconnect when client disconnects
-            await self.ws.receive_json()
+            d: dict = await self.ws.receive_json()
+
+            # TODO: handle incoming messages from the client
 
     async def put_message(self, msg: dict) -> None:
         """
@@ -712,7 +718,7 @@ class GulpConnectedSockets:
             MutyLogger.get_instance().debug("canceling ws %s..." % (cws.ws_id))
             cws.receive_task.cancel()
             cws.send_task.cancel()
-            
+
         MutyLogger.get_instance().debug(
             "all active websockets closed, len=%d!" % (len(self._sockets))
         )
