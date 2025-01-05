@@ -49,6 +49,8 @@ class GulpWsQueueDataType(StrEnum):
     INGEST_SOURCE_DONE = "ingest_source_done"
     # GulpQueryDonePacket
     QUERY_DONE = "query_done"
+    # GulpQueryDonePacket
+    ENRICH_DONE = "enrich_done"
     # GulpQueryGroupMatch
     QUERY_GROUP_MATCH = "query_group_match"
     # GulpRebaseDonePacket
@@ -130,7 +132,6 @@ class GulpQueryDonePacket(BaseModel):
             ]
         }
     )
-    req_id: str = Field(..., description="The request ID.")
     name: Optional[str] = Field(None, description="The query name.")
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."

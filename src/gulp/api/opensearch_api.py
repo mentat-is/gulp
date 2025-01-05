@@ -1361,7 +1361,8 @@ class GulpOpenSearch:
             if v:
                 body[k] = v
         MutyLogger.get_instance().debug(
-            "query_raw body=%s, parsed_options=%s" % (json.dumps(body, indent=2), json.dumps(parsed_options, indent=2))
+            "query_raw body=%s, parsed_options=%s"
+            % (json.dumps(body, indent=2), json.dumps(parsed_options, indent=2))
         )
 
         headers = {
@@ -1474,15 +1475,6 @@ class GulpOpenSearch:
                 total_hits, docs, search_after = await self._search_dsl_internal(
                     index, parsed_options, q, el
                 )
-                if callback:
-                    # call the callback for each document
-                    for idx, doc in enumerate(docs):
-                        await callback(doc, processed + idx, **callback_args if callback_args else {})
-
-                if callback_chunk:
-                    # call the callback for each chunk of documents
-                    await callback_chunk(docs, total_hits=total_hits, last=last, chunk_num=chunk_num, **callback_chunk_args if callback_chunk_args else {})
-
                 if q_options.loop:
                     # auto setup for next iteration
                     parsed_options["search_after"] = search_after
@@ -1492,17 +1484,38 @@ class GulpOpenSearch:
                     # this is the last chunk
                     last = True
 
+                if callback:
+                    # call the callback for each document
+                    for idx, doc in enumerate(docs):
+                        await callback(
+                            doc,
+                            processed + idx,
+                            **callback_args if callback_args else {},
+                        )
+
+                if callback_chunk:
+                    # call the callback for each chunk of documents
+                    await callback_chunk(
+                        docs,
+                        total_hits=total_hits,
+                        last=last,
+                        chunk_num=chunk_num,
+                        **callback_chunk_args if callback_chunk_args else {},
+                    )
+
             except ObjectNotFound as ex:
                 if processed == 0 and ws_id:
                     # no results at all
                     p = GulpQueryDonePacket(
-                        req_id=req_id,
                         status=GulpRequestStatus.FAILED,
                         total_hits=0,
                         name=q_options.name,
                     )
+
+                    # this may be set for callback_chunk
+                    t = callback_chunk_args.get("done_type")
                     GulpSharedWsQueue.get_instance().put(
-                        type=GulpWsQueueDataType.QUERY_DONE,
+                        type=t or GulpWsQueueDataType.QUERY_DONE,
                         ws_id=ws_id,
                         user_id=user_id,
                         req_id=req_id,
@@ -1540,7 +1553,6 @@ class GulpOpenSearch:
                 if last:
                     # also send a GulpQueryDonePacket
                     p = GulpQueryDonePacket(
-                        req_id=req_id,
                         status=GulpRequestStatus.DONE,
                         name=q_options.name,
                         total_hits=total_hits,

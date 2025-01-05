@@ -401,9 +401,9 @@ class GulpQueryHelpers:
             q_options=q_options,
             el=el,
             callback=callback,
-            callback_args=callback_args,
+            callback_args=callback_args or {},
             callback_chunk=callback_chunk,
-            callback_chunk_args=callback_chunk_args,
+            callback_chunk_args=callback_chunk_args or {},
         )
         return processed, total
 

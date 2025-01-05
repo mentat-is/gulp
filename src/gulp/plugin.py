@@ -504,9 +504,7 @@ class GulpPluginBase(ABC):
             == GulpDocumentFilterResult.ACCEPT
         ]
         if ws_docs:
-            MutyLogger.get_instance().debug(
-                "_process_docs_chunk: %s" % (json.dumps(ws_docs, indent=2))
-            )
+            # MutyLogger.get_instance().debug("_ingest_chunk_and_or_send_to_ws: %s" % (json.dumps(ws_docs, indent=2)))
             # send documents to the websocket
             chunk = GulpDocumentsChunkPacket(
                 docs=ws_docs,
@@ -814,6 +812,8 @@ class GulpPluginBase(ABC):
     async def _enrich_documents_chunk_wrapper(
         self, docs: list[dict], data: Any = None, **kwargs
     ) -> list[dict]:
+        last = kwargs.get("last", False)
+
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, data)
 
@@ -839,6 +839,19 @@ class GulpPluginBase(ABC):
             req_id=self._req_id,
             data=chunk.model_dump(exclude_none=True),
         )
+        if last:
+            # also send a GulpQueryDonePacket
+            p = GulpQueryDonePacket(
+                status=GulpRequestStatus.DONE,
+                total_hits=kwargs.get("total_hits", 0),
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=GulpWsQueueDataType.ENRICH_DONE,
+                ws_id=self._ws_id,
+                user_id=self._user_id,
+                req_id=self._req_id,
+                data=p.model_dump(exclude_none=True),
+            )
 
     async def enrich_documents(
         self,
@@ -887,6 +900,7 @@ class GulpPluginBase(ABC):
             flt=flt,
             q_options=q_options,
             callback_chunk=self._enrich_documents_chunk_wrapper,
+            callback_chunk_args={"done_type": GulpWsQueueDataType.ENRICH_DONE},
         )
 
     async def enrich_single_document(
@@ -1824,7 +1838,6 @@ class GulpPluginBase(ABC):
 
         # send a GulpQueryDonePacket
         p = GulpQueryDonePacket(
-            req_id=self._req_id,
             status=status,
             total_hits=hits,
             name=query_name,
