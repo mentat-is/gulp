@@ -24,6 +24,7 @@ from gulp.config import GulpConfig
 import asyncio
 from fastapi.websockets import WebSocketState
 
+
 class GulpWsQueueDataType(StrEnum):
     """
     The type of data into the websocket queue.
@@ -59,7 +60,9 @@ class GulpWsQueueDataType(StrEnum):
 
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
+
     pass
+
 
 class GulpUserLoginLogoutPacket(BaseModel):
     """
@@ -748,24 +751,24 @@ class GulpConnectedSockets:
         """
         # if types is set, only route if it matches
         if client_ws.types and data.type not in client_ws.types:
-            MutyLogger.get_instance().warning(
-                f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, types={client_ws.types}"
-            )
+            # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, types={client_ws.types}")
             return
 
         # if operation_id is set, only route if it matches
         if client_ws.operation_ids and data.operation_id not in client_ws.operation_ids:
-            MutyLogger.get_instance().warning(
-                f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, operation_ids={client_ws.operation_ids}"
-            )
+            # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, operation_ids={client_ws.operation_ids}")
             return
 
         # private messages are only routed to the target websocket
         if data.private and client_ws.ws_id != data.ws_id:
-            MutyLogger.get_instance().warning(
-                f"skipping private entry type={data.type} for ws_id={client_ws.ws_id}"
-            )
+            # MutyLogger.get_instance().warning(f"skipping private entry type={data.type} for ws_id={client_ws.ws_id}")
             return
+
+        if data.type != GulpWsQueueDataType.COLLAB_UPDATE:
+            # for non-collab data, only relay to the same ws_id
+            if client_ws.ws_id != data.ws_id:
+                # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}")
+                return
 
         # send the message
         message = data.model_dump(
@@ -938,7 +941,9 @@ class GulpSharedWsQueue:
             except queue.Empty:
                 break
         if cleaned > 0:
-            MutyLogger.get_instance().info(f"cleaned {cleaned} stale messages from queue")
+            MutyLogger.get_instance().info(
+                f"cleaned {cleaned} stale messages from queue"
+            )
 
     def put(
         self,
@@ -984,7 +989,7 @@ class GulpSharedWsQueue:
                 )
                 self._cleanup_stale_messages()
                 retries += 1
-                
+
         # If we get here, all retries failed
         MutyLogger.get_instance().error(
             f"failed to add message to queue for ws {ws_id} after {self.MAX_RETRIES} attempts"
