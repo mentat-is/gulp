@@ -9,6 +9,7 @@ import muty
 from fastapi import WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
+import queue
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
 from gulp.api.rest.test_values import (
@@ -22,7 +23,6 @@ from gulp.api.rest.test_values import (
 from gulp.config import GulpConfig
 import asyncio
 from fastapi.websockets import WebSocketState
-
 
 class GulpWsQueueDataType(StrEnum):
     """
@@ -56,6 +56,10 @@ class GulpWsQueueDataType(StrEnum):
     # GulpRebaseDonePacket
     REBASE_DONE = "rebase_done"
 
+
+class WsQueueFullException(Exception):
+    """Exception raised when queue is full after retries"""
+    pass
 
 class GulpUserLoginLogoutPacket(BaseModel):
     """
@@ -786,6 +790,9 @@ class GulpSharedWsQueue:
     """
 
     _fill_task: asyncio.Task = None
+    MAX_QUEUE_SIZE = 1000
+    QUEUE_TIMEOUT = 30
+    MAX_RETRIES = 3
 
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
@@ -919,6 +926,20 @@ class GulpSharedWsQueue:
                 "cancelling shared queue fill task done: %r" % (b)
             )
 
+    def _cleanup_stale_messages(self):
+        """
+        remove old messages if queue size exceeds limit
+        """
+        cleaned = 0
+        while self._shared_q.qsize() > self.MAX_QUEUE_SIZE:
+            try:
+                self._shared_q.get_nowait()
+                cleaned += 1
+            except queue.Empty:
+                break
+        if cleaned > 0:
+            MutyLogger.get_instance().info(f"cleaned {cleaned} stale messages from queue")
+
     def put(
         self,
         type: GulpWsQueueDataType,
@@ -951,8 +972,21 @@ class GulpSharedWsQueue:
             private=private,
             data=data,
         )
-        if self._shared_q and ws_id:
-            MutyLogger.get_instance().debug(
-                "adding entry type=%s to ws_id=%s queue..." % (type, ws_id)
-            )
-            self._shared_q.put(wsd)
+
+        retries = 0
+        while retries < self.MAX_RETRIES:
+            try:
+                self._shared_q.put(wsd, block=True, timeout=self.QUEUE_TIMEOUT)
+                return
+            except queue.Full:
+                MutyLogger.get_instance().warning(
+                    f"Queue full for ws {ws_id}, attempt {retries + 1}/{self.MAX_RETRIES}"
+                )
+                self._cleanup_stale_messages()
+                retries += 1
+                
+        # If we get here, all retries failed
+        MutyLogger.get_instance().error(
+            f"failed to add message to queue for ws {ws_id} after {self.MAX_RETRIES} attempts"
+        )
+        raise WsQueueFullException(f"queue full for ws {ws_id}")

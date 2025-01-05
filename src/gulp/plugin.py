@@ -5,9 +5,8 @@ import asyncio
 import ipaddress
 import json
 import os
-from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
-from copy import copy
+from copy import deepcopy
 from enum import StrEnum
 from types import ModuleType
 from typing import Any, Callable, Optional
@@ -484,7 +483,8 @@ class GulpPluginBase(ABC):
         # send ingested docs to websocket
         if flt:
             # copy filter to avoid changing the original, if any,
-            flt = copy(flt)
+            flt = deepcopy(flt)
+
             # ensure data on ws is filtered
             flt.storage_ignore_filter = False
 
