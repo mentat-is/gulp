@@ -759,13 +759,19 @@ class GulpConnectedSockets:
             # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, operation_ids={client_ws.operation_ids}")
             return
 
-        # private messages are only routed to the target websocket
-        if data.private and client_ws.ws_id != data.ws_id:
+        # private messages are only routed to the target websocket (except login, always public)
+        if (data.private and data.type != GulpWsQueueDataType.USER_LOGIN) and client_ws.ws_id != data.ws_id:
             # MutyLogger.get_instance().warning(f"skipping private entry type={data.type} for ws_id={client_ws.ws_id}")
             return
 
-        if data.type != GulpWsQueueDataType.COLLAB_UPDATE:
-            # for non-collab data, only relay to the same ws_id
+        if data.type not in [
+            GulpWsQueueDataType.COLLAB_UPDATE,
+            GulpWsQueueDataType.COLLAB_DELETE,
+            GulpWsQueueDataType.REBASE_DONE,
+            GulpWsQueueDataType.USER_LOGIN,
+            GulpWsQueueDataType.USER_LOGOUT,
+        ]:
+            # for data types not in this list, only relay to the ws_id of the client
             if client_ws.ws_id != data.ws_id:
                 # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}")
                 return
