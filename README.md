@@ -96,7 +96,8 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 
 the following environment variables may be set to override configuration options.
 
-- `BIND_TO`: if set, gulp will listen to this interface and port (either, the default `0.0.0.0:8080` is used)
+- `BIND_TO_ADDR`, `BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used.
+  - for the override to work, both `BIND_TO_ADDR` and `BIND_TO_PORT` must be specified, either the value of one alone is ignored.
 
 - `PATH_CONFIG`: if set, will be used as path for the configuration file (either, `~/.config/gulp/gulp_cfg.json` will be used)
 

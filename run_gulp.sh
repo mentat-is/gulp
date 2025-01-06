@@ -55,4 +55,4 @@ if [[ "$EXTRA_ARGS" == *"--help"* || "$EXTRA_ARGS" == *"-h"* || -z "$GULP_CONFIG
 fi
 
 # run docker-compose with the given arguments
-EXTRA_ARGS="$EXTRA_ARGS" BIND_TO=$IFACE:$PORT docker compose --profile full up $BACKGROUND
+EXTRA_ARGS="$EXTRA_ARGS" BIND_TO_ADDR=$IFACE BIND_TO_PORT=$PORT docker compose --profile full up $BACKGROUND

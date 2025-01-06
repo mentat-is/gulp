@@ -90,7 +90,7 @@ pip3 install -e . && pip3 install -e ../muty-python
 docker compose up -d
 
 # run gulp first time (will create collab database "gulp" on postgresql and the default index on opensearch)
-BIND_TO=0.0.0.0:8080 gulp
+BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
 ~~~
 
 ### 7. optional: installing extra plugins

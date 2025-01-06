@@ -1,5 +1,5 @@
 {
-  // bind_to is the address:port to bind to (default=0.0.0.0:8080), may be overridden by BIND_TO environment variable
+  // bind_to is the address:port to bind to (default=0.0.0.0:8080), may be overridden by BIND_TO_ADDR, BIND_TO_PORT environment variables
   "bind_to": null,
   // each spawned process will run this number of tasks concurrently, at max (default=16)
   "concurrency_max_tasks": 16,

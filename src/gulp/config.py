@@ -160,12 +160,18 @@ class GulpConfig:
         Returns:
             tuple[str,int]: the bind address and port
         """
-        p = os.getenv("BIND_TO")
+        # check env
+        addr = os.getenv("BIND_TO_ADDR")
+        port = os.getenv("BIND_TO_PORT")
+        if addr and port:
+            MutyLogger.get_instance().debug("bind_to (from env): %s:%s" % (addr,port))
+            return (addr, int(port))
+
+        # get from configuration "bind_to
+        p = self._config.get("bind_to", None)
         if p is None:
-            p = self._config.get("bind_to", None)
-            if p is None:
-                MutyLogger.get_instance().debug("bind_to not set, using default!")
-                p = "0.0.0.0:8080"
+            MutyLogger.get_instance().debug("bind_to not set, using default!")
+            p = "0.0.0.0:8080"
 
         MutyLogger.get_instance().debug("bind_to: %s" % (p))
         splitted = p.split(":")
