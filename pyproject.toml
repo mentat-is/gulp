@@ -40,7 +40,7 @@ dependencies = [
     "PyYAML==6.0.2",
     "requests_toolbelt==1.0.0",
     "requests==2.32.3",
-    "setuptools==75.1.0",
+    "setuptools==75.7.0",
     "sigma-cli==1.0.4",
     "sqlalchemy-dlock==0.6.1.post1",
     "sqlalchemy-utils==0.41.2",
