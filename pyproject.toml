@@ -21,7 +21,7 @@ dependencies = [
     "evtx==0.8.6",
     "fastapi==0.115.5",
     "idna==3.10",
-    "Jinja2==3.1.4",
+    "Jinja2==3.1.5",
     "MarkupSafe==2.1.5",
     "muty@git+https://github.com/mentat-is/muty-python.git",
     "opensearch-py==2.7.1",
