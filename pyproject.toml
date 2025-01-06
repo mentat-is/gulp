@@ -48,7 +48,7 @@ dependencies = [
     "starlette==0.41.2",
     "urllib3==2.2.3",
     "uvicorn==0.30.6",
-    "websockets==13.0.1",
+    "websockets==14.1",
 ]
 
 [project.scripts]
