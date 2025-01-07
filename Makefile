@@ -8,14 +8,27 @@ GIT_TAG ?= $(shell git describe --tags --always)
 
 # Docker configuration
 DOCKER_USERNAME ?= mentatis
-APPLICATION_NAME ?= gulp
+APPLICATION_NAME ?= gulp-core
 
 # Build the Docker image
 _builder:
-	DOCKER_BUILDKIT=1 docker build \
+	docker build \
 		--build-arg _VERSION=${GIT_HASH} \
 		--rm \
-		--tag ${DOCKER_USERNAME}/${APPLICATION_NAME}:${_BUILD_ARGS_RELEASE_TAG} \
+		--tag ${DOCKER_USERNAME}/${APPLICATION_NAME}:${GIT_HASH} \
+		-f ${_BUILD_ARGS_DOCKERFILE} .
+
+	docker build \
+		--build-arg _VERSION=${GIT_HASH} \
+		--rm \
+		--tag ${DOCKER_USERNAME}/${APPLICATION_NAME}:latest \
+		-f ${_BUILD_ARGS_DOCKERFILE} .
+
+
+	docker build \
+		--build-arg _VERSION=${GIT_HASH} \
+		--rm \
+		--tag ${APPLICATION_NAME}:latest \
 		-f ${_BUILD_ARGS_DOCKERFILE} .
 
 # Push the Docker image

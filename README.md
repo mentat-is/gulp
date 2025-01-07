@@ -49,7 +49,7 @@ Here's the rough timeline we put together, it is subject to change:
 ## MOCA 2024 presentation
 
 [here is our presentation](https://docs.google.com/presentation/d/e/2PACX-1vTynDHQqr2hN6d3Mlq7UGADR-SAePDUD_M9CdPd2VrS5n11JkrrWMj00KQb9flhG8i2VUlKOn2tr5Ny/pub?start=false&loop=false&delayms=3000) at [MOCA2024](https://moca.camp).
-
+localhost:5000
 ## installation
 
 ### TLDR ;)
@@ -152,13 +152,18 @@ get it [here](https://github.com/mentat-is/gulpui-web) !
 
   [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1349)
 
-## run
+## Docker instructions
 
 [with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
 
-> currently, we recommend to install from sources!
+> make build
 
-Updates soon...
+Want to run the latest build with API but not WEB:
+> docker compose -f docker-compose-dev.yml --profile api -d up
+
+Want to stop it:
+> docker compose down
+
 
 ## test
 

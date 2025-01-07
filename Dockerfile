@@ -1,5 +1,3 @@
-# example build command:
-# DOCKER_BUILDKIT=1 docker build --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp .
 
 FROM python:3.12.3-bullseye
 
