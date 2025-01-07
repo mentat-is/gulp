@@ -10,7 +10,7 @@ from copy import deepcopy
 from enum import StrEnum
 from types import ModuleType
 from typing import Any, Callable, Optional
-
+import inspect
 import muty.crypto
 import muty.dynload
 import muty.file
@@ -884,6 +884,9 @@ class GulpPluginBase(ABC):
 
         NOTE: implementers must implement _enrich_documents_chunk and just call super().enrich_documents
         """
+        if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(GulpPluginBase._enrich_documents_chunk):
+            raise NotImplementedError("plugin %s does not support enrichment" % (self.name))
+        
         self._user_id = user_id
         self._req_id = req_id
         self._ws_id = ws_id
@@ -924,6 +927,9 @@ class GulpPluginBase(ABC):
 
         NOTE: implementers must implement _enrich_documents_chunk and just call super().enrich_single_document
         """
+        if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(GulpPluginBase._enrich_documents_chunk):
+            raise NotImplementedError("plugin %s does not support enrichment" % (self.name))
+
         await self._initialize(plugin_params=plugin_params)
 
         # get the document
