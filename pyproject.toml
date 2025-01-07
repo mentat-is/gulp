@@ -46,7 +46,7 @@ dependencies = [
     "sqlalchemy-utils==0.41.2",
     "sqlalchemy[asyncio]==2.0.34",
     "starlette==0.41.2",
-    "urllib3==2.2.3",
+    "urllib3==2.3.0",
     "uvicorn==0.30.6",
     "websockets==13.0.1",
 ]
