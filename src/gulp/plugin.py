@@ -892,6 +892,12 @@ class GulpPluginBase(ABC):
         self._enrich_index = index
         await self._initialize(plugin_params=plugin_params)
 
+        # force return all fields
+        if q_options:
+            q_options.fields="*"
+        else:
+            q_options = GulpQueryParameters(fields="*")
+                  
         await GulpQueryHelpers.query_raw(
             sess=sess,
             user_id=self._user_id,

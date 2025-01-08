@@ -466,6 +466,7 @@ class GulpOpenSearch:
                 "analyzer": "standard",
                 "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
             }
+
             settings["index"]["mapping"]["total_fields"] = {
                 "limit": GulpConfig.get_instance().index_template_default_total_fields_limit()
             }
@@ -1380,6 +1381,7 @@ class GulpOpenSearch:
                     size=parsed_options["size"],
                     search_after=parsed_options["search_after"],
                     source=parsed_options["_source"],
+                    highlight=q.get("highlight", None),
                 )
             else:
                 # external opensearch
@@ -1395,7 +1397,16 @@ class GulpOpenSearch:
 
         # get data
         total_hits = res["hits"]["total"]["value"]
-        docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
+        # docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
+        docs = [
+            {
+                **hit["_source"],
+                "_id": hit["_id"],
+                **({"highlight": hit["highlight"]} if "highlight" in hit else {}),
+            }
+            for hit in hits
+        ]
+
         search_after = hits[-1]["sort"]
         return total_hits, docs, search_after
 

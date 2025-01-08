@@ -53,7 +53,7 @@ class Plugin(GulpPluginBase):
         req_id: str,
         ws_id: str,
         index: str,
-        q: dict,
+        q: dict = None,
         flt: GulpQueryFilter = None,
         q_options: GulpQueryParameters = None,
         plugin_params: GulpPluginParameters = None,

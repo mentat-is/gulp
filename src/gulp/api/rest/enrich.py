@@ -2,7 +2,9 @@ from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
+    GulpRequestStatus,
     GulpUserPermission,
 )
 from muty.pydantic import autogenerate_model_example_by_class
@@ -17,6 +19,7 @@ from gulp.api.rest.server_utils import (
     ServerUtils,
 )
 from gulp.api.rest.structs import APIDependencies
+from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from muty.log import MutyLogger
@@ -60,6 +63,15 @@ async def _enrich_documents_internal(
                 q_options=q_options,
                 plugin_params=plugin_params,
             )
+        except Exception as ex:
+            p = GulpQueryDonePacket(status=GulpRequestStatus.FAILED, error=str(ex))
+            GulpSharedWsQueue.get_instance().put(
+                type=GulpWsQueueDataType.ENRICH_DONE,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )
         finally:
             # done
             if mod:
@@ -101,11 +113,12 @@ async def enrich_documents_handler(
         dict,
         Body(
             description="""
-query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+if provided, a query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+if not provided, the plugin should implement it.
 """,
             examples=[{"query": {"match_all": {}}}],
         ),
-    ],
+    ] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -132,6 +145,16 @@ query according to the [OpenSearch DSL specifications](https://opensearch.org/do
             # check token and get caller user id
             s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
             user_id = s.user_id
+
+            # create a stats, just to allow request canceling
+            await GulpRequestStats.create(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=None,
+                context_id=None,
+            )
 
         # spawn a task which runs the enrichment in a worker process
         # run ingestion in a coroutine in one of the workers
