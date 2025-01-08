@@ -49,10 +49,10 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         # document is processed by eml plugin
-        return await self._eml_parser._record_to_gulp_document(record, record_idx, data=data)
+        return await self._eml_parser._record_to_gulp_document(record, record_idx, **kwargs)
 
     @override
     async def ingest_file(

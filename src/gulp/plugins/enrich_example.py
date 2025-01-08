@@ -33,7 +33,7 @@ class Plugin(GulpPluginBase):
         return "Example enrichment plugin."
 
     async def _enrich_documents_chunk(
-        self, docs: list[dict], data: Any = None, **kwargs
+        self, docs: list[dict], **kwargs
     ) -> list[dict]:
         for doc in docs:
             doc["enriched"] = True

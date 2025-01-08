@@ -53,11 +53,10 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         event: Match = record
-        data: dict = data
-        line = data["line"]
+        line = kwargs["line"]
 
         d: dict = {}
 
@@ -169,7 +168,7 @@ class Plugin(GulpPluginBase):
                     if m:
                         try:
                             await self.process_record(
-                                m, doc_idx, flt=flt, data={"line": line}
+                                m, doc_idx, flt=flt, line=line
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)

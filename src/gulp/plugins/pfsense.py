@@ -36,12 +36,12 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
 
         event: str = record
         flent: dict = {}
-        log_split: re.Match[str] = data["match"]
+        log_split: re.Match[str] = kwargs["match"]
         matches: tuple = log_split.groups()
 
         flent["time"] = matches[0]
@@ -273,7 +273,7 @@ class Plugin(GulpPluginBase):
                     if m:
                         try:
                             await self.process_record(
-                                rr, doc_idx, flt=flt, data={"match": m}
+                                rr, doc_idx, flt=flt, match=m
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)

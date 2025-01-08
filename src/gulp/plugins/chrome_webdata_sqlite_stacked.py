@@ -70,7 +70,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: dict, record_idx: int, data: Any
+        self, record: dict, record_idx: int, **kwargs
     ) -> dict:
         # do nothing ...
         return record

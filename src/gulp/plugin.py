@@ -791,7 +791,7 @@ class GulpPluginBase(ABC):
         return GulpRequestStatus.ONGOING
 
     async def _enrich_documents_chunk(
-        self, docs: list[dict], data: Any = None, **kwargs
+        self, docs: list[dict], **kwargs
     ) -> list[dict]:
         """
         to be implemented in a plugin to enrich a chunk of documents.
@@ -802,7 +802,6 @@ class GulpPluginBase(ABC):
 
         Args:
             docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
-            data (Any, optional): additional data if any. Defaults to None.
             kwargs: additional keyword arguments
         Returns:
             list[dict]: the enriched documents
@@ -810,12 +809,12 @@ class GulpPluginBase(ABC):
         return docs
 
     async def _enrich_documents_chunk_wrapper(
-        self, docs: list[dict], data: Any = None, **kwargs
+        self, docs: list[dict], **kwargs
     ) -> list[dict]:
         last = kwargs.get("last", False)
 
         # call the plugin function
-        docs = await self._enrich_documents_chunk(docs, data)
+        docs = await self._enrich_documents_chunk(docs, **kwargs)
 
         # update the documents
         last = kwargs.get("last", False)
@@ -921,7 +920,6 @@ class GulpPluginBase(ABC):
             doc (dict): the document to enrich
             index (str): the index to query
             plugin_params (GulpPluginParameters): the plugin parameters
-            kwargs: additional keyword arguments
         Returns:
             dict: the enriched document
 
@@ -1139,7 +1137,7 @@ class GulpPluginBase(ABC):
         return [doc.model_dump(by_alias=True)] + extra_docs
 
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         """
         to be implemented in a plugin to convert a record to a GulpDocument.
@@ -1153,7 +1151,7 @@ class GulpPluginBase(ABC):
             record (any): the record to convert.
                 NOTE: in a stacked plugin, this method always receives `record` ad `dict` (GulpDocument.model_dump()) and returns the same `dict` after processing.
             record_idx (int): the index of the record in the source
-            data (Any, optional): additional data if any. Defaults to None.
+            kwargs: additional keyword arguments
         Returns:
             GulpDocument: the GulpDocument
 
@@ -1164,7 +1162,7 @@ class GulpPluginBase(ABC):
         self,
         record: Any,
         record_idx: int,
-        data: Any = None,
+        **kwargs
     ) -> list[dict]:
         """
         turn a record in one or more gulp documents, taking care of calling lower plugin if any.
@@ -1172,7 +1170,7 @@ class GulpPluginBase(ABC):
         Args:
             record (any): the record to convert
             record_idx (int): the index of the record in the source
-            data (Any, optional): additional data to pass to the plugin. Defaults to None.
+            kwargs: additional keyword arguments
         Returns:
             list[dict]: zero or more GulpDocument dictionaries
 
@@ -1180,7 +1178,7 @@ class GulpPluginBase(ABC):
         """
 
         # process documents with our record_to_gulp_document
-        doc = await self._record_to_gulp_document(record, record_idx, data=data)
+        doc = await self._record_to_gulp_document(record, record_idx, **kwargs)
         if not doc:
             return []
 
@@ -1190,7 +1188,7 @@ class GulpPluginBase(ABC):
             # postprocess documents with the stacked plugin
             for i, doc in enumerate(docs):
                 docs[i] = await self._upper_record_to_gulp_document_fun(
-                    doc, record_idx, data
+                    doc, record_idx, **kwargs
                 )
 
         return docs
@@ -1303,9 +1301,9 @@ class GulpPluginBase(ABC):
         self,
         record: Any,
         record_idx: int,
-        data: Any = None,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
+        **kwargs,
     ) -> None:
         """
         Processes a single record by converting it to one or more documents.
@@ -1315,9 +1313,9 @@ class GulpPluginBase(ABC):
         Args:
             record (any): The record to process.
             record_idx (int): The index of the record.
-            data (Any, optional): Additional data to pass to `_record_to_gulp_documents` in the plugin. Defaults to None.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
+            kwargs: additional keyword arguments.
         Returns:
             None
         """
@@ -1331,7 +1329,7 @@ class GulpPluginBase(ABC):
         # process this record and generate one or more gulpdocument dictionaries
         try:
             docs = await self._record_to_gulp_documents_wrapper(
-                record, record_idx, data=data
+                record, record_idx, **kwargs
             )
         except Exception as ex:
             # report failure
@@ -1347,7 +1345,7 @@ class GulpPluginBase(ABC):
 
                 # flush chunk to opensearch (ingest and stream to ws)
                 ingested, skipped = await self._flush_buffer(
-                    flt, wait_for_refresh, data
+                    flt, wait_for_refresh, **kwargs
                 )
                 if self._req_canceled:
                     raise RequestCanceledError("request canceled!")
@@ -1648,7 +1646,7 @@ class GulpPluginBase(ABC):
         self,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-        data: Any = None,
+        **kwargs,
     ) -> tuple[int, int]:
         """
         flushes the ingestion buffer to opensearch, updating the ingestion stats on the collab db.
@@ -1658,7 +1656,7 @@ class GulpPluginBase(ABC):
         Args:
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
             wait_for_refresh (bool, optional): Tell opensearch to wait for index refresh. Defaults to False (faster).
-            data (Any, optional): Additional data to pass to _enrich_documents, if any. Defaults to None.
+            **kwargs: additional keyword arguments.
         Returns:
             tuple[int,int]: ingested, skipped records
         """
@@ -1668,13 +1666,13 @@ class GulpPluginBase(ABC):
             try:
                 # call our enrich_documents
                 self._docs_buffer = await self._enrich_documents_chunk(
-                    self._docs_buffer, data
+                    self._docs_buffer, **kwargs
                 )
 
                 if self._upper_enrich_documents_chunk_fun:
                     # if an upper plugin is stacked, call its enrich_documents too to postprocess
                     self._docs_buffer = await self._upper_enrich_documents_chunk_fun(
-                        self._docs_buffer, data
+                        self._docs_buffer, **kwargs
                     )
             except Exception as ex:
                 pass
@@ -1739,14 +1737,14 @@ class GulpPluginBase(ABC):
         self._source_error = err
 
     async def _source_done(
-        self, flt: GulpIngestionFilter = None, data: Any = None
+        self, flt: GulpIngestionFilter = None, **kwargs
     ) -> None:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
 
         Args:
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
-            data (Any, optional): Additional data to pass to _flush_buffer, if any. Defaults to None.
+            **kwargs: Additional keyword arguments.
         """
         MutyLogger.get_instance().debug(
             "INGESTION SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s"
@@ -1759,7 +1757,7 @@ class GulpPluginBase(ABC):
 
         # flush the last chunk
         ingested, skipped = await self._flush_buffer(
-            flt, wait_for_refresh=True, data=data
+            flt, wait_for_refresh=True, **kwargs
         )
 
         if self._ws_id:

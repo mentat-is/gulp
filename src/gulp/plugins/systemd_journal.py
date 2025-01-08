@@ -60,7 +60,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         event = self._to_str_dict(record)
         d: dict = {}

@@ -33,14 +33,14 @@ class Plugin(GulpPluginBase):
         return """stacked plugin on top of csv example"""
 
     @override
-    async def _enrich_documents_chunk(self, docs: list[dict], data: Any) -> list[dict]:
+    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         for doc in docs:
             doc["enriched"] = True
         return docs
 
     @override
     async def _record_to_gulp_document(
-        self, record: dict, record_idx: int, data: Any
+        self, record: dict, record_idx: int, **kwargs
     ) -> dict:
 
         # MutyLogger.get_instance().debug("record: %s" % record)

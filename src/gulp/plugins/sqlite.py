@@ -93,12 +93,12 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
 
         # MutyLogger.get_instance().debug(custom_mapping"record: %s" % record)
         event: dict = record
-        data: dict
+        data: dict = kwargs["data"]
 
         # use original id as record_idx, if any
         record_idx = data.pop("original_id", record_idx)

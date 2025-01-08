@@ -41,7 +41,7 @@ class Plugin(GulpPluginBase):
 
     @override
     async def _record_to_gulp_document(
-        self, record: Any, record_idx: int, data: Any = None
+        self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         # ^\[(?P<timestamp>[^\]]+)\]\s\[(?P<loglevel>[^\]]+)\]\s\[(?P<pid>[^\]:]+)((?=:):(?P<tid>[^\]]+)|)\]\s((?=\[)(\[(?P<client>[^\]]+)\s(?P<ip>[^\]]+)\]\s(?P<message>.*))|(?!=\[)(?P<message_x>.*))$
         # [Fri Sep 09 10:42:29.902022 2011] [core:error] [pid 35708:tid 4328636416] [client 72.15.99.187] File does not exist: /usr/local/apache2/htdocs/favicon.ico
