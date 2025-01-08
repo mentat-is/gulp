@@ -873,7 +873,7 @@ class GulpPluginBase(ABC):
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
             index (str): the index to query
-            q(dict): a query in OpenSearch DSL format
+            q(dict): a query in OpenSearch DSL format to restrict the documents to enrich
             flt (GulpQueryFilter, optional): to further restrict q with a filter. Defaults to None.
             q_options (GulpQueryParameters, optional): additional query options. Defaults to None.
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.

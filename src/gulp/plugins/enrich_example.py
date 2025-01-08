@@ -32,9 +32,7 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Example enrichment plugin."
 
-    async def _enrich_documents_chunk(
-        self, docs: list[dict], **kwargs
-    ) -> list[dict]:
+    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         for doc in docs:
             doc["enriched"] = True
             doc["gulp.enriched.new_field"] = muty.string.generate_unique()
@@ -46,6 +44,7 @@ class Plugin(GulpPluginBase):
 
         return docs
 
+    @override
     async def enrich_documents(
         self,
         sess: AsyncSession,

@@ -64,7 +64,10 @@ async def _enrich_documents_internal(
                 plugin_params=plugin_params,
             )
         except Exception as ex:
-            p = GulpQueryDonePacket(status=GulpRequestStatus.FAILED, error=muty.log.exception_to_string(ex, with_full_traceback=True))
+            p = GulpQueryDonePacket(
+                status=GulpRequestStatus.FAILED,
+                error=muty.log.exception_to_string(ex, with_full_traceback=True),
+            )
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.ENRICH_DONE,
                 ws_id=ws_id,
@@ -102,6 +105,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 
 - token must have the `edit` permission.
 - the enriched documents are updated in the Gulp `index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
+- `q`, `flt` may be provided to restrict the documents to enrich.
 """,
 )
 async def enrich_documents_handler(
@@ -112,10 +116,6 @@ async def enrich_documents_handler(
     q: Annotated[
         dict,
         Body(
-            description="""
-if provided, a query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
-if not provided, the plugin should implement it.
-""",
             examples=[{"query": {"match_all": {}}}],
         ),
     ] = None,

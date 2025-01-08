@@ -338,6 +338,20 @@ class GulpQueryHelpers:
     """
 
     @staticmethod
+    def merge_queries(q1: dict, q2: dict) -> dict:
+        """
+        merge two queries into one.
+
+        Args:
+            q1 (dict): the first query
+            q2 (dict): the second query
+
+        Returns:
+            dict: the merged query
+        """
+        return {"bool": {"must": [q1, q2]}}
+
+    @staticmethod
     async def query_raw(
         sess: AsyncSession,
         user_id: str,
