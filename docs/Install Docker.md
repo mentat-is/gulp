@@ -46,10 +46,10 @@ GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 ./run_gulp.sh
 GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 IFACE=192.168.1.1 ./run_gulp.sh
 
 # reset opensearch (use index name)
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-index myidx
 
 # reset opensearch and collab
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-elastic myidx --reset-collab
+GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-index myidx --reset-collab
 ```
 
 > NOTE:

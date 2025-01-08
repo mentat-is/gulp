@@ -50,6 +50,7 @@ Here's the rough timeline we put together, it is subject to change:
 
 [here is our presentation](https://docs.google.com/presentation/d/e/2PACX-1vTynDHQqr2hN6d3Mlq7UGADR-SAePDUD_M9CdPd2VrS5n11JkrrWMj00KQb9flhG8i2VUlKOn2tr5Ny/pub?start=false&loop=false&delayms=3000) at [MOCA2024](https://moca.camp).
 localhost:5000
+
 ## installation
 
 ### TLDR ;)
@@ -96,7 +97,7 @@ curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.s
 
 the following environment variables may be set to override configuration options.
 
-- `BIND_TO_ADDR`, `BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used.
+- `BIND_TO_ADDR`, `BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used).
   - for the override to work, both `BIND_TO_ADDR` and `BIND_TO_PORT` must be specified, either the value of one alone is ignored.
 
 - `PATH_CONFIG`: if set, will be used as path for the configuration file (either, `~/.config/gulp/gulp_cfg.json` will be used)
@@ -109,7 +110,7 @@ the following environment variables may be set to override configuration options
 - `PATH_MAPPING_FILES_EXTRA`: if set, an extra directory where to search mapping files into.
   - mapping files are loaded by default from `$INSTALLDIR/mapping_files`
   - if a mapping file exists in both directories, `$PATH_MAPPING_FILES_EXTRA` has precedence (i.e. to allow newer mapping versions)  
-  -
+
 - `PATH_INDEX_TEMPLATE`: if set, path to load the index template used when setting up new indexes (either, the [default](./src/gulp/api/mapping/index_template/template.json) template is used).
 
 - `PATH_CERTS`: if set, overrides `path_certs` in the configuration to specify a path to load SSL certificates from (for HTTPS).
@@ -163,7 +164,6 @@ Want to run the latest build with API but not WEB:
 
 Want to stop it:
 > docker compose down
-
 
 ## test
 
