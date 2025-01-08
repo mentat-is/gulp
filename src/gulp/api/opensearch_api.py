@@ -7,6 +7,7 @@ import muty.dict
 import muty.file
 import muty.string
 import muty.time
+import muty.log
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
@@ -1540,7 +1541,9 @@ class GulpOpenSearch:
                     last = True
             except Exception as ex:
                 # something went wrong
-                MutyLogger.get_instance().error("search_dsl: error=%s" % (ex))
+                MutyLogger.get_instance().error(
+                    "search_dsl: error=%s" % (muty.log.exception_to_string(ex, with_full_traceback=True))
+                )
                 raise ex
 
             if ws_id and not callback and not callback_chunk:

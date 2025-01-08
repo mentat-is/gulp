@@ -790,9 +790,7 @@ class GulpPluginBase(ABC):
         await self._initialize(plugin_params=plugin_params)
         return GulpRequestStatus.ONGOING
 
-    async def _enrich_documents_chunk(
-        self, docs: list[dict], **kwargs
-    ) -> list[dict]:
+    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         """
         to be implemented in a plugin to enrich a chunk of documents.
 
@@ -803,18 +801,15 @@ class GulpPluginBase(ABC):
         Args:
             docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
             kwargs: additional keyword arguments
-        Returns:
-            list[dict]: the enriched documents
         """
         return docs
 
-    async def _enrich_documents_chunk_wrapper(
-        self, docs: list[dict], **kwargs
-    ) -> list[dict]:
+    async def _enrich_documents_chunk_wrapper(self, docs: list[dict], **kwargs):
         last = kwargs.get("last", False)
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
+        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
         last = kwargs.get("last", False)
@@ -822,22 +817,24 @@ class GulpPluginBase(ABC):
             self._enrich_index, docs, wait_for_refresh=last
         )
 
-        # send the enriched documents to the websocket
-        chunk = GulpDocumentsChunkPacket(
-            docs=docs,
-            num_docs=len(docs),
-            chunk_number=kwargs.get("chunk_num", 0),
-            total_hits=kwargs.get("total_hits", 0),
-            last=last,
-            enriched=True,
-        )
-        GulpSharedWsQueue.get_instance().put(
-            type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
-            ws_id=self._ws_id,
-            user_id=self._user_id,
-            req_id=self._req_id,
-            data=chunk.model_dump(exclude_none=True),
-        )
+        if docs:
+            # send the enriched documents to the websocket
+            chunk = GulpDocumentsChunkPacket(
+                docs=docs,
+                num_docs=len(docs),
+                chunk_number=kwargs.get("chunk_num", 0),
+                total_hits=kwargs.get("total_hits", 0),
+                last=last,
+                enriched=True,
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
+                ws_id=self._ws_id,
+                user_id=self._user_id,
+                req_id=self._req_id,
+                data=chunk.model_dump(exclude_none=True),
+            )
+
         if last:
             # also send a GulpQueryDonePacket
             p = GulpQueryDonePacket(
@@ -883,9 +880,13 @@ class GulpPluginBase(ABC):
 
         NOTE: implementers must implement _enrich_documents_chunk and just call super().enrich_documents
         """
-        if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(GulpPluginBase._enrich_documents_chunk):
-            raise NotImplementedError("plugin %s does not support enrichment" % (self.name))
-        
+        if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
+            GulpPluginBase._enrich_documents_chunk
+        ):
+            raise NotImplementedError(
+                "plugin %s does not support enrichment" % (self.name)
+            )
+
         self._user_id = user_id
         self._req_id = req_id
         self._ws_id = ws_id
@@ -894,10 +895,10 @@ class GulpPluginBase(ABC):
 
         # force return all fields
         if q_options:
-            q_options.fields="*"
+            q_options.fields = "*"
         else:
             q_options = GulpQueryParameters(fields="*")
-                  
+
         await GulpQueryHelpers.query_raw(
             sess=sess,
             user_id=self._user_id,
@@ -931,8 +932,12 @@ class GulpPluginBase(ABC):
 
         NOTE: implementers must implement _enrich_documents_chunk and just call super().enrich_single_document
         """
-        if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(GulpPluginBase._enrich_documents_chunk):
-            raise NotImplementedError("plugin %s does not support enrichment" % (self.name))
+        if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
+            GulpPluginBase._enrich_documents_chunk
+        ):
+            raise NotImplementedError(
+                "plugin %s does not support enrichment" % (self.name)
+            )
 
         await self._initialize(plugin_params=plugin_params)
 
@@ -1165,10 +1170,7 @@ class GulpPluginBase(ABC):
         raise NotImplementedError("not implemented!")
 
     async def _record_to_gulp_documents_wrapper(
-        self,
-        record: Any,
-        record_idx: int,
-        **kwargs
+        self, record: Any, record_idx: int, **kwargs
     ) -> list[dict]:
         """
         turn a record in one or more gulp documents, taking care of calling lower plugin if any.
@@ -1742,9 +1744,7 @@ class GulpPluginBase(ABC):
         err = "source=%s, %s" % (self._file_path, err)
         self._source_error = err
 
-    async def _source_done(
-        self, flt: GulpIngestionFilter = None, **kwargs
-    ) -> None:
+    async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
 

@@ -23,7 +23,7 @@ from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueD
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from muty.log import MutyLogger
-
+import muty.log
 
 from gulp.structs import GulpPluginParameters
 
@@ -64,7 +64,7 @@ async def _enrich_documents_internal(
                 plugin_params=plugin_params,
             )
         except Exception as ex:
-            p = GulpQueryDonePacket(status=GulpRequestStatus.FAILED, error=str(ex))
+            p = GulpQueryDonePacket(status=GulpRequestStatus.FAILED, error=muty.log.exception_to_string(ex, with_full_traceback=True))
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.ENRICH_DONE,
                 ws_id=ws_id,
