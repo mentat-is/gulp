@@ -349,7 +349,15 @@ class GulpQueryHelpers:
         Returns:
             dict: the merged query
         """
-        return {"bool": {"must": [q1, q2]}}
+        # handle empty queries
+        if not q1:
+            return q2
+        if not q2:
+            return q1
+
+        return {
+            "query": {"bool": {"filter": [q1.get("query", q1), q2.get("query", q2)]}}
+        }
 
     @staticmethod
     async def query_raw(

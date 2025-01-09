@@ -857,7 +857,6 @@ class GulpPluginBase(ABC):
         ws_id: str,
         index: str,
         q: dict,
-        flt: GulpQueryFilter = None,
         q_options: GulpQueryParameters = None,
         plugin_params: GulpPluginParameters = None,
     ) -> None:
@@ -874,7 +873,6 @@ class GulpPluginBase(ABC):
             ws_id (str): The websocket ID to stream on
             index (str): the index to query
             q(dict): a query in OpenSearch DSL format to restrict the documents to enrich
-            flt (GulpQueryFilter, optional): to further restrict q with a filter. Defaults to None.
             q_options (GulpQueryParameters, optional): additional query options. Defaults to None.
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
 
@@ -893,6 +891,10 @@ class GulpPluginBase(ABC):
         self._enrich_index = index
         await self._initialize(plugin_params=plugin_params)
 
+        if not q:
+            # use a match all query
+            q = {"query": {"match_all": {}}}
+
         # force return all fields
         if q_options:
             q_options.fields = "*"
@@ -906,7 +908,6 @@ class GulpPluginBase(ABC):
             ws_id=self._ws_id,
             q=q,
             index=index,
-            flt=flt,
             q_options=q_options,
             callback_chunk=self._enrich_documents_chunk_wrapper,
             callback_chunk_args={"done_type": GulpWsQueueDataType.ENRICH_DONE},

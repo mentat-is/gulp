@@ -29,8 +29,10 @@ test_scripts/test.json
 *log*.txt
 .gulpconfig
 
-#non free plugins
-src/gulp/plugins/**/paid/*.py*
+# symlinks
+paid_plugins
+paid_mappings
+muty-python
 
 #auto generated docs
 docs/html

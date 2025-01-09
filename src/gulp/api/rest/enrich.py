@@ -35,7 +35,6 @@ async def _enrich_documents_internal(
     req_id: str,
     ws_id: str,
     q: dict,
-    flt: GulpQueryFilter,
     index: str,
     plugin: str,
     q_options: GulpQueryParameters,
@@ -59,7 +58,6 @@ async def _enrich_documents_internal(
                 ws_id=ws_id,
                 index=index,
                 q=q,
-                flt=flt,
                 q_options=q_options,
                 plugin_params=plugin_params,
             )
@@ -105,7 +103,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 
 - token must have the `edit` permission.
 - the enriched documents are updated in the Gulp `index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
-- `q`, `flt` may be provided to restrict the documents to enrich.
+- `q` is a `raw` query which may be provided to restrict the documents to enrich. by default, whole data is considered.
 """,
 )
 async def enrich_documents_handler(
@@ -127,13 +125,9 @@ async def enrich_documents_handler(
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params_optional),
     ] = None,
-    flt: Annotated[
-        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
-    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
     params["plugin_params"] = (
         plugin_params.model_dump(exclude_none=True) if plugin_params else None
@@ -164,7 +158,6 @@ async def enrich_documents_handler(
             req_id=req_id,
             ws_id=ws_id,
             q=q,
-            flt=flt,
             index=index,
             plugin=plugin,
             q_options=q_options,

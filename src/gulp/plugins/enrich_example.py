@@ -53,7 +53,6 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         index: str,
         q: dict = None,
-        flt: GulpQueryFilter = None,
         q_options: GulpQueryParameters = None,
         plugin_params: GulpPluginParameters = None,
     ) -> None:
@@ -81,7 +80,7 @@ class Plugin(GulpPluginBase):
         }
         """
         await super().enrich_documents(
-            sess, user_id, req_id, ws_id, index, q, flt, q_options, plugin_params
+            sess, user_id, req_id, ws_id, index, q, q_options, plugin_params
         )
 
     @override
