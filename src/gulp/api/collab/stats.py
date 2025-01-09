@@ -249,12 +249,15 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             raise ValueError("only one of d or updated_instance should be provided")
 
         n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
-        await n.update(
-            sess,
-            d=d,
-            ws_id=ws_id,
-            user_id=user_id,
-        )
+        try:
+            await n.update(
+                sess,
+                d=d,
+                ws_id=ws_id,
+                user_id=user_id,
+            )
+        except:
+            pass
         return n.to_dict(exclude_none=True)
 
     @override
