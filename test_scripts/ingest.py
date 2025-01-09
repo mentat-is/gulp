@@ -192,6 +192,9 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
 
 
 def _run_curl(file_path: str, file_total: int, raw: dict, args):
+    MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug(
+        "_run_curl")
+
     command, tmp_file_path = _create_ingest_curl_command(
         file_path, file_total, raw, args
     )
@@ -199,7 +202,7 @@ def _run_curl(file_path: str, file_total: int, raw: dict, args):
     # copy file to a temporary location and truncate to args.continue_offset
     # print curl command line
     cmdline = " ".join(command)
-    MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug(
+    MutyLogger.get_instance().debug(
         f"CURL:\n{cmdline}"
     )
     subprocess.run(command)
