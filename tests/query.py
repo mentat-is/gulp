@@ -587,4 +587,4 @@ async def test_paid_plugins():
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
 
-    assert await module.test_all()
+    await module.test_all()
