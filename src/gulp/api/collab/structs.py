@@ -683,7 +683,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             id = muty.string.generate_unique()
         else:
             # check id is a valid string for a primary key (not having spaces, ...)
-            if " " in id or not re.match("^[a-zA-Z0-9_\-@\.]+$", id):
+            if " " in id or not re.match(r"^[a-zA-Z0-9_\-@\.]+$", id):
                 raise ValueError(f"invalid id: {id}")
 
         # set the time created
@@ -1378,14 +1378,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         helper to update an object by ID, handling session
 
         Args:
-            token (str): The user token
+            token (str): The user token.
             id (str): The ID of the object to update.
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
             d (dict, optional): The data to update the object with. Defaults to None.
             updated_instance (T, optional): An already updated instance of the object. Defaults to None.
             permission (list[GulpUserPermission], optional): The permission required to update the object. Defaults to GulpUserPermission.EDIT.
-            **kwargs: Additional keyword arguments to set as attributes on the instance.
 
         Returns:
             dict: The updated object as a dictionary.

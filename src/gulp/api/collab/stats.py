@@ -215,6 +215,48 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
     ):
         raise NotImplementedError("Stats will be deleted by the system automatically.")
 
+    @classmethod
+    async def update_by_id(
+        cls,
+        sess: AsyncSession,
+        id: str,
+        user_id: str,
+        ws_id: str,
+        req_id: str,
+        d: dict = None,
+        updated_instance: T = None,
+    ) -> dict:
+        """
+        same as base class update_by_id, but without checking token
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            id (str): The ID of the object to update.
+            user_id (str): The user ID updating the object.
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
+            d (dict, optional): The data to update the object with. Defaults to None.
+            updated_instance (T, optional): An already updated instance of the object. Defaults to None.
+
+        Returns:
+            dict: The updated object as a dictionary.
+
+        Raises:
+            ValueError: If both d and updated_instance are provided.
+            MissingPermissionError: If the user does not have permission to update the object.
+        """
+        if d and updated_instance:
+            raise ValueError("only one of d or updated_instance should be provided")
+
+        n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
+        await n.update(
+            sess,
+            d=d,
+            ws_id=ws_id,
+            user_id=user_id,
+        )
+        return n.to_dict(exclude_none=True)
+
     @override
     async def update(
         self,
@@ -254,8 +296,9 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             GulpRequestStatus.DONE,
         ]:
             # nothing to do, request is already done
-            MutyLogger.get_instance().debug(
-                'request "%s" is already done, status=%s' % (self.id, self.status)
+            MutyLogger.get_instance().warning(
+                'not updating request "%s" (already done/failed/canceled), status=%s'
+                % (self.id, self.status)
             )
             raise RequestCanceledError()
 

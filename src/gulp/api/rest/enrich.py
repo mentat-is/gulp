@@ -45,6 +45,8 @@ async def _enrich_documents_internal(
     """
     # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
     mod: GulpPluginBase = None
+    failed = False
+    error = None
     async with GulpCollab.get_instance().session() as sess:
         try:
             # load plugin
@@ -62,9 +64,11 @@ async def _enrich_documents_internal(
                 plugin_params=plugin_params,
             )
         except Exception as ex:
+            failed = True
+            error = muty.log.exception_to_string(ex, with_full_traceback=True)
             p = GulpQueryDonePacket(
                 status=GulpRequestStatus.FAILED,
-                error=muty.log.exception_to_string(ex, with_full_traceback=True),
+                error=error,
             )
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.ENRICH_DONE,
@@ -74,6 +78,16 @@ async def _enrich_documents_internal(
                 data=p.model_dump(exclude_none=True),
             )
         finally:
+            d = dict(
+                status=(
+                    GulpRequestStatus.DONE if not failed else GulpRequestStatus.FAILED
+                ),
+                error=error,
+            )
+            await GulpRequestStats.update_by_id(
+                sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
+            )
+
             # done
             if mod:
                 await mod.unload()
@@ -148,6 +162,7 @@ async def enrich_documents_handler(
                 ws_id=ws_id,
                 operation_id=None,
                 context_id=None,
+                source_total=0,
             )
 
         # spawn a task which runs the enrichment in a worker process

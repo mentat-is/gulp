@@ -10,6 +10,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
+    GulpRequestStatus,
 )
 from muty.pydantic import autogenerate_model_example_by_class
 from gulp.api.collab.note import GulpNote
@@ -297,7 +298,18 @@ async def _spawn_query_group_workers(
                 req_id=req_id,
                 data=p.model_dump(exclude_none=True),
             )
-
+        
+        # also update stats
+        d = dict(
+            status=(
+                GulpRequestStatus.DONE if query_matched >=1 else GulpRequestStatus.FAILED
+            )
+        )
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpRequestStats.update_by_id(
+                sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
+            )
+        
     MutyLogger.get_instance().debug("spawning %d queries ..." % (len(queries)))
     kwds = dict(
         user_id=user_id,
