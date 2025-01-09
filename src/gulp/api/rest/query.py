@@ -298,18 +298,20 @@ async def _spawn_query_group_workers(
                 req_id=req_id,
                 data=p.model_dump(exclude_none=True),
             )
-        
+
         # also update stats
         d = dict(
             status=(
-                GulpRequestStatus.DONE if query_matched >=1 else GulpRequestStatus.FAILED
+                GulpRequestStatus.DONE
+                if query_matched >= 1
+                else GulpRequestStatus.FAILED
             )
         )
         async with GulpCollab.get_instance().session() as sess:
             await GulpRequestStats.update_by_id(
                 sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
             )
-        
+
     MutyLogger.get_instance().debug("spawning %d queries ..." % (len(queries)))
     kwds = dict(
         user_id=user_id,
@@ -443,14 +445,12 @@ query Gulp or an external source using a raw DSL query.
 
 ### gulp queries
 
-- refer to [OpenSearch query DSL](https://opensearch.org/docs/latest/query-dsl/).
-- `flt` may be used to restrict the query.
+- `q` must be a query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
 
 ### external queries
 
-- refer to the external source query DSL.
+- for `q`, refer to the external source query DSL.
 - at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
-- if `flt` is set, `q` is ignored and the external plugin must handle the filter converting it to the external source DSL.
 """,
 )
 async def query_raw_handler(
@@ -470,13 +470,9 @@ or a query in the external source DSL.
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
     ] = None,
-    flt: Annotated[
-        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
-    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
@@ -500,7 +496,7 @@ or a query in the external source DSL.
             index=index,
             queries=[gq],
             q_options=q_options,
-            flt=flt,
+            flt=None,
         )
 
         # and return pending
@@ -585,8 +581,8 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 - `sigma_parameters.plugin` must be set to a plugin implementing `sigma_support` and `sigma_convert` to be used to convert the sigma rule.
 - `sigma_parameters.backend` and `sigma_parameters.output_format` are ignored for non `external` queries (internally set to `opensearch` and `dsl_lucene` respectively)
 - if `sigmas` contains more than one rule, `group` must be set to indicate a `query group`.
-    - all rules must be handled by the same `sigma_parameters.plugin`.
-    - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
+    - all queries must be handled by the same `sigma_parameters.plugin`.
+    - if **all** the queries in a group match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
 
 ### gulp queries
 
@@ -706,17 +702,16 @@ query using queries stored on the Gulp `collab` database.
 - `create_notes` is set to `True` to create notes on match.
 - each `stored_query` is retrieved by id and converted if needed.
 - if `stored_query_ids` contains more than one query, `group` must be set to indicate a `query group`.
-    - all queries in the group must be handled by the same `q_options.external_parameters.plugin`.
-    - if `group` is set and **all** the queries match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
+    - if **all** the queries in a group match, `QUERY_GROUP_MATCH` is sent to the websocket `ws_id` in the end and `group` is set into notes `tags`.
 - to allow ingestion during query, `external_parameters.ingest_index` must be set.
 
 ### gulp queries
 
-- `flt` may be used to restrict the query.
+- `flt` may be used to restrict the query, i.e. restrict a sigma query to a certain time range.
 
 ### external queries
 
-- all `stored queries` must have the same `external_plugin` set.
+- in a `query group`, all `stored queries` must have the same `external_plugin` set.
 - `q_options.external_parameters.plugin` is ignored (taken from the stored query).
 - `flt` is not supported.
 """,
@@ -768,7 +763,7 @@ async def query_stored_handler(
         for q in queries:
             if external_plugin != q.external_plugin:
                 raise ValueError(
-                    "all queries must be handled by the same external plugin (external_plugin=%s, q.external_plugin=%s)"
+                    "all external queries must be handled by the same external plugin (external_plugin=%s, q.external_plugin=%s)"
                     % (external_plugin, q.external_plugin)
                 )
 

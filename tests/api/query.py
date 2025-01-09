@@ -164,7 +164,6 @@ class GulpAPIQuery:
         token: str,
         index: str,
         q: Any,
-        flt: GulpQueryFilter = None,
         q_options: GulpQueryParameters = None,
         expected_status: int = 200,
         req_id: str = None,
@@ -177,11 +176,6 @@ class GulpAPIQuery:
         }
         body = {
             "q": q,
-            "flt": (
-                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
-                if flt
-                else None
-            ),
             "q_options": (
                 q_options.model_dump(
                     by_alias=True, exclude_none=True, exclude_defaults=True
