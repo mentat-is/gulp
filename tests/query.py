@@ -577,7 +577,14 @@ async def test_elasticsearch():
 
 @pytest.mark.asyncio
 async def test_paid_plugins():
-    import importlib
+    import sys, importlib
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/src/gulp-paid-plugins/tests/query.py")
+    
+    module_name = "paidplugins"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
 
-    m = importlib.import_module("gulp-paid-plugins.tests.query")
-    assert await m.test_all()
+    assert await module.test_all()

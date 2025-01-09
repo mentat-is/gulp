@@ -3,6 +3,9 @@
 		{
 			"path": "."
 		},
+		{
+			"path": "../gulp-paid-plugins"
+		}
 	],
 	"settings": {
 		"hide-files.files": [
