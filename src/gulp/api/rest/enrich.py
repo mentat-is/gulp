@@ -1,30 +1,24 @@
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
+
+import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import (
-    GulpRequestStatus,
-    GulpUserPermission,
-)
+from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
+
+from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import (
-    GulpQueryParameters,
-)
+from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from muty.log import MutyLogger
-import muty.log
-
 from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
@@ -162,7 +156,6 @@ async def enrich_documents_handler(
                 ws_id=ws_id,
                 operation_id=None,
                 context_id=None,
-                source_total=0,
             )
 
         # spawn a task which runs the enrichment in a worker process
