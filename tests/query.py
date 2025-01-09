@@ -323,12 +323,12 @@ async def test_win_evtx():
                             TEST_INDEX,
                             {
                                 "query": {
-                                    "match": {
-                                        "event.code": "4907",
-                                    },
-                                },
+                                    "query_string": {
+                                        "query": "event.code: 4907 AND (gulp.operation_id: %s)"
+                                        % (TEST_OPERATION_ID),
+                                    }
+                                }
                             },
-                            flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID]),
                             q_options=q_options,
                         )
                     elif data["type"] == "query_done":
@@ -435,6 +435,7 @@ async def test_win_evtx():
     await _test_sigma_single(guest_token, test_plugin)
     await _test_sigma_multi(guest_token, test_plugin)
     await _test_single_id(guest_token)
+
 
 @pytest.mark.asyncio
 async def test_elasticsearch():
@@ -573,8 +574,10 @@ async def test_elasticsearch():
     # TODO: better test, this uses gulp's opensearch .... should work, but better to be sure
     await _test_sigma_external_multi_ingest(guest_token)
 
+
 @pytest.mark.asyncio
 async def test_paid_plugins():
     import importlib
+
     m = importlib.import_module("gulp-paid-plugins.tests.query")
     assert await m.test_all()
