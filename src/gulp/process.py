@@ -43,7 +43,7 @@ class GulpProcess:
     def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
-            self.mp_manager = Manager()
+            self.mp_manager = None
 
             # allow main/worker processes to spawn threads
             self.thread_pool: ThreadPoolExecutor = None
@@ -168,6 +168,8 @@ class GulpProcess:
             # close the worker process pool gracefully if it is already running
             await self.close_process_pool()
 
+        # initializes the multiprocessing manager and structs
+        self.mp_manager = Manager()
         spawned_processes = self.mp_manager.Value(int, 0)
         num_workers = GulpConfig.get_instance().parallel_processes_max()
         lock = self.mp_manager.Lock()
