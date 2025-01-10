@@ -97,7 +97,8 @@ you either move the directory temporarly, [set it to user owned](#general), reco
   - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) OR
   - scale up OpenSearch nodes OR
   - reduce parallelism with `parallel_processes_max` OR
-  - tune `ingestion_buffer_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
+  - tune `documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
+    - keep in mind, though, that a too big `documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
 
 - in case opensearch fails to successfully bootstrap because of errors such as:
 

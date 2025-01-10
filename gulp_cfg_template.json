@@ -23,8 +23,6 @@
   "index_template_default_total_fields_limit": 10000,
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
-  // bulk ingestion buffer size (higher=more memory usage, better ingestion performance, tune up/down if you have request timeouts during ingestion)
-  "ingestion_buffer_size": 1000,
   // failed events in a file to consider the file ABORTED (0=disabled)
   "ingestion_evt_failure_threshold": 5000,
   // how many seconds to wait for a connection during ingestion (default=60, tune up if you have request timeouts during ingestion)
