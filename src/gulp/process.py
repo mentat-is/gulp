@@ -51,7 +51,8 @@ class GulpProcess:
             self.coro_pool: AioCoroPool = None
             # allow the main process to spawn worker processes
             self.process_pool: AioProcessPool = None
-
+            # active websocket ids
+            self.shared_ws_list: list[str] = None
             self._log_level: int = None
             self._logger_file_path: str = None
             self._main_process = True
@@ -74,7 +75,7 @@ class GulpProcess:
         MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, log_level: int = None, logger_file_path: str = None):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):  # type: ignore
         """
         initializes a worker process
 
@@ -84,13 +85,17 @@ class GulpProcess:
             spawned_processes (Value): shared counter for the number of spawned processes (for ordered initialization)
             lock (Lock): shared lock for spawned_processes (for ordered initialization)
             q (Queue): the shared websocket queue created by the main process
+            shared_ws_list (list[str]): the shared websocket list
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
         """
         p = GulpProcess.get_instance()
         asyncio.run(
             p.init_gulp_process(
-                log_level=log_level, logger_file_path=logger_file_path, q=q
+                log_level=log_level,
+                logger_file_path=logger_file_path,
+                q=q,
+                shared_ws_list=shared_ws_list,
             )
         )
 
@@ -99,13 +104,14 @@ class GulpProcess:
         spawned_processes.value += 1
         lock.release()
         MutyLogger.get_instance().debug(
-            "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s"
+            "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s, shared_ws_list=%s"
             % (
                 sys.path,
                 MutyLogger.get_instance().level,
                 logger_file_path,
                 spawned_processes.value,
                 q,
+                shared_ws_list,
             )
         )
 
@@ -168,6 +174,7 @@ class GulpProcess:
 
         # re/create the shared websocket queue (closes it first if already running)
         q = GulpSharedWsQueue.get_instance().init_queue(self.mp_manager)
+        self.shared_ws_list = self.mp_manager.list()
 
         # start workers, pass the shared queue to each
         self.process_pool = AioProcessPool(
@@ -180,6 +187,7 @@ class GulpProcess:
                 spawned_processes,
                 lock,
                 q,
+                self.shared_ws_list,
                 MutyLogger.log_level,
                 MutyLogger.logger_file_path,
             ),
@@ -196,7 +204,11 @@ class GulpProcess:
         )
 
     async def init_gulp_process(
-        self, log_level: int = None, logger_file_path: str = None, q: Queue = None
+        self,
+        log_level: int = None,
+        logger_file_path: str = None,
+        q: Queue = None,
+        shared_ws_list: list[str] = None,
     ) -> None:
         """
         initializes main or worker gulp process
@@ -208,8 +220,8 @@ class GulpProcess:
                 Defaults to None (we are called in the main process)
         """
 
-        # only in a worker process we're passed the queue by the process pool initializer
-        self._main_process = q is None
+        # only in a worker process we're passed the queue and shared_ws_list by the process pool initializer
+        self._main_process = q is None and shared_ws_list is None
         if self._main_process:
             if self._log_level:
                 log_level = self._log_level
@@ -266,6 +278,8 @@ class GulpProcess:
         else:
             # worker process, set the queue
             GulpSharedWsQueue.get_instance().set_queue(q)
+            # and shared list too
+            self.shared_ws_list = shared_ws_list
 
     def is_main_process(self) -> bool:
         """

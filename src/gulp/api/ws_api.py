@@ -3,6 +3,7 @@ import collections
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
+import threading
 from typing import Any, Optional
 from muty.pydantic import autogenerate_model_example_by_class
 import muty
@@ -23,6 +24,7 @@ from gulp.api.rest.test_values import (
 from gulp.config import GulpConfig
 import asyncio
 from fastapi.websockets import WebSocketState
+import muty.time
 
 
 class GulpWsQueueDataType(StrEnum):
@@ -444,7 +446,7 @@ class WsQueueMessagePool:
         self._pool.append(msg)
 
 
-class ConnectedSocket:
+class GulpConnectedSocket:
     """
     Represents a connected websocket.
     """
@@ -511,6 +513,23 @@ class ConnectedSocket:
             # ensure cleanup happens even if cancelled
             await asyncio.shield(self._cleanup_tasks(tasks))
 
+    @staticmethod
+    def is_alive(ws_id: str) -> bool:
+        """
+        check if a websocket is alive
+
+        Args:
+            ws_id (str): The WebSocket ID.
+
+        Returns:
+            bool: True if the websocket is alive, False otherwise.
+        """
+        from gulp.process import GulpProcess
+
+        if ws_id in GulpProcess.get_instance().shared_ws_list:
+            return True
+        return False
+
     async def _cleanup_tasks(self, tasks: list[asyncio.Task]) -> None:
         """
         clean up tasks with proper cancellation handling
@@ -531,6 +550,10 @@ class ConnectedSocket:
                     MutyLogger.get_instance().error(
                         f"error cleaning up {task.get_name()}: {ex}"
                     )
+
+        # remove from global ws list
+        from gulp.process import GulpProcess
+        GulpProcess.get_instance().shared_ws_list.remove(self.ws_id)
 
     async def _receive_loop(self) -> None:
         """
@@ -641,7 +664,7 @@ class GulpConnectedSockets:
     def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
-            self._sockets: dict[str, ConnectedSocket] = {}
+            self._sockets: dict[str, GulpConnectedSocket] = {}
 
     def add(
         self,
@@ -649,7 +672,7 @@ class GulpConnectedSockets:
         ws_id: str,
         types: list[GulpWsQueueDataType] = None,
         operation_ids: list[str] = None,
-    ) -> ConnectedSocket:
+    ) -> GulpConnectedSocket:
         """
         Adds a websocket to the connected sockets list.
 
@@ -662,11 +685,18 @@ class GulpConnectedSockets:
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
-        wws = ConnectedSocket(
+        wws = GulpConnectedSocket(
             ws=ws, ws_id=ws_id, types=types, operation_ids=operation_ids
         )
         self._sockets[str(id(ws))] = wws
-        MutyLogger.get_instance().debug(f"added connected ws: {wws}")
+
+        # also add to the global list
+        from gulp.process import GulpProcess
+
+        GulpProcess.get_instance().shared_ws_list.append(ws_id)
+        MutyLogger.get_instance().debug(
+            f"added connected ws: {wws}, len={len(self._sockets)}"
+        )
         return wws
 
     async def remove(self, ws: WebSocket, flush: bool = True) -> None:
@@ -681,7 +711,9 @@ class GulpConnectedSockets:
         id_str = str(id(ws))
         cws = self._sockets.get(id_str, None)
         if not cws:
-            MutyLogger.get_instance().warning(f"no websocket found for ws_id={id_str}")
+            MutyLogger.get_instance().warning(
+                f"remove(): no websocket found for ws_id={id_str}, len={len(self._sockets)}"
+            )
             return
 
         # flush queue first
@@ -697,10 +729,19 @@ class GulpConnectedSockets:
             await q.join()
             MutyLogger.get_instance().debug(f"queue flush done for ws id={id_str}")
 
-        MutyLogger.get_instance().debug(f"removed connected ws, id={id_str}")
+        # remove from global ws list
+        from gulp.process import GulpProcess
+
+        while cws.ws_id in GulpProcess.get_instance().shared_ws_list:
+            GulpProcess.get_instance().shared_ws_list.remove(cws.ws_id)
+
         del self._sockets[id_str]
 
-    def find(self, ws_id: str) -> ConnectedSocket:
+        MutyLogger.get_instance().debug(
+            f"removed connected ws, id={id_str}, len={len(self._sockets)}"
+        )
+
+    def find(self, ws_id: str) -> GulpConnectedSocket:
         """
         Finds a ConnectedSocket object by its ID.
 
@@ -714,7 +755,9 @@ class GulpConnectedSockets:
             if v.ws_id == ws_id:
                 return v
 
-        MutyLogger.get_instance().warning(f"no websocket found for ws_id={ws_id}")
+        MutyLogger.get_instance().warning(
+            f"no websocket found for ws_id={ws_id}, len={len(self._sockets)}"
+        )
         return None
 
     async def cancel_all(self) -> None:
@@ -732,7 +775,7 @@ class GulpConnectedSockets:
         )
 
     async def _route_message(
-        self, data: GulpWsData, client_ws: ConnectedSocket
+        self, data: GulpWsData, client_ws: GulpConnectedSocket
     ) -> None:
         """
         routes the message to the target websocket
@@ -889,18 +932,24 @@ class GulpSharedWsQueue:
 
                 if messages:
                     # process batch of messages, create a copy to avoid modification during iteration
-                    messages_to_process = messages.copy()                
+                    messages_to_process = messages.copy()
                     for entry in messages_to_process:
                         try:
                             # Get a snapshot of connected sockets
                             cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
                             if cws:
                                 try:
-                                    await GulpConnectedSockets.get_instance().broadcast_data(entry)
+                                    await GulpConnectedSockets.get_instance().broadcast_data(
+                                        entry
+                                    )
                                 except Exception as e:
-                                    MutyLogger.get_instance().error(f"error broadcasting message to {entry.ws_id}: {str(e)}")
+                                    MutyLogger.get_instance().error(
+                                        f"error broadcasting message to {entry.ws_id}: {str(e)}"
+                                    )
                         except Exception as e:
-                            MutyLogger.get_instance().error(f"error processing message for {entry.ws_id}: {str(e)}")
+                            MutyLogger.get_instance().error(
+                                f"error processing message for {entry.ws_id}: {str(e)}"
+                            )
                             continue
 
                     # small delay between batches
@@ -914,7 +963,6 @@ class GulpSharedWsQueue:
         except Exception as ex:
             MutyLogger.get_instance().error(f"error in fill task: {ex}")
             raise
-
 
     def close(self) -> None:
         """
@@ -980,6 +1028,11 @@ class GulpSharedWsQueue:
             data (any, optional): The data. Defaults to None.
             private (bool, optional): If the data is private. Defaults to False.
         """
+        if type == GulpWsQueueDataType.DOCUMENTS_CHUNK:
+            # allow to interrupt lenghty processes if the websocket is dead
+            if not GulpConnectedSocket.is_alive(ws_id):
+                raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
+
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=type,

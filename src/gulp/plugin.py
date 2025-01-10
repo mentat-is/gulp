@@ -691,7 +691,7 @@ class GulpPluginBase(ABC):
         self._user_id = user_id
         self._external_query = True
         self._enrich_during_ingestion = False
-        
+
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
 

@@ -13,7 +13,7 @@
   "debug_collab": false,
   // prevent token expiration for debugging purposes
   "debug_no_token_expiration": false,
-  // size of the documents chunk when ingesting/querying (default=1000)
+  // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
   "documents_chunk_size": 1000,
   // enforce https
   "https_enforce": false,

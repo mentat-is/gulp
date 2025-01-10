@@ -108,9 +108,9 @@ class GulpAPIWebsocket:
             )
             await websocket.send_json(wsd.model_dump(exclude_none=True, by_alias=True))
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().warning(f"webSocket disconnected: {ex}")
+            MutyLogger.get_instance().exception(ex)
         except Exception as ex:
-            MutyLogger.get_instance().error(f"ws error: {ex}")
+            MutyLogger.get_instance().exception(ex)
         finally:
             if ws:
                 try:
