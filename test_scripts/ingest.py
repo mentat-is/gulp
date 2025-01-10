@@ -17,6 +17,7 @@ from multiprocessing import Pool
 import muty.file
 import muty.crypto
 from muty.log import MutyLogger
+import websockets
 
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_NAME,
@@ -25,6 +26,7 @@ from gulp.api.rest.test_values import (
     TEST_REQ_ID,
     TEST_WS_ID,
 )
+from gulp.api.ws_api import GulpWsAuthPacket
 
 
 def _parse_args():
@@ -46,7 +48,7 @@ def _parse_args():
         "--raw",
         help='a JSON file with raw data for the "raw" plugin, --path is ignored if this is set',
     )
-    parser.add_argument("--host", default="localhost:8080", help="Gulp host")
+    parser.add_argument("--host", default="http://localhost:8080", help="Gulp host")
     parser.add_argument(
         "--operation_id",
         default=TEST_OPERATION_ID,
@@ -124,7 +126,7 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
         return headers
 
     is_zip = file_path and file_path.lower().endswith(".zip")
-    base_url = f"http://{args.host}"
+    base_url = f"{args.host}"
     command = ["curl", "-v", "-X", "POST"]
     payload = _create_payload(file_path, raw_chunk, args, is_zip)
     temp_file_path = None
@@ -192,8 +194,7 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
 
 
 def _run_curl(file_path: str, file_total: int, raw: dict, args):
-    MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug(
-        "_run_curl")
+    MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug("_run_curl")
 
     command, tmp_file_path = _create_ingest_curl_command(
         file_path, file_total, raw, args
@@ -202,9 +203,7 @@ def _run_curl(file_path: str, file_total: int, raw: dict, args):
     # copy file to a temporary location and truncate to args.continue_offset
     # print curl command line
     cmdline = " ".join(command)
-    MutyLogger.get_instance().debug(
-        f"CURL:\n{cmdline}"
-    )
+    MutyLogger.get_instance().debug(f"CURL:\n{cmdline}")
     subprocess.run(command)
 
     if tmp_file_path:
@@ -219,7 +218,7 @@ def _login(host, username, password, req_id, ws_id) -> str:
         "-v",
         "-X",
         "PUT",
-        f"http://{host}/login?user_id={username}&password={password}&req_id={req_id}&ws_id={ws_id}",
+        f"{host}/login?user_id={username}&password={password}&req_id={req_id}&ws_id={ws_id}",
     ]
     MutyLogger.get_instance().info(f"login command: {login_command}")
     login_response = subprocess.run(login_command, capture_output=True)
@@ -241,7 +240,7 @@ def _reset(host, index, req_id, ws_id):
         f"token: {admin_token}",
         "-X",
         "POST",
-        f"http://{host}/gulp_reset?index={index}&req_id={req_id}",
+        f"{host}/gulp_reset?index={index}&req_id={req_id}",
     ]
     MutyLogger.get_instance().info(f"reset command: {reset_command}")
     reset_response = subprocess.run(reset_command, capture_output=True)
@@ -249,6 +248,50 @@ def _reset(host, index, req_id, ws_id):
         MutyLogger.get_instance().error("reset failed")
         sys.exit(1)
     MutyLogger.get_instance().debug(reset_response.stdout)
+
+
+def _ws_loop(host: str, token: str, ws_id: str):
+    """
+    consumes websocket data until ingestion is finished
+    """
+
+    async def _ws_loop_internal(host: str, token: str, ws_id: str):
+
+        # connect to websocket
+        MutyLogger.get_instance("ws_loop").info("ws loop running!")
+
+        _, host = host.split("://")
+        ws_url = f"ws://{host}/ws"
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=ws_id)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+                    if data["type"] == "stats_update":
+                        # MutyLogger.get_instance().error(f"data: {data}")
+                        d = data["data"]["data"]
+                        if d["status"] != "ongoing":
+                            MutyLogger.get_instance().info(f"stats: {d}")
+                            break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
+
+        MutyLogger.get_instance().info("ingestion finished!")
+
+    try:
+        asyncio.run(_ws_loop_internal(host, token, ws_id))
+    except Exception as ex:
+        MutyLogger.get_instance().exception(ex)
+        raise
 
 
 def main():
@@ -288,6 +331,12 @@ def main():
 
     # spawn curl processes
     with Pool() as pool:
+        # run the loop
+        pool.apply_async(
+            _ws_loop, kwds={"host": args.host, "token": args.token, "ws_id": args.ws_id}
+        )
+
+        # run requests
         if raw:
             l = pool.starmap(_run_curl, [(None, 1, raw, args)])
         else:

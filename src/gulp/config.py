@@ -164,7 +164,7 @@ class GulpConfig:
         addr = os.getenv("BIND_TO_ADDR")
         port = os.getenv("BIND_TO_PORT")
         if addr and port:
-            MutyLogger.get_instance().debug("bind_to (from env): %s:%s" % (addr,port))
+            MutyLogger.get_instance().debug("bind_to (from env): %s:%s" % (addr, port))
             return (addr, int(port))
 
         # get from configuration "bind_to
@@ -290,6 +290,19 @@ class GulpConfig:
         n = False
         if __debug__:
             n = self._config.get("debug_collab", False)
+        return n
+
+    def debug_ignore_missing_ws(self) -> bool:
+        """
+        Returns whether to ignore missing websocket connection (default: False).
+        """
+        n = False
+
+        if __debug__:
+            if self.is_integration_test():
+                return False
+            n = self._config.get("debug_ignore_missing_ws", False)
+
         return n
 
     def debug_no_token_expiration(self) -> bool:

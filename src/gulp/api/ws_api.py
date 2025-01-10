@@ -525,7 +525,9 @@ class GulpConnectedSocket:
             bool: True if the websocket is alive, False otherwise.
         """
         from gulp.process import GulpProcess
-
+        if GulpConfig.get_instance().debug_ignore_missing_ws():
+            return True
+        
         if ws_id in GulpProcess.get_instance().shared_ws_list:
             return True
         return False

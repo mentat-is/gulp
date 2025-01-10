@@ -49,7 +49,7 @@ python3 -m pytest note.py
 
 to quickly test ingestion with a particular plugin manually i.e. during plugin dev, you may use [ingest.py](../test_scripts/ingest.py):
 
-> ingest_py script does not check for upload correctness, you must do it manually!
+> ingest_py script will spawn CURL processes, and exits once it detects the ingestion is done on the websocket.
 
 ~~~bash
 # win_evtx

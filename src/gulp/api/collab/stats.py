@@ -141,21 +141,27 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         lock_id = muty.crypto.hash_xxh64_int(req_id)
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
 
+        # configure expiration
+        time_expire = GulpConfig.get_instance().stats_ttl() * 1000
+        time_updated = muty.time.now_msec()
+        if time_expire > 0:
+            time_expire = time_updated + time_expire
+            # MutyLogger.get_instance().debug("now=%s, setting stats %s time_expire to %s", time_updated, req_id, time_expire)
+
         # check if the stats already exist
         s: GulpRequestStats = await cls.get_by_id(
             sess, id=req_id, throw_if_not_found=False
         )
         if s:
+            # update existing stats
+            s.status = GulpRequestStatus.ONGOING
+            s.time_updated = time_updated
+            s.time_finished = 0
+            if time_expire > 0:
+                # add new time expire
+                s.time_expire = time_expire
+            await sess.commit()
             return s
-
-        # configure expiration
-        time_expire = GulpConfig.get_instance().stats_ttl() * 1000
-        if time_expire > 0:
-            now = muty.time.now_msec()
-            time_expire = muty.time.now_msec() + time_expire
-            MutyLogger.get_instance().debug(
-                "now=%s, setting stats %s time_expire to %s", now, req_id, time_expire
-            )
 
         object_data = {
             "time_expire": time_expire,
@@ -293,6 +299,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
         await sess.refresh(self)
 
+        """
         if self.status in [
             GulpRequestStatus.CANCELED,
             GulpRequestStatus.FAILED,
@@ -304,6 +311,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                 % (self.id, self.status)
             )
             raise RequestCanceledError()
+        """
 
         # update
         self.source_processed += d.get("source_processed", 0)
@@ -346,7 +354,11 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                 'source_processed: %d == source_total: %d, setting request "%s" to DONE'
                 % (self.source_processed, self.source_total, self.id)
             )
-            self.status = GulpRequestStatus.DONE
+            if self.records_processed > 0 and self.records_ingested == 0:
+                # if some records were processed but none were ingested, set to FAILED
+                self.status = GulpRequestStatus.FAILED
+            else:
+                self.status = GulpRequestStatus.DONE
 
         if self.source_failed == self.source_total:
             MutyLogger.get_instance().error(

@@ -1753,8 +1753,8 @@ class GulpPluginBase(ABC):
         if not isinstance(err, str):
             err = muty.log.exception_to_string(err)  # , with_full_traceback=True)
         MutyLogger.get_instance().error(
-            "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d"
-            % (self._file_path, err, self._records_processed_per_chunk)
+            "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d, canceled=%r, failed=%r"
+            % (self._file_path, err, self._records_processed_per_chunk, self._req_canceled, self._is_source_failed)
         )
 
         err = "source=%s, %s" % (self._file_path, err)
@@ -1777,10 +1777,16 @@ class GulpPluginBase(ABC):
             )
         )
 
-        # flush the last chunk
-        ingested, skipped = await self._flush_buffer(
-            flt, wait_for_refresh=True, **kwargs
-        )
+        try:
+            # flush the last chunk
+            ingested, skipped = await self._flush_buffer(
+                flt, wait_for_refresh=True, **kwargs
+            )
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+            self._is_source_failed = True            
+            ingested = 0
+            skipped = 0
 
         if self._ws_id:
             # send ingest_source_done packet on ws
