@@ -358,8 +358,10 @@ class GulpPluginBase(ABC):
         # enrichment during ingestion may be disabled also if _enrich_documents_chunk is implemented
         self._enrich_during_ingestion: bool = True
         self._enrich_index: str = None
+
         self._note_parameters: GulpQueryNoteParameters = GulpQueryNoteParameters()
         self._external_plugin_params: GulpPluginParameters = GulpPluginParameters()
+        self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
     @abstractmethod
     def display_name(self) -> str:
@@ -659,7 +661,6 @@ class GulpPluginBase(ABC):
         index: Any,
         q: Any,
         q_options: GulpQueryParameters,
-        flt: GulpQueryFilter = None,
     ) -> tuple[int, int]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
@@ -672,9 +673,8 @@ class GulpPluginBase(ABC):
             ws_id (str): the websocket id
             user (str): the user performing the query
             index (Any): the index to query on the external source (format is plugin specific)
-            q(Any): the query to perform, format is plugin specific. If set, `flt` is ignored.
+            q(Any): the query to perform, format is plugin specific
             q_options (GulpQueryParameters): additional query options, `q_options.external_parameters` must be set accordingly.
-            flt: (GulpQueryFilter, optional): if set, `q` is ignored and (at least) `int_filter` will be converted in a query to the external source. Defaults to None.
 
         Notes:
             - implementers must call super().query_external first
@@ -691,7 +691,7 @@ class GulpPluginBase(ABC):
         self._user_id = user_id
         self._external_query = True
         self._enrich_during_ingestion = False
-
+        
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
 
@@ -782,6 +782,7 @@ class GulpPluginBase(ABC):
         self._context_id = context_id
         self._ingest_index = index
         self._source_id = source_id
+        self._plugin_params = plugin_params or GulpPluginParameters()
         MutyLogger.get_instance().debug(
             f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
@@ -889,6 +890,8 @@ class GulpPluginBase(ABC):
         self._req_id = req_id
         self._ws_id = ws_id
         self._enrich_index = index
+        self._plugin_params = plugin_params or GulpPluginParameters()
+
         await self._initialize(plugin_params=plugin_params)
 
         if not q:
@@ -1006,6 +1009,8 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
+        self._plugin_params = plugin_params or GulpPluginParameters()
+
         MutyLogger.get_instance().debug(
             f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
                 plugin_params={plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
@@ -1333,6 +1338,16 @@ class GulpPluginBase(ABC):
             flt = None
 
         ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
+        if (
+            self._plugin_params.override_chunk_size
+            or self._external_plugin_params.override_chunk_size
+        ):
+            # using the provided chunk size instead
+            if self._external_query:
+                ingestion_buffer_size = self._external_plugin_params.override_chunk_size
+            else:
+                ingestion_buffer_size = self._plugin_params.override_chunk_size
+
         self._extra_docs = []
 
         # process this record and generate one or more gulpdocument dictionaries

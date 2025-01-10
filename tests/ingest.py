@@ -178,8 +178,8 @@ async def _ws_loop(
                 # ws delay
                 await asyncio.sleep(0.1)
 
-        except websockets.exceptions.ConnectionClosed:
-            MutyLogger.get_instance().warning("WebSocket connection closed")
+        except websockets.exceptions.ConnectionClosed as ex:
+            MutyLogger.get_instance().exception(ex)
 
     MutyLogger.get_instance().info(f"found_ingested={found_ingested} (requested={ingested}), found_processed={found_processed} (requested={processed})")      
     assert test_completed
@@ -422,7 +422,7 @@ async def test_ingest_zip():
 async def test_paid_plugins():
     import sys, importlib
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/src/gulp-paid-plugins/tests/ingest.py")
+    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/tests/ingest.py")
     
     module_name="paidplugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)

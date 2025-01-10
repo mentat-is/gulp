@@ -32,6 +32,8 @@ test_scripts/test.json
 # symlinks
 paid_plugins
 paid_mappings
+paid_tests
+paid_samples
 muty-python
 
 #auto generated docs

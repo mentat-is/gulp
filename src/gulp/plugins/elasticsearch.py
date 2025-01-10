@@ -172,12 +172,9 @@ class Plugin(GulpPluginBase):
         index: Any,
         q: Any,
         q_options: GulpQueryParameters,
-        flt: GulpQueryFilter = None,
     ) -> tuple[int, int]:
 
-        await super().query_external(
-            sess, user_id, req_id, ws_id, index, q, q_options, flt
-        )
+        await super().query_external(sess, user_id, req_id, ws_id, index, q, q_options)
 
         # connect
         is_elasticsearch = self._custom_params.get("is_elasticsearch")
@@ -220,7 +217,6 @@ class Plugin(GulpPluginBase):
                 ws_id=ws_id,
                 q=q,
                 index=index,
-                flt=flt,
                 q_options=q_options,
                 el=cl,
                 callback=self.process_record,

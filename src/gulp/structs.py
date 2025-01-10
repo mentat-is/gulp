@@ -68,6 +68,11 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
     )
 
+    override_chunk_size: Optional[int] = Field(
+        None,
+        description="this is used to override the websocket chunk size for the request, which is normally taken from configuration 'documents_chunk_size'.",
+    )
+
     def is_empty(self) -> bool:
         """
         a mapping is empty if mappings or mapping_file or mapping_id is empty
@@ -75,7 +80,12 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         Returns:
             bool: True if all parameters are None, False otherwise
         """
-        if self.mappings is not None or self.mapping_file is not None or len(self.model_extra) > 0:
+        if (
+            self.mappings is not None
+            or self.mapping_file is not None
+            or self.override_chunk_size is not None
+            or len(self.model_extra) > 0
+        ):
             return False
         return True
 

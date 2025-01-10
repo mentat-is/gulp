@@ -760,7 +760,9 @@ class GulpConnectedSockets:
             return
 
         # private messages are only routed to the target websocket (except login, always public)
-        if (data.private and data.type != GulpWsQueueDataType.USER_LOGIN) and client_ws.ws_id != data.ws_id:
+        if (
+            data.private and data.type != GulpWsQueueDataType.USER_LOGIN
+        ) and client_ws.ws_id != data.ws_id:
             # MutyLogger.get_instance().warning(f"skipping private entry type={data.type} for ws_id={client_ws.ws_id}")
             return
 
@@ -798,11 +800,6 @@ class GulpSharedWsQueue:
     singleton class to manage adding data to the shared websocket queue
     """
 
-    _fill_task: asyncio.Task = None
-    MAX_QUEUE_SIZE = 1000
-    QUEUE_TIMEOUT = 30
-    MAX_RETRIES = 3
-
     def __init__(self):
         raise RuntimeError("call get_instance() instead")
 
@@ -823,6 +820,10 @@ class GulpSharedWsQueue:
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._shared_q: Queue = None
+            self._fill_task: asyncio.Task = None
+            self.MAX_QUEUE_SIZE = 1000
+            self.QUEUE_TIMEOUT = 30
+            self.MAX_RETRIES = 3
 
     def set_queue(self, q: Queue) -> None:
         """
@@ -868,8 +869,6 @@ class GulpSharedWsQueue:
         """
         runs continously (in the main process) to walk through the queued data in the multiprocessing shared queue and fill each connected websocket asyncio queue
         """
-
-        # uses an executor to run the blocking get() call in a separate thread
         from gulp.api.rest_api import GulpRestServer
 
         MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
@@ -889,13 +888,20 @@ class GulpSharedWsQueue:
                         break
 
                 if messages:
-                    # Process batch of messages
-                    for entry in messages:
-                        cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
-                        if cws:
-                            await GulpConnectedSockets.get_instance().broadcast_data(
-                                entry
-                            )
+                    # process batch of messages, create a copy to avoid modification during iteration
+                    messages_to_process = messages.copy()                
+                    for entry in messages_to_process:
+                        try:
+                            # Get a snapshot of connected sockets
+                            cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
+                            if cws:
+                                try:
+                                    await GulpConnectedSockets.get_instance().broadcast_data(entry)
+                                except Exception as e:
+                                    MutyLogger.get_instance().error(f"error broadcasting message to {entry.ws_id}: {str(e)}")
+                        except Exception as e:
+                            MutyLogger.get_instance().error(f"error processing message for {entry.ws_id}: {str(e)}")
+                            continue
 
                     # small delay between batches
                     await asyncio.sleep(0.01)
@@ -908,6 +914,7 @@ class GulpSharedWsQueue:
         except Exception as ex:
             MutyLogger.get_instance().error(f"error in fill task: {ex}")
             raise
+
 
     def close(self) -> None:
         """
@@ -983,7 +990,6 @@ class GulpSharedWsQueue:
             private=private,
             data=data,
         )
-
         retries = 0
         while retries < self.MAX_RETRIES:
             try:
@@ -991,12 +997,12 @@ class GulpSharedWsQueue:
                 return
             except queue.Full:
                 MutyLogger.get_instance().warning(
-                    f"Queue full for ws {ws_id}, attempt {retries + 1}/{self.MAX_RETRIES}"
+                    f"queue full for ws {ws_id}, attempt {retries + 1}/{self.MAX_RETRIES}"
                 )
                 self._cleanup_stale_messages()
                 retries += 1
 
-        # If we get here, all retries failed
+        # if we get here, all retries failed
         MutyLogger.get_instance().error(
             f"failed to add message to queue for ws {ws_id} after {self.MAX_RETRIES} attempts"
         )

@@ -115,8 +115,8 @@ async def test_win_evtx():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
@@ -184,8 +184,8 @@ async def test_win_evtx():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
@@ -234,8 +234,8 @@ async def test_win_evtx():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
@@ -293,8 +293,8 @@ async def test_win_evtx():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
@@ -351,8 +351,8 @@ async def test_win_evtx():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
@@ -402,8 +402,8 @@ async def test_win_evtx():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         assert test_completed
         MutyLogger.get_instance().info("test succeeded!")
@@ -551,8 +551,8 @@ async def test_elasticsearch():
                     # ws delay
                     await asyncio.sleep(0.1)
 
-            except websockets.exceptions.ConnectionClosed:
-                MutyLogger.get_instance().warning("WebSocket connection closed")
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
 
         try:
             assert test_completed
@@ -579,7 +579,7 @@ async def test_elasticsearch():
 async def test_paid_plugins():
     import sys, importlib
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/src/gulp-paid-plugins/tests/query.py")
+    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/tests/query.py")
     
     module_name = "paidplugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
