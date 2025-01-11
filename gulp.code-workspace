@@ -2,29 +2,27 @@
 	"folders": [
 		{
 			"path": "."
-		},
-		{
-			"path": "../gulp-paid-plugins"
 		}
 	],
 	"settings": {
-		"hide-files.files": [
-			".venv",
-			".vscode",
-			".pytest_cache"
-		],
-		"files.exclude": {
-			"**/.git": true,
-			"**/.svn": true,
-			"**/.hg": true,
-			"**/CVS": true,
-			"**/.DS_Store": true,
-			"**/Thumbs.db": true,
-			"**/node_modules": false
+		"workbench.colorCustomizations": {
+			"activityBar.background": "#301957",
+			"titleBar.activeBackground": "#432379",
+			"titleBar.activeForeground": "#FBFAFD"
 		},
+		"hide-files.files": [
+			".github",
+			".images",
+			".pytest_cache",
+			".vscode",
+			".VSCodeCounter",
+			".venv",
+			"doxygen-awesome-css"
+		],
 		"editor.tokenColorCustomizations": {
 			"comments": "",
 			"textMateRules": []
-		}
+		},
+		"makefile.configureOnOpen": false
 	}
 }

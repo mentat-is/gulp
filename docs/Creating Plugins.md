@@ -123,11 +123,15 @@ the plugins must implement:
   - the logic to enrich a set of documents
 - for `extension` plugins, they may install additional `API routes` during gulp initialization.
 
-> optionally, both `ingestion` and `external` plugins may implement `sigma_convert` and `sigma_support` to allow querying both gulp and the external sources via sigma rules: this is done through implementing [pysigma](https://github.com/SigmaHQ/pySigma) backend and pipeline/s to convert i.e. windows-specific sigma rules to target DSL query.
-
-> optionally, `ingestion` plugins may implement `_enrich_documents_chunk`, which will perform enrichment before storing the chunk to Opensearch.
+> optionally, both `ingestion` and `external` plugins may implement `sigma_convert` and `sigma_support` to allow the `query` api to convert `sigma rules` to gulp queries for both local and external queries.
+>
+> - read [pysigma documentation](https://github.com/SigmaHQ/pySigma) to learn more about backend/s and pipeline/s!
 
 ### ingestion plugins
+
+ingestion plugins must implement `ingest_file` and `ingest_raw` (the ingestion entrypoints).
+
+> optionally, `ingestion` plugins may implement `_enrich_documents_chunk` to perform enrichment before storing the chunk to Opensearch.
 
 this is how the data flows through an `ingestion plugin` when ingesting into gulp through `ingest_file` API.
 
@@ -252,6 +256,8 @@ sequenceDiagram
 enrichment plugins takes one or more `GulpDocuments` and returns them augmented with extra data.
 
 they must implement `enrich_documents`, `enrich_single_documents` and `_enrich_documents_chunk`.
+
+> a plugin may support both `enrichment` and `ingestion` by declaring its `type` as `[GulpPluginType.INGESTION, GulpPluginType.ENRICH]` and implement both types entrypoints.
 
 a preliminary example is [here](../src/gulp/plugins/enrich_example.py).
 
