@@ -28,7 +28,7 @@ dependencies = [
     "packaging==24.1",
     "pip",
     "psycopg_pool==3.2.3",
-    "psycopg-binary==3.2.2",
+    "psycopg-binary==3.2.4",
     "psycopg==3.2.2",
     "pydantic==2.9.2",
     "pyparsing==3.1",
