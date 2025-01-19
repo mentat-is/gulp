@@ -2,6 +2,7 @@ import asyncio
 import json
 import multiprocessing
 import os
+import platform
 import token
 import pytest
 from muty.log import MutyLogger
@@ -181,7 +182,7 @@ async def _ws_loop(
         except websockets.exceptions.ConnectionClosed as ex:
             MutyLogger.get_instance().exception(ex)
 
-    MutyLogger.get_instance().info(f"found_ingested={found_ingested} (requested={ingested}), found_processed={found_processed} (requested={processed})")      
+    MutyLogger.get_instance().info(f"found_ingested={found_ingested} (requested={ingested}), found_processed={found_processed} (requested={processed})")
     assert test_completed
     MutyLogger.get_instance().info("test succeeded!")
 
@@ -234,7 +235,10 @@ async def test_apache_error_clf():
     files = [os.path.join(current_dir, "../samples/apache_clf/error.log")]
     await _test_generic(files, "apache_error_clf", 1178)
 
-
+@pytest.mark.skipif(
+    platform.system() == "Darwin",
+    reason="systemd journal tests not supported on macOS"
+)
 @pytest.mark.asyncio
 async def test_systemd_journal():
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -423,7 +427,7 @@ async def test_paid_plugins():
     import sys, importlib
     current_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(current_dir,"../../gulp-paid-plugins/tests/ingest.py")
-    
+
     module_name="paidplugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
