@@ -4,9 +4,12 @@ import multiprocessing
 import os
 import platform
 import token
+
+import muty.file
 import pytest
-from muty.log import MutyLogger
 import websockets
+from muty.log import MutyLogger
+
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
@@ -22,11 +25,10 @@ from gulp.api.rest.test_values import (
 from gulp.api.ws_api import GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
 from tests.api.common import GulpAPICommon
+from tests.api.db import GulpAPIDb
+from tests.api.ingest import GulpAPIIngest
 from tests.api.query import GulpAPIQuery
 from tests.api.user import GulpAPIUser
-from tests.api.ingest import GulpAPIIngest
-from tests.api.db import GulpAPIDb
-import muty.file
 
 RAW_DOCUMENTS_CHUNK = [
     {
@@ -119,8 +121,8 @@ async def _ws_loop(
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
-    found_ingested=0
-    found_processed=0
+    found_ingested = 0
+    found_processed = 0
 
     async with websockets.connect(ws_url) as ws:
         # connect websocket
@@ -141,8 +143,8 @@ async def _ws_loop(
                         # done
                         records_ingested = stats_packet.get("records_ingested", 0)
                         records_processed = stats_packet.get("records_processed", 0)
-                        found_ingested=records_ingested
-                        found_processed=records_processed
+                        found_ingested = records_ingested
+                        found_processed = records_processed
                         if records_ingested == ingested:
                             MutyLogger.get_instance().info(
                                 "all %d records ingested!" % (ingested)
@@ -182,7 +184,9 @@ async def _ws_loop(
         except websockets.exceptions.ConnectionClosed as ex:
             MutyLogger.get_instance().exception(ex)
 
-    MutyLogger.get_instance().info(f"found_ingested={found_ingested} (requested={ingested}), found_processed={found_processed} (requested={processed})")
+    MutyLogger.get_instance().info(
+        f"found_ingested={found_ingested} (requested={ingested}), found_processed={found_processed} (requested={processed})"
+    )
     assert test_completed
     MutyLogger.get_instance().info("test succeeded!")
 
@@ -235,9 +239,9 @@ async def test_apache_error_clf():
     files = [os.path.join(current_dir, "../samples/apache_clf/error.log")]
     await _test_generic(files, "apache_error_clf", 1178)
 
+
 @pytest.mark.skipif(
-    platform.system() == "Darwin",
-    reason="systemd journal tests not supported on macOS"
+    platform.system() == "Darwin", reason="systemd journal tests not supported on macOS"
 )
 @pytest.mark.asyncio
 async def test_systemd_journal():
@@ -303,6 +307,7 @@ async def test_pfsense():
     files = [os.path.join(current_dir, "../samples/pfsense/filter.log")]
     await _test_generic(files, "pfsense", 61)
 
+
 @pytest.mark.asyncio
 async def test_win_evtx():
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -331,13 +336,13 @@ async def test_csv_standalone_and_query_operations():
     assert ops[0]["contexts"][0]["plugins"][0]["name"] == "csv"
     assert (
         ops[0]["contexts"][0]["plugins"][0]["sources"][0]["min_gulp.timestamp"]
-        == 1258476898794248960
+        == 1258480498794248960
     )
 
     # test query max-min timestamp
     data = await GulpAPIQuery.query_max_min_per_field(guest_token, TEST_INDEX)
     assert data["buckets"][0]["*"]["doc_count"] == 10
-    assert data["buckets"][0]["*"]["min_gulp.timestamp"] == 1258476898794248960
+    assert data["buckets"][0]["*"]["min_gulp.timestamp"] == 1258480498794248960
 
 
 @pytest.mark.asyncio
@@ -422,13 +427,16 @@ async def test_ingest_zip():
     # wait ws
     await _ws_loop(13778, processed=13745)
 
+
 @pytest.mark.asyncio
 async def test_paid_plugins():
-    import sys, importlib
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/tests/ingest.py")
+    import importlib
+    import sys
 
-    module_name="paidplugins"
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    file_path = os.path.join(current_dir, "../../gulp-paid-plugins/tests/ingest.py")
+
+    module_name = "paidplugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module

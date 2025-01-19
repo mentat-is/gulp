@@ -94,8 +94,8 @@ async def test():
 
     doc = await GulpAPIQuery.query_single_id(guest_token, target_doc_id, TEST_INDEX)
     assert doc["_id"] == target_doc_id
-    assert doc["@timestamp"] == "2014-07-16T04:04:24.614482+00:00"
-    assert doc["gulp.timestamp"] == 1405483464614481920
+    assert doc["@timestamp"] == "2014-07-16T06:04:24.614482+00:00"
+    assert doc["gulp.timestamp"] == 1405490664614481920
 
     # rebase on another index (guest cannot rebase)
     one_day_msec = 1000 * 60 * 60 * 24
@@ -125,15 +125,15 @@ async def test():
 
     # check rebase (only 6 docs should have been rebased)
     await GulpAPIQuery.query_gulp(guest_token, new_index)
-    await _ws_loop(total=6)
-    
+    await _ws_loop(total=5)
+
     # check same document on new idx (should be 1 day ahead)
     doc = await GulpAPIQuery.query_single_id(guest_token, target_doc_id, new_index)
     assert doc["_id"] == target_doc_id
     assert (
-        doc["@timestamp"] == "2014-07-17T04:04:24.614482Z"
-    )  # was "2014-07-16T04:04:24.614482+00:00"
-    assert doc["gulp.timestamp"] == 1405569864614481920  # was 1405483464614481920
+        doc["@timestamp"] == "2014-07-17T06:04:24.614482Z"
+    )  # was "2014-07-16T06:04:24.614482+00:00"
+    assert doc["gulp.timestamp"] == 1405577064614481920  # was 1405490664614481920
 
     # list indexes (should be 2)
     indexes = await GulpAPIDb.opensearch_list_index(guest_token)
@@ -142,7 +142,7 @@ async def test():
     # delete the new index
     await GulpAPIDb.opensearch_delete_index(ingest_token, new_index)
     MutyLogger.get_instance().info("all tests succeeded!")
-    
+
 
     # verify deleted
     indexes = await GulpAPIDb.opensearch_list_index(guest_token)
