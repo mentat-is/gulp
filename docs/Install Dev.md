@@ -15,6 +15,37 @@
 
 # install from sources
 
+## use the devcontainer
+
+> this is the recommended dev method!
+
+gulp have its own [devcontainer](https://github.com/devcontainers) setup ready to use with i.e. *vscode*.
+
+1. clone the repositories
+
+  ~~~bash
+  mkdir ./repos && cd ./repos
+  git clone https://github.com/mentat-is/muty-python.git
+  git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+  ~~~
+
+2. install the [devcontainers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) if you do not have already.
+
+3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*
+
+4. once you are in the container, start the main [docker-compose](../docker-compose.yml) to start postgresql and opensearch and start developing as normal.
+
+  ~~~bash
+  cd ./gulp
+  docker compose up -d
+  ~~~
+
+> if you see an error like the following:
+>
+> Error response from daemon: Conflict. The container name "/elasticvue" is already in use by container "some_container_id". You have to remove (or rename) that container to be able to reuse that name.
+>
+> remove the container with `docker container rm some_container_id` and retry.
+
 ## install using the setup script
 
 installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
@@ -29,8 +60,8 @@ if your OS is not supported please refer to the [manual installation](<#manual i
 
 ## install manually
 
-> this is the recommended installation method!
->
+> use this if you do not like devcontainers ....
+
 ### 1. install OS dependencies
 
 This depends on your OS, on EndeavourOS(arch):

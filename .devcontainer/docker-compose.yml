@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  dev:
+    build: .
+    volumes:
+      - ..:/workspace:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: sleep infinity
+    ports:
+      # gulp
+      - "8080:8080"
+    privileged: true
+    group_add:
+      - docker
+    # Use the default network driver and join the main gulp network
+    network_mode: "host"
+

@@ -4,7 +4,7 @@ services:
     restart: always
     image: opensearchproject/opensearch:latest
     healthcheck:
-      test:     
+      test:
         [
           "CMD-SHELL",
           "curl -s --user ${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD} -X GET http://localhost:9200/_cluster/health?pretty | grep status | grep -q '\\(green\\|yellow\\)'"
@@ -40,7 +40,8 @@ services:
       - 9200:9200
     volumes:
       - opensearch_data:/usr/share/opensearch/data
-
+    networks:
+      - gulp
 
   opensearch-dashboards:
     profiles: [ "dashboards" ]
@@ -52,12 +53,13 @@ services:
       OPENSEARCH_HOSTS: '["http://os01:9200"]'
     depends_on:
       - os01
+    networks:
+      - gulp
 
   postgres:
     # using an image having pg_cron preinstalled
     # TODO: use the official postgres image and install pg_cron
     image: cleisonfmelo/postgres-pg-cron
-
     #command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
     restart: always
     volumes:
@@ -69,6 +71,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
       #- POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS}
+    networks:
+      - gulp
 
   elasticvue:
     image: cars10/elasticvue:latest
@@ -77,6 +81,8 @@ services:
       - 8082:8080
     depends_on:
       - os01
+    networks:
+      - gulp
 
   adminer:
     image: adminer
@@ -85,6 +91,8 @@ services:
     restart: always
     ports:
       - 8081:8080
+    networks:
+      - gulp
 
   gulp:
     profiles: [ "api","web"]
@@ -95,7 +103,6 @@ services:
         _VERSION: latest
         PORT: 8080
         ADDRESS: 0.0.0.0
-
     image: gulp-core:latest
     container_name: gulp
     environment:
@@ -106,13 +113,14 @@ services:
     volumes:
       - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
       - ./.gulpconfig:/root/.config/gulp
-
     depends_on:
       - postgres
       - os01
     ports:
       - ${PORT:-8080}:${PORT:-8080}
     command: python3 -m gulp ${EXTRA_ARGS:-}
+    networks:
+      - gulp
 
   gulp-web:
     profiles: ["web" ]
@@ -123,7 +131,13 @@ services:
     restart: on-failure
     ports:
       - 3000:3000
+    networks:
+      - gulp
 
 volumes:
   postgres_data:
   opensearch_data:
+
+networks:
+  gulp:
+    driver: bridge

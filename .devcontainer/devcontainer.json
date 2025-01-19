@@ -1,0 +1,28 @@
+{
+  "name": "Gulp Dev Container",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  //"postStartCommand": "sudo usermod -aG docker vscode && sudo chmod 666 /var/run/docker.sock && sudo chown root:docker /var/run/docker.sock",
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=${localWorkspaceFolder}/../muty-python,target=${containerWorkspaceFolder}/muty-python,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/../gulp-paid-plugins,target=${containerWorkspaceFolder}/gulp-paid-plugins,type=bind,consistency=cached"
+  ],
+  "remoteEnv": {
+    "GULP_CONFIG_PATH": "/workspace/gulp_cfg.json",
+    "PATH_PLUGINS_EXTRA": "${containerWorkspaceFolder}/paid_plugins/src/gulp-paid-plugins/plugins",
+    "PATH_MAPPING_FILES_EXTRA": "${containerWorkspaceFolder}/paid_plugins/src/gulp-paid-plugins/mapping_files"
+  },
+  "postCreateCommand": "pip3 install -e . && pip3 install -e ./muty-python"
+}
