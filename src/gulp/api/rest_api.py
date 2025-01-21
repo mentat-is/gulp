@@ -239,11 +239,19 @@ class GulpRestServer:
         """
         add a new API route, just bridges to FastAPI.add_api_route
 
+        NOTE: if the route already exists, it will be replaced.
+
         Args:
             path (str): the path
             handler: the handler
             **kwargs: additional arguments to FastAPI.add_api_route
         """
+        # find and remove existing route
+        for route in self._app.routes:
+            if route.path == path:
+                self._app.router.routes.remove(route)
+
+        # add route
         self._app.add_api_route(path, handler, **kwargs)
 
     def start(

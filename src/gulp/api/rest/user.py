@@ -3,6 +3,8 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
 from typing import Annotated, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
@@ -14,7 +16,6 @@ from gulp.api.collab_api import GulpCollab
 from muty.jsend import JSendException, JSendResponse
 from fastapi import Body, Depends
 from gulp.api.rest.server_utils import ServerUtils
-import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
@@ -24,11 +25,133 @@ from muty.jsend import JSendResponse
 from gulp.api.rest.structs import REGEX_CHECK_USERNAME, APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
+from gulp.structs import GulpAPIMethod
+
+
+class GulpLoginMethod(BaseModel):
+    """
+    the login methods supported by Gulp.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "gulp",
+                    "login": {
+                        "method": "GET",
+                        "url": "/login",
+                        "params": [
+                            {
+                                "name": "user_id",
+                                "type": "str",
+                                "description": "the user id.",
+                                "required": True,
+                            },
+                            {
+                                "name": "password",
+                                "type": "str",
+                                "description": "the password.",
+                                "required": True,
+                            },
+                            {
+                                "name": "ws_id",
+                                "type": "str",
+                                "description": "the websocket id.",
+                                "required": True,
+                            },
+                            {
+                                "name": "req_id",
+                                "type": "str",
+                                "description": "the request id.",
+                                "default_value": None,
+                            }
+                        ]
+                    },
+                    "logout": {
+                        "method": "PUT",
+                        "url": "/logout",
+                        "params": [
+                            {
+                                "name": "token",
+                                "type": "str",
+                                "description": "the login token.",
+                            },
+                            {
+                                "name": "ws_id",
+                                "type": "str",
+                                "description": "the websocket id.",
+                            },
+                            {
+                                "name": "req_id",
+                                "type": "str",
+                                "description": "the request id.",
+                                "optional": True,
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+
+    name: str = Field(..., description="the name of the login method.")
+
+    login: GulpAPIMethod = Field(
+        ..., description="the login method.")
+    logout: GulpAPIMethod = Field(
+        ..., description="the logout method.")
+
 
 router = APIRouter()
 
 
-@router.put(
+@router.get(
+    "/get_available_login_api",
+    response_model=JSendResponse,
+    tags=["user"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [autogenerate_model_example_by_class(
+                            GulpLoginMethod)]
+                    }
+                }
+            }
+        }
+    },
+    summary="get the available login methods.",
+    description="""
+depending on the installed plugins, you may login to gulp using different methods.
+
+this api lists the available login methods and their corresponding API endpoints.
+
+NOTE: the `gulp` login method is always available, `extension` plugins may override `get_login_methods` to add more methods.
+"""
+)
+async def get_available_login_api_handler(
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+
+    return JSONResponse(
+        JSendResponse.success(
+            req_id=req_id,
+            data=[autogenerate_model_example_by_class(
+                GulpLoginMethod)]
+        )
+    )
+
+
+@router.get(
     "/login",
     response_model=JSendResponse,
     tags=["user"],
@@ -204,7 +327,8 @@ the new user id.
         str,
         Depends(APIDependencies.param_email_optional),
     ] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(
+        APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -308,7 +432,7 @@ async def user_delete_handler(
     },
     summary="updates an existing user on the platform.",
     description="""
-- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.    
+- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
 - `password`, `permission`, `email`, `glyph_id`, `user_data` are optional depending on what needs to be updated, and can be set independently (**but at least one must be set**).
     """,
 )
@@ -344,7 +468,8 @@ async def user_update_handler(
             example=True,
         ),
     ] = True,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(
+        APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -395,7 +520,8 @@ async def user_update_handler(
             await u.update(sess, d, user_session=s)
 
             return JSONResponse(
-                JSendResponse.success(req_id=req_id, data=u.to_dict(exclude_none=True))
+                JSendResponse.success(
+                    req_id=req_id, data=u.to_dict(exclude_none=True))
             )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

@@ -19,6 +19,46 @@ class ObjectNotFound(Exception):
     pass
 
 
+class GulpAPIParameter(BaseModel):
+    """
+    describes a parameter for a Gulp API method.
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "ignore_mapping",
+                    "type": "bool",
+                    "default_value": False,
+                    "desc": "ignore mapping file and leave the field as is.",
+                    "required": True,
+                }
+            ]
+        }
+    )
+
+    name: str = Field(..., description="the parameter.")
+    type: Literal["bool", "str", "int", "float", "dict", "list"] = Field(
+        ..., description="parameter type."
+    )
+    default_value: Optional[Any] = Field(None, description="default value.")
+    desc: Optional[str] = Field(None, description="parameter description.")
+    required: Optional[bool] = Field(
+        False, description="is the parameter required ?")
+
+
+class GulpAPIMethod(BaseModel):
+    """
+    describes a Gulp API method.
+    """
+    method: Literal["PUT", "GET", "POST", "DELETE", "PATCH"] = Field(
+        ..., description="the method to be used"),
+    url: str = Field(...,
+                     description="the endpoint url, relative to the base host"),
+    params: Optional[list[GulpAPIParameter]] = Field(
+        [], description="list of parameters for the method")
+
+
 class GulpPluginParameters(BaseModel):
     """
     common parameters for a plugin, to be passed to ingest and query API.
@@ -90,7 +130,7 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         return True
 
 
-class GulpPluginCustomParameter(BaseModel):
+class GulpPluginCustomParameter(GulpAPIParameter):
     """
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
 
@@ -110,13 +150,6 @@ class GulpPluginCustomParameter(BaseModel):
             ]
         }
     )
-    name: str = Field(..., description="option name.")
-    type: Literal["bool", "str", "int", "float", "dict", "list"] = Field(
-        ..., description="option type."
-    )
-    default_value: Optional[Any] = Field(None, description="default value.")
-    desc: Optional[str] = Field(None, description="option description.")
-    required: Optional[bool] = Field(False, description="is the option required ?")
 
 
 class GulpNameDescriptionEntry(BaseModel):

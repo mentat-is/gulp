@@ -334,7 +334,8 @@ async def plugin_delete_handler(
 
             # cannot delete base plugins (may be in a container)
             if GulpConfig.get_instance().path_plugins_default() in file_path:
-                raise Exception("cannot delete plugin in base path: %s" % (file_path))
+                raise Exception(
+                    "cannot delete plugin in base path: %s" % (file_path))
 
             # delete file
             await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
@@ -379,7 +380,8 @@ async def plugin_upload_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     plugin: Annotated[UploadFile, File(description="the plugin file to upload")],
     is_extension: Annotated[
-        bool, Query(description="True if the plugin is an extension, False otherwise")
+        bool, Query(
+            description="True if the plugin is an extension, False otherwise")
     ],
     filename: Annotated[
         str,
@@ -388,7 +390,8 @@ async def plugin_upload_handler(
         ),
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(description="if set, will overwrite an existing plugin file.")
+        bool, Query(
+            description="if set, will overwrite an existing plugin file.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
@@ -401,7 +404,8 @@ async def plugin_upload_handler(
             await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
             if not GulpConfig.get_instance().path_plugins_extra():
-                raise Exception("to upload plugins, define PATH_PLUGINS_EXTRA.")
+                raise Exception(
+                    "to upload plugins, define PATH_PLUGINS_EXTRA.")
 
             await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
             if not filename:
@@ -416,7 +420,8 @@ async def plugin_upload_handler(
             if not allow_overwrite:
                 # overwrite disabled
                 if os.path.exists(file_path):
-                    raise ObjectAlreadyExists("plugin %s already exists." % (filename))
+                    raise ObjectAlreadyExists(
+                        "plugin %s already exists." % (filename))
 
             # ok, write file
             await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(file_path))
@@ -508,7 +513,8 @@ async def mapping_file_upload_handler(
         UploadFile, File(description="the mapping json file")
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(description="if set, will overwrite an existing mapping file.")
+        bool, Query(
+            description="if set, will overwrite an existing mapping file.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
@@ -522,7 +528,8 @@ async def mapping_file_upload_handler(
 
         extra_path = GulpConfig.get_instance().path_mapping_files_extra()
         if not extra_path:
-            raise Exception("to upload mapping files, define PATH_MAPPING_FILES_EXTRA.")
+            raise Exception(
+                "to upload mapping files, define PATH_MAPPING_FILES_EXTRA.")
 
         # load file
         filename: str = os.path.basename(mapping_file.filename)
@@ -781,13 +788,15 @@ async def mapping_file_delete_handler(
 
         # cannot delete base plugins (may be in a container)
         if GulpConfig.get_instance().path_mapping_files_default() in file_path:
-            raise Exception("cannot delete mapping file in base path: %s" % (file_path))
+            raise Exception(
+                "cannot delete mapping file in base path: %s" % (file_path))
 
         # delete file
         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
         return JSONResponse(
             JSendResponse.success(
-                req_id=req_id, data={"filename": mapping_file, "path": file_path}
+                req_id=req_id, data={
+                    "filename": mapping_file, "path": file_path}
             )
         )
     except Exception as ex:

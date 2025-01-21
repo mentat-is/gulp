@@ -18,7 +18,7 @@ class GulpAPIUser:
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
-        res = await api_common.make_request("PUT", "login", params=params)
+        res = await api_common.make_request("GET", "login", params=params)
         token = res.get("token")
         assert token
         return token
@@ -47,7 +47,7 @@ class GulpAPIUser:
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
-        res = await api_common.make_request("PUT", "login", params=params)
+        res = await api_common.make_request("GET", "login", params=params)
         token = res.get("token")
         assert token
         return token
