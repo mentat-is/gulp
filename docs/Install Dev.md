@@ -32,6 +32,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   git clone https://github.com/mentat-is/muty-python.git
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...  
+  git clone https://github.com/mentat-is/gulp-paid-plugins
   ~~~
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.

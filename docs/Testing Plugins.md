@@ -11,13 +11,12 @@
 
 to start tests, start gulp first!
 
+> for the devteam: if you are using the `devcontainer`, environment variablaes `PATH_MAPPING_FILES_EXTRA` and `PATH_PLUGINS_EXTRA` are preset with to the paid plugins paths in `$GULP_DIR/../gulp-paid-plugins`.
+
 ~~~bash
 # run gulp on localhost:8080
 # (extra paths may be omitted)
 GULP_INTEGRATION_TEST=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins gulp
-
-# in devcontainer:
-# GULP_INTEGRATION_TEST=1 PATH_MAPPING_FILES_EXTRA=/workspace/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/workspace/gulp-paid-plugins/src/gulp-paid-plugins/plugins gulp
 ~~~
 
 ## running the test suite
@@ -31,9 +30,6 @@ PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/
 
 # also test paid plugins
 PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
-
-# in devcontainer:
-# PATH_MAPPING_FILES_EXTRA=/workspace/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/workspace/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
 ~~~
 
 if running `test_suite.sh` with `PAID_PLUGIN=1` make sure the `gulp-paid-plugin` package is installed in your environment (`pip install -e /path/to/gulp-paid-plugins`).

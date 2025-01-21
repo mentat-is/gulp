@@ -2,7 +2,7 @@
   "name": "Gulp Dev Container",
   "dockerComposeFile": "docker-compose.yml",
   "service": "dev",
-  "workspaceFolder": "/workspace",
+  "workspaceFolder": "/gulp",
   "customizations": {
     "vscode": {
       "extensions": [

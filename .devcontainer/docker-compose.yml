@@ -2,7 +2,7 @@ services:
   dev:
     build: .
     volumes:
-      - ..:/workspace:cached
+      - ..:/gulp:cached
       - /var/run/docker.sock:/var/run/docker.sock
     command: sleep infinity
     ports:
