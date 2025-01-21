@@ -1,5 +1,6 @@
 
 - [troubleshooting](#troubleshooting)
+  - [devcontainer](#devcontainer)
   - [docker](#docker)
   - [general](#general)
   - [os](#os)
@@ -11,6 +12,16 @@
 # troubleshooting
 
 **before opening issues**, please check the following:
+
+## devcontainer
+
+if you see an error like the following:
+
+~~~
+Error response from daemon: Conflict. The container name "/elasticvue" is already in use by container "some_container_id". You have to remove (or rename) that container to be able to reuse that name.
+~~~
+
+remove the container with `docker container rm some_container_id` and retry.
 
 ## docker
 

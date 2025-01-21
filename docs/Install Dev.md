@@ -43,12 +43,6 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   docker compose up -d
   ~~~
 
-> if you see an error like the following:
->
-> Error response from daemon: Conflict. The container name "/elasticvue" is already in use by container "some_container_id". You have to remove (or rename) that container to be able to reuse that name.
->
-> remove the container with `docker container rm some_container_id` and retry.
-
 ## install manually
 
 > use this if you do not want to use the devcontainer ...
