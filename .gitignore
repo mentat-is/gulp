@@ -30,11 +30,8 @@ test_scripts/test.json
 .config
 
 # symlinks
-paid_plugins
-paid_mappings
-paid_tests
-paid_samples
 muty-python
+gulp-paid-plugins
 
 #auto generated docs
 docs/html
