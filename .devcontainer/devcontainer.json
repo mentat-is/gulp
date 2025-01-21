@@ -6,23 +6,56 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "alexcvzz.vscode-sqlite",
+        "bierner.markdown-mermaid",
+        "codezombiech.gitignore",
+        "DavidAnson.vscode-markdownlint",
+        "donjayamanne.python-extension-pack",
+        "donjayamanne.python-extension-pack",
+        "earshinov.permute-lines",
+        "eliostruyf.vscode-hide-comments",
+        "foxundermoon.shell-format",
+        "fuadpashayev.bottom-terminal",
+        "Gerrnperl.outline-map",
+        "github.copilot-chat",
+        "github.copilot",
+        "Gruntfuggly.todo-tree",
+        "kevinkyang.auto-comment-blocks",
+        "ms-azuretools.vscode-docker",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.pylint",
         "ms-python.python",
-        "ms-azuretools.vscode-docker"
+        "ms-python.vscode-python-envs",
+        "npxms.hide-gitignored",
+        "roonie007.hide-files",
+        "shivaprasanth.vscode-always-sidebar",
+        "tamasfe.even-better-toml",
+        "Tyriar.sort-lines",
+        "valsorym.smart-tabs",
+        "yzhang.markdown-all-in-one",
+        "zh9528.file-size"
       ]
     }
   },
+  "features": {
+    "ghcr.io/meaningful-ooo/devcontainer-features/fish:1": {},
+    "ghcr.io/jungaretti/features/vim:1": {}
+  },
   "remoteUser": "vscode",
-  "updateRemoteUserUID": true,
-  //"postStartCommand": "sudo usermod -aG docker vscode && sudo chmod 666 /var/run/docker.sock && sudo chown root:docker /var/run/docker.sock",
+  "init": true,
+  "privileged": true,
   "mounts": [
-    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../muty-python,target=${containerWorkspaceFolder}/muty-python,type=bind,consistency=cached",
-    "source=${localWorkspaceFolder}/../gulp-paid-plugins,target=${containerWorkspaceFolder}/gulp-paid-plugins,type=bind,consistency=cached"
+    "source=${localWorkspaceFolder}/../gulp-paid-plugins,target=${containerWorkspaceFolder}/gulp-paid-plugins,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/fish,target=/home/vscode/.config/fish,type=bind,consistency=cached"
   ],
   "remoteEnv": {
-    "GULP_CONFIG_PATH": "/workspace/gulp_cfg.json",
-    "PATH_PLUGINS_EXTRA": "${containerWorkspaceFolder}/paid_plugins/src/gulp-paid-plugins/plugins",
-    "PATH_MAPPING_FILES_EXTRA": "${containerWorkspaceFolder}/paid_plugins/src/gulp-paid-plugins/mapping_files"
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin",
+    "PATH_PLUGINS_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/plugins",
+    "PATH_MAPPING_FILES_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
   },
-  "postCreateCommand": "pip3 install -e . && pip3 install -e ./muty-python"
+  "postCreateCommand": "sudo chmod 666 /var/run/docker.sock && pip3 install -e . && pip3 install -e ./muty-python"
 }

@@ -1,5 +1,6 @@
+
 - [install from sources](#install-from-sources)
-  - [install using the setup script](#install-using-the-setup-script)
+  - [use the devcontainer](#use-the-devcontainer)
   - [install manually](#install-manually)
     - [1. install OS dependencies](#1-install-os-dependencies)
     - [2. clone repositories](#2-clone-repositories)
@@ -8,6 +9,7 @@
     - [5. install gulp](#5-install-gulp)
     - [6. run](#6-run)
     - [7. optional: installing extra plugins](#7-optional-installing-extra-plugins)
+  - [install using the setup script](#install-using-the-setup-script)
   - [install the client](#install-the-client)
   - [troubleshoot](#troubleshoot)
 
@@ -17,26 +19,26 @@
 
 ## use the devcontainer
 
-> this is the recommended dev method!
+> this is the recommended dev install method!
 
 gulp have its own [devcontainer](https://github.com/devcontainers) setup ready to use with i.e. *vscode*.
 
-1. clone the repositories
+1. install the [devcontainers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) if you do not have already.
+
+2. clone the repositories
 
   ~~~bash
   mkdir ./repos && cd ./repos
   git clone https://github.com/mentat-is/muty-python.git
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+  # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...  
   ~~~
 
-2. install the [devcontainers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) if you do not have already.
-
-3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*
+3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
 
 4. once you are in the container, start the main [docker-compose](../docker-compose.yml) to start postgresql and opensearch and start developing as normal.
 
   ~~~bash
-  cd ./gulp
   docker compose up -d
   ~~~
 
@@ -46,21 +48,9 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 >
 > remove the container with `docker container rm some_container_id` and retry.
 
-## install using the setup script
-
-installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
-
-```bash
-curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
-chmod +x gulp_setup.sh
-sudo ./gulp_setup.sh --dev -d ./gulp
-```
-
-if your OS is not supported please refer to the [manual installation](<#manual installation>) instructions below.
-
 ## install manually
 
-> use this if you do not like devcontainers ....
+> use this if you do not want to use the devcontainer ...
 
 ### 1. install OS dependencies
 
@@ -131,6 +121,18 @@ plugins are just files, so it is enough to copy/symlink them in `GULP_INSTALL_DI
 > `extension` plugins goes into `GULP_INSTALL_DIR/src/gulp/plugins/extension`
 >
 > if the plugin needs `mapping files`, they must be copied/symlinked as well into `PATH_MAPPING_FILES`, default=`GULP_INSTALL_DIR/src/gulp/mapping_files`.
+
+## install using the setup script
+
+installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
+
+```bash
+curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
+chmod +x gulp_setup.sh
+sudo ./gulp_setup.sh --dev -d ./gulp
+```
+
+if your OS is not supported please refer to the [manual installation](<#manual installation>) instructions below.
 
 ## install the client
 

@@ -1,16 +1,14 @@
 # .devcontainer/Dockerfile
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.12
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.13
 
 # Install OS dependencies
 RUN apt update && export DEBIAN_FRONTEND=noninteractive && \
     apt -y install --no-install-recommends \
-        rustc \
-        docker.io \
-        docker-compose \
-        libsystemd-dev \
-        jq \
-        libpqxx-dev \
-        git-lfs
+    rustc \
+    libsystemd-dev \
+    jq \
+    libpqxx-dev \
+    git-lfs
 
 # Install pipx
 RUN python3 -m pip install --user pipx && \
@@ -18,13 +16,11 @@ RUN python3 -m pip install --user pipx && \
 
 # setup docker
 RUN curl -fsSL https://get.docker.com | sh && \
+    apt -y install --no-install-recommends docker-compose && \
+    # Create docker group if it doesn't exist
     groupadd -f docker && \
     usermod -aG docker vscode && \
-    mkdir -p /run/docker && \
-    chmod -R g+rwx /run/docker && \
-    touch /var/run/docker.sock && \
-    chmod 666 /var/run/docker.sock && \
-    chown root:docker /var/run/docker.sock
+    mkdir -p /run/docker 
 
 # Clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
