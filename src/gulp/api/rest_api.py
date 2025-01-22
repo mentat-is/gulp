@@ -26,7 +26,6 @@ from opensearchpy import RequestError
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab_api import GulpCollab
-from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.test_values import TEST_INDEX
 from gulp.api.ws_api import GulpConnectedSockets, GulpSharedWsQueue
 from gulp.config import GulpConfig
@@ -417,6 +416,7 @@ class GulpRestServer:
         """
         fastapi lifespan handler
         """
+        from gulp.api.opensearch_api import GulpOpenSearch
         MutyLogger.get_instance().info("gULP main server process is starting!")
         asyncio_atexit.register(self._cleanup)
 
