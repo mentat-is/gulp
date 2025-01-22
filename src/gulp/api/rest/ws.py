@@ -17,6 +17,7 @@ from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import (
+    GulpClientDataPacket,
     GulpConnectedSocket,
     GulpConnectedSockets,
     GulpWsAcknowledgedPacket,
@@ -26,6 +27,7 @@ from gulp.api.ws_api import (
     GulpWsErrorPacket,
     GulpWsIngestPacket,
     GulpWsQueueDataType,
+    GulpWsType,
 )
 from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectNotFound
@@ -160,7 +162,7 @@ class GulpAPIWebsocket:
             MutyLogger.get_instance().debug(
                 f"ws_ingest accepted for ws_id={params.ws_id}")
             ws = GulpConnectedSockets.get_instance().add(
-                websocket, params.ws_id
+                websocket, params.ws_id, socket_type=GulpWsType.WS_INGEST
             )
 
             # aknowledge connection
@@ -176,7 +178,7 @@ class GulpAPIWebsocket:
             await websocket.send_json(p.model_dump(exclude_none=True))
 
             # blocks until exception/disconnect
-            await GulpAPIWebsocket.run_loop_ingest(ws, user_id)
+            await GulpAPIWebsocket.ws_ingest_run_loop(ws, user_id)
         except ObjectNotFound as ex:
             # user not found
             p = GulpWsErrorPacket(
@@ -217,7 +219,7 @@ class GulpAPIWebsocket:
                 await websocket.close()
 
     @staticmethod
-    async def receive_ingest_loop(ws: GulpConnectedSocket, user_id: str) -> None:
+    async def ws_ingest_receive_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """
         receives ingest packets from the client and processes them
 
@@ -265,7 +267,7 @@ class GulpAPIWebsocket:
                 )
 
     @staticmethod
-    async def run_loop_ingest(ws: GulpConnectedSocket, user_id: str) -> None:
+    async def ws_ingest_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """
         main loop for the ingest websocket connection
 
@@ -277,7 +279,164 @@ class GulpAPIWebsocket:
         try:
             # Create tasks with names for better debugging
             ws.receive_task = asyncio.create_task(
-                GulpAPIWebsocket.receive_ingest_loop(ws, user_id), name=f"receive_loop_{ws.ws_id}"
+                GulpAPIWebsocket.ws_ingest_receive_loop(ws, user_id), name=f"receive_loop_{ws.ws_id}"
+            )
+            tasks.extend([ws.receive_task])
+
+            # Wait for first task to complete
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+
+            # Process completed task
+            task = done.pop()
+            try:
+                await task
+            except WebSocketDisconnect as ex:
+                MutyLogger.get_instance().debug(
+                    f"websocket {ws.ws_id} disconnected: {ex}"
+                )
+                raise
+            except Exception as ex:
+                MutyLogger.get_instance().error(
+                    f"error in {task.get_name()}: {ex}")
+                raise
+
+        finally:
+            # ensure cleanup happens even if cancelled
+            await asyncio.shield(ws._cleanup_tasks(tasks))
+
+    @router.websocket("/ws_client_data")
+    @staticmethod
+    async def ws_client_data_handler(websocket: WebSocket):
+        """
+        a websocket endpoint specific for data sent by UI to be routed among connected websockets
+
+        1. client sends a json request with GulpWsAuthParameters
+        2. server accepts the connection and checks the token and ws_id
+        3. on error, server sends a GulpWsErrorPacket and closes the connection. on success, it sends a GulpWsAcknowledgedPacket and starts the main loop.
+        4. client streams GulpWsClientData which is routed to all other clients connected to /ws_client_data
+
+        Args:
+            websocket (WebSocket): The websocket object.
+        """
+
+        ws = None
+        try:
+            await websocket.accept()
+            js = await websocket.receive_json()
+            params = GulpWsAuthPacket.model_validate(js)
+            user_id = None
+            async with GulpCollab.get_instance().session() as sess:
+                s = await GulpUserSession.check_token(
+                    sess, params.token
+                )
+                user_id = s.user_id
+
+            MutyLogger.get_instance().debug(
+                f"ws_client_data accepted for ws_id={params.ws_id}")
+            ws = GulpConnectedSockets.get_instance().add(
+                websocket, params.ws_id, socket_type=GulpWsType.WS_CLIENT_DATA
+            )
+
+            # aknowledge connection
+            p = GulpWsData(
+                timestamp=muty.time.now_msec(),
+                type=GulpWsQueueDataType.WS_CONNECTED,
+                ws_id=params.ws_id,
+                user_id=user_id,
+                data=GulpWsAcknowledgedPacket(token=params.token).model_dump(
+                    exclude_none=True
+                ),
+            )
+            await websocket.send_json(p.model_dump(exclude_none=True))
+
+            # blocks until exception/disconnect
+            await GulpAPIWebsocket.ws_client_data_run_loop(ws, user_id)
+        except ObjectNotFound as ex:
+            # user not found
+            p = GulpWsErrorPacket(
+                error=str(ex), error_code=GulpWsError.OBJECT_NOT_FOUND.name
+            )
+            wsd = GulpWsData(
+                timestamp=muty.time.now_msec(),
+                type=GulpWsQueueDataType.WS_ERROR,
+                ws_id=params.ws_id,
+                data=p.model_dump(exclude_none=True),
+            )
+            await websocket.send_json(wsd.model_dump(exclude_none=True, by_alias=True))
+        except MissingPermission as ex:
+            # user has no permission
+            p = GulpWsErrorPacket(
+                error=str(ex), error_code=GulpWsError.MISSING_PERMISSION.name
+            )
+            wsd = GulpWsData(
+                timestamp=muty.time.now_msec(),
+                type=GulpWsQueueDataType.WS_ERROR,
+                ws_id=params.ws_id,
+                data=p.model_dump(exclude_none=True),
+            )
+            await websocket.send_json(wsd.model_dump(exclude_none=True, by_alias=True))
+        except WebSocketDisconnect as ex:
+            MutyLogger.get_instance().exception(ex)
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            if ws:
+                try:
+                    await GulpConnectedSockets.get_instance().remove(websocket)
+                except Exception as ex:
+                    MutyLogger.get_instance().error(
+                        f"error during ws_ingest cleanup: {ex}")
+            if websocket.client_state == WebSocketState.CONNECTED:
+                # close gracefully
+                await websocket.close()
+
+    @staticmethod
+    async def ws_client_data_receive_loop(ws: GulpConnectedSocket, user_id: str) -> None:
+        """
+        receives client ui data
+
+        Args:
+            ws (GulpConnectedSocket): the websocket connection
+            user_id (str): the user id
+        """
+        while True:
+            if ws.ws.client_state != WebSocketState.CONNECTED:
+                raise WebSocketDisconnect("client disconnected")
+
+            # this will raise WebSocketDisconnect when client disconnects
+            js: dict = await ws.ws.receive_json()
+            client_ui_data = GulpClientDataPacket.model_validate(js)
+
+            data = GulpWsData(
+                timestamp=muty.time.now_msec(),
+                type=GulpWsQueueDataType.CLIENT_DATA,
+                ws_id=ws.ws_id,
+                user_id=user_id,
+                data=client_ui_data.model_dump(exclude_none=True),
+            )
+
+            # route to all connected client_data websockets
+            s = GulpConnectedSockets.get_instance()
+            for _, cws in s._sockets.items():
+                if ws.ws_id == cws.ws_id or cws.socket_type != GulpWsType.WS_CLIENT_DATA:
+                    # skip this ws
+                    continue
+                await cws.ws.send_json(data.model_dump(exclude_none=True))
+
+    @staticmethod
+    async def ws_client_data_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
+        """
+        main loop for the client_data websocket connection
+
+        Args:
+            ws (GulpConnectedSocket): the websocket connection
+            user_id (str): the user id
+        """
+        tasks: list[asyncio.Task] = []
+        try:
+            # Create tasks with names for better debugging
+            ws.receive_task = asyncio.create_task(
+                GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id), name=f"receive_loop_{ws.ws_id}"
             )
             tasks.extend([ws.receive_task])
 

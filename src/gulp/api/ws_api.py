@@ -30,6 +30,13 @@ import muty.time
 from gulp.structs import GulpPluginParameters
 
 
+class GulpWsType(StrEnum):
+    # the type of the websocket
+    WS_DEFAULT = "default"
+    WS_INGEST = "ingest"
+    WS_CLIENT_DATA = "client_data"
+
+
 class GulpWsQueueDataType(StrEnum):
     """
     The type of data into the websocket queue.
@@ -61,6 +68,8 @@ class GulpWsQueueDataType(StrEnum):
     QUERY_GROUP_MATCH = "query_group_match"
     # GulpRebaseDonePacket
     REBASE_DONE = "rebase_done"
+    # GulpClientDataPacket
+    CLIENT_DATA = "client_data"
 
 
 class WsQueueFullException(Exception):
@@ -290,6 +299,23 @@ class GulpWsErrorPacket(BaseModel):
     error: str = Field(..., description="error on the websocket.")
     error_code: Optional[str] = Field(None, description="optional error code.")
     data: Optional[dict] = Field(None, description="optional error data")
+
+
+class GulpClientDataPacket(BaseModel):
+    """
+    arbitrary client data sent to gulp by UI, routed to all connected websockets
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "data": {"something": "12345"},
+                }
+            ]
+        }
+    )
+    data: dict = Field(..., description="arbitrary data")
 
 
 class GulpWsIngestPacket(BaseModel):
@@ -531,6 +557,7 @@ class GulpConnectedSocket:
         ws_id: str,
         types: list[GulpWsQueueDataType] = None,
         operation_ids: list[str] = None,
+        socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
     ):
         """
         Initializes the ConnectedSocket object.
@@ -540,6 +567,7 @@ class GulpConnectedSocket:
             ws_id (str): The WebSocket ID.
             types (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
+            socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         """
         self.ws = ws
         self.ws_id = ws_id
@@ -548,6 +576,7 @@ class GulpConnectedSocket:
         self.operation_ids = operation_ids
         self.send_task = None
         self.receive_task = None
+        self.socket_type = socket_type
 
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
@@ -752,6 +781,7 @@ class GulpConnectedSockets:
         ws_id: str,
         types: list[GulpWsQueueDataType] = None,
         operation_ids: list[str] = None,
+        socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
     ) -> GulpConnectedSocket:
         """
         Adds a websocket to the connected sockets list.
@@ -761,12 +791,12 @@ class GulpConnectedSockets:
             ws_id (str): The WebSocket ID.
             types (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
             operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
-
+            socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
         wws = GulpConnectedSocket(
-            ws=ws, ws_id=ws_id, types=types, operation_ids=operation_ids
+            ws=ws, ws_id=ws_id, types=types, operation_ids=operation_ids, socket_type=socket_type
         )
         self._sockets[str(id(ws))] = wws
 
@@ -864,6 +894,8 @@ class GulpConnectedSockets:
 
         the message is routed only if:
 
+        - client ws is not an ingest ws AND
+        - message is not CLIENT_DATA (they are always routed) AND
         - the message type is in the target websocket types AND
         - the message operation_id is in the target websocket operation_ids AND
         - private messages are only routed to the target websocket
@@ -874,6 +906,9 @@ class GulpConnectedSockets:
             client_ws (ConnectedSocket): The target websocket.
 
         """
+        if client_ws.socket_type != GulpWsType.WS_DEFAULT:
+            return
+
         # if types is set, only route if it matches
         if client_ws.types and data.type not in client_ws.types:
             # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, types={client_ws.types}")
@@ -909,14 +944,19 @@ class GulpConnectedSockets:
         )
         await client_ws.put_message(message)
 
-    async def broadcast_data(self, d: GulpWsData):
+    async def broadcast_data(self, d: GulpWsData, skip_list: list[str] = None) -> None:
         """
         broadcasts data to all connected websockets
 
         Args:
             d (GulpWsData): The data to broadcast.
+            skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
         for _, cws in self._sockets.items():
+            if skip_list and cws.ws_id in skip_list:
+                # skip this ws
+                continue
+            # MutyLogger.get_instance().debug("routing %s to %s" % (d, cws))
             await self._route_message(d, cws)
 
 
