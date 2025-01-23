@@ -337,7 +337,7 @@ class GulpWsIngestPacket(BaseModel):
                     "plugin": "raw",
                     "plugin_params": autogenerate_model_example_by_class(
                         GulpPluginParameters
-                    )
+                    ),
                 }
             ]
         },
@@ -359,17 +359,13 @@ class GulpWsIngestPacket(BaseModel):
         ...,
         description="name of the context to associate data with.",
     )
-    source: str = Field(
-        ...,
-        description="name of the source to associate data with.")
+    source: str = Field(...,
+                        description="name of the source to associate data with.")
     ws_id: str = Field(
         ...,
         description="id of the websocket to stream ingest data to.",
     )
-    req_id: str = Field(
-        ...,
-        description="id of the request"
-    ),
+    req_id: str = (Field(..., description="id of the request"),)
     flt: Optional[GulpIngestionFilter] = Field(
         0,
         description="optional filter to apply for ingestion.",
@@ -629,6 +625,7 @@ class GulpConnectedSocket:
             bool: True if the websocket is alive, False otherwise.
         """
         from gulp.process import GulpProcess
+
         if GulpConfig.get_instance().debug_ignore_missing_ws():
             return True
 
@@ -659,7 +656,11 @@ class GulpConnectedSocket:
 
         # remove from global ws list
         from gulp.process import GulpProcess
-        GulpProcess.get_instance().shared_ws_list.remove(self.ws_id)
+
+        try:
+            GulpProcess.get_instance().shared_ws_list.remove(self.ws_id)
+        except ValueError:
+            pass
 
     async def _receive_loop(self) -> None:
         """
@@ -796,7 +797,11 @@ class GulpConnectedSockets:
             ConnectedSocket: The ConnectedSocket object.
         """
         wws = GulpConnectedSocket(
-            ws=ws, ws_id=ws_id, types=types, operation_ids=operation_ids, socket_type=socket_type
+            ws=ws,
+            ws_id=ws_id,
+            types=types,
+            operation_ids=operation_ids,
+            socket_type=socket_type,
         )
         self._sockets[str(id(ws))] = wws
 
