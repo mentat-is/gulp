@@ -387,7 +387,7 @@ class GulpQueryHelpers:
             index(str): the opensearch/elasticsearch index/datastream to target
             flt(GulpQueryFilter, optional): if set, the filter to merge with the query (to restrict the search)
             q_options(GulpQueryParameters, optional): additional options to use
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
             callback (callable, optional): the callback to call for each document found. Defaults to None.
                 the callback must be defined as:
                 async def callback(doc: dict, idx: int, **kwargs) -> None
@@ -442,7 +442,7 @@ class GulpQueryHelpers:
             req_id (str): the request id
             index (str): the opensearch/elasticsearch index/datastream to target
             doc_id (str): the document id to query
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
 
         Returns:
             dict: the document as a GulpDocument dictionary

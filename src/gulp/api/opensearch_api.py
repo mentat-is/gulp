@@ -120,7 +120,8 @@ class GulpOpenSearch:
                 )
             else:
                 MutyLogger.get_instance().debug(
-                    "no client certificate found, using CA certificate only: %s" % (ca)
+                    "no client certificate found, using CA certificate only: %s" % (
+                        ca)
                 )
                 return AsyncOpenSearch(
                     host,
@@ -131,7 +132,8 @@ class GulpOpenSearch:
                 )
 
         # no https
-        el = AsyncOpenSearch(host, http_auth=(parsed.username, parsed.password))
+        el = AsyncOpenSearch(host, http_auth=(
+            parsed.username, parsed.password))
         MutyLogger.get_instance().debug("created opensearch client: %s" % (el))
         return el
 
@@ -185,7 +187,8 @@ class GulpOpenSearch:
                 new_key = "%s.%s" % (parent_key, k) if parent_key else k
                 if isinstance(v, dict):
                     if "properties" in v:
-                        _parse_mappings_internal(v["properties"], new_key, result)
+                        _parse_mappings_internal(
+                            v["properties"], new_key, result)
                     elif "type" in v:
                         result[new_key] = v["type"]
                 else:
@@ -272,7 +275,8 @@ class GulpOpenSearch:
                 break
 
         if not filtered_mapping:
-            raise ObjectNotFound("no documents found for src_file=%s" % (source_id))
+            raise ObjectNotFound(
+                "no documents found for src_file=%s" % (source_id))
 
         # sort the keys
         filtered_mapping = dict(sorted(filtered_mapping.items()))
@@ -312,7 +316,8 @@ class GulpOpenSearch:
         try:
             res = await self._opensearch.indices.get_index_template(name=template_name)
         except Exception as e:
-            raise ObjectNotFound("no template found for datastream/index %s" % (index))
+            raise ObjectNotFound(
+                "no template found for datastream/index %s" % (index))
 
         return res["index_templates"][0]["index_template"]
 
@@ -331,7 +336,8 @@ class GulpOpenSearch:
         MutyLogger.get_instance().debug(
             "putting index template: %s ..." % (template_name)
         )
-        headers = {"accept": "application/json", "content-type": "application/json"}
+        headers = {"accept": "application/json",
+                   "content-type": "application/json"}
         return await self._opensearch.indices.put_index_template(
             name=template_name, body=d, headers=headers
         )
@@ -588,7 +594,8 @@ class GulpOpenSearch:
 
         try:
             # create datastream
-            headers = {"accept": "application/json", "content-type": "application/json"}
+            headers = {"accept": "application/json",
+                       "content-type": "application/json"}
             r = await self._opensearch.indices.create_data_stream(ds, headers=headers)
             MutyLogger.get_instance().debug("datastream created: %s" % (r))
             return r
@@ -696,7 +703,8 @@ class GulpOpenSearch:
             params["refresh"] = "true"
 
         # Execute updates
-        headers = {"accept": "application/json", "content-type": "application/json"}
+        headers = {"accept": "application/json",
+                   "content-type": "application/json"}
 
         success_count = 0
         errors = []
@@ -709,10 +717,12 @@ class GulpOpenSearch:
                     )
                     success_count += res.get("updated", 0)
                 except Exception as e:
-                    errors.append({"query": operation["query"], "error": str(e)})
+                    errors.append(
+                        {"query": operation["query"], "error": str(e)})
 
         except Exception as e:
-            MutyLogger.get_instance().error(f"error updating documents: {str(e)}")
+            MutyLogger.get_instance().error(
+                f"error updating documents: {str(e)}")
             return 0, [{"error": str(e)}]
 
         return success_count, errors
@@ -782,7 +792,8 @@ class GulpOpenSearch:
         ingested: list[dict] = []
         if res["errors"]:
             # count skipped
-            skipped = sum(1 for r in res["items"] if r["create"]["status"] == 409)
+            skipped = sum(1 for r in res["items"]
+                          if r["create"]["status"] == 409)
             # count failed
             failed = sum(
                 1 for r in res["items"] if r["create"]["status"] not in [201, 200, 409]
@@ -800,7 +811,8 @@ class GulpOpenSearch:
                 )
 
             # take only the documents with no ingest errors
-            ingested = self._bulk_docs_result_to_ingest_chunk(bulk_docs, res["items"])
+            ingested = self._bulk_docs_result_to_ingest_chunk(
+                bulk_docs, res["items"])
         else:
             # no errors, take all documents
             ingested = self._bulk_docs_result_to_ingest_chunk(bulk_docs)
@@ -870,7 +882,8 @@ class GulpOpenSearch:
                 },
             },
         }
-        params: dict = {"refresh": "true", "wait_for_completion": "true", "timeout": 0}
+        params: dict = {"refresh": "true",
+                        "wait_for_completion": "true", "timeout": 0}
         headers = {
             "accept": "application/json",
             "content-type": "application/x-ndjson",
@@ -1083,7 +1096,8 @@ class GulpOpenSearch:
                 }
             }
             MutyLogger.get_instance().debug(
-                f"aggregations with group_by={group_by}: {json.dumps(aggregations, indent=2)}"
+                f"aggregations with group_by={group_by}: {
+                    json.dumps(aggregations, indent=2)}"
             )
 
         q = flt.to_opensearch_dsl()
@@ -1106,7 +1120,8 @@ class GulpOpenSearch:
 
         if group_by:
             MutyLogger.get_instance().debug(
-                f"group_by={group_by}, res['aggregations']={json.dumps(res['aggregations'], indent=2)}"
+                f"group_by={group_by}, res['aggregations']={
+                    json.dumps(res['aggregations'], indent=2)}"
             )
             return self._parse_query_max_min(res["aggregations"])
 
@@ -1183,7 +1198,8 @@ class GulpOpenSearch:
 
                 # Process plugins
                 for plugin_bucket in ctx_bucket["plugin"]["buckets"]:
-                    plugin_entry = {"name": plugin_bucket["key"], "sources": []}
+                    plugin_entry = {
+                        "name": plugin_bucket["key"], "sources": []}
 
                     # Process sources
                     for src_bucket in plugin_bucket["source_id"]["buckets"]:
@@ -1329,7 +1345,8 @@ class GulpOpenSearch:
             return js
         except KeyError:
             raise ObjectNotFound(
-                f'document with ID "{id}" not found in datastream={datastream} index={index}'
+                f'document with ID "{id}" not found in datastream={
+                    datastream} index={index}'
             )
 
     async def _search_dsl_internal(
@@ -1346,13 +1363,13 @@ class GulpOpenSearch:
             index (str): Name of the index (or datastream) to query.
             parsed_options (dict): The parsed query options.
             q (dict): The DSL query to execute.
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
 
         Returns:
             tuple:
             - total_hits (int): The total number of hits found.
             - docs (list[dict]): The documents found.
-            - search_after (list[dict]): The search_after value for the next iteration.
+            - search_after (list[dict]): to be passed via `q_options.search_after` in the next iteration.
 
         Raises:
             ObjectNotFound: If no more hits are found.
@@ -1411,6 +1428,40 @@ class GulpOpenSearch:
         search_after = hits[-1]["sort"]
         return total_hits, docs, search_after
 
+    async def search_dsl_sync(
+        self,
+        index: str,
+        q: dict,
+        q_options: "GulpQueryParameters" = None,
+        el: AsyncElasticsearch | AsyncOpenSearch = None,
+    ) -> list[dict]:
+        """
+        Executes a raw DSL query on OpenSearch/Elasticsearch and returns the results.
+
+        Args:
+            index (str): Name of the index (or datastream) to query.
+            q (dict): The DSL query to execute.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
+
+        Returns:
+            tuple:
+            - total_hits (int): The total number of hits found.
+            - docs (list[dict]): The documents found.
+            - search_after (list[dict]): to be passed via `q_options.search_after` in the next iteration.
+
+        Raises:
+            ObjectNotFound: If no more hits are found.
+        """
+        from gulp.api.opensearch.query import GulpQueryParameters
+        if not q_options:
+            q_options = GulpQueryParameters()
+
+        parsed_options: dict = q_options.parse()
+        total_hits, docs, search_after = await self._search_dsl_internal(
+            index, parsed_options, q, el
+        )
+        return total_hits, docs, search_after
+
     async def search_dsl(
         self,
         sess: AsyncSession,
@@ -1436,10 +1487,10 @@ class GulpOpenSearch:
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The request ID for the query
-            ws_id (str, optional): The websocket ID to send the results to
+            ws_id (str, optional): The websocket ID to send the results to, pass None to disable sending on the websocket.
             user_id (str, optional): The user ID performing the query
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): the ElasticSearch/OpenSearch client to use instead of the default OpenSearch. Defaults to None.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
             callback (callable, optional): the callback to call for each document found. Defaults to None.
                 the callback must be defined as:
                 async def callback(doc: dict, idx: int, **kwargs) -> None
@@ -1542,7 +1593,8 @@ class GulpOpenSearch:
             except Exception as ex:
                 # something went wrong
                 MutyLogger.get_instance().error(
-                    "search_dsl: error=%s" % (muty.log.exception_to_string(ex, with_full_traceback=True))
+                    "search_dsl: error=%s" % (
+                        muty.log.exception_to_string(ex, with_full_traceback=True))
                 )
                 raise ex
 

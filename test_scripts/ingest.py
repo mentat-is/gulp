@@ -217,7 +217,7 @@ def _login(host, username, password, req_id, ws_id) -> str:
         "curl",
         "-v",
         "-X",
-        "PUT",
+        "GET",
         f"{host}/login?user_id={username}&password={password}&req_id={req_id}&ws_id={ws_id}",
     ]
     MutyLogger.get_instance().info(f"login command: {login_command}")
