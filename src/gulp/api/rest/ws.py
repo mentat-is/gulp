@@ -1,4 +1,6 @@
 import asyncio
+from dataclasses import dataclass
+from multiprocessing import Queue
 from fastapi.websockets import WebSocketState
 import muty.jsend
 import muty.list
@@ -9,6 +11,7 @@ import muty.time
 import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
+from pydantic import BaseModel, Field
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
@@ -16,6 +19,7 @@ from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.ws_api import (
     GulpClientDataPacket,
     GulpConnectedSocket,
@@ -30,10 +34,124 @@ from gulp.api.ws_api import (
     GulpWsType,
 )
 from gulp.plugin import GulpPluginBase
-from gulp.structs import ObjectNotFound
+from gulp.process import GulpProcess
+from gulp.structs import GulpPluginParameters, ObjectNotFound
 
 
 router = APIRouter()
+
+
+class InternalWsIngestPacket(BaseModel):
+    """
+    holds data for the ws ingest worker
+    """
+    user_id: str = Field(..., description="the user id")
+    data: GulpWsIngestPacket = Field(...,
+                                     description="a GulpWsIngestPacket dictionary")
+
+
+class WsIngestRawWorker:
+    """
+    a gulp worker to handle websocket raw ingestion
+    """
+
+    def __init__(self):
+        # use gulp's multiprocessing manager to create a process-shareable queue
+        self._input_queue = GulpProcess.get_instance().mp_manager.Queue()
+
+    async def start(self) -> None:
+        """
+        starts the worker, which will run in a task in a separate process
+        """
+        async def worker_coro():
+            await GulpProcess.get_instance().process_pool.apply(
+                WsIngestRawWorker._process_loop, args=(self._input_queue,)
+            )
+
+        MutyLogger.get_instance().debug("starting ws ingest worker pool ...")
+        await GulpProcess.get_instance().coro_pool.spawn(worker_coro())
+
+    async def stop(self):
+        """
+        stops the worker
+        """
+        MutyLogger.get_instance().debug("stopping ws ingest worker pool ...")
+        self._input_queue.put(None)
+
+    def put(self, packet: InternalWsIngestPacket):
+        """
+        puts a packet in the worker queue
+
+
+        """
+        # MutyLogger.get_instance().debug("putting packet in ws ingest worker")
+        self._input_queue.put(packet)
+
+    @staticmethod
+    async def _process_loop(input_queue: Queue):
+        """
+        loop for the ingest worker, processes packets from the queue
+
+        Args:
+            input_queue (Queue): the input queue
+        """
+        MutyLogger.get_instance().debug(
+            "ws ingest _process_loop started, input_queue=%s!" % (input_queue))
+
+        async with GulpCollab.get_instance().session() as sess:
+            while True:
+                packet: InternalWsIngestPacket = input_queue.get()
+                if packet is None:
+                    break
+
+                try:
+                    mod: GulpPluginBase = None
+                    MutyLogger.get_instance().debug("_ws_ingest_process_internal")
+
+                    # load plugin
+                    mod: GulpPluginBase = await GulpPluginBase.load(packet.data.plugin)
+
+                    # create context and source
+                    operation: GulpOperation = await GulpOperation.get_by_id(
+                        sess,
+                        packet.data.operation_id
+                    )
+
+                    ctx: GulpContext = await operation.add_context(
+                        sess,
+                        user_id=packet.user_id,
+                        name=packet.data.context_name
+                    )
+
+                    src: GulpSource = await ctx.add_source(
+                        sess,
+                        user_id=packet.user_id,
+                        name=packet.data.source
+                    )
+
+                    # Process documents using plugin
+                    await mod.ingest_raw(
+                        sess,
+                        user_id=packet.user_id,
+                        req_id=packet.data.req_id,
+                        ws_id=packet.data.ws_id,
+                        index=packet.data.index,
+                        operation_id=packet.data.operation_id,
+                        context_id=ctx.id,
+                        source_id=src.id,
+                        chunk=packet.data.docs,
+                        flt=packet.data.flt,
+                        plugin_params=packet.data.plugin_params
+                    )
+
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(ex)
+
+                finally:
+                    if mod:
+                        await mod.unload()
+
+            MutyLogger.get_instance().debug("ws ingest _process_loop done")
 
 
 class GulpAPIWebsocket:
@@ -134,7 +252,7 @@ class GulpAPIWebsocket:
 
     @router.websocket("/ws_ingest_raw")
     @staticmethod
-    async def ws_ingest_handler(websocket: WebSocket):
+    async def ws_ingest_raw_handler(websocket: WebSocket):
         """
         a websocket endpoint specific for ingestion
 
@@ -146,7 +264,6 @@ class GulpAPIWebsocket:
         Args:
             websocket (WebSocket): The websocket object.
         """
-
         ws = None
         try:
             await websocket.accept()
@@ -160,7 +277,7 @@ class GulpAPIWebsocket:
                 user_id = s.user_id
 
             MutyLogger.get_instance().debug(
-                f"ws_ingest accepted for ws_id={params.ws_id}")
+                f"ws_ingest_raw accepted for ws_id={params.ws_id}")
             ws = GulpConnectedSockets.get_instance().add(
                 websocket, params.ws_id, socket_type=GulpWsType.WS_INGEST
             )
@@ -219,54 +336,6 @@ class GulpAPIWebsocket:
                 await websocket.close()
 
     @staticmethod
-    async def ws_ingest_receive_loop(ws: GulpConnectedSocket, user_id: str) -> None:
-        """
-        receives ingest packets from the client and processes them
-
-        Args:
-            ws (GulpConnectedSocket): the websocket connection
-            user_id (str): the user id
-        """
-        async with GulpCollab.get_instance().session() as sess:
-            while True:
-                if ws.ws.client_state != WebSocketState.CONNECTED:
-                    raise WebSocketDisconnect("client disconnected")
-
-                # this will raise WebSocketDisconnect when client disconnects
-                js: dict = await ws.ws.receive_json()
-                ingest_packet = GulpWsIngestPacket.model_validate(js)
-
-                # load plugin
-                mod: GulpPluginBase = await GulpPluginBase.load(
-                    ingest_packet.plugin)
-
-                # create (and associate) context and source on the collab db, if they do not exist
-                operation: GulpOperation = await GulpOperation.get_by_id(sess, ingest_packet.operation_id)
-                ctx: GulpContext = await operation.add_context(
-                    sess, user_id=user_id, name=ingest_packet.context_name
-                )
-                src: GulpSource = await ctx.add_source(
-                    sess,
-                    user_id=user_id,
-                    name=ingest_packet.source,
-                )
-
-                # ingest
-                await mod.ingest_raw(
-                    sess,
-                    user_id=user_id,
-                    req_id=ingest_packet.req_id,
-                    ws_id=ingest_packet.ws_id,
-                    index=ingest_packet.index,
-                    operation_id=ingest_packet.operation_id,
-                    context_id=ctx.id,
-                    source_id=src.id,
-                    chunk=ingest_packet.docs,
-                    flt=ingest_packet.flt,
-                    plugin_params=ingest_packet.plugin_params,
-                )
-
-    @staticmethod
     async def ws_ingest_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """
         main loop for the ingest websocket connection
@@ -275,34 +344,26 @@ class GulpAPIWebsocket:
             ws (GulpConnectedSocket): the websocket connection
             user_id (str): the user id
         """
-        tasks: list[asyncio.Task] = []
+        worker_pool = WsIngestRawWorker()
+        await worker_pool.start()
         try:
-            # Create tasks with names for better debugging
-            ws.receive_task = asyncio.create_task(
-                GulpAPIWebsocket.ws_ingest_receive_loop(ws, user_id), name=f"receive_loop_{ws.ws_id}"
-            )
-            tasks.extend([ws.receive_task])
+            while True:
+                if ws.ws.client_state != WebSocketState.CONNECTED:
+                    raise WebSocketDisconnect("client disconnected")
 
-            # Wait for first task to complete
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+                js = await ws.ws.receive_json()
+                ingest_packet = GulpWsIngestPacket.model_validate(js)
 
-            # Process completed task
-            task = done.pop()
-            try:
-                await task
-            except WebSocketDisconnect as ex:
-                MutyLogger.get_instance().debug(
-                    f"websocket {ws.ws_id} disconnected: {ex}"
+                # package data for worker
+                packet = InternalWsIngestPacket(
+                    user_id=user_id,
+                    data=ingest_packet
                 )
-                raise
-            except Exception as ex:
-                MutyLogger.get_instance().error(
-                    f"error in {task.get_name()}: {ex}")
-                raise
+                # and put in the worker queue
+                worker_pool.put(packet)
 
         finally:
-            # ensure cleanup happens even if cancelled
-            await asyncio.shield(ws._cleanup_tasks(tasks))
+            await worker_pool.stop()
 
     @router.websocket("/ws_client_data")
     @staticmethod
@@ -318,7 +379,6 @@ class GulpAPIWebsocket:
         Args:
             websocket (WebSocket): The websocket object.
         """
-
         ws = None
         try:
             await websocket.accept()

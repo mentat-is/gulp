@@ -1,3 +1,6 @@
+import random
+import string
+from datetime import datetime, timedelta
 import asyncio
 import json
 import multiprocessing
@@ -440,6 +443,34 @@ async def test_ingest_zip():
 
 @pytest.mark.asyncio
 async def test_ingest_ws_raw():
+    def _generate_random_chunk(template_chunk, size=1000):
+        base_timestamp = datetime(2019, 7, 1)
+        result = []
+
+        for i in range(size):
+            new_docs = []
+            for doc in template_chunk:
+                new_doc = {}
+                for key, value in doc.items():
+                    if key == "@timestamp":
+                        # Sequential timestamps
+                        new_doc[key] = (
+                            base_timestamp + timedelta(minutes=i)).isoformat() + ".000Z"
+                    elif isinstance(value, str):
+                        if key == "event.code":
+                            new_doc[key] = f"event_code_{
+                                random.randint(1, 1000)}"
+                        else:
+                            # Random string of similar length
+                            new_doc[key] = ''.join(random.choices(
+                                string.ascii_letters + string.digits, k=len(value)))
+                    elif isinstance(value, int):
+                        # Random integer between 0 and 1000
+                        new_doc[key] = random.randint(0, 1000)
+                new_docs.append(new_doc)
+            result.extend(new_docs)
+        return result
+
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
@@ -456,7 +487,7 @@ async def test_ingest_ws_raw():
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws_ingest_raw"
     test_completed = False
-    
+
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(
@@ -469,17 +500,21 @@ async def test_ingest_ws_raw():
                 response = await ws.recv()
                 data = json.loads(response)
                 if data["type"] == "ws_connected":
-                    # send chunk
-                    p: GulpWsIngestPacket = GulpWsIngestPacket(
-                        docs=raw_chunk,
-                        index=TEST_INDEX,
-                        operation_id=TEST_OPERATION_ID,
-                        context_name=TEST_CONTEXT_NAME,
-                        source="test_source",
-                        flt=GulpIngestionFilter(),
-                        req_id=TEST_REQ_ID,
-                        ws_id=TEST_WS_ID)
-                    await ws.send(p.model_dump_json(exclude_none=True))
+                    for i in range(10):
+                        # send chunk
+                        p: GulpWsIngestPacket = GulpWsIngestPacket(
+                            docs=_generate_random_chunk(raw_chunk, size=1000),
+                            index=TEST_INDEX,
+                            operation_id=TEST_OPERATION_ID,
+                            context_name=TEST_CONTEXT_NAME,
+                            source="test_source",
+                            flt=GulpIngestionFilter(),
+                            req_id=TEST_REQ_ID,
+                            ws_id=TEST_WS_ID)
+                        await ws.send(p.model_dump_json(exclude_none=True))
+                        await asyncio.sleep(0.1)
+
+                    # TODO: check data, but should be ok ....
                     test_completed = True
                     break
 
