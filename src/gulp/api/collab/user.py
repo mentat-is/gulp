@@ -4,7 +4,7 @@ import muty.crypto
 import muty.string
 import muty.time
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, String
+from sqlalchemy import ARRAY, BIGINT, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList

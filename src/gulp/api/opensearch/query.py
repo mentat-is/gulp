@@ -224,13 +224,17 @@ class GulpQueryParameters(BaseModel):
         default=None,
         description="how to sort results, default=sort by ascending `@timestamp`.",
     )
+    ensure_default_fields: Optional[bool] = Field(
+        True,
+        description="if set and `fields` is set, ensure the default fields are included in the returned documents (default=True).",
+    )
     fields: Optional[list[str] | str] = Field(
         default=None,
         description="""
 the set of fields to include in the returned documents.
 
 - ignored for `external` queries, unless the plugin supports it.
-- default=`%s` (which are forcefully included anyway), or use `*` to return all fields.
+- default=`%s` (unless `ensure_default_fields` is set), or use `*` to return all fields.
 """
         % (QUERY_DEFAULT_FIELDS),
     )
@@ -309,10 +313,12 @@ for pagination, this should be set to the `search_after` returned by the previou
 
         n["_source"] = None
         if fields != "*":
-            # if "*", return all (so we do not set "_source"). either, only return these fields and be sure they include the defaults
-            for f in QUERY_DEFAULT_FIELDS:
-                if f not in fields:
-                    fields.append(f)
+            # if "*", return all (so we do not set "_source"). either, only return these fields
+            if self.ensure_default_fields:
+                # ensure default fields are included
+                for f in QUERY_DEFAULT_FIELDS:
+                    if f not in fields:
+                        fields.append(f)
             n["_source"] = fields
 
         # pagination: doc limit

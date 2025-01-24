@@ -4,7 +4,7 @@ gulp operations rest api
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
@@ -13,6 +13,7 @@ from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
 )
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import (
     ServerUtils,
@@ -76,6 +77,7 @@ async def operation_create_handler(
         "name": name,
         "description": description,
         "glyph_id": glyph_id,
+        "operation_data": {}
     }
     try:
         d = await GulpOperation.create(
@@ -126,6 +128,15 @@ async def operation_update_handler(
         str,
         Depends(APIDependencies.param_description_optional),
     ] = None,
+    operation_data: Annotated[
+        dict,
+        Body(description="arbitrary operation data.",
+             examples=[{"op": "data"}])] = None,
+    merge_operation_data: Annotated[
+        Optional[bool],
+        Query(
+            description="if `True`, `operation_data` will be merged with the existing data, if set. Either, it will be replaced."
+        )] = True,
     glyph_id: Annotated[
         str,
         Depends(APIDependencies.param_glyph_id_optional),
@@ -133,29 +144,50 @@ async def operation_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    from gulp.api.collab.user_session import GulpUserSession
     try:
-        if not any([index, description, glyph_id]):
+        if not any([index, description, glyph_id, operation_data]):
             raise ValueError(
-                "At least one of index, description, or glyph_id must be provided."
+                "At least one of index, description, operation_data or glyph_id must be provided."
             )
-        d = {}
-        d["index"] = index
-        d["description"] = description
-        d["glyph_id"] = glyph_id
-        d = await GulpOperation.update_by_id(
-            token,
-            operation_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            d=d,
-            permission=[GulpUserPermission.INGEST],
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session() as sess:
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token, permission=[GulpUserPermission.INGEST])
+            user_id = s.user_id
+
+            # get the operation to be updated
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id, with_for_update=True)
+
+            # build update dict
+            d = {}
+            if index:
+                d["index"] = index
+            if description:
+                d["description"] = description
+            if glyph_id:
+                d["glyph_id"] = glyph_id
+            if operation_data:
+                if merge_operation_data:
+                    # merge with existing
+                    d["operation_data"] = {
+                        **op.operation_data, **operation_data}
+                else:
+                    # replace
+                    d["operation_data"] = operation_data
+
+            # update
+            await op.update(sess,
+                            d,
+                            ws_id=None,  # do not propagate on the websocket
+                            req_id=req_id,
+                            user_id=user_id)
+
+            d = op.to_dict(nested=True)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.delete(
+@ router.delete(
     "/operation_delete",
     tags=["operation"],
     response_model=JSendResponse,
@@ -188,13 +220,15 @@ async def operation_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
+    index: Annotated[str, Depends(
+        APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         if delete_data and not index:
-            raise ValueError("If `delete_data` is set, `index` must be provided.")
+            raise ValueError(
+                "If `delete_data` is set, `index` must be provided.")
 
         await GulpOperation.delete_by_id(
             token,
@@ -207,7 +241,8 @@ async def operation_delete_handler(
         if delete_data:
             # delete all data
             MutyLogger.get_instance().info(
-                f"deleting data related to operation_id={operation_id} on index={index} ..."
+                f"deleting data related to operation_id={
+                    operation_id} on index={index} ..."
             )
             await GulpOpenSearch.get_instance().delete_data_by_operation(
                 index, operation_id
@@ -218,7 +253,7 @@ async def operation_delete_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.get(
+@ router.get(
     "/operation_get_by_id",
     tags=["operation"],
     response_model=JSendResponse,
@@ -258,7 +293,7 @@ async def operation_get_by_id_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.post(
+@ router.post(
     "/operation_list",
     tags=["operation"],
     response_model=JSendResponse,
@@ -304,7 +339,7 @@ async def operation_list_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.get(
+@ router.get(
     "/context_list",
     tags=["operation"],
     response_model=JSendResponse,
@@ -348,7 +383,7 @@ async def context_list_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.delete(
+@ router.delete(
     "/context_delete",
     tags=["operation"],
     response_model=JSendResponse,
@@ -382,13 +417,15 @@ async def context_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
+    index: Annotated[str, Depends(
+        APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         if delete_data and not index:
-            raise ValueError("If `delete_data` is set, `index` must be provided.")
+            raise ValueError(
+                "If `delete_data` is set, `index` must be provided.")
 
         await GulpContext.delete_by_id(
             token,
@@ -401,7 +438,8 @@ async def context_delete_handler(
         if delete_data:
             # delete all data
             MutyLogger.get_instance().info(
-                f"deleting data related to operation_id={operation_id}, context_id={context_id} on index={index} ..."
+                f"deleting data related to operation_id={
+                    operation_id}, context_id={context_id} on index={index} ..."
             )
             await GulpOpenSearch.get_instance().delete_data_by_context(
                 index, operation_id, context_id
@@ -412,7 +450,7 @@ async def context_delete_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.get(
+@ router.get(
     "/source_list",
     tags=["operation"],
     response_model=JSendResponse,
@@ -445,14 +483,15 @@ async def source_list_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
+        flt = GulpCollabFilter(
+            operation_ids=[operation_id], context_ids=[context_id])
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.delete(
+@ router.delete(
     "/source_delete",
     tags=["operation"],
     response_model=JSendResponse,
@@ -487,13 +526,15 @@ async def source_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
+    index: Annotated[str, Depends(
+        APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         if delete_data and not index:
-            raise ValueError("If `delete_data` is set, `index` must be provided.")
+            raise ValueError(
+                "If `delete_data` is set, `index` must be provided.")
 
         await GulpSource.delete_by_id(
             token,
@@ -506,7 +547,8 @@ async def source_delete_handler(
         if delete_data:
             # delete all data
             MutyLogger.get_instance().info(
-                f"deleting data related to operation_id={operation_id}, context_id={context_id}, source_id={source_id} on index={index} ..."
+                f"deleting data related to operation_id={operation_id}, context_id={
+                    context_id}, source_id={source_id} on index={index} ..."
             )
             await GulpOpenSearch.get_instance().delete_data_by_source(
                 index, operation_id, context_id, source_id

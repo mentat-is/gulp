@@ -26,7 +26,8 @@ async def _ws_loop():
     test_completed = False
     async with websockets.connect(ws_url) as ws:
         # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(token="monitor", ws_id=TEST_WS_ID)
+        p: GulpWsAuthPacket = GulpWsAuthPacket(
+            token="monitor", ws_id=TEST_WS_ID)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -47,7 +48,8 @@ async def _ws_loop():
                         test_completed = True
                     else:
                         raise ValueError(
-                            f"unexpected total hits: {q_done_packet.total_hits}"
+                            f"unexpected total hits: {
+                                q_done_packet.total_hits}"
                         )
                     break
                 # ws delay
@@ -112,9 +114,18 @@ async def test():
 
     # ingest can update operation
     updated = await GulpAPIOperation.operation_update(
-        ingest_token, operation["id"], description="Updated description"
+        ingest_token, operation["id"], description="Updated description", operation_data={"hello": "world"}
     )
     assert updated.get("description") == "Updated description"
+    assert updated.get("operation_data")["hello"] == "world"
+
+    updated = await GulpAPIOperation.operation_update(
+        ingest_token, operation["id"], operation_data={
+            "hello": "1234", "abc": "def"}
+    )
+    assert updated.get("description") == "Updated description"
+    assert updated.get("operation_data")["hello"] == "1234"
+    assert updated.get("operation_data")["abc"] == "def"
 
     # guest cannot delete operation
     await GulpAPIOperation.operation_delete(
@@ -143,7 +154,8 @@ async def test():
     operations = await GulpAPIOperation.operation_list(
         guest_token, GulpCollabFilter(names=["test_op"])
     )
-    assert operations and len(operations) == 1 and operations[0]["id"] == updated["id"]
+    assert operations and len(
+        operations) == 1 and operations[0]["id"] == updated["id"]
 
     # editor cannot delete operation
     await GulpAPIOperation.operation_delete(
@@ -167,7 +179,8 @@ async def test():
     )
     operations = await GulpAPIOperation.operation_list(guest_token)
     assert (
-        operations and len(operations) == 1 and operations[0]["id"] == TEST_OPERATION_ID
+        operations and len(
+            operations) == 1 and operations[0]["id"] == TEST_OPERATION_ID
     )
 
     contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)

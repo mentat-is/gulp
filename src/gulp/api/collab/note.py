@@ -246,7 +246,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
             data=notes,
             bulk=True,
-            bulk_type=GulpCollabType.NOTE,
+            type=GulpCollabType.NOTE,
             created=True,
             bulk_size=len(notes),
         )

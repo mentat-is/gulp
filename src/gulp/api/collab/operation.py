@@ -3,12 +3,14 @@ from typing import Optional, override
 import muty.crypto
 from muty.log import MutyLogger
 import muty.string
-from sqlalchemy import ForeignKey, String, text
+from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict
 
 from gulp.api.collab.context import GulpContext
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 
 
 class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
@@ -20,7 +22,6 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         String,
         doc="The gulp opensearch index to associate the operation with.",
     )
-
     # multiple contexts can be associated with an operation
     contexts: Mapped[Optional[list[GulpContext]]] = relationship(
         "GulpContext",
@@ -29,12 +30,16 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         uselist=True,
         doc="The context/s associated with the operation.",
     )
+    operation_data: Mapped[Optional[dict]] = mapped_column(
+        MutableDict.as_mutable(JSONB), default_factory=dict, doc="Arbitrary operation data."
+    )
 
     @override
     @classmethod
     def example(cls) -> dict:
         d = super().example()
         d["index"] = "operation_index"
+        d["operation_data"] = {"key": "value"}
         return d
 
     @override
@@ -99,7 +104,8 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
 
         await sess.refresh(self)
 
-        MutyLogger.get_instance().info(f"context {name} added to operation {self.id}.")
+        MutyLogger.get_instance().info(
+            f"context {name} added to operation {self.id}.")
         return ctx
 
     @override
@@ -115,7 +121,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             if ctx.sources:
                 for src in ctx.sources:
                     await src.add_user_grant(sess, user_id)
-        #await sess.refresh(self)
+        # await sess.refresh(self)
 
     @override
     async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
@@ -137,7 +143,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         await super().add_group_grant(sess, group_id)
         if not self.contexts:
             return
-        
+
         # add grant to all contexts and sources
         for ctx in self.contexts:
             await ctx.add_group_grant(sess, group_id)

@@ -224,7 +224,7 @@ class GulpCollabCreateUpdatePacket(BaseModel):
                     },
                     "bulk": True,
                     "bulk_size": 100,
-                    "bulk_type": GulpCollabType.NOTE,
+                    "type": GulpCollabType.NOTE,
                     "created": True,
                 }
             ]
@@ -232,10 +232,10 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     )
     data: list | dict = Field(..., description="The created or updated data.")
     bulk: Optional[bool] = Field(
-        default=False, description="If the event is a bulk event (data is a list)."
+        default=False, description="If the event is a bulk event (data is a list instead of dict)."
     )
-    bulk_type: Optional[GulpCollabType] = Field(
-        None, description="The type of the bulk event."
+    type: Optional[str] = Field(
+        None, description="Type of the event (may be a GulpCollabType or an arbitrary string)."
     )
     bulk_size: Optional[int] = Field(
         None, description="The size of the bulk event.")
@@ -251,6 +251,7 @@ class GulpWsError(StrEnum):
 
     OBJECT_NOT_FOUND = "Not Found"
     MISSING_PERMISSION = "Forbidden"
+    ERROR_GENERIC = "Error"
 
 
 class GulpRebaseDonePacket(BaseModel):

@@ -205,6 +205,7 @@ async def _query_internal(
             await mod.unload()
     return totals
 
+
 async def _worker_coro(kwds: dict):
     """
     runs in background an spawn/waits workers
@@ -303,6 +304,7 @@ async def _worker_coro(kwds: dict):
             sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
         )
 
+
 async def _spawn_query_group_workers(
     user_id: str,
     req_id: str,
@@ -310,7 +312,7 @@ async def _spawn_query_group_workers(
     index: str,
     queries: list[GulpQuery],
     q_options: GulpQueryParameters,
-    flt: GulpQueryFilter=None,
+    flt: GulpQueryFilter = None,
 ) -> None:
     """
     spawns worker tasks for each query and wait them all
@@ -650,7 +652,8 @@ async def query_sigma_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(s, q_options.sigma_parameters)
+            q: list[GulpQuery] = mod.sigma_convert(
+                s, q_options.sigma_parameters)
             for gq in q:
                 # set the external plugin to run the query with, if any
                 gq.external_plugin = q_options.external_parameters.plugin

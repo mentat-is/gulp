@@ -1355,6 +1355,7 @@ class GulpOpenSearch:
         parsed_options: dict,
         q: dict,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
+        raise_on_error: bool = True,
     ) -> tuple[int, list[dict], list[dict]]:
         """
         Executes a raw DSL query on OpenSearch and returns the results.
@@ -1364,6 +1365,7 @@ class GulpOpenSearch:
             parsed_options (dict): The parsed query options.
             q (dict): The DSL query to execute.
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
+            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to True.
 
         Returns:
             tuple:
@@ -1411,7 +1413,10 @@ class GulpOpenSearch:
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (json.dumps(res, indent=2)))
         hits = res["hits"]["hits"]
         if not hits:
-            raise ObjectNotFound("no more hits")
+            if raise_on_error:
+                raise ObjectNotFound("no more hits")
+            else:
+                return 0, [], []
 
         # get data
         total_hits = res["hits"]["total"]["value"]
@@ -1434,6 +1439,7 @@ class GulpOpenSearch:
         q: dict,
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
+        raise_on_error: bool = True,
     ) -> list[dict]:
         """
         Executes a raw DSL query on OpenSearch/Elasticsearch and returns the results.
@@ -1442,7 +1448,8 @@ class GulpOpenSearch:
             index (str): Name of the index (or datastream) to query.
             q (dict): The DSL query to execute.
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-
+            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to True.
+            
         Returns:
             tuple:
             - total_hits (int): The total number of hits found.
@@ -1458,7 +1465,7 @@ class GulpOpenSearch:
 
         parsed_options: dict = q_options.parse()
         total_hits, docs, search_after = await self._search_dsl_internal(
-            index, parsed_options, q, el
+            index, parsed_options, q, el, raise_on_error=raise_on_error
         )
         return total_hits, docs, search_after
 

@@ -42,6 +42,8 @@ class GulpAPIOperation:
         operation_id: str,
         index: str = None,
         description: str = None,
+        operation_data: dict = None,
+        merge_operation_data: bool = True,
         glyph_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -52,8 +54,12 @@ class GulpAPIOperation:
             "index": index,
             "glyph_id": glyph_id,
             "req_id": api_common.req_id,
+            "merge_operation_data": merge_operation_data,
         }
-        body = description
+        body = {
+            "description": description,
+            "operation_data": operation_data,
+        }
 
         res = await api_common.make_request(
             "PATCH",

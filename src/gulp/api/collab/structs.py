@@ -775,6 +775,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             else:
                 data = instance_dict
 
+            # FIXME: data=p.model.dump() creates data.data, which is ugly!
             p = GulpCollabCreateUpdatePacket(data=data, created=True)
             GulpSharedWsQueue.get_instance().put(
                 ws_queue_datatype,
