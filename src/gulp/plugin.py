@@ -246,7 +246,6 @@ class GulpPluginBase(ABC):
         Returns:
             tuple: A tuple containing the callable, its arguments, and the object's state.
         """
-
         # load with ignore_cache=True, pickled=True
         extension = GulpPluginType.EXTENSION in self.type()
         return (
@@ -517,7 +516,8 @@ class GulpPluginBase(ABC):
             )
             data = chunk.model_dump(exclude_none=True)
             MutyLogger.get_instance().debug(
-                f"sending chunk of {len(ws_docs)} documents to ws {self._ws_id}"
+                f"sending chunk of {len(ws_docs)} documents to ws {
+                    self._ws_id}"
             )
             GulpSharedWsQueue.get_instance().put(
                 type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
@@ -568,7 +568,8 @@ class GulpPluginBase(ABC):
         """
         if not self.sigma_support():
             raise ValueError(
-                f"plugin {self.name} does not support any sigma backends/pipelines/output_formats"
+                f"plugin {
+                    self.name} does not support any sigma backends/pipelines/output_formats"
             )
         if not s_options:
             s_options = GulpQuerySigmaParameters()
@@ -594,7 +595,8 @@ class GulpPluginBase(ABC):
         if not s_options.output_format:
             output_format = self.sigma_support()[0].output_formats[0].name
             MutyLogger.get_instance().debug(
-                f"no output_format specified, using first supported: {output_format}"
+                f"no output_format specified, using first supported: {
+                    output_format}"
             )
         else:
             output_format = s_options.output_format
@@ -622,7 +624,8 @@ class GulpPluginBase(ABC):
                 return (backend, pipeline, output_format)
 
         raise ValueError(
-            f"plugin {self.name} does not support the combination: backend={backend}, pipeline={pipeline}, output_format={output_format}"
+            f"plugin {self.name} does not support the combination: backend={
+                backend}, pipeline={pipeline}, output_format={output_format}"
         )
 
     def sigma_support(self) -> list[GulpPluginSigmaSupport]:
@@ -784,7 +787,8 @@ class GulpPluginBase(ABC):
         self._source_id = source_id
         self._plugin_params = plugin_params or GulpPluginParameters()
         MutyLogger.get_instance().debug(
-            f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={
+                operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
 
         # initialize
@@ -810,7 +814,8 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
+        MutyLogger.get_instance().debug(
+            f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
         last = kwargs.get("last", False)
@@ -1251,7 +1256,8 @@ class GulpPluginBase(ABC):
                         d[kk] = vv
             else:
                 # unmapped key
-                d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
+                d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{
+                    source_key}"] = source_value
 
             return d
 
@@ -1473,12 +1479,14 @@ class GulpPluginBase(ABC):
                 # mapping id provided
                 self._mapping_id = plugin_params.mapping_id
                 MutyLogger.get_instance().debug(
-                    "using plugin_params.mapping_id=%s" % (plugin_params.mapping_id)
+                    "using plugin_params.mapping_id=%s" % (
+                        plugin_params.mapping_id)
                 )
 
             # checks
             if not self._mappings and self._mapping_id:
-                raise ValueError("mapping_id is set but mappings/mapping_file is not!")
+                raise ValueError(
+                    "mapping_id is set but mappings/mapping_file is not!")
             if not self._mappings and not self._mapping_id:
                 MutyLogger.get_instance().warning(
                     "mappings/mapping_file and mapping_id are both None/empty!"
@@ -1486,7 +1494,8 @@ class GulpPluginBase(ABC):
                 self._mappings = {"default": GulpMapping(fields={})}
 
             # ensure mapping_id is set
-            self._mapping_id = self._mapping_id or list(self._mappings.keys())[0]
+            self._mapping_id = self._mapping_id or list(
+                self._mappings.keys())[0]
 
             MutyLogger.get_instance().debug("mapping_id=%s" % (self._mapping_id))
 
@@ -1551,11 +1560,14 @@ class GulpPluginBase(ABC):
             k = p.name
             if p.required and k not in plugin_params.model_extra:
                 raise ValueError(
-                    "required plugin parameter '%s' not found in plugin_params !" % (k)
+                    "required plugin parameter '%s' not found in plugin_params !" % (
+                        k)
                 )
-            self._custom_params[k] = plugin_params.model_extra.get(k, p.default_value)
+            self._custom_params[k] = plugin_params.model_extra.get(
+                k, p.default_value)
             MutyLogger.get_instance().debug(
-                "setting specific parameter %s=%s" % (k, self._custom_params[k])
+                "setting specific parameter %s=%s" % (
+                    k, self._custom_params[k])
             )
 
         if (
@@ -1577,7 +1589,8 @@ class GulpPluginBase(ABC):
             )
         )
         MutyLogger.get_instance().debug(
-            "got index type mappings with %d entries" % (len(self._index_type_mapping))
+            "got index type mappings with %d entries" % (
+                len(self._index_type_mapping))
         )
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
 
@@ -1751,7 +1764,8 @@ class GulpPluginBase(ABC):
             self._is_source_failed = True
 
         if not isinstance(err, str):
-            err = muty.log.exception_to_string(err)  # , with_full_traceback=True)
+            # , with_full_traceback=True)
+            err = muty.log.exception_to_string(err)
         MutyLogger.get_instance().error(
             "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d, canceled=%r, failed=%r"
             % (self._file_path, err, self._records_processed_per_chunk, self._req_canceled, self._is_source_failed)
@@ -1784,7 +1798,7 @@ class GulpPluginBase(ABC):
             )
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
-            self._is_source_failed = True            
+            self._is_source_failed = True
             ingested = 0
             skipped = 0
 
@@ -1909,13 +1923,15 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs),
+                GulpPluginBase.load(plugin, extension,
+                                    ignore_cache, *args, **kwargs),
             )
             return future.result()
 
         # either, create a new event loop to run the coroutine
         return loop.run_until_complete(
-            GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+            GulpPluginBase.load(plugin, extension,
+                                ignore_cache, *args, **kwargs)
         )
 
     @staticmethod
@@ -1967,7 +1983,8 @@ class GulpPluginBase(ABC):
             f"loading plugin m={m}, pickled={pickled}, kwargs={kwargs}"
         )
         p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
-        MutyLogger.get_instance().debug(f"LOADED plugin m={m}, p={p}, name()={p.name}")
+        MutyLogger.get_instance().debug(
+            f"LOADED plugin m={m}, p={p}, name()={p.name}")
         if not ignore_cache:
             GulpPluginCache.get_instance().add(m, bare_name)
         return p
@@ -2048,11 +2065,13 @@ class GulpPluginBase(ABC):
             if is_extension:
                 # add extension
                 extra_path = muty.file.safe_path_join(extra_path, "extension")
-                default_path = muty.file.safe_path_join(default_path, "extension")
+                default_path = muty.file.safe_path_join(
+                    default_path, "extension")
 
             # first we check in extra_path
             if extra_path and os.path.exists(extra_path):
-                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
+                p = _check_path(muty.file.safe_path_join(
+                    extra_path, plugin.lower()))
                 if p:
                     return p
 
