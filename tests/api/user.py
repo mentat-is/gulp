@@ -14,11 +14,11 @@ class GulpAPIUser:
         api_common = GulpAPICommon.get_instance()
         params = {
             "user_id": "admin",
-            "password": "admin",
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
-        res = await api_common.make_request("GET", "login", params=params)
+        body = "admin"
+        res = await api_common.make_request("PUT", "login", params=params, body=body)
         token = res.get("token")
         assert token
         return token
@@ -39,15 +39,22 @@ class GulpAPIUser:
         return t
 
     @staticmethod
+    async def get_available_login_api_handler() -> dict:
+        api_common = GulpAPICommon.get_instance()
+        res = await api_common.make_request("GET", "get_available_login_api", params={})
+        assert res
+        return res
+
+    @staticmethod
     async def login(user_id: str, password: str) -> str:
         api_common = GulpAPICommon.get_instance()
         params = {
             "user_id": user_id,
-            "password": password,
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
-        res = await api_common.make_request("GET", "login", params=params)
+        body = password
+        res = await api_common.make_request("PUT", "login", params=params, body=body)
         token = res.get("token")
         assert token
         return token

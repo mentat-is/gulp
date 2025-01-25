@@ -1,3 +1,4 @@
+from typing import Any
 from muty.log import MutyLogger
 import json
 import requests
@@ -61,7 +62,7 @@ class GulpAPICommon:
         endpoint: str,
         params: dict,
         token: str = None,
-        body: dict = None,
+        body: Any = None,
         files: dict = None,
         headers: dict = None,
         expected_status: int = 200,

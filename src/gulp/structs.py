@@ -43,6 +43,8 @@ class GulpAPIParameter(BaseModel):
     )
     default_value: Optional[Any] = Field(None, description="default value.")
     desc: Optional[str] = Field(None, description="parameter description.")
+    location: Optional[Literal["query", "header", "body"]] = Field(
+        default="query", description="where the parameter is located, for API requests.")
     required: Optional[bool] = Field(
         False, description="is the parameter required ?")
 

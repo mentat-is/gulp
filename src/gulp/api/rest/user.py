@@ -41,7 +41,7 @@ class GulpLoginMethod(BaseModel):
                 {
                     "name": "gulp",
                     "login": {
-                        "method": "GET",
+                        "method": "PUT",
                         "url": "/login",
                         "params": [
                             {
@@ -53,6 +53,7 @@ class GulpLoginMethod(BaseModel):
                             {
                                 "name": "password",
                                 "type": "str",
+                                "location": "body",
                                 "description": "the password.",
                                 "required": True,
                             },
@@ -150,8 +151,7 @@ async def get_available_login_api_handler(
         )
     )
 
-
-@router.get(
+@router.put(
     "/login",
     response_model=JSendResponse,
     tags=["user"],
@@ -202,7 +202,7 @@ async def login_handler(
         Depends(APIDependencies.param_user_id),
     ],
     password: Annotated[
-        str, Query(description="password for authentication.", example="admin")
+        str, Body(description="password for authentication.", example="admin")
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
