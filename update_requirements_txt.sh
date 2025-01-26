@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# this should be run when pushing to master branch or stable tag to freeze requirements to requirements.txt
-echo [.] Freezing requirements to requirements.txt
-pip3 freeze >/tmp/requirements.txt
 
-echo [.] Removing gulp from freezed requirements.txt
-sed '/gulp@/d' /tmp/requirements.txt >/tmp/requirements2.txt
-sed 's/^-e //g' /tmp/requirements2.txt >./requirements.txt
-cat ./requirements.txt
+echo "[.] Updating requirements.txt"
 
-echo [.] Done, now add requirements.txt, commit and force push to master branch or stable tag.
+# Get pip freeze output, remove -e lines, and add muty package
+pip3 freeze | grep -v "^-e" > requirements.txt
+echo "muty@git+https://github.com/mentat-is/muty-python.git@refactor" >> requirements.txt
+
+echo "[.] Done. Updated requirements.txt:"
+echo "-----------------------------------"
+cat requirements.txt

@@ -48,11 +48,13 @@ ipwhois==1.3.0
 itsdangerous==2.2.0
 Jinja2==3.1.4
 json5==0.9.25
+llvmlite==0.44.0
 lxml==5.3.0
 MarkupSafe==2.1.5
 multidict==6.1.0
-muty@git+https://github.com/mentat-is/muty-python.git@refactor
 ntplib==0.4.0
+numba==0.61.0
+numpy==2.1.3
 opensearch-py==2.7.1
 packaging==24.1
 pluggy==1.5.0
@@ -83,6 +85,7 @@ regipy==5.1.0
 requests==2.32.3
 requests-toolbelt==1.0.0
 scapy==2.6.1
+scipy==1.15.1
 setuptools==75.1.0
 sigma-cli==1.0.4
 six==1.16.0
@@ -93,6 +96,7 @@ sqlalchemy-dlock==0.6.1.post1
 sqlalchemy-mixins==2.0.5
 SQLAlchemy-Utils==0.41.2
 starlette==0.41.2
+stumpy==1.13.0
 systemd-python==235
 tenacity==9.0.0
 typing_extensions==4.12.2
@@ -103,3 +107,4 @@ websockets==13.0.1
 xmltodict==0.13.0
 xxhash==3.5.0
 yarl==1.18.0
+muty@git+https://github.com/mentat-is/muty-python.git@refactor

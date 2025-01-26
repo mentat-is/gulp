@@ -27,6 +27,7 @@
         "ms-python.pylint",
         "ms-python.python",
         "ms-python.vscode-python-envs",
+        "rooveterinaryinc.roo-cline",
         "npxms.hide-gitignored",
         "roonie007.hide-files",
         "shivaprasanth.vscode-always-sidebar",
