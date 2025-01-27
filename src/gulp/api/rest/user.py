@@ -41,12 +41,13 @@ class GulpLoginMethod(BaseModel):
                 {
                     "name": "gulp",
                     "login": {
-                        "method": "PUT",
+                        "method": "POST",
                         "url": "/login",
                         "params": [
                             {
                                 "name": "user_id",
                                 "type": "str",
+                                "location": "body",
                                 "description": "the user id.",
                                 "required": True,
                             },
@@ -72,12 +73,13 @@ class GulpLoginMethod(BaseModel):
                         ]
                     },
                     "logout": {
-                        "method": "PUT",
+                        "method": "POST",
                         "url": "/logout",
                         "params": [
                             {
                                 "name": "token",
                                 "type": "str",
+                                "location": "header",
                                 "description": "the login token.",
                             },
                             {
@@ -151,7 +153,8 @@ async def get_available_login_api_handler(
         )
     )
 
-@router.put(
+
+@router.post(
     "/login",
     response_model=JSendResponse,
     tags=["user"],
@@ -199,7 +202,7 @@ refer to `gulp_cfg_template.json` for more information.
 async def login_handler(
     user_id: Annotated[
         str,
-        Depends(APIDependencies.param_user_id),
+        Body(description="user ID for authentication", example="admin"),
     ],
     password: Annotated[
         str, Body(description="password for authentication.", example="admin")
@@ -227,7 +230,7 @@ async def login_handler(
         raise JSendException(ex=ex, req_id=req_id)
 
 
-@router.put(
+@router.post(
     "/logout",
     response_model=JSendResponse,
     tags=["user"],

@@ -223,86 +223,88 @@ async def _worker_coro(kwds: dict):
     ws_id: str = kwds["ws_id"]
     index: str = kwds["index"]
     flt: GulpQueryFilter = kwds["flt"]
+    try:
+        for gq in queries:
+            q_opt = deepcopy(q_options)
 
-    for gq in queries:
-        q_opt = deepcopy(q_options)
+            # set name, i.e. for sigma rules we want the sigma rule name to be used (which has been set in the GulpQuery struct)
+            q_opt.name = gq.name
 
-        # set name, i.e. for sigma rules we want the sigma rule name to be used (which has been set in the GulpQuery struct)
-        q_opt.name = gq.name
+            # note name set to query name
+            q_opt.note_parameters.note_name = gq.name
 
-        # note name set to query name
-        q_opt.note_parameters.note_name = gq.name
+            # query name in note tags (this will allow to identify the results in the end)
+            gq.tags.append(gq.name)
+            if q_opt.name not in gq.tags:
+                gq.tags.append(q_opt.name)
 
-        # query name in note tags (this will allow to identify the results in the end)
-        gq.tags.append(gq.name)
-        if q_opt.name not in gq.tags:
-            gq.tags.append(q_opt.name)
+            q_opt.note_parameters.note_tags = copy(gq.tags)
+            q_opt.external_parameters.plugin_params = deepcopy(
+                gq.external_plugin_params
+            )
 
-        q_opt.note_parameters.note_tags = copy(gq.tags)
-        q_opt.external_parameters.plugin_params = deepcopy(
-            gq.external_plugin_params
-        )
+            # add task
+            d = dict(
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                queries=[gq],
+                q_options=q_opt,
+                flt=flt,
+            )
+            tasks.append(
+                GulpProcess.get_instance().process_pool.apply(_query_internal, kwds=d)
+            )
 
-        # add task
+        # run all and wait
+        num_queries = len(queries)
+        res = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # check if all sigmas matched
+        query_matched = 0
+        total_doc_matches = 0
+        for r in res:
+            if isinstance(r, int):
+                query_matched += 1
+                total_doc_matches += r
+
+        if num_queries > 1 and query_matched == num_queries:
+            # all queries in the group matched, change note names to query group name
+            MutyLogger.get_instance().info(
+                "query group '%s' matched, updating notes!" % (q_options.group)
+            )
+            if q_options.note_parameters.create_notes:
+                async with GulpCollab.get_instance().session() as sess:
+                    await GulpNote.bulk_update_tags(
+                        sess, [q_opt.name], [q_options.group]
+                    )
+            # and signal websocket
+            p = GulpQueryGroupMatchPacket(
+                name=q_options.group, total_hits=total_doc_matches
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )
+        # also update stats
         d = dict(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            index=index,
-            queries=[gq],
-            q_options=q_opt,
-            flt=flt,
+            status=(
+                GulpRequestStatus.DONE
+                if query_matched >= 1
+                else GulpRequestStatus.FAILED
+            )
         )
-        tasks.append(
-            GulpProcess.get_instance().process_pool.apply(_query_internal, kwds=d)
-        )
-
-    # run all and wait
-    num_queries = len(queries)
-    res = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # check if all sigmas matched
-    query_matched = 0
-    total_doc_matches = 0
-    for r in res:
-        if isinstance(r, int):
-            query_matched += 1
-            total_doc_matches += r
-
-    if num_queries > 1 and query_matched == num_queries:
-        # all queries in the group matched, change note names to query group name
-        MutyLogger.get_instance().info(
-            "query group '%s' matched, updating notes!" % (q_options.group)
-        )
-        if q_options.note_parameters.create_notes:
-            async with GulpCollab.get_instance().session() as sess:
-                await GulpNote.bulk_update_tags(
-                    sess, [q_opt.name], [q_options.group]
-                )
-        # and signal websocket
-        p = GulpQueryGroupMatchPacket(
-            name=q_options.group, total_hits=total_doc_matches
-        )
-        GulpSharedWsQueue.get_instance().put(
-            type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
-            ws_id=ws_id,
-            user_id=user_id,
-            req_id=req_id,
-            data=p.model_dump(exclude_none=True),
-        )
-
-    # also update stats
-    d = dict(
-        status=(
-            GulpRequestStatus.DONE
-            if query_matched >= 1
-            else GulpRequestStatus.FAILED
-        )
-    )
-    async with GulpCollab.get_instance().session() as sess:
-        await GulpRequestStats.update_by_id(
-            sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
-        )
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpRequestStats.update_by_id(
+                sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
+            )
+    finally:
+        tasks.clear()
+        tasks = None
 
 
 async def _spawn_query_group_workers(

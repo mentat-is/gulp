@@ -581,7 +581,7 @@ async def test_paid_plugins():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(current_dir,"../../gulp-paid-plugins/tests/query.py")
     
-    module_name = "paidplugins"
+    module_name = "paid_plugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module

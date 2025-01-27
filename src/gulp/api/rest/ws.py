@@ -246,9 +246,11 @@ class GulpAPIWebsocket:
                 except Exception as ex:
                     MutyLogger.get_instance().error(
                         f"error during ws cleanup: {ex}")
-            if websocket.client_state == WebSocketState.CONNECTED:
+            try:
                 # close gracefully
                 await websocket.close()
+            except:
+                pass
 
     @router.websocket("/ws_ingest_raw")
     @staticmethod

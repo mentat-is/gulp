@@ -958,12 +958,23 @@ class GulpConnectedSockets:
             d (GulpWsData): The data to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
-        for _, cws in self._sockets.items():
-            if skip_list and cws.ws_id in skip_list:
-                # skip this ws
+        # Create copy of sockets dict
+        socket_items = list(self._sockets.items())
+
+        for ws_id, cws in socket_items:
+            try:
+                if skip_list and ws_id in skip_list:
+                    continue
+
+                await self._route_message(d, cws)
+
+            except Exception as ex:
+                MutyLogger.get_instance().warning(
+                    f"Failed to broadcast to {ws_id}: {str(ex)}"
+                )
+                # remove dead socket
+                self._sockets.pop(ws_id, None)
                 continue
-            # MutyLogger.get_instance().debug("routing %s to %s" % (d, cws))
-            await self._route_message(d, cws)
 
 
 class GulpSharedWsQueue:
@@ -1074,14 +1085,14 @@ class GulpSharedWsQueue:
                                         entry
                                     )
                                 except Exception as e:
-                                    MutyLogger.get_instance().error(
+                                    MutyLogger.get_instance().exception(
                                         f"error broadcasting message to {
-                                            entry.ws_id}: {str(e)}"
+                                            entry.ws_id}: {str(e)}", e
                                     )
                         except Exception as e:
-                            MutyLogger.get_instance().error(
+                            MutyLogger.get_instance().exception(
                                 f"error processing message for {
-                                    entry.ws_id}: {str(e)}"
+                                    entry.ws_id}: {str(e)}", e
                             )
                             continue
 

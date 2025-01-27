@@ -27,14 +27,6 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     python3 -m pytest ingest.py::test_win_reg &&
     python3 -m pytest ingest.py::test_ingest_zip &&
 
-    # external plugins
-    if [ "$PAID_PLUGINS" = "1" ]; then
-        # TODO: currently needs private test data, just for the devteam reference...
-        python3 -m pytest query.py::test_paid_plugins &&
-            python3 -m pytest ingest.py::test_paid_plugins
-        # && python3 -m pytest extension.py::test_paid_plugins
-    fi &&
-
     # test collab
     python3 -m pytest user.py &&
     python3 -m pytest link.py &&
@@ -48,6 +40,14 @@ python3 -m pytest ingest.py::test_apache_access_clf &&
     # various
     python3 -m pytest utility.py &&
     python3 -m pytest db.py &&
+
+    # external plugins
+    if [ "$PAID_PLUGINS" = "1" ]; then
+        # TODO: currently needs private test data, just for the devteam reference...
+        python3 -m pytest query.py::test_paid_plugins &&
+            python3 -m pytest ingest.py::test_paid_plugins
+        # && python3 -m pytest extension.py::test_paid_plugins
+    fi &&
 
     # this must be run in the end (will delete the whole data (both on opensearch and on collab db)
     python3 -m pytest operation.py

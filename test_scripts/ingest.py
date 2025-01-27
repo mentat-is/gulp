@@ -43,12 +43,14 @@ def _parse_args():
         help="user password",
         default="ingest",
     )
-    parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH")
+    parser.add_argument(
+        "--path", help="File or directory path.", metavar="FILEPATH")
     parser.add_argument(
         "--raw",
         help='a JSON file with raw data for the "raw" plugin, --path is ignored if this is set',
     )
-    parser.add_argument("--host", default="http://localhost:8080", help="Gulp host")
+    parser.add_argument(
+        "--host", default="http://localhost:8080", help="Gulp host")
     parser.add_argument(
         "--operation_id",
         default=TEST_OPERATION_ID,
@@ -134,7 +136,8 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
     if raw_chunk:
         # raw request
         url = f"{base_url}/ingest_raw"
-        params = f"plugin=raw&operation_id={args.operation_id}&context_name={args.context_name}&source=raw_source&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
+        params = f"plugin=raw&operation_id={args.operation_id}&context_name={args.context_name}&source=raw_source&index={
+            args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
         command.extend(
             [
                 "-H",
@@ -167,11 +170,13 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
 
         if is_zip:
             url = f"{base_url}/ingest_zip"
-            params = f"operation_id={args.operation_id}&context_name={args.context_name}&index={args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
+            params = f"operation_id={args.operation_id}&context_name={args.context_name}&index={
+                args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
             file_type = "application/zip"
         else:
             url = f"{base_url}/ingest_file"
-            params = f"operation_id={args.operation_id}&context_name={args.context_name}&index={args.index}&plugin={args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&token={args.token}"
+            params = f"operation_id={args.operation_id}&context_name={args.context_name}&index={args.index}&plugin={
+                args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&token={args.token}"
 
             file_type = "application/octet-stream"
 
@@ -194,7 +199,8 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
 
 
 def _run_curl(file_path: str, file_total: int, raw: dict, args):
-    MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug("_run_curl")
+    MutyLogger.get_instance("test_ingest_worker-%d" %
+                            (os.getpid())).debug("_run_curl")
 
     command, tmp_file_path = _create_ingest_curl_command(
         file_path, file_total, raw, args
@@ -217,8 +223,15 @@ def _login(host, username, password, req_id, ws_id) -> str:
         "curl",
         "-v",
         "-X",
-        "GET",
-        f"{host}/login?user_id={username}&password={password}&req_id={req_id}&ws_id={ws_id}",
+        "POST",
+        "-H",
+        "Content-Type: application/json",
+        "--data",
+        json.dumps({
+            "user_id": username,
+            "password": password
+        }),
+        f"{host}/login?req_id={req_id}&ws_id={ws_id}",
     ]
     MutyLogger.get_instance().info(f"login command: {login_command}")
     login_response = subprocess.run(login_command, capture_output=True)
@@ -317,7 +330,8 @@ def main():
     if args.path:
         path = os.path.abspath(os.path.expanduser(args.path))
         if os.path.isdir(path):
-            files = muty.file.list_directory(path, recursive=True, files_only=True)
+            files = muty.file.list_directory(
+                path, recursive=True, files_only=True)
         else:
             files = [path]
         raw = None
@@ -333,7 +347,8 @@ def main():
     with Pool() as pool:
         # run the loop
         pool.apply_async(
-            _ws_loop, kwds={"host": args.host, "token": args.token, "ws_id": args.ws_id}
+            _ws_loop, kwds={"host": args.host,
+                            "token": args.token, "ws_id": args.ws_id}
         )
 
         # run requests

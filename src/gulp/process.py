@@ -75,7 +75,8 @@ class GulpProcess:
         MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):  # type: ignore
+    # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):
         """
         initializes a worker process
 
@@ -160,9 +161,11 @@ class GulpProcess:
 
         each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
         """
-        MutyLogger.get_instance().debug("recreating process pool and shared queue ...")
+        MutyLogger.get_instance().debug("recreating process pool and shared queue (respawn after %d tasks)..." %
+                                        (GulpConfig.get_instance().parallel_processes_respawn_after_tasks()))
         if not self._main_process:
-            raise RuntimeError("only the main process can recreate the process pool")
+            raise RuntimeError(
+                "only the main process can recreate the process pool")
 
         if self.process_pool:
             # close the worker process pool gracefully if it is already running
@@ -266,7 +269,8 @@ class GulpProcess:
         # initializes executors
         await self.close_coro_pool()
         await self.close_thread_pool()
-        self.coro_pool = AioCoroPool(GulpConfig.get_instance().concurrency_max_tasks())
+        self.coro_pool = AioCoroPool(
+            GulpConfig.get_instance().concurrency_max_tasks())
         self.thread_pool = ThreadPoolExecutor()
 
         # initialize collab and opensearch clients

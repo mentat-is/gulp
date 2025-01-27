@@ -13,12 +13,14 @@ class GulpAPIUser:
         MutyLogger.get_instance().info("Logging in as admin...")
         api_common = GulpAPICommon.get_instance()
         params = {
-            "user_id": "admin",
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
-        body = "admin"
-        res = await api_common.make_request("PUT", "login", params=params, body=body)
+        body = {
+            "user_id": "admin",
+            "password": "admin",
+        }
+        res = await api_common.make_request("POST", "login", params=params, body=body)
         token = res.get("token")
         assert token
         return token
@@ -33,7 +35,7 @@ class GulpAPIUser:
         api_common = GulpAPICommon.get_instance()
         params = {"ws_id": api_common.ws_id, "req_id": api_common.req_id}
 
-        res = await api_common.make_request("PUT", "logout", params=params, token=token)
+        res = await api_common.make_request("POST", "logout", params=params, token=token)
         t = res.get("token")
         assert t
         return t
@@ -49,12 +51,14 @@ class GulpAPIUser:
     async def login(user_id: str, password: str) -> str:
         api_common = GulpAPICommon.get_instance()
         params = {
-            "user_id": user_id,
             "ws_id": api_common.ws_id,
             "req_id": api_common.req_id,
         }
-        body = password
-        res = await api_common.make_request("PUT", "login", params=params, body=body)
+        body = {
+            "password": password,
+            "user_id": user_id,
+        }
+        res = await api_common.make_request("POST", "login", params=params, body=body)
         token = res.get("token")
         assert token
         return token
