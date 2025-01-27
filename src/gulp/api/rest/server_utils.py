@@ -106,7 +106,7 @@ class ServerUtils:
         """
         Handles a chunked upload request with multipart content (file and json), with resume support.
 
-        1. Parse the request headers to get the "continue_offset" and "total_file_size", used to check the upload status.
+        1. Parse the request headers to get the "continue_offset" and "size" (the TOTAL file size), used to check the upload status.
         2. Decode the multipart data and parses the JSON payload, if any.
         3. Extract the "filename" from the Content-Disposition header.
         4. Writes the file chunk to the cache directory using operation_id, context_name, and the original filename to build a unique filename.
@@ -146,9 +146,11 @@ class ServerUtils:
             content_disposition = content_disposition.lower().strip()
 
             # find filename parameter
-            filename_match = re.search(r"filename\s*=\s*([^;\s]+)", content_disposition)
+            filename_match = re.search(
+                r"filename\s*=\s*([^;\s]+)", content_disposition)
             if not filename_match:
-                raise ValueError('No "filename" found in Content-Disposition header')
+                raise ValueError(
+                    'No "filename" found in Content-Disposition header')
 
             # Extract and clean filename
             filename = filename_match.group(1)
@@ -156,7 +158,8 @@ class ServerUtils:
             filename = filename.strip()  # remove any remaining whitespace
 
             if not filename:
-                raise ValueError("Empty filename in Content-Disposition header")
+                raise ValueError(
+                    "Empty filename in Content-Disposition header")
 
             return filename
 
@@ -206,7 +209,8 @@ class ServerUtils:
                 return (
                     cache_file_path,
                     payload_dict,
-                    GulpUploadResponse(done=False, continue_offset=current_size),
+                    GulpUploadResponse(
+                        done=False, continue_offset=current_size),
                 )
 
             # write file chunk at the specified offset
@@ -225,7 +229,8 @@ class ServerUtils:
                     # delete uploaded file
                     muty.file.delete_file_or_dir(cache_file_path)
                     raise ValueError(
-                        f"file is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
+                        f"file is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={
+                            total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
                     )
 
         # notify back upload status

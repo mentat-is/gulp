@@ -288,6 +288,7 @@ the json payload is a `GulpIngestPayload`, which may contain the following field
 * `flt` (GulpIngestionFilter): the ingestion filter, to restrict ingestion to a subset of the data specifying a `time_range`
 * `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
 * `original_file_path` (str): the original file path, to indicate the original full path of the file being ingested on the machine where it was acquired from
+* `file_sha1` (str): the SHA1 of the file being ingested (optional)
 
 ### response with resume handling
 
@@ -588,7 +589,8 @@ async def ingest_raw_handler(
         Body(description="a chunk of raw `GulpDocument`s to be ingested."),
     ],
     flt: Annotated[
-        GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional)
+        GulpIngestionFilter, Depends(
+            APIDependencies.param_ingestion_flt_optional)
     ] = None,
     plugin: Annotated[
         str,
@@ -689,7 +691,8 @@ async def _process_metadata_json(
                     flt=payload.flt,
                     plugin_params=e.plugin_params,
                     original_file_path=(
-                        os.path.join(e.original_path, f) if e.original_path else f
+                        os.path.join(e.original_path,
+                                     f) if e.original_path else f
                     ),
                     local_file_path=os.path.join(unzipped_path, f),
                     plugin=e.plugin,
