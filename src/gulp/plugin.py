@@ -23,7 +23,7 @@ from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import gc
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
@@ -313,7 +313,7 @@ class GulpPluginBase(ABC):
         # opensearch index to ingest into
         self._ingest_index: str = None
         # this is retrieved from the index to check types during ingestion
-        self._index_type_mapping: dict = None
+        self._index_type_mapping: dict = {}
         # if the plugin is processing an external query
         self._external_query: bool = False
         # websocket to stream data to
@@ -336,7 +336,7 @@ class GulpPluginBase(ABC):
         self._docs_buffer: list[dict] = []
 
         # this is used by the engine to generate extra documents from a single gulp document
-        self._extra_docs: list[dict]
+        self._extra_docs: list[dict] = []
 
         # to keep track of processed/failed records
         self._records_processed_per_chunk: int = 0
@@ -2015,6 +2015,32 @@ class GulpPluginBase(ABC):
         Returns:
             None
         """
+
+        # clear stuff
+        # try:
+        #    if _sess:
+        #        await self._sess.close()
+        # finally:
+        self._sess = None
+        self._stats = None
+        self._mappings.clear()
+        self._mappings = None
+        self._custom_params.clear()
+        self._custom_params = None
+        self._index_type_mapping.clear()
+        self._index_type_mapping = None
+        self._upper_record_to_gulp_document_fun = None
+        self._upper_enrich_documents_chunk_fun = None
+        self._docs_buffer.clear()
+        self._docs_buffer = None
+        self._extra_docs.clear()
+        self._extra_docs = None
+        self._extra_docs: list[dict]
+        self._note_parameters = None
+        self._external_plugin_params = None
+        self._plugin_params = None
+        gc.collect()
+
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
             return

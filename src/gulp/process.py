@@ -75,7 +75,8 @@ class GulpProcess:
         MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None): # type: ignore
+    # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):
         """
         initializes a worker process
 
@@ -103,7 +104,7 @@ class GulpProcess:
         lock.acquire()
         spawned_processes.value += 1
         lock.release()
-        MutyLogger.get_instance().debug(
+        MutyLogger.get_instance().warning(
             "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s, shared_ws_list=%s"
             % (
                 sys.path,
