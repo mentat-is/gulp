@@ -177,7 +177,6 @@ class GulpPluginCache:
     def _initialize(self):
         if not hasattr(self, "_initialized"):
             self._initialized = True
-            self._initialized = True
             self._cache = {}
 
     def clear(self):
@@ -1977,11 +1976,12 @@ class GulpPluginBase(ABC):
         )
         bare_name = os.path.splitext(os.path.basename(path))[0]
         m = GulpPluginCache.get_instance().get(bare_name)
-        if ignore_cache:
+        if ignore_cache and m:
             MutyLogger.get_instance().warning(
                 "ignoring cache for plugin %s" % (bare_name)
             )
             m = None
+            GulpPluginCache.get_instance().remove(bare_name)
         if m:
             # return from cache
             return m.Plugin(path, pickled=pickled, **kwargs)
@@ -2039,7 +2039,6 @@ class GulpPluginBase(ABC):
         self._note_parameters = None
         self._external_plugin_params = None
         self._plugin_params = None
-        
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
             return

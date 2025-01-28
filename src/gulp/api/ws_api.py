@@ -1071,22 +1071,31 @@ class GulpSharedWsQueue:
 
     async def _fill_ws_queues_from_shared_queue(self):
         """
-        runs continously (in the main process) to walk through the queued data in the multiprocessing shared queue and fill each connected websocket asyncio queue
+        Processes messages from shared queue with guaranteed delivery
         """
         from gulp.api.rest_api import GulpRestServer
 
         BATCH_SIZE = 100
-        BATCH_TIMEOUT = 0.1  # seconds
-
-        MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
+        BATCH_TIMEOUT = 0.1
+        MAX_RETRIES = 3
+        MAX_QUEUE_SIZE = 10000
+        
+        logger = MutyLogger.get_instance()
+        logger.debug("Starting queue processing task...")
 
         try:
+            messages = []
             while not GulpRestServer.get_instance().is_shutdown():
-                messages = []
+                # Backpressure check
+                if self._shared_q.qsize() > MAX_QUEUE_SIZE:
+                    await asyncio.sleep(0.1)
+                    continue
+
                 batch_start = time.monotonic()
 
-                # Process messages with timeout
-                while len(messages) < BATCH_SIZE and (time.monotonic() - batch_start) < BATCH_TIMEOUT:
+                # Collect messages
+                while (len(messages) < BATCH_SIZE and 
+                    (time.monotonic() - batch_start) < BATCH_TIMEOUT):
                     try:
                         entry = self._shared_q.get_nowait()
                         messages.append(entry)
@@ -1094,35 +1103,39 @@ class GulpSharedWsQueue:
                     except Empty:
                         break
 
-                if messages:
-                    # Process in smaller sub-batches to prevent memory spikes
-                    for i in range(0, len(messages), 20):
-                        sub_batch = messages[i:i + 20]
-                        for entry in sub_batch:
-                            try:
-                                cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
-                                if cws:
-                                    await GulpConnectedSockets.get_instance().broadcast_data(entry)
-                            except Exception as e:
-                                MutyLogger.get_instance().error(
-                                    f"Error broadcasting: {e}")
+                # Process collected messages
+                for msg in messages:
+                    retries = 0
+                    while retries < MAX_RETRIES:
+                        try:
+                            cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
+                            if cws:
+                                await GulpConnectedSockets.get_instance().broadcast_data(msg)
+                            break
+                        except Exception as e:
+                            retries += 1
+                            if retries == MAX_RETRIES:
+                                logger.error(f"Failed to process message after {MAX_RETRIES} retries: {e}")
+                            await asyncio.sleep(0.1 * retries)
 
-                        # Allow other tasks to run between sub-batches
-                        await asyncio.sleep(0)
+                messages.clear()
+                await asyncio.sleep(0)
 
-                    # Clear processed messages
-                    messages.clear()
-
-                # Prevent CPU spinning on empty queue
-                else:
-                    await asyncio.sleep(0.01)
-
+        except asyncio.CancelledError:
+            logger.info("Queue processing cancelled")
         except Exception as e:
-            MutyLogger.get_instance().error(f"Queue fill task error: {e}")
+            logger.error(f"Queue processing error: {e}")
+            raise
         finally:
-            # Cleanup on exit
+            # Process remaining messages
             while messages:
-                messages.pop()
+                try:
+                    msg = messages.pop()
+                    cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
+                    if cws:
+                        await GulpConnectedSockets.get_instance().broadcast_data(msg)
+                except Exception as e:
+                    logger.error(f"Cleanup error: {e}")
 
     def close(self) -> None:
         """
