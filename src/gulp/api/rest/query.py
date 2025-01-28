@@ -42,6 +42,7 @@ from muty.log import MutyLogger
 import muty.crypto
 import muty.dynload
 import asyncio
+from muty.obj import track_memory, track_memory_async
 
 from gulp.structs import GulpPluginParameters
 
@@ -272,7 +273,8 @@ async def _worker_coro(kwds: dict):
         if num_queries > 1 and query_matched == num_queries:
             # all queries in the group matched, change note names to query group name
             MutyLogger.get_instance().info(
-                "query group '%s' matched, updating notes!" % (q_options.group)
+                "query group '%s' matched, updating notes!" % (
+                    q_options.group)
             )
             if q_options.note_parameters.create_notes:
                 async with GulpCollab.get_instance().session() as sess:
@@ -319,7 +321,6 @@ async def _spawn_query_group_workers(
     """
     spawns worker tasks for each query and wait them all
     """
-
     MutyLogger.get_instance().debug("spawning %d queries ..." % (len(queries)))
     kwds = dict(
         user_id=user_id,
@@ -630,7 +631,8 @@ async def query_sigma_handler(
     mod = None
     try:
         if not q_options.sigma_parameters.plugin:
-            raise ValueError("q_options.sigma_parameters.plugin must be set")
+            raise ValueError(
+                "q_options.sigma_parameters.plugin must be set")
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
                 "if more than one query is provided, `q_options.group` must be set."
@@ -748,7 +750,6 @@ async def query_stored_handler(
     params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
-
     try:
         if len(stored_query_ids) > 1 and not q_options.group:
             raise ValueError(

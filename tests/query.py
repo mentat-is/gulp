@@ -51,9 +51,11 @@ async def test_win_evtx():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -98,7 +100,8 @@ async def test_win_evtx():
                     elif data["type"] == "query_group_match":
                         # query done
                         q_group_match_packet: GulpQueryGroupMatchPacket = (
-                            GulpQueryGroupMatchPacket.model_validate(data["data"])
+                            GulpQueryGroupMatchPacket.model_validate(
+                                data["data"])
                         )
                         MutyLogger.get_instance().debug(
                             "query group match, name=%s", q_group_match_packet.name
@@ -108,7 +111,8 @@ async def test_win_evtx():
                             test_completed = True
                         else:
                             raise ValueError(
-                                f"unexpected query group name: {q_done_packet.name}"
+                                f"unexpected query group name: {
+                                    q_done_packet.name}"
                             )
                         break
 
@@ -125,9 +129,11 @@ async def test_win_evtx():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -167,7 +173,8 @@ async def test_win_evtx():
                     elif data["type"] == "query_group_match":
                         # query done
                         q_group_match_packet: GulpQueryGroupMatchPacket = (
-                            GulpQueryGroupMatchPacket.model_validate(data["data"])
+                            GulpQueryGroupMatchPacket.model_validate(
+                                data["data"])
                         )
                         MutyLogger.get_instance().debug(
                             "query group match, name=%s", q_group_match_packet.name
@@ -177,7 +184,8 @@ async def test_win_evtx():
                             test_completed = True
                         else:
                             raise ValueError(
-                                f"unexpected query group name: {q_done_packet.name}"
+                                f"unexpected query group name: {
+                                    q_done_packet.name}"
                             )
                         break
 
@@ -194,9 +202,11 @@ async def test_win_evtx():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -250,9 +260,11 @@ async def test_win_evtx():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -303,9 +315,11 @@ async def test_win_evtx():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -361,9 +375,11 @@ async def test_win_evtx():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -379,7 +395,8 @@ async def test_win_evtx():
                         await GulpAPIQuery.query_gulp(
                             token,
                             TEST_INDEX,
-                            flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID]),
+                            flt=GulpQueryFilter(
+                                operation_ids=[TEST_OPERATION_ID]),
                             q_options=q_options,
                         )
                     elif data["type"] == "query_done":
@@ -466,9 +483,11 @@ async def test_elasticsearch():
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
+
         async with websockets.connect(ws_url) as ws:
             # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            p: GulpWsAuthPacket = GulpWsAuthPacket(
+                token=token, ws_id=TEST_WS_ID)
             await ws.send(p.model_dump_json(exclude_none=True))
 
             # receive responses
@@ -534,7 +553,8 @@ async def test_elasticsearch():
                     elif data["type"] == "query_group_match":
                         # query done
                         q_group_match_packet: GulpQueryGroupMatchPacket = (
-                            GulpQueryGroupMatchPacket.model_validate(data["data"])
+                            GulpQueryGroupMatchPacket.model_validate(
+                                data["data"])
                         )
                         MutyLogger.get_instance().debug(
                             "query group match, name=%s", q_group_match_packet.name
@@ -544,7 +564,8 @@ async def test_elasticsearch():
                             test_completed = True
                         else:
                             raise ValueError(
-                                f"unexpected query group name: {q_done_packet.name}"
+                                f"unexpected query group name: {
+                                    q_done_packet.name}"
                             )
                         break
 
@@ -577,10 +598,12 @@ async def test_elasticsearch():
 
 @pytest.mark.asyncio
 async def test_paid_plugins():
-    import sys, importlib
+    import sys
+    import importlib
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    file_path = os.path.join(current_dir,"../../gulp-paid-plugins/tests/query.py")
-    
+    file_path = os.path.join(
+        current_dir, "../../gulp-paid-plugins/tests/query.py")
+
     module_name = "paid_plugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)

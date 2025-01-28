@@ -2039,8 +2039,7 @@ class GulpPluginBase(ABC):
         self._note_parameters = None
         self._external_plugin_params = None
         self._plugin_params = None
-        gc.collect()
-
+        
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
             return

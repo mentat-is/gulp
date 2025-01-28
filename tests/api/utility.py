@@ -7,6 +7,20 @@ class GulpAPIUtility:
     """
     bindings to call gulp's utility related API endpoints
     """
+    @staticmethod
+    async def restart_server(token: str, expected_status: int = 200) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        res = await api_common.make_request(
+            "POST",
+            "restart_server",
+            params={},
+            token=token,
+            body=None,
+            expected_status=expected_status,
+        )
+
+        return res
 
     @staticmethod
     async def plugin_list(token: str, expected_status: int = 200) -> dict:

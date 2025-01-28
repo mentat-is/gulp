@@ -1,3 +1,4 @@
+import os
 from typing import Any
 from muty.log import MutyLogger
 import json
@@ -92,7 +93,8 @@ class GulpAPICommon:
                 method, url, headers=headers, params=params, files=files, data=data
             )
         elif method in ["POST", "PATCH", "PUT"] and body:
-            r = requests.request(method, url, headers=headers, params=params, json=body)
+            r = requests.request(
+                method, url, headers=headers, params=params, json=body)
         else:
             r = requests.request(method, url, headers=headers, params=params)
 
@@ -111,8 +113,10 @@ class GulpAPICommon:
         """
         common object deletion
         """
-        MutyLogger.get_instance().info(f"Deleting object {object_id}, api={api}...")
-        params = {"object_id": object_id, "ws_id": self.ws_id, "req_id": self.req_id}
+        MutyLogger.get_instance().info(
+            f"Deleting object {object_id}, api={api}...")
+        params = {"object_id": object_id,
+                  "ws_id": self.ws_id, "req_id": self.req_id}
         res = await self.make_request(
             "DELETE", api, params=params, token=token, expected_status=expected_status
         )
@@ -124,7 +128,8 @@ class GulpAPICommon:
         """
         common object get
         """
-        MutyLogger.get_instance().info(f"Getting object {object_id}, api={api}...")
+        MutyLogger.get_instance().info(
+            f"Getting object {object_id}, api={api}...")
         params = {"object_id": object_id, "req_id": self.req_id}
         res = await self.make_request(
             "GET",
@@ -151,7 +156,8 @@ class GulpAPICommon:
             api,
             params={"req_id": self.req_id},
             body=(
-                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                flt.model_dump(by_alias=True, exclude_none=True,
+                               exclude_defaults=True)
                 if flt
                 else None
             ),

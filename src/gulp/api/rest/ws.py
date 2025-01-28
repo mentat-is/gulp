@@ -1,5 +1,4 @@
 import asyncio
-from dataclasses import dataclass
 from multiprocessing import Queue
 from fastapi.websockets import WebSocketState
 import muty.jsend
@@ -19,7 +18,6 @@ from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.ws_api import (
     GulpClientDataPacket,
     GulpConnectedSocket,
@@ -35,7 +33,7 @@ from gulp.api.ws_api import (
 )
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import GulpPluginParameters, ObjectNotFound
+from gulp.structs import ObjectNotFound
 
 
 router = APIRouter()
@@ -246,6 +244,7 @@ class GulpAPIWebsocket:
                 except Exception as ex:
                     MutyLogger.get_instance().error(
                         f"error during ws cleanup: {ex}")
+                del ws
             try:
                 # close gracefully
                 await websocket.close()
@@ -333,6 +332,7 @@ class GulpAPIWebsocket:
                 except Exception as ex:
                     MutyLogger.get_instance().error(
                         f"error during ws_ingest cleanup: {ex}")
+                del ws
             if websocket.client_state == WebSocketState.CONNECTED:
                 # close gracefully
                 await websocket.close()
@@ -448,6 +448,7 @@ class GulpAPIWebsocket:
                 except Exception as ex:
                     MutyLogger.get_instance().error(
                         f"error during ws_ingest cleanup: {ex}")
+                del ws
             if websocket.client_state == WebSocketState.CONNECTED:
                 # close gracefully
                 await websocket.close()

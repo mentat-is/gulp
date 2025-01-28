@@ -24,6 +24,7 @@ async def _ws_loop():
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
+
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(

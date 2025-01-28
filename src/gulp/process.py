@@ -144,11 +144,11 @@ class GulpProcess:
         """
         if self.process_pool:
             MutyLogger.get_instance().debug("closing mp pool...")
-            self.process_pool.close()
-            self.process_pool.terminate()
             try:
-                await self.process_pool.join()
-            except asyncio.exceptions.CancelledError:
+                self.process_pool.close()
+                self.process_pool.terminate()
+                #await self.process_pool.join()
+            except:
                 pass
 
             self.process_pool = None

@@ -5,6 +5,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 import os
 import signal
 import ssl
+import sys
 from typing import Any
 
 import muty.crypto
@@ -32,7 +33,9 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
+import gc
 import asyncio_atexit
+import asyncio
 
 
 class GulpRestServer:
@@ -51,7 +54,9 @@ class GulpRestServer:
             self._log_level = None
             self._reset_collab = False
             self._reset_index = None
+            self._lifespan_task = None
             self._shutdown: bool = False
+            self._restart_signal: asyncio.Event = asyncio.Event()
             self._extension_plugins: list[GulpPluginBase] = []
 
     @classmethod
@@ -64,6 +69,13 @@ class GulpRestServer:
             cls._instance._initialize()
 
         return cls._instance
+
+    def trigger_restart(self) -> None:
+        """Triggers server restart by setting event"""
+        MutyLogger.get_instance().info("Triggering server restart...")
+        if self._lifespan_task:
+            self._lifespan_task.cancel()
+        self._restart_signal.set()
 
     def version_string(self) -> str:
         """
@@ -227,12 +239,6 @@ class GulpRestServer:
         self._app.include_router(utility_router)
         self._app.include_router(query_router)
         self._app.include_router(enrich_router)
-
-        """
-        import gulp.api.rest.utility
-        _app.include_router(gulp.api.rest.utility.router())
-        """
-        pass
 
     def add_api_route(self, path: str, handler: callable, **kwargs):
         """
@@ -408,6 +414,13 @@ class GulpRestServer:
         MutyLogger.get_instance().info("atexit() cleanup")
         self._kill_gulp_processes()
 
+        if self._restart_signal.is_set():
+            MutyLogger.get_instance().info("restarting server ...")
+            self._restart_signal.clear()
+
+            # respawn
+            muty.os.respawn_current_process()
+
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler
         pass
@@ -469,8 +482,12 @@ class GulpRestServer:
             # to test some snippet with gulp freshly initialized
             await self._test()
 
-        # wait for shutdown
-        yield
+        # wait for termination
+        try:
+            self._lifespan_task = asyncio.current_task()
+            yield
+        except asyncio.CancelledError:
+            MutyLogger.get_instance().warning("CancelledError caught in _lifespan handler!")
 
         # cleaning up will be done through _cleanup called via atexit
         MutyLogger.get_instance().info("gulp shutting down!")
@@ -479,19 +496,23 @@ class GulpRestServer:
         await self._unload_extension_plugins()
 
         # close shared ws and process pool
-        await GulpConnectedSockets.get_instance().cancel_all()
-        GulpSharedWsQueue.get_instance().close()
-        await GulpProcess.get_instance().close_process_pool()
+        try:
+            await GulpConnectedSockets.get_instance().cancel_all()
+            GulpSharedWsQueue.get_instance().close()
+            await GulpProcess.get_instance().close_process_pool()
 
-        # close clients in the main process
-        await GulpCollab.get_instance().shutdown()
-        await GulpOpenSearch.get_instance().shutdown()
+            # close clients in the main process
+            await GulpCollab.get_instance().shutdown()
+            await GulpOpenSearch.get_instance().shutdown()
 
-        # close coro and thread pool in the main process
-        await GulpProcess.get_instance().close_coro_pool()
-        await GulpProcess.get_instance().close_thread_pool()
-
-        MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
+            # close coro and thread pool in the main process
+            await GulpProcess.get_instance().close_coro_pool()
+            await GulpProcess.get_instance().close_thread_pool()
+            MutyLogger.get_instance().info("everything shut down, we can gracefully exit.")
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            await self._cleanup()
 
     def _reset_first_run(self) -> None:
         """

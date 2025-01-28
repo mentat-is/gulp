@@ -3,7 +3,7 @@ import json
 import base64
 import muty.file
 from gulp.api.mapping.models import GulpMappingFile
-import gulp.config
+import sys
 from gulp.plugin import GulpPluginBase
 from gulp.api.rest_api import GulpRestServer
 from muty.jsend import JSendException, JSendResponse
@@ -79,6 +79,42 @@ async def request_cancel_handler(
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
+
+
+@router.post(
+    "/restart_server",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237"
+                    }
+                }
+            }
+        }
+    },
+    summary="""restart the server.
+    
+- token needs `admin` permission.    
+    """,
+)
+async def restart_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    async with GulpCollab.get_instance().session() as sess:
+        await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+    GulpRestServer.get_instance().trigger_restart()
+    return JSendResponse.success(req_id=req_id)
 
 
 @router.get(

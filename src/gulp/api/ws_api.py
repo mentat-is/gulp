@@ -2,8 +2,10 @@ import asyncio
 import collections
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
+import os
 from queue import Empty, Queue
 import threading
+import time
 from typing import Any, Optional
 from muty.pydantic import autogenerate_model_example_by_class
 import muty
@@ -518,6 +520,12 @@ class WsQueueMessagePool:
         # preallocate message pool
         self._pool = collections.deque(maxlen=maxsize)
 
+    def clear(self):
+        """
+        clear the message pool
+        """
+        self._pool.clear()
+
     def get(self) -> dict:
         """
         get a preallocated message from the pool
@@ -612,7 +620,28 @@ class GulpConnectedSocket:
 
         finally:
             # ensure cleanup happens even if cancelled
+            MutyLogger.get_instance().debug("ensuring ws cleanup!")
+            self._msg_pool.clear()
+
+            # empty the queue
+            await self.flush_queue()
+
+            # clear tasks
             await asyncio.shield(self._cleanup_tasks(tasks))
+
+    async def flush_queue(self) -> None:
+        """
+        flushes the websocket queue.
+        """
+        while self.q.qsize() != 0:
+            try:
+                self.q.get_nowait()
+                self.q.task_done()
+            except Empty:
+                break
+        await self.q.join()
+        MutyLogger.get_instance().debug("ws_id %s (id=%s) queue flushed!" %
+                                        (self.ws_id, id(str(self.ws))))
 
     @staticmethod
     def is_alive(ws_id: str) -> bool:
@@ -672,7 +701,7 @@ class GulpConnectedSocket:
                 raise WebSocketDisconnect("client disconnected")
 
             # this will raise WebSocketDisconnect when client disconnects
-            d: dict = await self.ws.receive_json()
+            await self.ws.receive_json()
 
             # TODO: handle incoming messages from the client
 
@@ -835,17 +864,7 @@ class GulpConnectedSockets:
 
         # flush queue first
         if flush:
-            q = cws.q
-            while q.qsize() != 0:
-                try:
-                    q.get_nowait()
-                    q.task_done()
-                except Exception:
-                    pass
-
-            await q.join()
-            MutyLogger.get_instance().debug(
-                f"queue flush done for ws id={id_str}")
+            await cws.flush_queue()
 
         # remove from global ws list
         from gulp.process import GulpProcess
@@ -1056,15 +1075,18 @@ class GulpSharedWsQueue:
         """
         from gulp.api.rest_api import GulpRestServer
 
+        BATCH_SIZE = 100
+        BATCH_TIMEOUT = 0.1  # seconds
+
         MutyLogger.get_instance().debug("starting asyncio queue fill task ...")
 
         try:
             while not GulpRestServer.get_instance().is_shutdown():
-                # process messages in batches (100 per batch)
                 messages = []
+                batch_start = time.monotonic()
 
-                # quick non-blocking check for messages
-                while len(messages) < 100:
+                # Process messages with timeout
+                while len(messages) < BATCH_SIZE and (time.monotonic() - batch_start) < BATCH_TIMEOUT:
                     try:
                         entry = self._shared_q.get_nowait()
                         messages.append(entry)
@@ -1073,40 +1095,34 @@ class GulpSharedWsQueue:
                         break
 
                 if messages:
-                    # process batch of messages, create a copy to avoid modification during iteration
-                    messages_to_process = messages.copy()
-                    for entry in messages_to_process:
-                        try:
-                            # Get a snapshot of connected sockets
-                            cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
-                            if cws:
-                                try:
-                                    await GulpConnectedSockets.get_instance().broadcast_data(
-                                        entry
-                                    )
-                                except Exception as e:
-                                    MutyLogger.get_instance().exception(
-                                        f"error broadcasting message to {
-                                            entry.ws_id}: {str(e)}", e
-                                    )
-                        except Exception as e:
-                            MutyLogger.get_instance().exception(
-                                f"error processing message for {
-                                    entry.ws_id}: {str(e)}", e
-                            )
-                            continue
+                    # Process in smaller sub-batches to prevent memory spikes
+                    for i in range(0, len(messages), 20):
+                        sub_batch = messages[i:i + 20]
+                        for entry in sub_batch:
+                            try:
+                                cws = GulpConnectedSockets.get_instance().find(entry.ws_id)
+                                if cws:
+                                    await GulpConnectedSockets.get_instance().broadcast_data(entry)
+                            except Exception as e:
+                                MutyLogger.get_instance().error(
+                                    f"Error broadcasting: {e}")
 
-                    # small delay between batches
-                    await asyncio.sleep(0.01)
+                        # Allow other tasks to run between sub-batches
+                        await asyncio.sleep(0)
+
+                    # Clear processed messages
+                    messages.clear()
+
+                # Prevent CPU spinning on empty queue
                 else:
-                    # no messages, short sleep
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.01)
 
-            MutyLogger.get_instance().debug("asyncio queue fill task terminated!")
-
-        except Exception as ex:
-            MutyLogger.get_instance().error(f"error in fill task: {ex}")
-            raise
+        except Exception as e:
+            MutyLogger.get_instance().error(f"Queue fill task error: {e}")
+        finally:
+            # Cleanup on exit
+            while messages:
+                messages.pop()
 
     def close(self) -> None:
         """
@@ -1116,6 +1132,7 @@ class GulpSharedWsQueue:
             None
         """
         MutyLogger.get_instance().debug("closing shared ws queue ...")
+
         # flush queue first
         while self._shared_q.qsize() != 0:
             try:
