@@ -620,16 +620,23 @@ class GulpConnectedSocket:
 
         finally:
             # ensure cleanup happens even if cancelled
+            await self.cleanup(tasks)
+
+    async def cleanup(self, tasks: list[asyncio.Task]=None) -> None:
+            """
+            ensure websocket is cleaned up when canceled/closing
+            """
             MutyLogger.get_instance().debug("ensuring ws cleanup!")
             self._msg_pool.clear()
 
             # empty the queue
-            await self.flush_queue()
+            await self._flush_queue()
 
-            # clear tasks
-            await asyncio.shield(self._cleanup_tasks(tasks))
+            if tasks:
+                # clear tasks
+                await asyncio.shield(self._cleanup_tasks(tasks))
 
-    async def flush_queue(self) -> None:
+    async def _flush_queue(self) -> None:
         """
         flushes the websocket queue.
         """
@@ -864,7 +871,7 @@ class GulpConnectedSockets:
 
         # flush queue first
         if flush:
-            await cws.flush_queue()
+            await cws.cleanup()
 
         # remove from global ws list
         from gulp.process import GulpProcess
@@ -1119,7 +1126,7 @@ class GulpSharedWsQueue:
                             await asyncio.sleep(0.1 * retries)
 
                 messages.clear()
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.1)
 
         except asyncio.CancelledError:
             logger.info("Queue processing cancelled")

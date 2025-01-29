@@ -147,7 +147,7 @@ class GulpProcess:
             try:
                 self.process_pool.close()
                 self.process_pool.terminate()
-                #await self.process_pool.join()
+                # await self.process_pool.join()
             except:
                 pass
 
@@ -203,7 +203,7 @@ class GulpProcess:
         while spawned_processes.value < num_workers:
             # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
             await asyncio.sleep(0.1)
-
+        
         MutyLogger.get_instance().debug(
             "all %d processes spawned!" % (spawned_processes.value)
         )
@@ -280,6 +280,7 @@ class GulpProcess:
 
         if self._main_process:
             # creates the process pool and shared queue
+            MutyLogger.get_instance().info("main process initialized!")
             await self.recreate_process_pool_and_shared_queue()
         else:
             # worker process, set the queue

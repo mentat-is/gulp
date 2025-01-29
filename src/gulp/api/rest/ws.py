@@ -522,4 +522,4 @@ class GulpAPIWebsocket:
 
         finally:
             # ensure cleanup happens even if cancelled
-            await asyncio.shield(ws._cleanup_tasks(tasks))
+            await ws.cleanup(tasks)
