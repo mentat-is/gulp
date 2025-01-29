@@ -3,8 +3,6 @@
   - [running single tests manually](#running-single-tests-manually)
   - [ingestion tool](#ingestion-tool)
 
-[TOC]
-
 # testing gulp
 
 > `GULP_INTEGRATION_TEST` should always be set during tests, since it deactivates debug options even if they are activated in the configuration!
@@ -31,8 +29,6 @@ PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/
 # also test paid plugins
 PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
 ~~~
-
-if running `test_suite.sh` with `PAID_PLUGIN=1` make sure the `gulp-paid-plugin` package is installed in your environment (`pip install -e /path/to/gulp-paid-plugins`).
 
 ## running single tests manually
 

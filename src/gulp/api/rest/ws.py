@@ -43,6 +43,7 @@ class InternalWsIngestPacket(BaseModel):
     """
     holds data for the ws ingest worker
     """
+
     user_id: str = Field(..., description="the user id")
     data: GulpWsIngestPacket = Field(...,
                                      description="a GulpWsIngestPacket dictionary")
@@ -61,6 +62,7 @@ class WsIngestRawWorker:
         """
         starts the worker, which will run in a task in a separate process
         """
+
         async def worker_coro():
             await GulpProcess.get_instance().process_pool.apply(
                 WsIngestRawWorker._process_loop, args=(self._input_queue,)
@@ -94,7 +96,8 @@ class WsIngestRawWorker:
             input_queue (Queue): the input queue
         """
         MutyLogger.get_instance().debug(
-            "ws ingest _process_loop started, input_queue=%s!" % (input_queue))
+            "ws ingest _process_loop started, input_queue=%s!" % (input_queue)
+        )
 
         async with GulpCollab.get_instance().session() as sess:
             while True:
@@ -111,20 +114,15 @@ class WsIngestRawWorker:
 
                     # create context and source
                     operation: GulpOperation = await GulpOperation.get_by_id(
-                        sess,
-                        packet.data.operation_id
+                        sess, packet.data.operation_id
                     )
 
                     ctx: GulpContext = await operation.add_context(
-                        sess,
-                        user_id=packet.user_id,
-                        name=packet.data.context_name
+                        sess, user_id=packet.user_id, name=packet.data.context_name
                     )
 
                     src: GulpSource = await ctx.add_source(
-                        sess,
-                        user_id=packet.user_id,
-                        name=packet.data.source
+                        sess, user_id=packet.user_id, name=packet.data.source
                     )
 
                     # Process documents using plugin
@@ -139,7 +137,7 @@ class WsIngestRawWorker:
                         source_id=src.id,
                         chunk=packet.data.docs,
                         flt=packet.data.flt,
-                        plugin_params=packet.data.plugin_params
+                        plugin_params=packet.data.plugin_params,
                     )
 
                 except Exception as ex:
@@ -180,6 +178,12 @@ class GulpAPIWebsocket:
             await websocket.accept()
             js = await websocket.receive_json()
             params = GulpWsAuthPacket.model_validate(js)
+            if not params.ws_id:
+                params.ws_id = muty.string.generate_unique()
+                MutyLogger.get_instance().warning(
+                    "empty ws_id, auto-generated: %s" % (params.ws_id)
+                )
+
             user_id = None
             if params.token.lower() != "monitor":
                 # "monitor" skips token check, for internal usage only
@@ -201,7 +205,7 @@ class GulpAPIWebsocket:
                 type=GulpWsQueueDataType.WS_CONNECTED,
                 ws_id=params.ws_id,
                 user_id=user_id,
-                data=GulpWsAcknowledgedPacket(token=params.token).model_dump(
+                data=GulpWsAcknowledgedPacket(token=params.token, ws_id=params.ws_id).model_dump(
                     exclude_none=True
                 ),
             )
@@ -270,6 +274,12 @@ class GulpAPIWebsocket:
             await websocket.accept()
             js = await websocket.receive_json()
             params = GulpWsAuthPacket.model_validate(js)
+            if not params.ws_id:
+                params.ws_id = muty.string.generate_unique()
+                MutyLogger.get_instance().warning(
+                    "empty ws_id, auto-generated: %s" % (params.ws_id)
+                )
+
             user_id = None
             async with GulpCollab.get_instance().session() as sess:
                 s = await GulpUserSession.check_token(
@@ -278,7 +288,8 @@ class GulpAPIWebsocket:
                 user_id = s.user_id
 
             MutyLogger.get_instance().debug(
-                f"ws_ingest_raw accepted for ws_id={params.ws_id}")
+                f"ws_ingest_raw accepted for ws_id={params.ws_id}"
+            )
             ws = GulpConnectedSockets.get_instance().add(
                 websocket, params.ws_id, socket_type=GulpWsType.WS_INGEST
             )
@@ -289,7 +300,7 @@ class GulpAPIWebsocket:
                 type=GulpWsQueueDataType.WS_CONNECTED,
                 ws_id=params.ws_id,
                 user_id=user_id,
-                data=GulpWsAcknowledgedPacket(token=params.token).model_dump(
+                data=GulpWsAcknowledgedPacket(token=params.token, ws_id=params.ws_id).model_dump(
                     exclude_none=True
                 ),
             )
@@ -331,7 +342,8 @@ class GulpAPIWebsocket:
                     await GulpConnectedSockets.get_instance().remove(websocket)
                 except Exception as ex:
                     MutyLogger.get_instance().error(
-                        f"error during ws_ingest cleanup: {ex}")
+                        f"error during ws_ingest cleanup: {ex}"
+                    )
                 del ws
             if websocket.client_state == WebSocketState.CONNECTED:
                 # close gracefully
@@ -358,9 +370,7 @@ class GulpAPIWebsocket:
 
                 # package data for worker
                 packet = InternalWsIngestPacket(
-                    user_id=user_id,
-                    data=ingest_packet
-                )
+                    user_id=user_id, data=ingest_packet)
                 # and put in the worker queue
                 worker_pool.put(packet)
 
@@ -386,15 +396,20 @@ class GulpAPIWebsocket:
             await websocket.accept()
             js = await websocket.receive_json()
             params = GulpWsAuthPacket.model_validate(js)
+            if not params.ws_id:
+                params.ws_id = muty.string.generate_unique()
+                MutyLogger.get_instance().warning(
+                    "empty ws_id, auto-generated: %s" % (params.ws_id)
+                )
+
             user_id = None
             async with GulpCollab.get_instance().session() as sess:
-                s = await GulpUserSession.check_token(
-                    sess, params.token
-                )
+                s = await GulpUserSession.check_token(sess, params.token)
                 user_id = s.user_id
 
             MutyLogger.get_instance().debug(
-                f"ws_client_data accepted for ws_id={params.ws_id}")
+                f"ws_client_data accepted for ws_id={params.ws_id}"
+            )
             ws = GulpConnectedSockets.get_instance().add(
                 websocket, params.ws_id, socket_type=GulpWsType.WS_CLIENT_DATA
             )
@@ -405,7 +420,7 @@ class GulpAPIWebsocket:
                 type=GulpWsQueueDataType.WS_CONNECTED,
                 ws_id=params.ws_id,
                 user_id=user_id,
-                data=GulpWsAcknowledgedPacket(token=params.token).model_dump(
+                data=GulpWsAcknowledgedPacket(token=params.token, ws_id=params.ws_id).model_dump(
                     exclude_none=True
                 ),
             )
@@ -447,14 +462,17 @@ class GulpAPIWebsocket:
                     await GulpConnectedSockets.get_instance().remove(websocket)
                 except Exception as ex:
                     MutyLogger.get_instance().error(
-                        f"error during ws_ingest cleanup: {ex}")
+                        f"error during ws_ingest cleanup: {ex}"
+                    )
                 del ws
             if websocket.client_state == WebSocketState.CONNECTED:
                 # close gracefully
                 await websocket.close()
 
     @staticmethod
-    async def ws_client_data_receive_loop(ws: GulpConnectedSocket, user_id: str) -> None:
+    async def ws_client_data_receive_loop(
+        ws: GulpConnectedSocket, user_id: str
+    ) -> None:
         """
         receives client ui data
 
@@ -481,7 +499,10 @@ class GulpAPIWebsocket:
             # route to all connected client_data websockets
             s = GulpConnectedSockets.get_instance()
             for _, cws in s._sockets.items():
-                if ws.ws_id == cws.ws_id or cws.socket_type != GulpWsType.WS_CLIENT_DATA:
+                if (
+                    ws.ws_id == cws.ws_id
+                    or cws.socket_type != GulpWsType.WS_CLIENT_DATA
+                ):
                     # skip this ws
                     continue
                 await cws.ws.send_json(data.model_dump(exclude_none=True))
@@ -499,7 +520,8 @@ class GulpAPIWebsocket:
         try:
             # Create tasks with names for better debugging
             ws.receive_task = asyncio.create_task(
-                GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id), name=f"receive_loop_{ws.ws_id}"
+                GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id),
+                name=f"receive_loop_{ws.ws_id}",
             )
             tasks.extend([ws.receive_task])
 

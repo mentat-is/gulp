@@ -22,8 +22,6 @@
   - [gulp](#gulp)
   - [external plugins](#external-plugins-1)
 
-[TOC]
-
 # plugins
 
 gulp is made of plugins, each serving different purposes:

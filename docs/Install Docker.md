@@ -5,10 +5,6 @@
 
 # docker Installation
 
-> THIS IS OUTDATED, NEEDS REVIEW.
-
-[TOC]
-
 ## pull image directly from docker hub
 
 ```bash

@@ -13,8 +13,6 @@
   - [install the client](#install-the-client)
   - [troubleshoot](#troubleshoot)
 
-[TOC]
-
 # install from sources
 
 ## use the devcontainer
@@ -111,11 +109,9 @@ BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
 
 ### 7. optional: installing extra plugins
 
-plugins are just files, so it is enough to copy/symlink them in `GULP_INSTALL_DIR/src/gulp/plugins`.
+plugins are just files, so it is enough to copy/symlink  plugins in `GULP_INSTALL_DIR/src/gulp/plugins` and mapping files in `GULP_INSTALL_DIR/src/gulp/mapping_files`
 
-> `extension` plugins goes into `GULP_INSTALL_DIR/src/gulp/plugins/extension`
->
-> if the plugin needs `mapping files`, they must be copied/symlinked as well into `PATH_MAPPING_FILES`, default=`GULP_INSTALL_DIR/src/gulp/mapping_files`.
+> or you may use `PATH_PLUGINS_EXTRA` and `PATH_MAPPING_FILES_EXTRA` to define extra search directories.
 
 ## install using the setup script
 

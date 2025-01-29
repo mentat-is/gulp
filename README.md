@@ -153,18 +153,6 @@ get it [here](https://github.com/mentat-is/gulpui-web) !
 
   [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1349)
 
-## Docker instructions
-
-[with docker](<./docs/Install Docker.md#run-with-docker-compose>) or [with install from sources](<./docs/Install Dev.md#7-run>)
-
-> make build
-
-Want to run the latest build with API but not WEB:
-> docker compose -f docker-compose-dev.yml --profile api -d up
-
-Want to stop it:
-> docker compose down
-
 ## test
 
 [read here](./docs/Testing%20Plugins.md)
