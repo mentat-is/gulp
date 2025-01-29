@@ -28,6 +28,7 @@ build
 test_scripts/test.json
 *log*.txt
 .config
+gulpconfig
 
 # symlinks
 muty-python

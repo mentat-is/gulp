@@ -31,34 +31,8 @@ docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags 
 
 you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) file to the container, and you're ready to go!
 
-use the provided [run_gulp.sh](../run_gulp.sh) script to manage gulp running through the provided [docker-compose](../docker-compose.yml):
+~~~bash
+BIND_TO_PORT=8080 PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files GULP_CONFIG_PATH=/home/valerino/repos/gulp/gulp_cfg.json docker compose --profile full up
+~~~
 
-> use `run_gulp.sh --help to see available options`
-
-```bash
-# default binds to port 8080 and interface 0.0.0.0. on first run, default collaboration database and default "gulpidx" index are initialized.
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh
-
-# bind to a different port
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 ./run_gulp.sh
-
-# also to a a different interface
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json PORT=8081 IFACE=192.168.1.1 ./run_gulp.sh
-
-# reset opensearch (use index name)
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-index myidx
-
-# reset opensearch and collab
-GULP_CONFIG_PATH=/path/to/your/gulp_cfg.json ./run_gulp.sh --reset-index myidx --reset-collab
-```
-
-> NOTE:
-> when run through the provided docker-compose, gulp creates the following in the current directory:
->
-> - opensearch_data
-> - postgres_data
-> - .gulpconfig
->
-> to cleanup correctly and restart from scratch, **all of them should be removed**.
-
-once you're done, `run_gulp.sh --stop` may be used to stop all the running containers.
+> to cleanup docker volumes, use the provided [reset script](../reset_docker.sh).
