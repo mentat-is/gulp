@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import muty.file
+import psutil
 from gulp.api.mapping.models import GulpMappingFile
 import sys
 from gulp.plugin import GulpPluginBase
@@ -100,9 +101,12 @@ async def request_cancel_handler(
         }
     },
     summary="""restart the server.
-    
-- token needs `admin` permission.    
     """,
+    description="""
+use i.e. to apply changes to the server configuration or plugins, or if the server gets slow or consumes too much memory.
+
+- token needs `admin` permission.    
+    """
 )
 async def restart_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -115,6 +119,305 @@ async def restart_handler(
 
     GulpRestServer.get_instance().trigger_restart()
     return JSendResponse.success(req_id=req_id)
+
+
+@router.post(
+    "/status",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1738176594947,
+                        "req_id": "test_req",
+                        "data": {
+                            "memory": {
+                                "total": 31490994176,
+                                "available": 17274675200,
+                                "percent": 45.1,
+                                "used": 12644323328,
+                                "free": 15703216128
+                            },
+                            "cpu": {
+                                "percent": 36.6,
+                                "count": 8,
+                                "freq": {
+                                    "current": 3135.96325,
+                                    "min": 1400.0,
+                                    "max": 2100.0
+                                }
+                            },
+                            "disk": {
+                                "total": 467783827456,
+                                "used": 215005560832,
+                                "free": 228940931072,
+                                "percent": 48.4
+                            },
+                            "processes": [
+                                {
+                                    "pid": 52220,
+                                    "name": "gulp",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 148799488,
+                                        "rss_mb": 141.90625,
+                                        "vms": 964345856,
+                                        "vms_mb": 919.671875,
+                                        "shared": 5677056,
+                                        "shared_mb": 5.4140625
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 /home/vscode/.local/bin/gulp",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52234,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 13586432,
+                                        "rss_mb": 12.95703125,
+                                        "vms": 19591168,
+                                        "vms_mb": 18.68359375,
+                                        "shared": 6639616,
+                                        "shared_mb": 6.33203125
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.resource_tracker import main;main(14)",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52235,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 140615680,
+                                        "rss_mb": 134.1015625,
+                                        "vms": 332206080,
+                                        "vms_mb": 316.81640625,
+                                        "shared": 26664960,
+                                        "shared_mb": 25.4296875
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=25) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52270,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145494016,
+                                        "rss_mb": 138.75390625,
+                                        "vms": 333705216,
+                                        "vms_mb": 318.24609375,
+                                        "shared": 29970432,
+                                        "shared_mb": 28.58203125
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=23) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52274,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145592320,
+                                        "rss_mb": 138.84765625,
+                                        "vms": 409251840,
+                                        "vms_mb": 390.29296875,
+                                        "shared": 29945856,
+                                        "shared_mb": 28.55859375
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=27) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52278,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145539072,
+                                        "rss_mb": 138.796875,
+                                        "vms": 333742080,
+                                        "vms_mb": 318.28125,
+                                        "shared": 29908992,
+                                        "shared_mb": 28.5234375
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=29) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52282,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145559552,
+                                        "rss_mb": 138.81640625,
+                                        "vms": 409288704,
+                                        "vms_mb": 390.328125,
+                                        "shared": 30007296,
+                                        "shared_mb": 28.6171875
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=31) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52286,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145637376,
+                                        "rss_mb": 138.890625,
+                                        "vms": 409243648,
+                                        "vms_mb": 390.28515625,
+                                        "shared": 29990912,
+                                        "shared_mb": 28.6015625
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=33) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52290,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145661952,
+                                        "rss_mb": 138.9140625,
+                                        "vms": 333701120,
+                                        "vms_mb": 318.2421875,
+                                        "shared": 30146560,
+                                        "shared_mb": 28.75
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=35) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52294,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145764352,
+                                        "rss_mb": 139.01171875,
+                                        "vms": 333684736,
+                                        "vms_mb": 318.2265625,
+                                        "shared": 30015488,
+                                        "shared_mb": 28.625
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=37) --multiprocessing-fork",
+                                    "username": "vscode"
+                                },
+                                {
+                                    "pid": 52298,
+                                    "name": "python3.13",
+                                    "cpu_percent": 0.0,
+                                    "memory_info": {
+                                        "rss": 145625088,
+                                        "rss_mb": 138.87890625,
+                                        "vms": 333623296,
+                                        "vms_mb": 318.16796875,
+                                        "shared": 29974528,
+                                        "shared_mb": 28.5859375
+                                    },
+                                    "status": "sleeping",
+                                    "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=39) --multiprocessing-fork",
+                                    "username": "vscode"
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    },
+    summary="""gets gulp health status.
+    """,
+    description="""
+gets detailed gulp server health status, including memory, cpu, disk usage, and running processes.
+
+- token needs `admin` permission.    
+    """
+)
+async def server_stats_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    gulp_only: Annotated[bool, Query(
+        description="if set, only return process information for gulp processes only. either, return process information for all the running processes.")] = True,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+
+    params = locals()
+    ServerUtils.dump_params(params)
+    async with GulpCollab.get_instance().session() as sess:
+        await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+    def _get_process_info(proc, gulp_only):
+        # check if the process is the current pid, or a child of the current pid
+        if gulp_only and proc.ppid() != os.getpid():
+            return None
+
+        try:
+            mem_inffo = proc.memory_info()
+            return {
+                "pid": proc.pid,
+                "name": proc.name(),
+                "cpu_percent": proc.cpu_percent(),
+                "memory_info": {
+                    "rss": mem_inffo.rss,
+                    "rss_mb": mem_inffo.rss / 1024 / 1024,
+                    "vms": mem_inffo.vms,
+                    "vms_mb": mem_inffo.vms / 1024 / 1024,
+                    "shared": mem_inffo.shared,
+                    "shared_mb": mem_inffo.shared / 1024 / 1024,
+                },
+                "status": proc.status(),
+                "cmdline": " ".join(proc.cmdline()) if proc.cmdline() else "",
+                "username": proc.username(),
+            }
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return None
+
+    # Get system stats
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+
+    stats = {
+        "memory": {
+            "total": memory.total,
+            "available": memory.available,
+            "percent": memory.percent,
+            "used": memory.used,
+            "free": memory.free
+        },
+        "cpu": {
+            "percent": psutil.cpu_percent(interval=1),
+            "count": psutil.cpu_count(),
+            "freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else {}
+        },
+        "disk": {
+            "total": disk.total,
+            "used": disk.used,
+            "free": disk.free,
+            "percent": disk.percent
+        },
+        "processes": [
+            info for info in [
+                _get_process_info(proc, gulp_only)
+                for proc in psutil.process_iter()
+            ] if info is not None]
+    }
+
+    return JSendResponse.success(data=stats, req_id=req_id)
 
 
 @router.get(
