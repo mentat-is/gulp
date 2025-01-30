@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-docker compose down
+echo "[.] cleaning up opensearch and postgresql containers"
+docker compose --profile gulp down
 docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data
-sudo rm -rf ./opensearch_data && sudo rm -rf ./postgres_data
-rm -rf ~/.config/gulp/.first_run_done
-rm -rf ~/.config/gulp/upload_tmp
+
+echo "[.] reset gulp docker configuration"
+sudo rm -rf ./gulpconfig
+
 #docker compose up -d

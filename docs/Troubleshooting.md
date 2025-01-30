@@ -27,41 +27,7 @@ remove the container with `docker container rm some_container_id` and retry.
 
 - if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
 
-- when building docker image, you may incur in the following
-
-~~~bash
-docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
-#0 building with "default" instance using docker driver
-
-#1 [internal] load build definition from Dockerfile
-#1 transferring dockerfile: 1.93kB done
-#1 DONE 0.0s
-
-#2 [internal] load metadata for docker.io/library/python:3.12.3-bullseye
-#2 DONE 1.3s
-
-#3 [internal] load .dockerignore
-#3 transferring context: 67B done
-#3 DONE 0.0s
-
-#4 [ 1/21] FROM docker.io/library/python:3.12.3-bullseye@sha256:9b7b707f0d9faab8544b815c9b4b5f73cab5a33753cf2ea99110fe4ab30e1d9c
-#4 CACHED
-
-#5 [internal] load build context
-#5 transferring context: 15.31kB 0.1s done
-#5 ERROR: error from sender: open postgres_data: permission denied
-
-#6 [ 2/21] RUN apt-get -qq update
-#6 CANCELED
-------
-> [internal] load build context:
-------
-ERROR: failed to solve: error from sender: open postgres_data: permission denied
-~~~
-
-this is due to the fact you are having the default `postgres_data` directory in the current directory and postgreSQL owned it as root from a previous run.
-
-you either move the directory temporarly, [set it to user owned](#general), reconfigure gulp to point to another folder, or just delete it (**you will loose your collab data then**).
+- if you get any issue starting container/s as [per docs](./Install%20Docker.md), try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
 
 ## general
 

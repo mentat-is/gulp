@@ -35,7 +35,7 @@ services:
       - gulp
 
   opensearch-dashboards:
-    profiles: [ "dashboards" ]
+    profiles: [ "os-dashboards" ]
     image: opensearchproject/opensearch-dashboards:latest
     container_name: opensearch-dashboards
     ports:
@@ -66,6 +66,7 @@ services:
       - gulp
 
   elasticvue:
+    profiles: [ "dev" ]
     image: cars10/elasticvue:latest
     container_name: elasticvue
     ports:
@@ -76,6 +77,7 @@ services:
       - gulp
 
   adminer:
+    profiles: [ "dev" ]
     image: adminer
     depends_on:
       - postgres
@@ -86,9 +88,8 @@ services:
       - gulp
 
   gulp:
-    profiles: [ "full" ]
-    image: mentatis/gulp-core:latest
-    #image: gulp-core:latest
+    profiles: [ "gulp" ]
+    image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
     container_name: gulp
     environment:
       - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -100,8 +101,8 @@ services:
       - BIND_TO_PORT=${BIND_TO_PORT:-8080}
     volumes:
       - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
-      - $PATH_PLUGINS_EXTRA:/app/plugins_extra
-      - $PATH_MAPPING_FILES_EXTRA:/app/plugins_extra/mappings
+      - ${PATH_PLUGINS_EXTRA:-/app/plugins_extra}:/app/plugins_extra
+      - ${PATH_MAPPING_FILES_EXTRA:-/app/plugins_extra/mappings}:/app/plugins_extra/mappings
       - ${PATH_CERTS:-./certs}:/app/certs
       - ./gulpconfig:/root/.config/gulp
     depends_on:
@@ -109,7 +110,7 @@ services:
       - os01
     ports:
       - ${BIND_TO_PORT:-8080}:${BIND_TO_PORT:-8080}
-    
+
     # sleeping for 30 seconds to wait for both gulp/opensearch to be ready
     # (seems depends is not enough)
     command: /bin/sh -c "sleep 30 && python3 -m gulp ${EXTRA_ARGS:-}"
@@ -117,7 +118,7 @@ services:
       - gulp
 
   gulp-web:
-    profiles: [ "full" ]
+    profiles: [ "gulp" ]
     image: mentatis/gulp-web:latest
     depends_on:
       - gulp

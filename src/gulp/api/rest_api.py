@@ -284,17 +284,17 @@ class GulpRestServer:
         cfg = GulpConfig.get_instance()
         cfg.is_integration_test()
 
-        # dump environment variables
+        # dump environment variables and configuration
         MutyLogger.get_instance().info("environment variables:")
         for k, v in os.environ.items():
             MutyLogger.get_instance().info("%s=%s" % (k, v))
+        cfg.dump_config()
 
         # init fastapi
         self._app: FastAPI = FastAPI(
             title="gULP",
             description="(gui)Universal Log Processor",
-            swagger_ui_parameters={
-                "operationsSorter": "alpha", "tagsSorter": "alpha"},
+            swagger_ui_parameters={"operationsSorter": "alpha", "tagsSorter": "alpha"},
             version=self.version_string(),
             lifespan=self._lifespan_handler,
         )
@@ -338,8 +338,7 @@ class GulpRestServer:
             gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp-ca.pem")
             if not os.path.exists(gulp_ca_certs):
                 # use server cert as CA cert
-                gulp_ca_certs = muty.file.safe_path_join(
-                    path_certs, "gulp.pem")
+                gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp.pem")
 
             ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
             if cfg.enforce_https_client_certs():
@@ -380,6 +379,7 @@ class GulpRestServer:
         kills all child processes of the main process
         """
         import multiprocessing
+
         for process in multiprocessing.active_children():
             process.terminate()
         MutyLogger.get_instance().info("killed all child processes!")
@@ -437,8 +437,7 @@ class GulpRestServer:
             if self._reset_index:
                 # reinit elastic
                 MutyLogger.get_instance().warning(
-                    "resetting data, recreating index '%s' ..." % (
-                        self._reset_index)
+                    "resetting data, recreating index '%s' ..." % (self._reset_index)
                 )
                 gos = GulpOpenSearch.get_instance()
                 await gos.datastream_create(self._reset_index)
@@ -504,8 +503,7 @@ class GulpRestServer:
         deletes the ".first_run_done" file in the config directory.
         """
         config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(
-            config_directory, ".first_run_done")
+        check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
             MutyLogger.get_instance().warning("deleted: %s" % (check_first_run_file))
@@ -519,19 +517,16 @@ class GulpRestServer:
         """
         # check if this is the first run
         config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(
-            config_directory, ".first_run_done")
+        check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(
-                "NOT FIRST RUN, first run file exists: %s" % (
-                    check_first_run_file)
+                "NOT FIRST RUN, first run file exists: %s" % (check_first_run_file)
             )
             return False
 
         # create firstrun file
         MutyLogger.get_instance().warning(
-            "FIRST RUN! first run file does not exist: %s" % (
-                check_first_run_file)
+            "FIRST RUN! first run file does not exist: %s" % (check_first_run_file)
         )
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")

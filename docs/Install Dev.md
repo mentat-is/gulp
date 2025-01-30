@@ -38,7 +38,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 4. once you are in the container, start the main [docker-compose](../docker-compose.yml) to start postgresql and opensearch and start developing as normal.
 
   ~~~bash
-  docker compose up -d
+  docker compose --profile dev up -d
   ~~~
 
 ## install manually
@@ -101,7 +101,7 @@ pip3 install -e . && pip3 install -e ../muty-python
 ~~~bash
 # start postgresql and opensearch
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
-docker compose up -d
+docker compose --profile dev up -d
 
 # run gulp first time (will create collab database "gulp" on postgresql and the default index on opensearch)
 BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
