@@ -117,6 +117,9 @@ services:
     networks:
       - gulp
 
+    # allow restart
+    restart: unless-stopped
+
   gulp-web:
     profiles: [ "gulp" ]
     image: mentatis/gulp-web:latest
