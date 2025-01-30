@@ -121,7 +121,8 @@ class GulpConfig:
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
             MutyLogger.get_instance().warning(
-                "no configuration file found, applying defaults from %s ..." % (src)
+                "no configuration file found, applying defaults from %s ..." % (
+                    src)
             )
 
         cfg_perms = oct(os.stat(config_file_path).st_mode & 0o777)
@@ -395,7 +396,8 @@ class GulpConfig:
         """
         n = True
         if __debug__:
-            n = self._config.get("debug_abort_on_opensearch_ingestion_error", True)
+            n = self._config.get(
+                "debug_abort_on_opensearch_ingestion_error", True)
 
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
@@ -559,7 +561,11 @@ class GulpConfig:
         """
         Returns the extra plugins path.
         """
+        # try env
         p = os.getenv("PATH_PLUGINS_EXTRA", None)
+        if not p:
+            # try configuration
+            p = self._config.get("path_plugins_extra", None)
         return p
 
     def path_mapping_files_default(self) -> str:
@@ -572,7 +578,12 @@ class GulpConfig:
         """
         Returns the extra path of the mapping files.
         """
+        # try env
         p = os.getenv("PATH_MAPPING_FILES_EXTRA", None)
+        if not p:
+            # try configuration
+            p = self._config.get("path_mapping_files_extra", None)
+
         return p
 
     def path_index_template(self) -> str:

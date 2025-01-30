@@ -45,10 +45,10 @@
   "path_certs": "~/repos/gulp/certs",
   // index template path (null=default, may be overridden by INDEX_TEMPLATE_PATH environment variable)
   "path_index_template": null,
-  // if set, path to be used when loading mapping files used by plugins (may be overridden by PATH_MAPPING_FILES environment variable)
-  "path_mapping_files": null,
-  // (base) path to load plugins from. leave null to use the default "GULPDIR/plugins". can be overridden with PATH_PLUGINS environment variable
-  "path_plugins": null,
+  // extra path to load mapping files from. leave null to use the default "GULPDIR/mapping_files". can be overridden with PATH_MAPPING_FILES_EXTRA environment variable
+  "path_mapping_files_extra": null,
+  // extra path to load plugins from. leave null to use the default "GULPDIR/plugins". can be overridden with PATH_PLUGINS_EXTRA environment variable
+  "path_plugins_extra": null,
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
   // client certificate password (if any)
