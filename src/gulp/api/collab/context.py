@@ -38,7 +38,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     color: Mapped[Optional[str]] = mapped_column(
         String, default="white", doc="The color of the context."
     )
-
+    
     @staticmethod
     def make_context_id_key(operation_id: str, context_name: str) -> str:
         """

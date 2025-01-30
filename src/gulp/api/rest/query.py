@@ -167,7 +167,7 @@ async def _query_internal(
         if queries[0].external_plugin:
             # external query, load plugin (it is guaranteed it is the same for all queries)
             mod = await GulpPluginBase.load(queries[0].external_plugin)
-
+            
         async with GulpCollab.get_instance().session() as sess:
             for gq in queries:
                 # MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))

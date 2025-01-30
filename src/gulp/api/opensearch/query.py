@@ -172,6 +172,7 @@ if set, the operation id to associate with the ingestion.
 if set, name of the context to associate with the ingestion.
 
 - an id will be generated if not yet present.
+- if not set, the plugin is responsible to generate a `context_id` and `source_id` for the ingestion.
 - ignored if `ingest_index` is not set.
 """,
     )

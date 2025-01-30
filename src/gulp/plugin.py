@@ -687,6 +687,9 @@ class GulpPluginBase(ABC):
         Raises:
             ObjectNotFound: if no document is found.
         """
+        MutyLogger.get_instance().debug("external_parameters: %s" %
+                                        (q_options.external_parameters))
+
         self._sess = sess
         self._ws_id = ws_id
         self._req_id = req_id
@@ -704,22 +707,27 @@ class GulpPluginBase(ABC):
         await self._initialize(q_options.external_parameters.plugin_params)
 
         # create context if it doesn't exist
-        operation: GulpOperation = await GulpOperation.get_by_id(
-            sess, q_options.external_parameters.operation_id
-        )
-        ctx: GulpContext = await operation.add_context(
-            sess, user_id=user_id, name=q_options.external_parameters.context_name
-        )
+        src: GulpSource = None
+        ctx: GulpContext = None
+        if q_options.external_parameters.context_name:
+            # either way, the plugin must handle this
+            operation: GulpOperation = await GulpOperation.get_by_id(
+                sess, q_options.external_parameters.operation_id
+            )
+            ctx: GulpContext = await operation.add_context(
+                sess, user_id=user_id, name=q_options.external_parameters.context_name
+            )
 
-        # also add a bogus source
-        src: GulpSource = await ctx.add_source(
-            sess,
-            user_id=user_id,
-            name="src-%s" % (q_options.external_parameters.context_name),
-        )
+            # also add a bogus source
+            src: GulpSource = await ctx.add_source(
+                sess,
+                user_id=user_id,
+                name="src-%s" % (q_options.external_parameters.context_name),
+            )
+
         self._operation_id = q_options.external_parameters.operation_id
-        self._source_id = src.id
-        self._context_id = ctx.id
+        self._source_id = src.id if src else None
+        self._context_id = ctx.id if ctx else None
         self._note_parameters = q_options.note_parameters
         self._external_plugin_params = q_options.external_parameters.plugin_params
 
@@ -1910,7 +1918,7 @@ class GulpPluginBase(ABC):
             data=p.model_dump(exclude_none=True),
         )
 
-    @staticmethod
+    @ staticmethod
     def load_sync(
         plugin: str,
         extension: bool = False,
@@ -1947,7 +1955,7 @@ class GulpPluginBase(ABC):
                                 ignore_cache, *args, **kwargs)
         )
 
-    @staticmethod
+    @ staticmethod
     async def load(
         plugin: str,
         extension: bool = False,
@@ -2046,7 +2054,7 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug("unloading plugin: %s" % (self.name))
         GulpPluginCache.get_instance().remove(self.name)
 
-    @staticmethod
+    @ staticmethod
     def path_from_plugin(
         plugin: str, is_extension: bool = False, raise_if_not_found: bool = False
     ) -> str:
@@ -2126,7 +2134,7 @@ class GulpPluginBase(ABC):
             raise FileNotFoundError(f"plugin {plugin} not found !")
         return p
 
-    @staticmethod
+    @ staticmethod
     async def list(
         name: str = None, extension_only: bool = False
     ) -> list[GulpPluginEntry]:
