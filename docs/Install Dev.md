@@ -127,7 +127,7 @@ if your OS is not supported please refer to the [manual installation](<#manual i
 
 ## install the client
 
-download the gULP client, either follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/README.md#installation) to install the web client.
+follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/README.md#installation) to install the web client.
 
 ## troubleshoot
 
