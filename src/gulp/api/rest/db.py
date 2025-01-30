@@ -321,7 +321,7 @@ async def postgres_init_collab_handler(
             )
 
         collab = GulpCollab.get_instance()
-        await collab.init(force_recreate=True)
+        await collab.init(main_process=True, force_recreate=True)
         if restart_processes:
             # restart the process pool
             await GulpProcess.get_instance().init_gulp_process()
@@ -375,7 +375,7 @@ async def gulp_reset_handler(
 
         # reset collab
         collab = GulpCollab.get_instance()
-        await collab.init(force_recreate=True)
+        await collab.init(main_process=True, force_recreate=True)
 
         # reset data
         await _recreate_index_internal(index, restart_processes)

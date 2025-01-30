@@ -293,7 +293,8 @@ class GulpRestServer:
         self._app: FastAPI = FastAPI(
             title="gULP",
             description="(gui)Universal Log Processor",
-            swagger_ui_parameters={"operationsSorter": "alpha", "tagsSorter": "alpha"},
+            swagger_ui_parameters={
+                "operationsSorter": "alpha", "tagsSorter": "alpha"},
             version=self.version_string(),
             lifespan=self._lifespan_handler,
         )
@@ -337,7 +338,8 @@ class GulpRestServer:
             gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp-ca.pem")
             if not os.path.exists(gulp_ca_certs):
                 # use server cert as CA cert
-                gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp.pem")
+                gulp_ca_certs = muty.file.safe_path_join(
+                    path_certs, "gulp.pem")
 
             ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
             if cfg.enforce_https_client_certs():
@@ -375,39 +377,12 @@ class GulpRestServer:
 
     def _kill_gulp_processes(self) -> None:
         """
-        kills all processes with 'gulp' in their command line
-
-        TODO: this is a last resort to kill any stale processes, should be investigated why they are left behind (by aiomultiprocess?)
+        kills all child processes of the main process
         """
-        try:
-            # Get process list with PIDs
-            ps_output = os.popen("ps -aux | grep gulp").read()
-
-            # extract PIDs
-            pids = []
-            output = ps_output.splitlines()
-            for line in output:
-                if "gulp" in line and not "resource_tracker" in line:
-                    try:
-                        tokens = line.strip().split()
-                        pids.append(int(tokens[1].strip()))
-                    except (IndexError, ValueError) as ex:
-                        MutyLogger.get_instance().exception(
-                            "cannot parse %s (%s)" % (ex)
-                        )
-                        continue
-
-            # kill each process
-            for pid in pids:
-                try:
-                    # check if its not the current pid
-                    if pid != os.getpid():
-                        os.kill(pid, signal.SIGKILL)
-                        # MutyLogger.get_instance().debug(f"killed gulp process {pid}")
-                except ProcessLookupError:
-                    continue
-        except Exception as e:
-            MutyLogger.get_instance().error(f"error killing gulp processes: {e}")
+        import multiprocessing
+        for process in multiprocessing.active_children():
+            process.terminate()
+        MutyLogger.get_instance().info("killed all child processes!")
 
     async def _cleanup(self):
         """
@@ -458,11 +433,12 @@ class GulpRestServer:
                 # reinit collab
                 MutyLogger.get_instance().warning("resetting collab!")
                 collab = GulpCollab.get_instance()
-                await collab.init(force_recreate=True)
+                await collab.init(main_process=True, force_recreate=True)
             if self._reset_index:
                 # reinit elastic
                 MutyLogger.get_instance().warning(
-                    "resetting data, recreating index '%s' ..." % (self._reset_index)
+                    "resetting data, recreating index '%s' ..." % (
+                        self._reset_index)
                 )
                 gos = GulpOpenSearch.get_instance()
                 await gos.datastream_create(self._reset_index)
@@ -502,8 +478,8 @@ class GulpRestServer:
         # close shared ws and process pool
         try:
             await GulpConnectedSockets.get_instance().cancel_all()
-            GulpSharedWsQueue.get_instance().close()
-            await GulpProcess.get_instance().close_process_pool()
+            wsq = GulpSharedWsQueue.get_instance()
+            await wsq.close()
 
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
@@ -512,6 +488,9 @@ class GulpRestServer:
             # close coro and thread pool in the main process
             await GulpProcess.get_instance().close_coro_pool()
             await GulpProcess.get_instance().close_thread_pool()
+
+            # close process pool
+            await GulpProcess.get_instance().close_process_pool()
             MutyLogger.get_instance().info(
                 "everything shut down, we can gracefully exit."
             )
@@ -525,7 +504,8 @@ class GulpRestServer:
         deletes the ".first_run_done" file in the config directory.
         """
         config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(config_directory, ".first_run_done")
+        check_first_run_file = os.path.join(
+            config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
             MutyLogger.get_instance().warning("deleted: %s" % (check_first_run_file))
@@ -539,16 +519,19 @@ class GulpRestServer:
         """
         # check if this is the first run
         config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(config_directory, ".first_run_done")
+        check_first_run_file = os.path.join(
+            config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(
-                "NOT FIRST RUN, first run file exists: %s" % (check_first_run_file)
+                "NOT FIRST RUN, first run file exists: %s" % (
+                    check_first_run_file)
             )
             return False
 
         # create firstrun file
         MutyLogger.get_instance().warning(
-            "FIRST RUN! first run file does not exist: %s" % (check_first_run_file)
+            "FIRST RUN! first run file does not exist: %s" % (
+                check_first_run_file)
         )
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")

@@ -144,12 +144,22 @@ class GulpProcess:
         """
         if self.process_pool:
             MutyLogger.get_instance().debug("closing mp pool...")
+            self.mp_manager.shutdown()
+            self.mp_manager = None
+
             try:
                 self.process_pool.close()
-                self.process_pool.terminate()
-                # await self.process_pool.join()
-            except:
-                pass
+                try:
+                    await asyncio.wait_for(self.process_pool.join(), 5)
+                except asyncio.TimeoutError:
+                    MutyLogger.get_instance().warning(
+                        "mp pool join timeout, terminating...")
+                    self.process_pool.terminate()
+                    await self.process_pool.join()
+
+                MutyLogger.get_instance().debug("mp pool joined!")
+            except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
 
             self.process_pool = None
             MutyLogger.get_instance().debug("mp pool closed!")
@@ -178,7 +188,8 @@ class GulpProcess:
         lock = self.mp_manager.Lock()
 
         # re/create the shared websocket queue (closes it first if already running)
-        q = GulpSharedWsQueue.get_instance().init_queue(self.mp_manager)
+        wsq = GulpSharedWsQueue.get_instance()
+        q = await wsq.init_queue(self.mp_manager)
         self.shared_ws_list = self.mp_manager.list()
 
         # start workers, pass the shared queue to each
@@ -203,7 +214,7 @@ class GulpProcess:
         while spawned_processes.value < num_workers:
             # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
             await asyncio.sleep(0.1)
-        
+
         MutyLogger.get_instance().debug(
             "all %d processes spawned!" % (spawned_processes.value)
         )

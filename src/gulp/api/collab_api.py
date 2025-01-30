@@ -76,24 +76,49 @@ class GulpCollab:
             expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
             main_process (bool, optional): whether this is the main process. Defaults to False.
         """
-        if self._engine:
-            await self._engine.dispose()
+        url = GulpConfig.get_instance().postgres_url()
 
+        """            
         self._engine = await self._create_engine()
         self._collab_sessionmaker = async_sessionmaker(
             bind=self._engine, expire_on_commit=expire_on_commit
         )
+        self._setup_done = True
+        """
+        # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
+        package_name = "gulp.api.collab"
+        package = import_module(package_name)
+        for _, module_name, _ in pkgutil.iter_modules(package.__path__):
+            import_module(f"{package_name}.{module_name}")
 
-        if force_recreate:
-            await self._ensure_setup(
-                force_recreate=True,
-                expire_on_commit=expire_on_commit,
-                main_process=main_process,
+        if main_process:
+            MutyLogger.get_instance().debug("init in MAIN process ...")
+            if force_recreate:
+                await GulpCollab.db_drop(url)
+                await GulpCollab.db_create(url)
+
+            await self.shutdown()
+            self._engine = await self._create_engine()
+            self._collab_sessionmaker = async_sessionmaker(
+                bind=self._engine, expire_on_commit=expire_on_commit
             )
+            if force_recreate:
+                await self._create_default_data()
+                await self._setup_collab_expirations()
+
+            # check tables exists
+            async with self._collab_sessionmaker() as sess:
+                if not await self._check_all_tables_exist(sess):
+                    raise Exception(
+                        "collab database exists but (some) tables are missing.")
         else:
-            await self._ensure_setup(
-                expire_on_commit=expire_on_commit, main_process=main_process
+            MutyLogger.get_instance().debug("init in worker process ...")
+            self._engine = await self._create_engine()
+            self._collab_sessionmaker = async_sessionmaker(
+                bind=self._engine, expire_on_commit=expire_on_commit
             )
+
+        self._setup_done = True
 
     async def _create_engine(self) -> AsyncEngine:
         """
@@ -175,7 +200,8 @@ class GulpCollab:
             AsyncSession: The session to the collab database
         """
         if not self._setup_done:
-            raise Exception("collab not initialized, call GulpCollab().init() first!")
+            raise Exception(
+                "collab not initialized, call GulpCollab().init() first!")
 
         return self._collab_sessionmaker()
 
@@ -188,11 +214,12 @@ class GulpCollab:
         Returns:
             None
         """
-        MutyLogger.get_instance().debug(
-            "shutting down collab database engine and invalidate existing connections ..."
-        )
-        await self._engine.dispose()
-        MutyLogger.get_instance().debug("collab database engine shut down.")
+        if self._engine:
+            MutyLogger.get_instance().debug(
+                "shutting down collab database engine and invalidate existing connections ..."
+            )
+            await self._engine.dispose()
+
         self._setup_done = False
         self._engine = None
         self._collab_sessionmaker = None
@@ -245,7 +272,8 @@ class GulpCollab:
                     raise ObjectNotFound("database %s does not exist!" % (url))
 
         MutyLogger.get_instance().debug(
-            "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
+            "---> drop: url=%s, raise_if_not_exists=%r" % (
+                url, raise_if_not_exists)
         )
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
 
@@ -403,7 +431,8 @@ class GulpCollab:
                 muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")
             )
             sigma_match_some_more = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "sigma_match_some_more.yaml")
+                muty.file.safe_path_join(
+                    assets_path, "sigma_match_some_more.yaml")
             )
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
@@ -612,70 +641,3 @@ class GulpCollab:
 
         # check if any table is missing
         return all(row)
-
-    async def _ensure_setup(
-        self,
-        force_recreate: bool = False,
-        expire_on_commit: bool = False,
-        main_process: bool = False,
-    ) -> None:
-        """
-        ensure the collab database is set up and ready to use.
-
-        Args:
-            force_recreate (bool, optional): Whether to drop and recreate the database. Defaults to False.
-            expire_on_commit (bool, optional): Whether to expire sessions returned by session() on commit. Defaults to False, ignored if force_recreate is not set
-                and the database already exist
-            main_process (bool, optional): Whether this is the main process. Defaults to False.
-        Returns:
-            None
-        Raises:
-            Exception: If an error occurs while setting up the database.
-        """
-
-        async def _recreate_internal(url: str, expire_on_commit: bool = False) -> None:
-            # drop and recreate database
-            await self.shutdown()
-            await GulpCollab.db_drop(url)
-            await GulpCollab.db_create(url)
-
-            # recreate tables and default data
-            self._engine = await self._create_engine()
-            self._collab_sessionmaker = async_sessionmaker(
-                bind=self._engine, expire_on_commit=expire_on_commit
-            )
-            self._setup_done = True
-            await self._create_default_data()
-
-        # import everything under gulp.api.collab
-        # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
-        package_name = "gulp.api.collab"
-        package = import_module(package_name)
-        for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-            import_module(f"{package_name}.{module_name}")
-
-        url = GulpConfig.get_instance().postgres_url()
-        if force_recreate:
-            MutyLogger.get_instance().warning(
-                "force_recreate=True, dropping and recreating collab database ..."
-            )
-            await _recreate_internal(url, expire_on_commit=expire_on_commit)
-        else:
-            if await GulpCollab.db_exists(GulpConfig.get_instance().postgres_url()):
-                async with self._collab_sessionmaker() as sess:
-                    if await self._check_all_tables_exist(sess):
-                        # tables ok
-                        MutyLogger.get_instance().info(
-                            "collab database exists and tables are ok."
-                        )
-                        if main_process:
-                            # setup expirations in the main process only (to avoid multiple cron jobs)
-                            await self._setup_collab_expirations()
-                        self._setup_done = True
-                        return
-
-                # recreate tables
-                MutyLogger.get_instance().warning(
-                    "collab database exists but tables are missing."
-                )
-                await _recreate_internal(url, expire_on_commit=expire_on_commit)

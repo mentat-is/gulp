@@ -113,7 +113,8 @@ class GulpConfig:
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
             MutyLogger.get_instance().warning(
-                "no configuration file found, applying defaults from %s ..." % (src)
+                "no configuration file found, applying defaults from %s ..." % (
+                    src)
             )
 
         cfg_perms = oct(os.stat(config_file_path).st_mode & 0o777)
@@ -123,7 +124,8 @@ class GulpConfig:
             )
 
         # read
-        MutyLogger.get_instance().info("reading configuration file: %s" % (config_file_path))
+        MutyLogger.get_instance().info("reading configuration file: %s" %
+                                       (config_file_path))
         with open(config_file_path, "rb") as f:
             js = f.read()
             self._config = json5.loads(js)
@@ -385,7 +387,8 @@ class GulpConfig:
         """
         n = True
         if __debug__:
-            n = self._config.get("debug_abort_on_opensearch_ingestion_error", True)
+            n = self._config.get(
+                "debug_abort_on_opensearch_ingestion_error", True)
 
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
@@ -437,11 +440,12 @@ class GulpConfig:
     def parallel_processes_respawn_after_tasks(self) -> int:
         """
         Returns the number of tasks to spawn before respawning a process.
-        if not set, 0 will be used (no respawn).
+        if not set, 10 will be used.
         """
-        n = self._config.get("parallel_processes_respawn_after_tasks", 0)
-        if not n:
-            return 0
+        n = self._config.get("parallel_processes_respawn_after_tasks", 10)
+        if n == 0:
+            MutyLogger.get_instance().warning(
+                "parallel_processes_respawn_after_tasks=0, may cause leaks after some time!")
         return n
 
     def debug_allow_insecure_passwords(self) -> bool:

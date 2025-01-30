@@ -39,8 +39,8 @@
   "opensearch_verify_certs": false,
   // maximum number of processes to be used for ingestion (default=0=number of CPU cores)
   "parallel_processes_max": 0,
-  // respawn a process after this number of tasks, may help against leaks (default=0=never respawn)
-  "parallel_processes_respawn_after_tasks": 0,
+  // respawn a process after this number of tasks, may help against leaks (default=10)
+  "parallel_processes_respawn_after_tasks": 10,
   // certificates directory (may be overridden by CERTS_DIRECTORY environment variable)
   "path_certs": "~/repos/gulp/certs",
   // index template path (null=default, may be overridden by INDEX_TEMPLATE_PATH environment variable)
