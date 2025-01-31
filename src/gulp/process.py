@@ -90,6 +90,7 @@ class GulpProcess:
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
         """
+        
         p = GulpProcess.get_instance()
         asyncio.run(
             p.init_gulp_process(
@@ -144,9 +145,6 @@ class GulpProcess:
         """
         if self.process_pool:
             MutyLogger.get_instance().debug("closing mp pool...")
-            self.mp_manager.shutdown()
-            self.mp_manager = None
-
             try:
                 self.process_pool.close()
                 try:
@@ -179,8 +177,11 @@ class GulpProcess:
 
         if self.process_pool:
             # close the worker process pool gracefully if it is already running
+            await GulpSharedWsQueue.get_instance().close()
             await self.close_process_pool()
-
+            self.mp_manager.shutdown()
+            self.process_pool = None
+        
         # initializes the multiprocessing manager and structs
         self.mp_manager = Manager()
         spawned_processes = self.mp_manager.Value(int, 0)
@@ -189,7 +190,7 @@ class GulpProcess:
 
         # re/create the shared websocket queue (closes it first if already running)
         wsq = GulpSharedWsQueue.get_instance()
-        q = await wsq.init_queue(self.mp_manager)
+        q = await wsq.init_queue(self.mp_manager)        
         self.shared_ws_list = self.mp_manager.list()
 
         # start workers, pass the shared queue to each
@@ -208,7 +209,6 @@ class GulpProcess:
                 MutyLogger.logger_file_path,
             ),
         )
-
         # wait for all processes are spawned
         MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
         while spawned_processes.value < num_workers:
@@ -295,6 +295,7 @@ class GulpProcess:
             await self.recreate_process_pool_and_shared_queue()
         else:
             # worker process, set the queue
+            MutyLogger.get_instance().info("worker process initialized!")
             GulpSharedWsQueue.get_instance().set_queue(q)
             # and shared list too
             self.shared_ws_list = shared_ws_list

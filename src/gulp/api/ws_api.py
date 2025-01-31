@@ -1072,7 +1072,6 @@ class GulpSharedWsQueue:
 
         if self._shared_q:
             # close first
-            MutyLogger.get_instance().debug("closing shared ws queue ...")
             await self.close()
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
@@ -1164,6 +1163,9 @@ class GulpSharedWsQueue:
         Returns:
             None
         """
+        if not self._shared_q:
+            return
+        
         MutyLogger.get_instance().debug("closing shared ws queue ...")
 
         # flush queue first
@@ -1186,7 +1188,9 @@ class GulpSharedWsQueue:
             if b:
                 await self._fill_task
                 MutyLogger.get_instance().debug("shared queue fill task cancelled ok.")
-
+        
+        self._shared_q=None
+        
     def _cleanup_stale_messages(self):
         """
         remove old messages if queue size exceeds limit

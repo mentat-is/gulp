@@ -204,8 +204,11 @@ async def _ingest_file_internal(
     runs in a worker process to ingest a single file
     """
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
+
     async with GulpCollab.get_instance().session() as sess:
-        # create stats (or get existing)
+        mod: GulpPluginBase = None
+        status = GulpRequestStatus.DONE
+
         stats: GulpRequestStats = await GulpRequestStats.create(
             sess,
             user_id=user_id,
@@ -215,11 +218,6 @@ async def _ingest_file_internal(
             context_id=context_id,
             source_total=file_total,
         )
-
-    async with GulpCollab.get_instance().session() as sess:
-        mod: GulpPluginBase = None
-        status = GulpRequestStatus.DONE
-        sess.add(stats)
 
         try:
             # run plugin

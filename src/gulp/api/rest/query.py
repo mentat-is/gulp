@@ -292,6 +292,7 @@ async def _worker_coro(kwds: dict):
                 req_id=req_id,
                 data=p.model_dump(exclude_none=True),
             )
+            
         # also update stats
         d = dict(
             status=(

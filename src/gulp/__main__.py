@@ -5,7 +5,6 @@ import os
 import sys
 from multiprocessing import freeze_support
 import art
-
 from muty.log import MutyLogger
 from gulp.api.rest_api import GulpRestServer
 
@@ -13,7 +12,6 @@ from gulp.api.rest_api import GulpRestServer
 __RUN_TESTS__ = os.getenv("INTERNAL_TEST", False)
 if not __debug__:
     __RUN_TESTS__ = False
-
 
 async def async_test():
     if not __debug__:
@@ -38,7 +36,6 @@ def main():
     """
     :return:
     """
-
     ver = GulpRestServer.get_instance().version_string()
     installation_dir = os.path.dirname(os.path.realpath(__file__))
     banner = art.text2art("(g)ULP", font="random")
@@ -89,12 +86,13 @@ def main():
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     logger_file_path = args.log_to_file[0] if args.log_to_file else None
-    MutyLogger.get_instance("gulp", logger_file_path=logger_file_path, level=lv)
+    MutyLogger.get_instance(
+        "gulp", logger_file_path=logger_file_path, level=lv)
 
     if __RUN_TESTS__:
         # test stuff
         asyncio.run(async_test())
-        return
+        return 0
 
     # get params
     try:
@@ -115,12 +113,12 @@ def main():
     except Exception as ex:
         # print exception and exit
         MutyLogger.get_instance().exception(ex)
-        sys.exit(1)
+        return 1
 
     # done
-    sys.exit(0)
+    return 0
 
 
 if __name__ == "__main__":
     freeze_support()  # this is needed for macos
-    main()
+    sys.exit(main())
