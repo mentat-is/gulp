@@ -216,6 +216,7 @@ async def _ingest_file_internal(
             ws_id=ws_id,
             operation_id=operation_id,
             context_id=context_id,
+            source_id=source_id,
             source_total=file_total,
         )
 

@@ -46,6 +46,11 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         doc="The context associated with the stats.",
         nullable=True,
     )
+    source_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("source.id", ondelete="CASCADE"),
+        doc="The source associated with the stats.",
+        nullable=True,
+    )
     status: Mapped[GulpRequestStatus] = mapped_column(
         SQLEnum(GulpRequestStatus),
         default=GulpRequestStatus.ONGOING,
@@ -101,6 +106,8 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             d["gulp.operation_id"] = d.pop("operation_id")
         if "context_id" in d:
             d["gulp.context_id"] = d.pop("context_id")
+        if "source_id" in d:
+            d["gulp.source_id"] = d.pop("source_id")
         return d
 
     @classmethod
@@ -112,6 +119,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         ws_id: str,
         operation_id: str,
         context_id: str,
+        source_id: str = None,
         source_total: int = 1,
     ) -> T:
         """
@@ -123,6 +131,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             req_id (str): The request ID (= the id of the stats)
             ws_id (str): The websocket ID.
             operation_id (str): The operation associated with the stats
+            source_id (str, optional): The source associated with the stats. Defaults to None.
             context_id (str): The context associated with the stats
             source_total (int, optional): The total number of sources to be processed by the request to which this stats belong. Defaults to 1.
 
@@ -130,10 +139,11 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             T: The created stats.
         """
         MutyLogger.get_instance().debug(
-            "---> create_or_get: id=%s, operation_id=%s, context_id=%s, source_total=%d",
+            "---> create_or_get: id=%s, operation_id=%s, context_id=%s, source_id=%s, source_total=%d",
             req_id,
             operation_id,
             context_id,
+            source_id,
             source_total,
         )
 
@@ -167,6 +177,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             "time_expire": time_expire,
             "operation_id": operation_id,
             "context_id": context_id,
+            "source_id": source_id,
             "source_total": source_total,
         }
         return await super()._create(
@@ -219,7 +230,8 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         ws_data=None,
         req_id=None,
     ):
-        raise NotImplementedError("Stats will be deleted by the system automatically.")
+        raise NotImplementedError(
+            "Stats will be deleted by the system automatically.")
 
     @classmethod
     async def update_by_id(
@@ -252,7 +264,8 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             MissingPermissionError: If the user does not have permission to update the object.
         """
         if d and updated_instance:
-            raise ValueError("only one of d or updated_instance should be provided")
+            raise ValueError(
+                "only one of d or updated_instance should be provided")
 
         n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
         try:
@@ -320,6 +333,8 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         self.records_skipped += d.get("records_skipped", 0)
         self.records_processed += d.get("records_processed", 0)
         self.records_ingested += d.get("records_ingested", 0)
+        self.source_id = d.get("source_id", self.source_id)
+        
         error = d.get("error", None)
         if error:
             if not self.errors:
