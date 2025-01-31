@@ -243,6 +243,7 @@ async def _ingest_file_internal(
             status = GulpRequestStatus.FAILED
             d = dict(
                 source_failed=1,
+                status=status,
                 error=ex,
             )
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
