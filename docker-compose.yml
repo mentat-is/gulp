@@ -121,7 +121,7 @@ services:
     restart: unless-stopped
 
   gulp-web:
-    profiles: [ "gulp" ]
+    profiles: [ "gui" ]
     image: mentatis/gulp-web:latest
     depends_on:
       - gulp
