@@ -34,7 +34,8 @@ GULP_IMAGE=gulp-core:latest BIND_TO_PORT=8080 PATH_PLUGINS_EXTRA=/home/valerino/
 
 > multiple profiles may be specified using on the `docker compose` command line:
 >
-> - `--profile gulp`: run gulp and gulp-web client
+> - `--profile gui`: run gulp-web client
+> - `--profile gulp`: run gulp server
 > - `--profile dev`: also run adminer and elasticvue, for debugging
 > - `--profile os-dashboards`: also run opensearch dahsboards
 > - *no profile specified: just run `opensearch` and `postgresql`*
