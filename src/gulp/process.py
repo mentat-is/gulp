@@ -90,7 +90,7 @@ class GulpProcess:
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
         """
-        
+
         p = GulpProcess.get_instance()
         asyncio.run(
             p.init_gulp_process(
@@ -181,7 +181,7 @@ class GulpProcess:
             await self.close_process_pool()
             self.mp_manager.shutdown()
             self.process_pool = None
-        
+
         # initializes the multiprocessing manager and structs
         self.mp_manager = Manager()
         spawned_processes = self.mp_manager.Value(int, 0)
@@ -190,7 +190,7 @@ class GulpProcess:
 
         # re/create the shared websocket queue (closes it first if already running)
         wsq = GulpSharedWsQueue.get_instance()
-        q = await wsq.init_queue(self.mp_manager)        
+        q = await wsq.init_queue(self.mp_manager)
         self.shared_ws_list = self.mp_manager.list()
 
         # start workers, pass the shared queue to each
@@ -200,6 +200,7 @@ class GulpProcess:
             childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
             maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
             initializer=GulpProcess._worker_initializer,
+            queuecount=num_workers // 2,
             initargs=(
                 spawned_processes,
                 lock,

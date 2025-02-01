@@ -18,6 +18,7 @@ from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
     GulpClientDataPacket,
     GulpConnectedSocket,
@@ -69,7 +70,7 @@ class WsIngestRawWorker:
             )
 
         MutyLogger.get_instance().debug("starting ws ingest worker pool ...")
-        await GulpProcess.get_instance().coro_pool.spawn(worker_coro())
+        await GulpRestServer.get_instance().spawn_bg_task(worker_coro())
 
     async def stop(self):
         """

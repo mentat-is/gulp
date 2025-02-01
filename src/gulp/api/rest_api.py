@@ -4,7 +4,7 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 import os
 import ssl
-from typing import Any
+from typing import Any, Coroutine
 
 import muty.crypto
 import muty.file
@@ -382,6 +382,30 @@ class GulpRestServer:
         for process in multiprocessing.active_children():
             process.terminate()
         MutyLogger.get_instance().info("killed all child processes!")
+
+    async def handle_bg_future(self, future: asyncio.Future) -> None:
+        """
+        waits for a future running in background to complete, logs any exceptions
+
+        future (asyncio.Future): the future to wait for
+        """
+        try:
+            await future
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            MutyLogger.get_instance().debug("future %s completed!" % (future))
+
+    async def spawn_bg_task(self, coro: Coroutine) -> None:
+        """
+        spawns a background task, future is awaited in the background and exceptions are logged
+
+        Args:
+            coro (Coroutine): the coroutine to spawn
+            kwds (dict, optional): the keyword arguments to pass to the coroutine
+        """
+        f = await GulpProcess.get_instance().coro_pool.spawn(coro)
+        t = asyncio.create_task(self.handle_bg_future(f))        
 
     async def _cleanup(self):
         """

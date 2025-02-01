@@ -17,6 +17,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpRebaseDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
@@ -579,7 +580,7 @@ optional custom rebase script to run on the documents.
                 _rebase_internal, kwds=kwds
             )
 
-        await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))

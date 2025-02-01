@@ -30,6 +30,7 @@ from gulp.api.rest.server_utils import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.rest.structs import APIDependencies
+from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
     GulpQueryGroupMatchPacket,
     GulpSharedWsQueue,
@@ -357,7 +358,7 @@ async def _spawn_query_group_workers(
             )
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
-    await GulpProcess.get_instance().coro_pool.spawn(_worker_coro(kwds))
+    await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
 
 
 @router.post(

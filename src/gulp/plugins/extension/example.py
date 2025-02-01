@@ -180,7 +180,7 @@ class Plugin(GulpPluginBase):
                 coro = self._example_task(
                     s.user_id, operation_id, context_id, ws_id, req_id
                 )
-                await GulpProcess.get_instance().coro_pool.spawn(coro)
+                await GulpRestServer.get_instance().spawn_bg_task(coro)
                 return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import Annotated, Optional, override
@@ -28,6 +29,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies, GulpUploadResponse
+from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
     GulpSharedWsQueue,
     GulpWsQueueDataType,
@@ -466,9 +468,9 @@ async def ingest_file_handler(
             await GulpProcess.get_instance().process_pool.apply(
                 _ingest_file_internal, kwds=kwds
             )
-
-        await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
-
+        
+        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+        
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
 
@@ -652,7 +654,7 @@ async def ingest_raw_handler(
                 _ingest_raw_internal, kwds=kwds
             )
 
-        await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -877,8 +879,8 @@ async def ingest_zip_handler(
                     _ingest_file_internal, kwds=kwds
                 )
 
-            await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
-
+            await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+        
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
 

@@ -1,14 +1,10 @@
-import pefile
-import peutils
-import hashlib
 import datetime
-import mimetypes
-import json
 from typing import Any, override
 
 import muty.crypto
 import muty.json
 import muty.time
+import muty.os
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
@@ -22,6 +18,10 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
+muty.os.check_and_install_package("pefile", ">=2024.8.26")
+muty.os.check_and_install_package("peutils", ">=0.0.122")
+import pefile
+import peutils
 
 class Plugin(GulpPluginBase):
     """

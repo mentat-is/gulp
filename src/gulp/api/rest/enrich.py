@@ -16,6 +16,7 @@ from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -178,7 +179,7 @@ async def enrich_documents_handler(
                 _enrich_documents_internal, kwds=kwds
             )
 
-        await GulpProcess.get_instance().coro_pool.spawn(worker_coro(kwds))
+        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
