@@ -1,4 +1,6 @@
+from collections import defaultdict
 import gc
+import inspect
 import os
 import json
 import base64
@@ -496,68 +498,12 @@ async def trigger_gc_handler(
     # round 1: 388
     params = locals()
     ServerUtils.dump_params(params)
-
-    def _get_gc_stats() -> dict:
-        stats = {
-            "collections": [gc.get_count()[i] for i in range(3)],
-            "objects_tracked": len(gc.get_objects()),
-            "garbage": len(gc.garbage)
-        }
-        return stats
-
-    def _get_memory_info() -> dict:
-        mem = psutil.Process(os.getpid()).memory_info()
-        return {
-            "shared_mb": mem.shared / (1024 * 1024),
-            "shared": mem.shared,
-            "rss_mb": mem.rss / (1024 * 1024),
-            "rss": mem.rss,
-            "vms_mb": mem.vms / (1024 * 1024),
-            "vms": mem.vms
-        }
-
     async with GulpCollab.get_instance().session() as sess:
         await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
 
     MutyLogger.get_instance().info("triggering garbage collection ...")
-
-    # collect stats before
-    before_stats = _get_gc_stats()
-    before_mem = _get_memory_info()
-    start_time = time.perf_counter()
-
-    # Run collection
-    gc.collect()
-
-    # collect stats after
-    end_time = time.perf_counter()
-    after_stats = _get_gc_stats()
-    after_mem = _get_memory_info()
-
-    result = {
-        "before": {
-            "memory": before_mem,
-            "gc_stats": before_stats
-        },
-        "after": {
-            "memory": after_mem,
-            "gc_stats": after_stats
-        },
-        "delta": {
-            "rss": before_mem["rss"] - after_mem["rss"],
-            "rss_mb": before_mem["rss_mb"] - after_mem["rss_mb"],
-            "vms": before_mem["vms"] - after_mem["vms"],
-            "vms_mb": before_mem["vms_mb"] - after_mem["vms_mb"],
-            "shared": before_mem["shared"] - after_mem["shared"],
-            "shared_mb": before_mem["shared_mb"] - after_mem["shared_mb"],
-            "objects": before_stats["objects_tracked"] - after_stats["objects_tracked"]
-        },
-        "collection_time_ms": (end_time - start_time) * 1000
-    }
-
-    MutyLogger.get_instance().info(
-        f"GC completed in {result['collection_time_ms']:.2f}ms")
-    return JSendResponse.success(data=result, req_id=req_id)
+    d=muty.obj.trigger_gc_and_get_stats()
+    return JSendResponse.success(data=d, req_id=req_id)
 
 
 @router.get(
