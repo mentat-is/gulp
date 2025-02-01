@@ -92,15 +92,18 @@ class GulpProcess:
         """
 
         p = GulpProcess.get_instance()
-        asyncio.run(
-            p.init_gulp_process(
-                log_level=log_level,
-                logger_file_path=logger_file_path,
-                q=q,
-                shared_ws_list=shared_ws_list,
+        loop = asyncio.get_event_loop()
+        try:
+            loop.run_until_complete(
+                p.init_gulp_process(
+                    log_level=log_level,
+                    logger_file_path=logger_file_path,
+                    q=q,
+                    shared_ws_list=shared_ws_list,
+                )
             )
-        )
-
+        except Exception as ex:
+            MutyLogger.get_instance(name="gulp").exception(ex)
         # done
         lock.acquire()
         spawned_processes.value += 1
@@ -291,9 +294,15 @@ class GulpProcess:
         GulpOpenSearch.get_instance()
 
         if self._main_process:
+
             # creates the process pool and shared queue
             MutyLogger.get_instance().info("main process initialized!")
             await self.recreate_process_pool_and_shared_queue()
+
+            # load extension plugins
+            from gulp.api.rest_api import GulpRestServer
+            await GulpRestServer.get_instance()._unload_extension_plugins()
+            await GulpRestServer.get_instance()._load_extension_plugins()
         else:
             # worker process, set the queue
             MutyLogger.get_instance().info("worker process initialized!")

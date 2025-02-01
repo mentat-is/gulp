@@ -468,7 +468,7 @@ async def ingest_file_handler(
             await GulpProcess.get_instance().process_pool.apply(
                 _ingest_file_internal, kwds=kwds
             )
-        
+
         await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
         
         # and return pending
@@ -880,7 +880,7 @@ async def ingest_zip_handler(
                 )
 
             await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
-        
+
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
 

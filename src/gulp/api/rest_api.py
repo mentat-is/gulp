@@ -104,6 +104,7 @@ class GulpRestServer:
         count: int = 0
         for p in l:
             p = await GulpPluginBase.load(p.path, extension=True)
+            self._extension_plugins.append(p)
             count += 1
 
         MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
@@ -405,7 +406,7 @@ class GulpRestServer:
             kwds (dict, optional): the keyword arguments to pass to the coroutine
         """
         f = await GulpProcess.get_instance().coro_pool.spawn(coro)
-        t = asyncio.create_task(self.handle_bg_future(f))        
+        _ = asyncio.create_task(self.handle_bg_future(f))        
 
     async def _cleanup(self):
         """
@@ -474,9 +475,6 @@ class GulpRestServer:
         await main_process.init_gulp_process(
             log_level=self._log_level, logger_file_path=self._logger_file_path
         )
-
-        # load extension plugins
-        await self._load_extension_plugins()
 
         if __debug__:
             # to test some snippet with gulp freshly initialized

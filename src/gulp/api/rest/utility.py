@@ -1,7 +1,10 @@
+import gc
 import os
 import json
 import base64
+import time
 import muty.file
+import muty.obj
 import psutil
 from gulp.api.mapping.models import GulpMappingFile
 import sys
@@ -418,6 +421,143 @@ async def server_stats_handler(
     }
 
     return JSendResponse.success(data=stats, req_id=req_id)
+
+
+@router.get(
+    "/trigger_gc",
+    tags=["utility"],
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data":  {
+                            "before": {
+                                "memory": {
+                                    "rss_mb": 292.34375,
+                                    "vms_mb": 1214.890625,
+                                    "shared_mb": 5.4140625
+                                },
+                                "gc_stats": {
+                                    "collections": [
+                                        1,
+                                        1,
+                                        3
+                                    ],
+                                    "objects_tracked": 346601,
+                                    "garbage": 0
+                                }
+                            },
+                            "after": {
+                                "memory": {
+                                    "rss_mb": 292.34375,
+                                    "vms_mb": 1214.890625,
+                                    "shared_mb": 5.4140625
+                                },
+                                "gc_stats": {
+                                    "collections": [
+                                        1,
+                                        0,
+                                        0
+                                    ],
+                                    "objects_tracked": 346269,
+                                    "garbage": 0
+                                }
+                            },
+                            "delta": {
+                                "rss_mb": 0.0,
+                                "vms_mb": 0.0,
+                                "shared_mb": 0.0,
+                                "objects": 332
+                            },
+                            "collection_time_ms": 170.80650408752263
+                        },
+                    }
+                }
+            }
+        }
+    },
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    summary="trigger garbage collection.",
+    description="""
+- token needs `admin` permission.
+- triggers garbage collection in the server main process.
+""",
+)
+async def trigger_gc_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    # baseline: 289
+    # round 1: 388
+    params = locals()
+    ServerUtils.dump_params(params)
+
+    def _get_gc_stats() -> dict:
+        stats = {
+            "collections": [gc.get_count()[i] for i in range(3)],
+            "objects_tracked": len(gc.get_objects()),
+            "garbage": len(gc.garbage)
+        }
+        return stats
+
+    def _get_memory_info() -> dict:
+        mem = psutil.Process(os.getpid()).memory_info()
+        return {
+            "shared_mb": mem.shared / (1024 * 1024),
+            "shared": mem.shared,
+            "rss_mb": mem.rss / (1024 * 1024),
+            "rss": mem.rss,
+            "vms_mb": mem.vms / (1024 * 1024),
+            "vms": mem.vms
+        }
+
+    async with GulpCollab.get_instance().session() as sess:
+        await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+    MutyLogger.get_instance().info("triggering garbage collection ...")
+
+    # collect stats before
+    before_stats = _get_gc_stats()
+    before_mem = _get_memory_info()
+    start_time = time.perf_counter()
+
+    # Run collection
+    gc.collect()
+
+    # collect stats after
+    end_time = time.perf_counter()
+    after_stats = _get_gc_stats()
+    after_mem = _get_memory_info()
+
+    result = {
+        "before": {
+            "memory": before_mem,
+            "gc_stats": before_stats
+        },
+        "after": {
+            "memory": after_mem,
+            "gc_stats": after_stats
+        },
+        "delta": {
+            "rss": before_mem["rss"] - after_mem["rss"],
+            "rss_mb": before_mem["rss_mb"] - after_mem["rss_mb"],
+            "vms": before_mem["vms"] - after_mem["vms"],
+            "vms_mb": before_mem["vms_mb"] - after_mem["vms_mb"],
+            "shared": before_mem["shared"] - after_mem["shared"],
+            "shared_mb": before_mem["shared_mb"] - after_mem["shared_mb"],
+            "objects": before_stats["objects_tracked"] - after_stats["objects_tracked"]
+        },
+        "collection_time_ms": (end_time - start_time) * 1000
+    }
+
+    MutyLogger.get_instance().info(
+        f"GC completed in {result['collection_time_ms']:.2f}ms")
+    return JSendResponse.success(data=result, req_id=req_id)
 
 
 @router.get(
