@@ -6,8 +6,7 @@ import json
 import multiprocessing
 import os
 import platform
-import token
-
+import zlib
 import muty.file
 import pytest
 import websockets
@@ -491,7 +490,7 @@ async def test_ingest_ws_raw():
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(
-            token=ingest_token, ws_id=TEST_WS_ID+"_ingest_raw")
+            token=ingest_token, ws_id=TEST_WS_ID+"_ingest_raw", compress=True)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -511,7 +510,11 @@ async def test_ingest_ws_raw():
                             flt=GulpIngestionFilter(),
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID)
-                        await ws.send(p.model_dump_json(exclude_none=True))
+
+                        # compress data
+                        js = p.model_dump_json(exclude_none=True)
+                        compressed = zlib.compress(js.encode())
+                        await ws.send(compressed)
                         await asyncio.sleep(0.1)
 
                     # TODO: check data, but should be ok ....

@@ -1,7 +1,9 @@
 import asyncio
 import collections
 from enum import StrEnum
+import json
 from multiprocessing.managers import SyncManager
+import zlib
 import os
 from queue import Empty, Queue
 import threading
@@ -392,6 +394,7 @@ class GulpWsAuthPacket(BaseModel):
     """
 
     model_config = ConfigDict(
+        extra="allow",
         json_schema_extra={
             "examples": [
                 {
@@ -415,12 +418,15 @@ class GulpWsAuthPacket(BaseModel):
     )
     operation_ids: Optional[list[str]] = Field(
         None,
-        description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
+        description="used in `/ws` only: the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
     )
     types: Optional[list[GulpWsQueueDataType]] = Field(
         None,
-        description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
+        description="used in `/ws` only: the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
     )
+    compress: Optional[bool] = Field(
+        False,
+        description="if the websocket should use compressed (zlib) data.",)
 
 
 class GulpDocumentsChunkPacket(BaseModel):
@@ -587,9 +593,22 @@ class GulpConnectedSocket:
         self.send_task = None
         self.receive_task = None
         self.socket_type = socket_type
+        self.compress = False
 
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
+
+    def set_compressed(self, compress: bool) -> None:
+        """
+        Sets the websocket to use ZLIB compression
+
+        Args:
+            compress (bool): If the websocket should use compressed (zlib) data.
+        """
+        self.compress = compress
+        MutyLogger.get_instance().debug(
+            f"ws_id {self.ws_id} compression (zlib) set to {self.compress} !"
+        )
 
     async def run_loop(self) -> None:
         """
@@ -713,8 +732,9 @@ class GulpConnectedSocket:
             if self.ws.client_state != WebSocketState.CONNECTED:
                 raise WebSocketDisconnect("client disconnected")
 
-            # this will raise WebSocketDisconnect when client disconnects
-            await self.ws.receive_json()
+            # this will raise WebSocketDisconnect when client disconnects, we don't care about the content...
+            await self.ws.receive_bytes()
+            # await self.ws.receive_json()
 
             # TODO: handle incoming messages from the client
 
@@ -734,15 +754,21 @@ class GulpConnectedSocket:
         pooled_msg.update(msg)
         await self.q.put(pooled_msg)
 
-    async def send_json(self, msg: dict, delay: float) -> None:
+    async def send_message(self, msg: dict, delay: float) -> None:
         """
-        Sends a JSON message to the websocket.
+        Sends a JSON message to the websocket and put it back to the pool.
 
         Args:
             msg (dict): The message to send.
             delay (float): The delay to wait before sending the message.
         """
-        await self.ws.send_json(msg)
+        if self.compress:
+            # send compressed
+            js = json.dumps(msg)
+            await self.ws.send_bytes(zlib.compress(js.encode()))
+        else:
+            # send plain
+            await self.ws.send_json(msg)
 
         # return msg to pool
         self._msg_pool.put(msg)
@@ -771,7 +797,7 @@ class GulpConnectedSocket:
                         raise WebSocketDisconnect("client disconnected")
 
                     # send
-                    await self.send_json(item, ws_delay)
+                    await self.send_message(item, ws_delay)
                     self.q.task_done()
 
                 except asyncio.TimeoutError:
@@ -1076,7 +1102,8 @@ class GulpSharedWsQueue:
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
         self._shared_q = mgr.Queue()
-        self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
+        self._fill_task = asyncio.create_task(
+            self._fill_ws_queues_from_shared_queue())
 
         return self._shared_q
 
@@ -1165,7 +1192,7 @@ class GulpSharedWsQueue:
         """
         if not self._shared_q:
             return
-        
+
         MutyLogger.get_instance().debug("closing shared ws queue ...")
 
         # flush queue first
@@ -1188,9 +1215,9 @@ class GulpSharedWsQueue:
             if b:
                 await self._fill_task
                 MutyLogger.get_instance().debug("shared queue fill task cancelled ok.")
-        
-        self._shared_q=None
-        
+
+        self._shared_q = None
+
     def _cleanup_stale_messages(self):
         """
         remove old messages if queue size exceeds limit
