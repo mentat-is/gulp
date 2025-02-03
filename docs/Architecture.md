@@ -159,13 +159,6 @@ Response from the websocket is a [GulpWsData](../src/gulp/api/ws_api.py) object 
 
 `ws_ingest_raw` is a websocket specifically meant to ingest data using the `raw` plugin.
 
-```mermaid
-sequenceDiagram
-client->>server: {"token": "...", "ws_id": "...", "types": [...]}
-server-->>client: { GulpWsAcknowledgePacket }
-client->>server: { GulpWsIngestPacket }
-```
-
 each `GulpWsIngestPacket` is as follows:
 
 ```js
@@ -180,6 +173,30 @@ each `GulpWsIngestPacket` is as follows:
       "plugin": "raw", // default uses the `raw` plugin
       "plugin_params": null 
   }
+```
+
+and this is the ingestion flow:
+
+```mermaid
+sequenceDiagram
+    participant client
+    participant server
+    participant gulp_storage
+    participant plugin_processor
+
+    client->>server: {"token": "...", "ws_id": "...", "types": [...]}
+    server-->>client: { GulpWsAcknowledgePacket }
+    
+    client->>server: { GulpWsIngestPacket }
+    
+    Note over server: Process using GulpWsIngestPacket.plugin
+    server->>plugin_processor: Process documents with specified plugin
+    plugin_processor->>gulp_storage: Store processed documents
+    
+    loop For each processed documents chunk
+        gulp_storage-->>server: Documents stored
+        server-->>client: Stream documents on ws_id
+    end
 ```
 
 #### ws_client_data
