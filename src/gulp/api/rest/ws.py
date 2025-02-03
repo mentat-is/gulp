@@ -1,5 +1,4 @@
 import asyncio
-import json
 from multiprocessing import Queue
 from fastapi.websockets import WebSocketState
 import muty.jsend
@@ -12,7 +11,7 @@ import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
-import zlib
+
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
@@ -213,10 +212,8 @@ class GulpAPIWebsocket:
             )
             await websocket.send_json(p.model_dump(exclude_none=True))
 
-            # run the loop, blocks until exception/disconnect
-            ws.set_compressed(params.compress)
+            # blocks until exception/disconnect
             await ws.run_loop()
-
         except ObjectNotFound as ex:
             # user not found
             p = GulpWsErrorPacket(
@@ -311,7 +308,6 @@ class GulpAPIWebsocket:
             await websocket.send_json(p.model_dump(exclude_none=True))
 
             # blocks until exception/disconnect
-            ws.set_compressed(params.compress)
             await GulpAPIWebsocket.ws_ingest_run_loop(ws, user_id)
         except ObjectNotFound as ex:
             # user not found
@@ -355,14 +351,13 @@ class GulpAPIWebsocket:
                 await websocket.close()
 
     @staticmethod
-    async def ws_ingest_run_loop(ws: GulpConnectedSocket, user_id: str, compress: bool = False) -> None:
+    async def ws_ingest_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """
         main loop for the ingest websocket connection
 
         Args:
             ws (GulpConnectedSocket): the websocket connection
             user_id (str): the user id
-            compress (bool): whether the websocket receives compressed data
         """
         worker_pool = WsIngestRawWorker()
         await worker_pool.start()
@@ -371,15 +366,7 @@ class GulpAPIWebsocket:
                 if ws.ws.client_state != WebSocketState.CONNECTED:
                     raise WebSocketDisconnect("client disconnected")
 
-                if ws.compress:
-                    # read compressed data
-                    data = await ws.ws.receive_bytes()
-                    data = zlib.decompress(data)
-                    js = json.loads(data)
-                else:
-                    # plain json data
-                    js = await ws.ws.receive_json()
-
+                js = await ws.ws.receive_json()
                 ingest_packet = GulpWsIngestPacket.model_validate(js)
 
                 # package data for worker
@@ -441,7 +428,6 @@ class GulpAPIWebsocket:
             await websocket.send_json(p.model_dump(exclude_none=True))
 
             # blocks until exception/disconnect
-            ws.set_compressed(params.compress)
             await GulpAPIWebsocket.ws_client_data_run_loop(ws, user_id)
         except ObjectNotFound as ex:
             # user not found
@@ -500,15 +486,7 @@ class GulpAPIWebsocket:
                 raise WebSocketDisconnect("client disconnected")
 
             # this will raise WebSocketDisconnect when client disconnects
-            if ws.compress:
-                # read compressed data
-                data = await ws.ws.receive_bytes()
-                data = zlib.decompress(data)
-                js: dict = json.loads(data)
-            else:
-                # plain data
-                js: dict = await ws.ws.receive_json()
-
+            js: dict = await ws.ws.receive_json()
             client_ui_data = GulpClientDataPacket.model_validate(js)
 
             data = GulpWsData(
@@ -528,14 +506,7 @@ class GulpAPIWebsocket:
                 ):
                     # skip this ws
                     continue
-
-                if cws.compress:
-                    # send compressed data
-                    data = zlib.compress(data.model_dump(exclude_none=True))
-                    await cws.ws.send_bytes(data)
-                else:
-                    # send plain
-                    await cws.ws.send_json(data.model_dump(exclude_none=True))
+                await cws.ws.send_json(data.model_dump(exclude_none=True))
 
     @staticmethod
     async def ws_client_data_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
