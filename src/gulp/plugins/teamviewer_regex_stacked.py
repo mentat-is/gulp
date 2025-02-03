@@ -47,6 +47,7 @@ class Plugin(GulpPluginBase):
             record["connection.end_time"] = end_time
             record["event.duration"] = end_time - start_time
 
+        record["agent.type"] = self.display_name() #override agent.type
         record["event.code"] = "teamviewer_connection"
         return record
 
