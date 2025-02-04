@@ -645,11 +645,11 @@ class GulpPluginBase(ABC):
         s_options: GulpQuerySigmaParameters,
     ) -> list[GulpQuery]:
         """
-        convert a sigma rule specifically targeted to this plugin into a query for the specified by backend/pipeline/output_format.
+        convert a sigma rule specifically targeted to this plugin into a query for the target specified by backend/pipeline/output_format.
 
         Args:
             sigma (str): the sigma rule YAML
-            s_options (GulpQuerySigmaParameters): the sigma query parameters.
+            s_options (GulpQuerySigmaParameters): the `backend`, `pipeline`, `output_format` to be used (`plugin` is ignored), 
         Returns:
             list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
         """
