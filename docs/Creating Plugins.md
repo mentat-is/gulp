@@ -79,19 +79,27 @@ then depending on `type`, different entrypoints may be implemented:
 
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
-- `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocument`s
+  
+- `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
-- `query_external`: implemented by `external` plugins, this is to query (and possibly ingest from at the same time) an external source.
-  - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
-- `sigma_support`: this lists the [pysigma](https://github.com/SigmaHQ/pySigma) backends and pipelines the plugin supports, to support sigma rules conversion into queries for different targets.
+  
+- `sigma_support`: lists the [pysigma](https://github.com/SigmaHQ/pySigma) backends and pipelines the plugin supports, to support sigma rules conversion into queries for different targets.
   - these are returned by the `plugin_list` API.
-- `sigma_convert`: this implements the actual sigma rule conversion using the selected `pysigma backend` and `pipeline` which are passed into `GulpPluginParameters` to the plugin.
+  - the plugin must implement the `backends` and `pipelines` listed, which are to be used through `sigma_convert` entrypoint.
+  
+- `sigma_convert`: implements the actual sigma rule conversion using the selected pysigma `backend`, `pipeline`, `output_format` from `GulpQuerySigmaParameters`.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for implementation (it supports converting windows sigma rules to gulp queries)
+
+- `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
+  - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
+  - `GulpQueryExternalParameters` holds parameters to query the external source, plus the `plugin` and `GulpPluginParameters` to be used.
 
 other optional entrypoints are:
 
 - `custom_parameters`: returned by the `plugin_list` API, this defines each custom parameter the plugin support and may be used by the UI to build a configurator for the plugin.
-  - they are available in each plugin after initialization via `self._custom_params`
+  - they are available in each plugin after initialization via `self._custom_params`.
+  - they are passed in the `GulpPluginParameters` dict as additional keys (`model_extra`).
+  
 - `tags`: returned by the `plugin_list` API, defines tags to categorize the plugin
 - `version`: the plugin version string
 - `desc`: the plugin description
