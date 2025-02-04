@@ -115,6 +115,11 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         description="this is used to override the websocket chunk size for the request, which is normally taken from configuration 'documents_chunk_size'.",
     )
 
+    custom_parameters: Optional[dict] = Field(
+        {},
+        description="optional additional plugin parameters defined in `Plugin.custom_parameters()`.",
+    )
+
     def is_empty(self) -> bool:
         """
         a mapping is empty if mappings or mapping_file or mapping_id is empty
@@ -126,6 +131,7 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
             self.mappings is not None
             or self.mapping_file is not None
             or self.override_chunk_size is not None
+            or len(self.custom_parameters) > 0
             or len(self.model_extra) > 0
         ):
             return False
@@ -136,7 +142,7 @@ class GulpPluginCustomParameter(GulpAPIParameter):
     """
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
 
-    `name` may also be a key in the `GulpPluginParameters` object, to list additional parameters specific for the plugin.
+    `name` may also be a key in the `GulpPluginParameters.custom_parameters` object, to list additional parameters specific for the plugin.
     """
 
     model_config = ConfigDict(

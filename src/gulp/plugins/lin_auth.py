@@ -93,7 +93,7 @@ class Plugin(GulpPluginBase):
             ]
         )
         
-        plugin_params.model_extra["regex"] = regex
+        plugin_params.custom_parameters["regex"] = regex
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         res = await lower.ingest_file(

@@ -402,7 +402,7 @@ class GulpPluginBase(ABC):
             list[GulpPluginCustomParameter]: a list of custom parameters this plugin supports.
         """
         return []
-
+    
     def data(self) -> dict:
         """
         Returns plugin data: this is an arbitrary dictionary that can be used to store any data.
@@ -963,10 +963,10 @@ class GulpPluginBase(ABC):
 
         # enrich
         docs = await self._enrich_documents_chunk([doc])
-        #MutyLogger.get_instance().debug("docs=%s" % (docs))
+        # MutyLogger.get_instance().debug("docs=%s" % (docs))
         if not docs:
             raise ObjectNotFound("document not suitable for enrichment")
-        
+
         # update the document
         await GulpOpenSearch.get_instance().update_documents(
             index, docs, wait_for_refresh=True
@@ -1439,7 +1439,7 @@ class GulpPluginBase(ABC):
 
     def _parse_custom_parameters(self, plugin_params: GulpPluginParameters) -> None:
         """
-        parse custom plugin parameters, from plugin_params.model_extra and external_plugin_params.model_extra
+        parse custom plugin parameters in plugin_params.custom_parameters, they must correspond to the plugin defined ones.
 
         Args:
             plugin_params (GulpPluginParameters): the plugin parameters.
@@ -1447,21 +1447,18 @@ class GulpPluginBase(ABC):
         if not plugin_params:
             return
 
-        # check any custom plugin paramter (they're passed in plugin_params.model_extra and external_plugin_params.model_extra)
-        custom_params = self.custom_parameters()
-        if self._external_plugin_params.model_extra:
-            for k, v in self._external_plugin_params.model_extra.items():
-                plugin_params.model_extra[k] = v
+        # check any passed custom parameter against the plugin defined ones
+        defined_custom_params = self.custom_parameters()
 
-        for p in custom_params:
+        for p in defined_custom_params:
             k = p.name
-            if p.required and k not in plugin_params.model_extra:
+            if p.required and k not in plugin_params.custom_parameters:
                 raise ValueError(
-                    "required plugin parameter '%s' not found in plugin_params !" % (
-                        k)
+                    "required plugin parameter '%s' not found in plugin_params=%s" % (
+                        k, plugin_params)
                 )
             if k not in self._custom_params:
-                self._custom_params[k] = plugin_params.model_extra.get(
+                self._custom_params[k] = plugin_params.custom_parameters.get(
                     k, p.default_value)
                 MutyLogger.get_instance().debug(
                     "setting plugin custom parameter: %s=%s" % (
@@ -1593,9 +1590,8 @@ class GulpPluginBase(ABC):
             )
         )
 
-        # check any custom plugin paramter (they're passed in plugin_params.model_extra and external_plugin_params.model_extra)
+        # check any custom plugin paramter
         self._parse_custom_parameters(plugin_params)
-
         if (
             GulpPluginType.EXTENSION in self.type()
             or GulpPluginType.ENRICHMENT in self.type()

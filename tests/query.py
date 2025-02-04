@@ -506,7 +506,7 @@ async def test_elasticsearch():
                         q_options.external_parameters.uri = "http://localhost:9200"
                         q_options.external_parameters.username = "admin"
                         q_options.external_parameters.password = "Gulp1234!"
-                        q_options.external_parameters.plugin_params.model_extra[
+                        q_options.external_parameters.plugin_params.custom_parameters[
                             "is_elasticsearch"
                         ] = False  # we are querying gulp ....
                         q_options.fields = "*"
@@ -521,7 +521,7 @@ async def test_elasticsearch():
                         # also use additional windows mapping
                         q_options.external_parameters.plugin_params.additional_mapping_files = [
                             ("windows.json", "windows")
-                        ]
+                        ]                        
                         await GulpAPIQuery.query_sigma(
                             token,
                             TEST_INDEX,

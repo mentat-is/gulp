@@ -95,7 +95,7 @@ class Plugin(GulpPluginBase):
         if not plugin_params:
             plugin_params = GulpPluginParameters()
         plugin_params.mapping_file = "chrome_history.json"
-        plugin_params.model_extra["queries"] = {
+        plugin_params.custom_parameters["queries"] = {
             "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
         }
 
