@@ -567,7 +567,8 @@ class GulpConfig:
             # try configuration
             p = self._config.get("path_plugins_extra", None)
         
-        p = os.path.expanduser(p)
+        if p:
+            p = os.path.expanduser(p)
         return p
 
     def path_mapping_files_default(self) -> str:
@@ -586,7 +587,8 @@ class GulpConfig:
             # try configuration
             p = self._config.get("path_mapping_files_extra", None)
 
-        p = os.path.expanduser(p)
+        if p:
+            p = os.path.expanduser(p)
         return p
 
     def path_index_template(self) -> str:
