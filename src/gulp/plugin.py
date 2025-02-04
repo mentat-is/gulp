@@ -1924,7 +1924,7 @@ class GulpPluginBase(ABC):
             data=p.model_dump(exclude_none=True),
         )
 
-    @ staticmethod
+    @staticmethod
     def load_sync(
         plugin: str,
         extension: bool = False,
@@ -1961,7 +1961,7 @@ class GulpPluginBase(ABC):
                                 ignore_cache, *args, **kwargs)
         )
 
-    @ staticmethod
+    @staticmethod
     async def load(
         plugin: str,
         extension: bool = False,
@@ -2060,7 +2060,7 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug("unloading plugin: %s" % (self.name))
         GulpPluginCache.get_instance().remove(self.name)
 
-    @ staticmethod
+    @staticmethod
     def path_from_plugin(
         plugin: str, is_extension: bool = False, raise_if_not_found: bool = False
     ) -> str:
@@ -2137,10 +2137,10 @@ class GulpPluginBase(ABC):
         # get plugin path
         p = _get_plugin_path(plugin, is_extension)
         if not p and raise_if_not_found:
-            raise FileNotFoundError(f"plugin {plugin} not found !")
+            raise FileNotFoundError(f"plugin {plugin} not found in {p}!")
         return p
 
-    @ staticmethod
+    @staticmethod
     async def list(
         name: str = None, extension_only: bool = False
     ) -> list[GulpPluginEntry]:
