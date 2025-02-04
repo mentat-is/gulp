@@ -98,7 +98,7 @@ other optional entrypoints are:
 
 - `custom_parameters`: returned by the `plugin_list` API, this defines each custom parameter the plugin support and may be used by the UI to build a configurator for the plugin.
   - they are available in each plugin after initialization via `self._custom_params`.
-  - they are passed in the `GulpPluginParameters` dict as additional keys (`model_extra`).
+  - they are passed in the `GulpPluginParameters.custom_parameters` dict as additional keys.
   
 - `tags`: returned by the `plugin_list` API, defines tags to categorize the plugin
 - `version`: the plugin version string
