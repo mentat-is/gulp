@@ -649,7 +649,7 @@ class GulpPluginBase(ABC):
 
         Args:
             sigma (str): the sigma rule YAML
-            s_options (GulpQuerySigmaParameters): the `backend`, `pipeline`, `output_format` to be used (`plugin` is ignored), 
+            s_options (GulpQuerySigmaParameters): the `backend`, `pipeline`, `output_format` to be used (`plugin` is ignored), the current plugin must implement them.
         Returns:
             list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
         """
