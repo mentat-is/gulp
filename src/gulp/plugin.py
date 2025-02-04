@@ -61,6 +61,7 @@ from gulp.config import GulpConfig
 from gulp.structs import (
     GulpPluginCustomParameter,
     GulpPluginParameters,
+    ObjectNotFound,
 )
 
 
@@ -962,7 +963,10 @@ class GulpPluginBase(ABC):
 
         # enrich
         docs = await self._enrich_documents_chunk([doc])
-
+        #MutyLogger.get_instance().debug("docs=%s" % (docs))
+        if not docs:
+            raise ObjectNotFound("document not suitable for enrichment")
+        
         # update the document
         await GulpOpenSearch.get_instance().update_documents(
             index, docs, wait_for_refresh=True
