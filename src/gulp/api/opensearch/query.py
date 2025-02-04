@@ -208,7 +208,10 @@ class GulpQueryParameters(BaseModel):
                     "external_parameters": autogenerate_model_example_by_class(
                         GulpQueryExternalParameters
                     ),
-                    "external_options": None,
+                    "custom_parameters": {
+                        "custom1": "parameter1",
+                        "custom2": "parameter2",
+                    }
                 }
             ]
         },
@@ -269,7 +272,7 @@ for pagination, this should be set to the `search_after` returned by the previou
     )
     external_parameters: Optional[GulpQueryExternalParameters] = Field(
         GulpQueryExternalParameters(),
-        description="if set, controls how external queries are performed and how the results are ingested.",
+        description="if set, this is an external query and these are the specific parameters, including `plugin` and `GulpPluginParameters` used to perform the external query.",
     )
 
     def parse(self) -> dict:
