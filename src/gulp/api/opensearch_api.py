@@ -1382,8 +1382,8 @@ class GulpOpenSearch:
             if v:
                 body[k] = v
         MutyLogger.get_instance().debug(
-            "query_raw body=%s, parsed_options=%s"
-            % (json.dumps(body, indent=2), json.dumps(parsed_options, indent=2))
+            "index=%s, query_raw body=%s, parsed_options=%s"
+            % (index, json.dumps(body, indent=2), json.dumps(parsed_options, indent=2))
         )
 
         headers = {

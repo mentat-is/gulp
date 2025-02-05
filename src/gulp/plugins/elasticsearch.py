@@ -11,6 +11,7 @@ from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.query import (
     GulpQuery,
@@ -105,6 +106,18 @@ class Plugin(GulpPluginBase):
                 desc="if True, connect to elasticsearch, otherwise connect to opensearch.",
                 default_value=True,
             ),
+            GulpPluginCustomParameter(
+                name="context_field",
+                type="str",
+                desc="the field representing a GulpContext.",
+                default_value="host",
+            ),
+            GulpPluginCustomParameter(
+                name="source_field",
+                type="str",
+                desc="the field representing a GulpSource.",
+                default_value=None,
+            ),
         ]
 
     @override
@@ -116,6 +129,10 @@ class Plugin(GulpPluginBase):
 
         offset_msec: int = self._custom_params.get("offset_msec", 0)
         timestamp_field: str = self._custom_params.get("timestamp_field", "@timestamp")
+
+        # get context and source
+        self._context_id, self._source_id = await self._extract_context_and_source_from_doc(doc)
+        # MutyLogger.get_instance().debug(f"ctx_id={self._context_id}, src_id={self._source_id}")
 
         # convert timestamp to nanoseconds
         mapping = self.selected_mapping()

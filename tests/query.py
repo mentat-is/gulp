@@ -456,9 +456,7 @@ async def test_win_evtx():
 
 @pytest.mark.asyncio
 async def test_elasticsearch():
-    async def _test_sigma_external_multi_ingest(
-        token: str,
-    ):
+    async def _test_sigma_external_multi_ingest():
         # read sigmas
         current_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -479,7 +477,8 @@ async def test_elasticsearch():
             await GulpAPIDb.opensearch_delete_index(ingest_token, ingest_index)
         except:
             pass
-
+        
+        token=ingest_token
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -588,12 +587,8 @@ async def test_elasticsearch():
     # reset first
     await GulpAPIDb.reset_collab_as_admin()
 
-    # login guest
-    guest_token = await GulpAPIUser.login("guest", "guest")
-    assert guest_token
-
     # TODO: better test, this uses gulp's opensearch .... should work, but better to be sure
-    await _test_sigma_external_multi_ingest(guest_token)
+    await _test_sigma_external_multi_ingest()
 
 
 @pytest.mark.asyncio

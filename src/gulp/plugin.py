@@ -660,54 +660,67 @@ class GulpPluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
-    async def _get_cached_context_and_source_ids(self, op: GulpOperation, context: str, source: str) -> tuple[str, str]:
+    async def _extract_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
         """
-        cache context and source ids to minimize db requests.
+        extract context and source (using cache to avoid too many queries) from the document, or set bogus values if not found.
 
         Args:
-        op (GulpOperation): operation
-        context (str): context
-        source (str): source
-
+            doc (dict): the document to extract context and source from.
+        
         Returns:
-        tuple(str, str): context, source
+            tuple[str, str]: the context and source id.
         """
+
         ctx_id: str = None
         src_id: str = None
         ctx: GulpContext = None
         
-        if context is None:
-            # add bogus context
-            context = "default"
-        if source is None:
-            # add bogus source            
-            source = "default"
+        # get context and field
+        record_context = self._custom_params.get("context_field")
+        record_source = self._custom_params.get("source_field")
+        # MutyLogger.get_instance().debug(f"record_context={record_context}, record_source={record_source}, ingest_index={self._ingest_index}")
 
-        src_cache_key = "%s-%s" % (context, source)        
+        if not self._ingest_index:
+            # no ingestion, get context and source from the record, setting bogus if parameters are not set
+            self._context_id = doc.get(record_context, "default")
+            self._source_id = doc.get(record_source, "default")
+            return self._context_id, self._source_id
+        
+        if not self._operation:
+            self._operation = await GulpOperation.get_by_id(self._sess, self._operation_id)
+
+        if record_context is None:
+            # add bogus context
+            record_context = "default"
+        if record_source is None:
+            # add bogus source            
+            record_source = "default"
+
+        src_cache_key = "%s-%s" % (record_context, record_source)        
         if src_cache_key in self._ctx_cache:
             # we have them both
-            ctx_id = self._ctx_cache[context]
+            ctx_id = self._ctx_cache[record_context]
             src_id = self._src_cache[src_cache_key]
             # MutyLogger.get_instance().debug(f"cache hit ctx & src: {ctx_id}, {src_id}")
             return ctx_id, src_id
         
-        if context not in self._ctx_cache:
+        if record_context not in self._ctx_cache:
             # context cache miss
-            ctx, _ = await op.add_context(self._sess, self._user_id, context)
-            self._ctx_cache[context] = ctx.id
+            ctx, _ = await self._operation.add_context(self._sess, self._user_id, record_context)
+            self._ctx_cache[record_context] = ctx.id
             ctx_id = ctx.id
-            MutyLogger.get_instance().warning("cache miss, context=%s, ctx_id=%s" % (context, ctx_id))
+            MutyLogger.get_instance().warning("cache miss, context=%s, ctx_id=%s" % (record_context, ctx_id))
         else:
             # hit
-            ctx_id = self._ctx_cache[context]
+            ctx_id = self._ctx_cache[record_context]
             # MutyLogger.get_instance().debug(f"cache hit ctx: {ctx_id}")
         
         if src_cache_key not in self._src_cache:
             # source cache miss            
-            src, _ = await ctx.add_source(self._sess, self._user_id, source)
+            src, _ = await ctx.add_source(self._sess, self._user_id, record_source)
             self._src_cache[src_cache_key] = src.id
             src_id = src.id
-            MutyLogger.get_instance().warning("cache miss, context=%s, ctx_id=%s source=%s, src_id=%s" % (context, src_id, source, src_id))
+            MutyLogger.get_instance().warning("cache miss, context=%s, ctx_id=%s source=%s, src_id=%s" % (record_context, src_id, record_source, src_id))
         else:
             # hit
             src_id = self._src_cache[src_cache_key]
@@ -748,8 +761,10 @@ class GulpPluginBase(ABC):
         Raises:
             ObjectNotFound: if no document is found.
         """
-        MutyLogger.get_instance().debug("external_parameters: %s" %
-                                        (q_options.external_parameters))
+        MutyLogger.get_instance().debug(
+            "GulpPluginBase.query_external: q=%s, index=%s, q_options=%s"
+            % (q, index, q_options)
+        )
 
         self._sess = sess
         self._ws_id = ws_id
@@ -768,33 +783,6 @@ class GulpPluginBase(ABC):
         await self._initialize(q_options.external_parameters.plugin_params)
         
         self._operation_id = q_options.external_parameters.operation_id
-        """
-        # create context if it doesn't exist
-        src: GulpSource = None
-        ctx: GulpContext = None
-        if q_options.external_parameters.context_name:
-            # either way, the plugin must handle this
-            operation: GulpOperation = await GulpOperation.get_by_id(
-                sess, q_options.external_parameters.operation_id
-            )
-            ctx: GulpContext
-            src: GulpSource
-
-            ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=q_options.external_parameters.context_name
-            )
-
-            # also add a bogus source
-            src, _ = await ctx.add_source(
-                sess,
-                user_id=user_id,
-                name="src-%s" % (q_options.external_parameters.context_name),
-            )
-
-        self._source_id = src.id if src else None
-        self._context_id = ctx.id if ctx else None
-        """
-
         self._note_parameters = q_options.note_parameters
         self._external_plugin_params = q_options.external_parameters.plugin_params
 
@@ -1891,7 +1879,7 @@ class GulpPluginBase(ABC):
             ingested = 0
             skipped = 0
 
-        if not self._stats:
+        if not self._stats and not self._ingestion_enabled:
             # this also happens on query external
             self._sess = None
             return
@@ -1921,27 +1909,28 @@ class GulpPluginBase(ABC):
                 ),
             )
 
-        d = dict(
-            source_failed=1 if self._is_source_failed else 0,
-            source_processed=1,
-            source_id=self._source_id,
-            records_ingested=ingested,
-            records_skipped=skipped,
-            records_failed=self._records_failed_per_chunk,
-            records_processed=self._records_processed_per_chunk,
-            error=self._source_error,
-        )
-        try:
-            await self._stats.update(
-                self._sess,
-                d,
-                ws_id=self._ws_id,
-                user_id=self._user_id,
+        if self._stats:
+            d = dict(
+                source_failed=1 if self._is_source_failed else 0,
+                source_processed=1,
+                source_id=self._source_id,
+                records_ingested=ingested,
+                records_skipped=skipped,
+                records_failed=self._records_failed_per_chunk,
+                records_processed=self._records_processed_per_chunk,
+                error=self._source_error,
             )
-        except RequestCanceledError as ex:
-            MutyLogger.get_instance().warning("request canceled, source_done!")
-        finally:
-            self._sess = None
+            try:
+                await self._stats.update(
+                    self._sess,
+                    d,
+                    ws_id=self._ws_id,
+                    user_id=self._user_id,
+                )
+            except RequestCanceledError as ex:
+                MutyLogger.get_instance().warning("request canceled, source_done!")
+            finally:
+                self._sess = None
 
     async def _query_external_done(
         self, query_name: str, hits: int, error: Exception | str = None

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
 from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from gulp.structs import GulpPluginParameters, GulpSortOrder
-
+from muty.log import MutyLogger
 
 class GulpQuery(BaseModel):
     """
@@ -411,6 +411,10 @@ class GulpQueryHelpers:
         Raises:
             Exception: if an error occurs during the query
         """
+        MutyLogger.get_instance().debug(
+            "GulpQueryHelpers.query_raw: q=%s, index=%s, flt=%s, q_options=%s"
+            % (q, index, flt, q_options)
+        )
         if not q_options:
             q_options = GulpQueryParameters()
 

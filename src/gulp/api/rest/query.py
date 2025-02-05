@@ -66,6 +66,22 @@ falsepositives:
 level: info
 """
 
+def _check_index_param(index: str=None, q_options: GulpQueryParameters=None) -> None:
+    """
+    check index parameter for local queries
+
+    Args:
+        index (str): the index to query
+        q_options (GulpQueryParameters): the query options
+    Raises:
+        ValueError: if index is not set and its a local query
+    """
+
+    if not index:
+        if not q_options:
+            raise ValueError("index must be set for local queries!")
+        if q_options.external_parameters:
+            MutyLogger.get_instance().warning("external query with index not set!")
 
 async def _stored_query_ids_to_gulp_queries(
     sess: AsyncSession, stored_query_ids: list[str]
@@ -467,7 +483,6 @@ query Gulp or an external source using a raw DSL query.
 )
 async def query_raw_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     q: Annotated[
         Any,
@@ -478,6 +493,7 @@ or a query in the external source DSL.
             examples=[{"query": {"match_all": {}}}],
         ),
     ],
+    index: Annotated[str, Depends(APIDependencies.param_index_optional)]=None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -487,6 +503,9 @@ or a query in the external source DSL.
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
+
+    # check index parameter for local queries        
+    _check_index_param(index, q_options)
 
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -612,7 +631,6 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 )
 async def query_sigma_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     sigmas: Annotated[
         list[str],
@@ -621,6 +639,7 @@ async def query_sigma_handler(
             examples=[EXAMPLE_SIGMA_RULE],
         ),
     ],
+    index: Annotated[str, Depends(APIDependencies.param_index_optional)]=None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -634,6 +653,9 @@ async def query_sigma_handler(
     params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
+
+    # check index parameter for local queries        
+    _check_index_param(index, q_options)
 
     mod = None
     try:
@@ -740,7 +762,6 @@ query using queries stored on the Gulp `collab` database.
 )
 async def query_stored_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     stored_query_ids: Annotated[
         list[str],
@@ -748,6 +769,7 @@ async def query_stored_handler(
             description="one or more stored query IDs.", examples=["query_2", "query_2"]
         ),
     ],
+    index: Annotated[str, Depends(APIDependencies.param_index)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -761,6 +783,10 @@ async def query_stored_handler(
     params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
+
+    # check index parameter for local queries        
+    _check_index_param(index, q_options)
+
     try:
         if len(stored_query_ids) > 1 and not q_options.group:
             raise ValueError(
