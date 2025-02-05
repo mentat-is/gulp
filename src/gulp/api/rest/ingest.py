@@ -435,12 +435,13 @@ async def ingest_file_handler(
 
             # create (and associate) context and source on the collab db, if they do not exist
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-
-            ctx: GulpContext = await operation.add_context(
+            ctx: GulpContext
+            src: GulpSource            
+            ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=context_name
             )
 
-            src: GulpSource = await ctx.add_source(
+            src, _ = await ctx.add_source(
                 sess,
                 user_id=user_id,
                 name=payload.original_file_path or os.path.basename(file_path),
@@ -622,10 +623,12 @@ async def ingest_raw_handler(
 
             # create (and associate) context and source on the collab db, if they do not exist
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            ctx: GulpContext = await operation.add_context(
+            ctx: GulpContext
+            src: GulpSource
+            ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=context_name
             )
-            src: GulpSource = await ctx.add_source(
+            src, _ = await ctx.add_source(
                 sess,
                 user_id=user_id,
                 name=source,
@@ -822,8 +825,8 @@ async def ingest_zip_handler(
 
             # create (and associate) context on the collab db, if it does not exists
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-
-            ctx: GulpContext = await operation.add_context(
+            ctx: GulpContext
+            ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=context_name
             )
 
@@ -855,7 +858,8 @@ async def ingest_zip_handler(
         for f in files:
             # add source
             async with GulpCollab.get_instance().session() as sess:
-                src: GulpSource = await ctx.add_source(
+                src: GulpSource
+                src, _ = await ctx.add_source(
                     sess, user_id=user_id, name=f.original_file_path
                 )
 

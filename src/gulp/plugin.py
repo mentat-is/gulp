@@ -362,6 +362,11 @@ class GulpPluginBase(ABC):
         self._external_plugin_params: GulpPluginParameters = GulpPluginParameters()
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
+        # to minimize db requests to postgres to get context and source at every record
+        self._ctx_cache = {}
+        self._src_cache = {}
+        self._operation: GulpOperation = None
+
     @abstractmethod
     def display_name(self) -> str:
         """
@@ -528,7 +533,7 @@ class GulpPluginBase(ABC):
             )
             self._chunks_ingested += 1
 
-            if self._note_parameters.create_notes:
+            if self._note_parameters.create_notes and self._ingestion_enabled:
                 # auto-create notes during external query with ingestion (this is a sigma query)
                 await GulpNote.bulk_create_from_documents(
                     sess=self._sess,
@@ -655,6 +660,61 @@ class GulpPluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
+    async def _get_cached_context_and_source_ids(self, op: GulpOperation, context: str, source: str) -> tuple[str, str]:
+        """
+        cache context and source ids to minimize db requests.
+
+        Args:
+        op (GulpOperation): operation
+        context (str): context
+        source (str): source
+
+        Returns:
+        tuple(str, str): context, source
+        """
+        ctx_id: str = None
+        src_id: str = None
+        ctx: GulpContext = None
+        
+        if context is None:
+            # add bogus context
+            context = "default"
+        if source is None:
+            # add bogus source            
+            source = "default"
+
+        src_cache_key = "%s-%s" % (context, source)        
+        if src_cache_key in self._ctx_cache:
+            # we have them both
+            ctx_id = self._ctx_cache[context]
+            src_id = self._src_cache[src_cache_key]
+            # MutyLogger.get_instance().debug(f"cache hit ctx & src: {ctx_id}, {src_id}")
+            return ctx_id, src_id
+        
+        if context not in self._ctx_cache:
+            # context cache miss
+            ctx, _ = await op.add_context(self._sess, self._user_id, context)
+            self._ctx_cache[context] = ctx.id
+            ctx_id = ctx.id
+            MutyLogger.get_instance().warning("cache miss, context=%s, ctx_id=%s" % (context, ctx_id))
+        else:
+            # hit
+            ctx_id = self._ctx_cache[context]
+            # MutyLogger.get_instance().debug(f"cache hit ctx: {ctx_id}")
+        
+        if src_cache_key not in self._src_cache:
+            # source cache miss            
+            src, _ = await ctx.add_source(self._sess, self._user_id, source)
+            self._src_cache[src_cache_key] = src.id
+            src_id = src.id
+            MutyLogger.get_instance().warning("cache miss, context=%s, ctx_id=%s source=%s, src_id=%s" % (context, src_id, source, src_id))
+        else:
+            # hit
+            src_id = self._src_cache[src_cache_key]
+            # MutyLogger.get_instance().debug(f"cache hit src: {src_id}")
+
+        return ctx_id, src_id
+    
     async def query_external(
         self,
         sess: AsyncSession,
@@ -706,7 +766,9 @@ class GulpPluginBase(ABC):
 
         # load any mapping set
         await self._initialize(q_options.external_parameters.plugin_params)
-
+        
+        self._operation_id = q_options.external_parameters.operation_id
+        """
         # create context if it doesn't exist
         src: GulpSource = None
         ctx: GulpContext = None
@@ -715,20 +777,24 @@ class GulpPluginBase(ABC):
             operation: GulpOperation = await GulpOperation.get_by_id(
                 sess, q_options.external_parameters.operation_id
             )
-            ctx: GulpContext = await operation.add_context(
+            ctx: GulpContext
+            src: GulpSource
+
+            ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=q_options.external_parameters.context_name
             )
 
             # also add a bogus source
-            src: GulpSource = await ctx.add_source(
+            src, _ = await ctx.add_source(
                 sess,
                 user_id=user_id,
                 name="src-%s" % (q_options.external_parameters.context_name),
             )
 
-        self._operation_id = q_options.external_parameters.operation_id
         self._source_id = src.id if src else None
         self._context_id = ctx.id if ctx else None
+        """
+
         self._note_parameters = q_options.note_parameters
         self._external_plugin_params = q_options.external_parameters.plugin_params
 
@@ -1789,8 +1855,8 @@ class GulpPluginBase(ABC):
             # , with_full_traceback=True)
             err = muty.log.exception_to_string(err)
         MutyLogger.get_instance().error(
-            "INGESTION SOURCE FAILED: source=%s, ex=%s, processed in this source=%d, canceled=%r, failed=%r"
-            % (self._file_path, err, self._records_processed_per_chunk, self._req_canceled, self._is_source_failed)
+            "SOURCE FAILED: source=%s, ex=%s, processed in this source=%d, canceled=%r, failed=%r, ingestion=%r"
+            % (self._file_path, err, self._records_processed_per_chunk, self._req_canceled, self._is_source_failed, self._ingestion_enabled)
         )
 
         err = "source=%s, %s" % (self._file_path, err)
@@ -1805,11 +1871,12 @@ class GulpPluginBase(ABC):
             **kwargs: Additional keyword arguments.
         """
         MutyLogger.get_instance().debug(
-            "INGESTION SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s"
+            "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r"
             % (
                 self._file_path,
                 len(self._docs_buffer),
                 self._stats.status if self._stats else GulpRequestStatus.DONE,
+                self._ingestion_enabled
             )
         )
 
@@ -1823,6 +1890,11 @@ class GulpPluginBase(ABC):
             self._is_source_failed = True
             ingested = 0
             skipped = 0
+
+        if not self._stats:
+            # this also happens on query external
+            self._sess = None
+            return
 
         if self._ws_id:
             # send ingest_source_done packet on ws
@@ -1848,10 +1920,6 @@ class GulpPluginBase(ABC):
                     status=status,
                 ),
             )
-
-        if not self._stats:
-            self._sess = None
-            return
 
         d = dict(
             source_failed=1 if self._is_source_failed else 0,

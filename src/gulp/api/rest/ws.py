@@ -117,12 +117,13 @@ class WsIngestRawWorker:
                     operation: GulpOperation = await GulpOperation.get_by_id(
                         sess, packet.data.operation_id
                     )
-
-                    ctx: GulpContext = await operation.add_context(
+                    
+                    ctx: GulpContext
+                    src: GulpSource
+                    ctx, _ = await operation.add_context(
                         sess, user_id=packet.user_id, name=packet.data.context_name
                     )
-
-                    src: GulpSource = await ctx.add_source(
+                    src, _ = await ctx.add_source(
                         sess, user_id=packet.user_id, name=packet.data.source
                     )
 

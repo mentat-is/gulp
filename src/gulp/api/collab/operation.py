@@ -56,7 +56,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
 
     async def add_context(
         self, sess: AsyncSession, user_id: str, name: str
-    ) -> GulpContext:
+    ) -> tuple[GulpContext, bool]:
         """
         Add a context to the operation, or return the context if already added.
 
@@ -65,7 +65,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             user_id (str): The id of the user adding the context.
             name (str): The name of the context.
         Returns:
-            GulpContext: the context added (or already existing), eager loaded
+            tuple(GulpContext, bool): The context added (or already existing) and a flag indicating if the context was added
         """
         id = GulpContext.make_context_id_key(self.id, name)
 
@@ -81,7 +81,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             MutyLogger.get_instance().debug(
                 f"context {name} already added to operation {self.id}."
             )
-            return ctx
+            return ctx, False
 
         # create new context and link it to operation
         object_data = {
@@ -106,7 +106,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
 
         MutyLogger.get_instance().info(
             f"context {name} added to operation {self.id}.")
-        return ctx
+        return ctx, True
 
     @override
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:

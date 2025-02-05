@@ -554,7 +554,8 @@ class GulpCollab:
             )
 
             # add sources to context and context to operation
-            ctx: GulpContext = await operation.add_context(
+            ctx: GulpContext
+            ctx, _ = await operation.add_context(
                 sess,
                 user_id=admin_user.id,
                 name=TEST_CONTEXT_NAME,

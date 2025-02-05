@@ -75,7 +75,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         sess: AsyncSession,
         user_id: str,
         name: str,
-    ) -> GulpSource:
+    ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
 
@@ -84,7 +84,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             user_id (str): The id of the user adding the source.
             name (str): The name of the source (may be file name, path, etc...)
         Returns:
-            GulpSource: the source added (or already existing), eager loaded
+            tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
         # consider just the last part of the name if it's a path
         bare_name = name.split("/")[-1]
@@ -111,7 +111,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             MutyLogger.get_instance().debug(
                 f"source {src.id}, name={name} already exists in context {self.id}."
             )
-            return src
+            return src, False
 
         # create new source and link it to context
         object_data = {
@@ -138,4 +138,4 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         MutyLogger.get_instance().info(
             f"source {src.id}, name={name} added to context {self.id}."
         )
-        return src
+        return src, True
