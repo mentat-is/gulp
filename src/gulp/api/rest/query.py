@@ -11,6 +11,7 @@ from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpRequestStatus,
+    GulpUserPermission,
 )
 from muty.pydantic import autogenerate_model_example_by_class
 from gulp.api.collab.note import GulpNote
@@ -490,7 +491,11 @@ or a query in the external source DSL.
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            s = await GulpUserSession.check_token(sess, token)
+            if q_options.external_parameters and q_options.external_parameters.ingest_index:
+                permission = GulpUserPermission.INGEST
+            else:
+                permission = GulpUserPermission.READ
+            s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
 
         # build query
@@ -645,7 +650,11 @@ async def query_sigma_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            s = await GulpUserSession.check_token(sess, token)
+            if q_options.external_parameters and q_options.external_parameters.ingest_index:
+                permission = GulpUserPermission.INGEST
+            else:
+                permission = GulpUserPermission.READ
+            s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
 
         # convert sigma rule/s using pysigma
@@ -764,7 +773,11 @@ async def query_stored_handler(
         queries: list[GulpQuery] = []
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            s = await GulpUserSession.check_token(sess, token)
+            if q_options.external_parameters and q_options.external_parameters.ingest_index:
+                permission = GulpUserPermission.INGEST
+            else:
+                permission = GulpUserPermission.READ
+            s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
 
             # get queries
