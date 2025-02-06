@@ -91,7 +91,7 @@ class Plugin(GulpPluginBase):
         if not keep_warnings:
             del d["Parsing Warnings"]
 
-        event_original=d
+        event_original=str(d)
         if keep_files:
             event_original=memoryview(record.__data__).hex() 
 
