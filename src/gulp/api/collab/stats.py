@@ -71,6 +71,12 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         default_factory=list,
         doc="The errors that occurred during processing.",
     )
+    # TODO: consider to remove this column and convert "status" as a String column instead, to ease comparison
+    completed: Mapped[Optional[str]] = mapped_column(
+        String,
+        default="0",
+        doc="to easily filter against completion: '0' indicates requests still running, '1' indicates completed (done, canceled or failed)",
+    )
     source_processed: Mapped[Optional[int]] = mapped_column(
         Integer, default=0, doc="The number of sources processed."
     )
@@ -194,7 +200,6 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
     async def cancel(
         self,
         sess: AsyncSession,
-        ws_id: str,
         user_id: str,
     ):
         """
@@ -202,7 +207,6 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
 
         Args:
             sess (AsyncSession): The database session to use.
-            ws_id (str): The websocket ID.
             user_id (str): The user ID who cancels the stats.
         """
         # expires in 5 minutes, allow any loop to finish
@@ -212,9 +216,10 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             {
                 "status": GulpRequestStatus.CANCELED,
                 "time_expire": time_expire,
+                "completed": "1",
                 "time_finished": muty.time.now_msec(),
             },
-            ws_id=ws_id,
+            ws_id=None,
             user_id=user_id,
             req_id=self.id,
             ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
@@ -402,7 +407,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                     (self.time_finished - self.time_created) / 1000,
                 )
             )
-
+            self.completed = "1"
         # update the instance (will update websocket too)
         await super().update(
             sess,

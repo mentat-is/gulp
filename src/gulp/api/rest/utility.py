@@ -23,6 +23,8 @@ from gulp.api.rest.server_utils import (
     ServerUtils,
 )
 from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpRequestStatus,
     GulpUserPermission,
 )
 from gulp.config import GulpConfig
@@ -68,7 +70,6 @@ async def request_cancel_handler(
     req_id_to_cancel: Annotated[
         str, Query(description="request id to cancel.", example=TEST_REQ_ID)
     ],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -81,11 +82,60 @@ async def request_cancel_handler(
             s = await GulpUserSession.check_token(
                 sess, token, obj=stats, enforce_owner=True
             )
-            await stats.cancel(sess, ws_id, s.user_id)
+            await stats.cancel(sess, s.user_id)
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
+
+@router.post(
+    "/request_list",
+    tags=["request"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "test_req"},
+                    }
+                }
+            }
+        }
+    },
+    summary="get requests list.",
+    description="""
+get a list of all requests (identified by their `req_id`) issued by the calling user.
+
+- if token has `admin` permission, all requests are returned.
+
+""",
+)
+async def request_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    running_only: Annotated[
+        bool, Query(description="if set, only return requests that are still running.")
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        if running_only:
+            # only return ongoing requests
+            flt = GulpCollabFilter(completed=["0"])            
+        else:
+            # all requests
+            flt = None
+        
+        stats: list[dict] = await GulpRequestStats.get_by_filter_wrapper(token, flt)
+        return JSendResponse.success(req_id=req_id, data=stats)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
 @router.post(
     "/restart_server",

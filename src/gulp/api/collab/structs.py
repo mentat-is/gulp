@@ -147,6 +147,7 @@ class GulpCollabFilter(BaseModel):
     - filtering by basic types in `GulpCollabBase` and `GulpCollabObject` (for collab objects) is always supported.
     - use % for wildcard instead of * (SQL LIKE operator).
     - custom fields are supported via `model_extra` as k: [v,v,v,...] pairs where v are strings to match against the column (case insensitive/OR match).
+        i.e. `{"custom_field": ["val1", "val2"]}` will match all objects where `custom_field` is either "val1" or "val2".
     """
 
     # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
@@ -339,9 +340,14 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.model_extra:
             # any extra fields to filter on (case-insensitive, OR, expects v to be an array of strings)
             for k, v in self.model_extra.items():
-                if k in type.columns:
-                    # q = q.filter(self._case_insensitive_or_ilike(getattr(type, k), v))
-                    q = q.filter(self._array_contains_any(getattr(type, k), v))
+                if hasattr(type, k):
+                    column = getattr(type, k)
+                    # check if column type is ARRAY using SQLAlchemy's inspection
+                    is_array = isinstance(getattr(column, 'type', None), ARRAY)                    
+                    if is_array:
+                        q = q.filter(self._array_contains_any(column, v))
+                    else:
+                        q = q.filter(self._case_insensitive_or_ilike(column, v))
 
         if self.doc_ids and "doc_ids" in type.columns:
             # return all collab objects that have at least one document with _id in doc_ids
