@@ -150,7 +150,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     a GulpQueryFilter defines a filter for the query API.
 
     - query is built using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query.
-    - further key,value pairs are allowed and are intended as k: [v1, v2, ...] filters.
+    - further not defined key,value pairs are allowed and are intended as k: [v1, v2, ...] filters: they matches any of the values as OR, i.e.: `{"key": ["v1", "v2"]}` matches `key: v1 OR key: v2`.
     """
 
     model_config = ConfigDict(

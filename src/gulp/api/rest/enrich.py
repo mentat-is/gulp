@@ -14,6 +14,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
@@ -23,6 +24,46 @@ from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
+
+async def _tag_documents_internal(
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    index: str,
+    doc_ids: list[str],
+    tags: list[str],
+) -> None:
+    """
+    runs in a worker process to tag the given documents
+    """
+    
+    # build documents list
+    MutyLogger.get_instance().debug("---> _tag_documents_internal, tagging %d docs with tags=%s..." % (len(doc_ids), tags))
+    docs: list[dict]= [{ "_id": d, "gulp.tags": tags } for d in doc_ids]
+    status: GulpRequestStatus = GulpRequestStatus.DONE
+    error: str = None
+
+    try:
+        await GulpOpenSearch.get_instance().update_documents(
+            index, docs, wait_for_refresh=True
+        )
+    except Exception as ex:
+        status = GulpRequestStatus.FAILED
+        error = muty.log.exception_to_string(ex, with_full_traceback=True)
+    finally:
+        # also send a GulpQueryDonePacket
+        p = GulpQueryDonePacket(
+            status=status,
+            error=error,
+            total_hits=len(doc_ids),
+        )
+        GulpSharedWsQueue.get_instance().put(
+            type=GulpWsQueueDataType.ENRICH_DONE,
+            ws_id=ws_id,
+            user_id=user_id,
+            req_id=req_id,
+            data=p.model_dump(exclude_none=True),
+        )
 
 
 async def _enrich_documents_internal(
@@ -253,3 +294,83 @@ async def enrich_single_id_handler(
     finally:
         if mod:
             await mod.unload()
+
+@router.post(
+    "/tag_documents",
+    response_model=JSendResponse,
+    tags=["enrich"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="Add tags to document/s.",
+    description="""
+Tag important documents, so they can be queried back via `gulp.tags` provided via `GulpQueryFilter` as custom key.
+
+- token must have the `edit` permission.
+- the enriched documents are updated in the Gulp `index`.
+""",
+)
+async def tag_documents_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    doc_ids: Annotated[
+        list[str],
+        Body(description="The `_id` of the documents to be tagged.")],
+    tags: Annotated[list[str], Body(description="The tags to add.")],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+            user_id = s.user_id
+
+            # create a stats, just to allow request canceling
+            await GulpRequestStats.create(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=None,
+                context_id=None,
+            )
+
+        # spawn a task which runs the enrichment in a worker process
+        # run ingestion in a coroutine in one of the workers
+        MutyLogger.get_instance().debug("spawning tagging task ...")
+        kwds = dict(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            doc_ids=doc_ids,
+            tags=tags            
+        )
+
+        # print(json.dumps(kwds, indent=2))
+        async def worker_coro(kwds: dict):
+            await GulpProcess.get_instance().process_pool.apply(
+                _tag_documents_internal, kwds=kwds
+            )
+
+        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+
+        # and return pending
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
