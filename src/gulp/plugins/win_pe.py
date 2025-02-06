@@ -81,7 +81,6 @@ class Plugin(GulpPluginBase):
 
         d=record.dump_dict()
         if entropy_checks:
-            peutils.
             d["peutils.is_suspicious"] = peutils.is_suspicious(record)
             d["peutils.is_probably_packed"] = peutils.is_probably_packed(record)
             d["peutils.is_valid"] = peutils.is_valid(record)
