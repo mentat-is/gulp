@@ -60,7 +60,6 @@ numpy==2.1.3
 opensearch-py==2.7.1
 packaging==24.1
 pefile==2024.8.26
-peutils==0.0.122
 pluggy==1.5.0
 prettytable==3.12.0
 propcache==0.2.0

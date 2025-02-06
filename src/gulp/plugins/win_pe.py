@@ -19,7 +19,6 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("pefile", ">=2024.8.26")
-muty.os.check_and_install_package("peutils", ">=0.0.122")
 import pefile
 import peutils
 
@@ -82,6 +81,7 @@ class Plugin(GulpPluginBase):
 
         d=record.dump_dict()
         if entropy_checks:
+            peutils.
             d["peutils.is_suspicious"] = peutils.is_suspicious(record)
             d["peutils.is_probably_packed"] = peutils.is_probably_packed(record)
             d["peutils.is_valid"] = peutils.is_valid(record)
@@ -119,12 +119,6 @@ class Plugin(GulpPluginBase):
         timestamp = d["FILE_HEADER"]["TimeDateStamp"]["Value"].split(" ")[0]
         timestamp = int(timestamp, 0)
         timestamp = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc).isoformat()
-
-        print("_____________")
-        with open("/tmp/test", "w") as o:
-            o.write(str(final))
-        print("_____________")
-        print("\n"*20)
 
         return GulpDocument(
             self,
