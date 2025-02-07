@@ -80,6 +80,10 @@ class GulpPluginParameters(BaseModel):
                         ("mftecmd_csv.json", "record"),
                         ("mftecmd_csv.json", "file"),
                     ],
+                    "custom_parameters": {
+                        "custom1": "parameter1",
+                        "custom2": "parameter2",
+                    }
                 }
             ]
         },
