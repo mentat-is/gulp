@@ -9,16 +9,13 @@
         "event_code": "process.name",
         "agent_type": "lin_syslog",
         "fields": {
-          "gulp.unmapped.hostname": {
+          "hostname": {
             "ecs": "host.hostname"
           },
-          "gulp.unmapped.timestamp": {
-            "ecs": "@timestamp"
-          },
-          "gulp.unmapped.pid": {
+          "pid": {
             "ecs": "process.pid"
           },
-          "gulp.unmapped.process": {
+          "process": {
             "ecs": "process.name"
           }
         }

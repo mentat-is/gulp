@@ -3,8 +3,11 @@ import muty.os
 import muty.string
 import muty.xml
 import muty.time
+import re
+import json
 import dateutil, datetime
 
+from gulp.config import GulpConfig
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping
@@ -44,10 +47,16 @@ class Plugin(GulpPluginBase):
             #TODO: something like this? 
             # r"^Connection from (?<ip_src>([0-9]+.)+) port (?<src_port>([0-9]+)) on (?<ip_dst>([0-9]+.)+) port (?<dst_port>([0-9]+)).*$"
             # need to verify the format is always the same no matter the version of ssh (also case and separators)
-            record["source.ip"] = ""
-            record["source.port"] = ""
-            record["destination.ip"] = ""
-            record["destination.port"] = ""
+            #TODO: also detect failed logins and mark them as such?
+            sshd_regex = r"^Connection from (?P<ip_src>([0-9]+.)+) port (?P<src_port>([0-9]+)) on (?P<ip_dst>([0-9]+.)+) port (?P<dst_port>([0-9]+)).*$"
+            
+            matches = re.match(sshd_regex, info)
+            if matches:
+                groups = matches.groupdict()
+                record["source.ip"] = groups.get("ip_src")
+                record["source.port"] = groups.get("port_src")
+                record["destination.ip"] = groups.get("ip_dst")
+                record["destination.port"] = groups.get("port_dst")
         
         return record
 
@@ -62,15 +71,13 @@ class Plugin(GulpPluginBase):
 
         ts = muty.time.datetime_to_nanos_from_unix_epoch(timestamp)
         record["gulp.timestamp"] = ts
+        
+        del record["gulp.unmapped.timestamp"]
         #record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
 
         # parse known message types (e.g. sshd)
         record = self._extra_parse(record)
         
-        for k,v in record.copy().items():
-            mapped = self._process_key(k, v)
-            record.update(mapped)
-
         return record
 
     async def ingest_file(
@@ -105,7 +112,7 @@ class Plugin(GulpPluginBase):
         )
 
         plugin_params.custom_parameters["regex"] = regex
-
+    
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         res = await lower.ingest_file(
             sess=sess,
