@@ -324,7 +324,8 @@ class GulpPluginBase(ABC):
         # for stacked plugins
         self._upper_record_to_gulp_document_fun: Callable = None
         self._upper_enrich_documents_chunk_fun: Callable = None
-
+        self._upper_instance: GulpPluginBase = None
+        
         # to have faster access to the plugin filename
         self.filename = os.path.basename(self.path)
         self.bare_filename = os.path.splitext(self.filename)[0]
@@ -1175,6 +1176,7 @@ class GulpPluginBase(ABC):
         # set the upper plugin as stacked, so it can call our (lower) functions
         p._upper_record_to_gulp_document_fun = self._record_to_gulp_document
         p._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
+        p._upper_instance = self
 
         # set the lower plugin as stacked
         p._stacked = True
@@ -1306,8 +1308,8 @@ class GulpPluginBase(ABC):
             fields_mapping: GulpMappingField, d: dict, source_value: Any
         ) -> dict:
             # fields are added to d if found
-
-            # print(fields_mapping)
+            
+            #print(fields_mapping)
             mapping = fields_mapping.ecs
             if isinstance(mapping, str):
                 # single mapping
@@ -1536,7 +1538,7 @@ class GulpPluginBase(ABC):
             ValueError: if a specific parameter is required but not found in plugin_params.
 
         """
-
+        
         async def _setup_mapping(plugin_params: GulpPluginParameters) -> None:
             if plugin_params.mappings:
                 # mappings dict provided
@@ -1657,7 +1659,16 @@ class GulpPluginBase(ABC):
 
         # set mappings
         await _setup_mapping(plugin_params)
-
+        
+        if self._stacked: 
+            # if we are in a stacked plugin, and we are the lower
+            # pass mappings we are called with to the upper, so
+            # the upper can apply them           
+            if not self._upper_instance._mapping_id:
+                self._upper_instance._mapping_id = self._mapping_id 
+            if not self._upper_instance._mappings:
+                self._upper_instance._mappings = self._mappings
+            
         # initialize index types k,v mapping from opensearch
         self._index_type_mapping = (
             await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
@@ -2098,6 +2109,7 @@ class GulpPluginBase(ABC):
         self._index_type_mapping = None
         self._upper_record_to_gulp_document_fun = None
         self._upper_enrich_documents_chunk_fun = None
+        self._upper_instance = None
         self._docs_buffer.clear()
         self._docs_buffer = None
         self._extra_docs.clear()
