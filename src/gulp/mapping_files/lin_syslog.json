@@ -1,0 +1,27 @@
+{
+    "metadata": {
+      "plugin": [
+        "lin_syslog.py"
+      ]
+    },
+    "mappings": {
+      "syslog": {
+        "event_code": "process.name",
+        "agent_type": "lin_syslog",
+        "fields": {
+          "gulp.unmapped.hostname": {
+            "ecs": "host.hostname"
+          },
+          "gulp.unmapped.timestamp": {
+            "ecs": "@timestamp"
+          },
+          "gulp.unmapped.pid": {
+            "ecs": "process.pid"
+          },
+          "gulp.unmapped.process": {
+            "ecs": "process.name"
+          }
+        }
+      }
+    }
+  }

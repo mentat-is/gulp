@@ -3,7 +3,7 @@ import muty.os
 import muty.string
 import muty.xml
 import muty.time
-
+import dateutil, datetime
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
@@ -18,7 +18,7 @@ from gulp.structs import GulpPluginParameters
 
 class Plugin(GulpPluginBase):
     """
-    linux auth.log plugin stacked over the REGEX plugin
+    linux syslog format plugin (auth.log, boot.log, kern.log, etc) stacked over the regex plugin
     """
 
     def type(self) -> list[GulpPluginType]:
@@ -26,28 +26,19 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return """linux auth.log plugin stacked over the REGEX plugin"""
+        return """linux syslog format plugin (auth.log, boot.log, kern.log, etc) stacked over the regex plugin"""
 
     def display_name(self) -> str:
-        return "lin_auth"
+        return "lin_syslog"
 
     @override
     def depends_on(self) -> list[str]:
         return ["regex"]
 
-    @override
-    async def _record_to_gulp_document(
-        self, record: dict, record_idx: int, **kwargs
-    ) -> dict:
-        ts = muty.time.string_to_nanos_from_unix_epoch(record["gulp.unmapped.timestamp"])
-        
-        record["agent.type"] = self.display_name() #override agent.type
-        record["@timestamp"] = muty.time.number_to_iso8601(ts)
-        record["gulp.timestamp"] = ts
-        record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
-
+    def _extra_parse(self, record:dict) -> dict:
+        process = record.get("gulp.unmapped.process", "").lower()
         #sshd logs should be treated differently as we can attempt to extract ip information
-        if record.get("gulp.unmapped.process", "").lower() == "sshd":
+        if process == "sshd":
             info = record.get("gulp.unmapped.info", "")
 
             #TODO: something like this? 
@@ -57,7 +48,29 @@ class Plugin(GulpPluginBase):
             record["source.port"] = ""
             record["destination.ip"] = ""
             record["destination.port"] = ""
-            
+        
+        return record
+
+    @override
+    async def _record_to_gulp_document(
+        self, record: dict, record_idx: int, **kwargs
+    ) -> dict:
+        #ts = muty.time.string_to_nanos_from_unix_epoch(record["gulp.unmapped.timestamp"])
+        timestamp = dateutil.parser.parse(record.get("gulp.unmapped.timestamp"))
+        record["agent.type"] = self.display_name() #override agent.type
+        record["@timestamp"] = timestamp.astimezone(tz=datetime.timezone.utc).isoformat()
+
+        ts = muty.time.datetime_to_nanos_from_unix_epoch(timestamp)
+        record["gulp.timestamp"] = ts
+        #record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
+
+        # parse known message types (e.g. sshd)
+        record = self._extra_parse(record)
+        
+        for k,v in record.copy().items():
+            mapped = self._process_key(k, v)
+            record.update(mapped)
+
         return record
 
     async def ingest_file(
@@ -84,15 +97,13 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
             return GulpRequestStatus.FAILED
 
-        regex = r"".join([r"^(?P<timestamp>(?P<month>\S{3})?\s",
-                r"{1,2}(?P<day>\S+)\s",
-                r"(?P<time>\S+))\s",
+        regex = r"".join([r"^(?P<timestamp>.+?)\s",
                 r"(?P<hostname>\S+)\s"
                 r"(?P<process>.+?(?=\[)|.+?(?=))[^a-zA-Z0-9]",
                 r"(?P<pid>\d{1,7}|)[^a-zA-Z0-9]{1,3}(?P<info>.*)$"
             ]
         )
-        
+
         plugin_params.custom_parameters["regex"] = regex
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
