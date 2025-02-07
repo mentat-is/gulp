@@ -28,6 +28,8 @@ PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/
 
 # also test paid plugins
 PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
+
+> setting `PATH_PLUGIN_EXTRA` and `PATH_MAPPING_FILES_EXTRA` is not necessary when using the devcontainer to test.
 ~~~
 
 ## running single tests manually
