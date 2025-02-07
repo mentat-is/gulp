@@ -62,7 +62,8 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 ### enrichment
 
-- use [`enrich_example`](../src/gulp/plugins/enrich_example.py) plugin as a base, currently we have enrichment plugins (i.e. `whois enrichment`) on our paid offer only.
+- [enrich_whois](../src/gulp/plugins/enrich_whois.py) to enrich one or more documents with whois information
+- ...
 
 # architecture
 
