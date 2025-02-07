@@ -208,10 +208,6 @@ class GulpQueryParameters(BaseModel):
                     "external_parameters": autogenerate_model_example_by_class(
                         GulpQueryExternalParameters
                     ),
-                    "custom_parameters": {
-                        "custom1": "parameter1",
-                        "custom2": "parameter2",
-                    }
                 }
             ]
         },
