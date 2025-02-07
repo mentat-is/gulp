@@ -1,0 +1,164 @@
+------------ Fri Feb 07 13:28:20 UTC 2025 ------------
+hostname: Name or service not known
+make-ssl-cert: Could not get FQDN, using '(none)'.
+make-ssl-cert: You may want to fix your /etc/hosts and/or DNS setup and run
+make-ssl-cert: 'make-ssl-cert generate-default-snakeoil --force-overwrite'
+make-ssl-cert: again.
+passwd: password changed.
+sudo: unable to resolve host (none): Name or service not known
+dbus-daemon[572]: [session uid=1000 pid=572] Activating service name='org.gtk.vfs.Daemon' requested by ':1.0' (uid=1000 pid=574 comm="" label="unconfined")
+dbus-daemon[572]: [session uid=1000 pid=572] Successfully activated service 'org.gtk.vfs.Daemon'
+dbus-daemon[572]: [session uid=1000 pid=572] Activating service name='org.gtk.vfs.Metadata' requested by ':1.0' (uid=1000 pid=574 comm="" label="unconfined")
+fuse: device not found, try 'modprobe fuse' first
+dbus-daemon[572]: [session uid=1000 pid=572] Successfully activated service 'org.gtk.vfs.Metadata'
+A connection to the bus can't be made
+Using CD-ROM mount point /cdrom/
+Identifying... [3e8f6d5dfaa47681296b3ce4f13a567b-2]
+Scanning disc for index files...
+Found 4 package indexes, 0 source indexes, 0 translation indexes and 1 signatures
+Found label 'Ubuntu 24.04.1 LTS _Noble Numbat_ - Release amd64 (20240827.1)'
+This disc is called: 
+'Ubuntu 24.04.1 LTS _Noble Numbat_ - Release amd64 (20240827.1)'
+Copying package lists...gpgv: Signature made Tue Aug 27 16:22:46 2024 UTC
+gpgv:                using RSA key 843938DF228D22F7B3742BC0D94AA3F0EFE21092
+gpgv: Good signature from "Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>"
+gpgv: asserted signer '843938DF228D22F7B3742BC0D94AA3F0EFE21092' with algo rsa4096
+Reading Package Indexes... 0%[[0;32m  OK  [0m] Finished [0;1;39mufw.service[0m - Uncomplicated firewall.
+[[0;32m  OK  [0m] Reached target [0;1;39mnetwork-pre.target[0m - Preparation for Network.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup.service[0m - Create Volatile Files and Directories.
+         Starting [0;1;39msystemd-journal-catalog-update.service[0m - Rebuild Journal Catalog...
+         Starting [0;1;39msystemd-oomd.service[0m - Userspace Out-Of-Memory (OOM) Killer...
+         Starting [0;1;39msystemd-resolved.service[0m - Network Name Resolution...
+         Starting [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization...
+         Starting [0;1;39msystemd-update-utmp.service[0m - Record System Boot/Shutdown in UTMP...
+         Mounting [0;1;39mproc-sys-fs-binfmt_misc.mount[0m - Arbitrary Executable File Formats File System...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-update-utmp.service[0m - Record System Boot/Shutdown in UTMP.
+[[0;32m  OK  [0m] Mounted [0;1;39mproc-sys-fs-binfmt_misc.mount[0m - Arbitrary Executable File Formats File System.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-binfmt.service[0m - Set Up Additional Binary Formats.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-oomd.service[0m - Userspace Out-Of-Memory (OOM) Killer.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization.
+[[0;32m  OK  [0m] Reached target [0;1;39mtime-set.target[0m - System Time Set.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-journal-catalog-update.service[0m - Rebuild Journal Catalog.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-resolved.service[0m - Network Name Resolution.
+[[0;32m  OK  [0m] Reached target [0;1;39mnss-lookup.target[0m - Host and Network Name Lookups.
+[[0;32m  OK  [0m] Finished [0;1;39mconsole-setup.service[0m - Set console font and keymap.
+[[0;32m  OK  [0m] Finished [0;1;39msnapd.apparmor.service[0m - Load AppArmor profiles managed internally by snapd.
+[[0;32m  OK  [0m] Finished [0;1;39mldconfig.service[0m - Rebuild Dynamic Linker Cache.
+         Starting [0;1;39msystemd-update-done.service[0m - Update is Completed...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-update-done.service[0m - Update is Completed.
+[[0;32m  OK  [0m] Reached target [0;1;39msysinit.target[0m - System Initialization.
+[[0;32m  OK  [0m] Started [0;1;39mcups.path[0m - CUPS Scheduler.
+[[0;32m  OK  [0m] Started [0;1;39mwhoopsie.path[0m - Start whoopsie on modification of the /var/crash directory.
+[[0;32m  OK  [0m] Started [0;1;39manacron.timer[0m - Trigger anacron every hour.
+[[0;32m  OK  [0m] Started [0;1;39mapt-daily.timer[0m - Daily apt download activities.
+[[0;32m  OK  [0m] Started [0;1;39mapt-daily-upgrade.timer[0m - Daily apt upgrade and clean activities.
+[[0;32m  OK  [0m] Started [0;1;39mdpkg-db-backup.timer[0m - Daily dpkg database backup timer.
+[[0;32m  OK  [0m] Started [0;1;39me2scrub_all.timer[0m - Periodic ext4 Online Metadata Check for All Filesystems.
+[[0;32m  OK  [0m] Started [0;1;39mfstrim.timer[0m - Discard unused filesystem blocks once a week.
+[[0;32m  OK  [0m] Started [0;1;39mfwupd-refresh.timer[0m - Refresh fwupd metadata regularly.
+[[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m - Daily rotation of log files.
+[[0;32m  OK  [0m] Started [0;1;39mman-db.timer[0m - Daily man-db regeneration.
+[[0;32m  OK  [0m] Started [0;1;39mmotd-news.timer[0m - Message of the Day.
+[[0;32m  OK  [0m] Started [0;1;39msysstat-collect.timer[0m - Run system activity accounting tool every 10 minutes.
+[[0;32m  OK  [0m] Started [0;1;39msysstat-summary.timer[0m - Generate summary of yesterday's process accounting.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-tmpfiles-clean.timer[0m - Daily Cleanup of Temporary Directories.
+[[0;32m  OK  [0m] Reached target [0;1;39mpaths.target[0m - Path Units.
+[[0;32m  OK  [0m] Listening on [0;1;39mavahi-daemon.socket[0m - Avahi mDNS/DNS-SD Stack Activation Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39mcloud-init-hotplugd.socket[0m - cloud-init hotplug hook socket.
+[[0;32m  OK  [0m] Listening on [0;1;39mcups.socket[0m - CUPS Scheduler.
+[[0;32m  OK  [0m] Listening on [0;1;39mdbus.socket[0m - D-Bus System Message Bus Socket.
+         Starting [0;1;39msnapd.socket[0m - Socket activation for snappy daemon...
+[[0;32m  OK  [0m] Listening on [0;1;39muuidd.socket[0m - UUID daemon activation socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msnapd.socket[0m - Socket activation for snappy daemon.
+[[0;32m  OK  [0m] Reached target [0;1;39msockets.target[0m - Socket Units.
+[[0;32m  OK  [0m] Reached target [0;1;39mbasic.target[0m - Basic System.
+         Starting [0;1;39mapport.service[0m - automatic crash report generation...
+         Starting [0;1;39mavahi-daemon.service[0m - Avahi mDNS/DNS-SD Stack...
+         Starting [0;1;39mdbus.service[0m - D-Bus System Message Bus...
+[[0;32m  OK  [0m] Started [0;1;39mdmesg.service[0m - Save initial kernel messages after boot.
+         Starting [0;1;39me2scrub_reap.service[0m - Remove Stale Online ext4 Metadata Check Snapshots...
+[[0;32m  OK  [0m] Reached target [0;1;39mgetty.target[0m - Login Prompts.
+         Starting [0;1;39mgnome-remote-desktop.service[0m - GNOME Remote Desktop...
+         Starting [0;1;39mgpu-manager.service[0m - Detect the available GPUs and deal with any system changes...
+         Starting [0;1;39mpolkit.service[0m - Authorization Manager...
+         Starting [0;1;39mpower-profiles-daemon.service[0m - Power Profiles daemon...
+         Starting [0;1;39mrsyslog.service[0m - System Logging Service...
+[[0;32m  OK  [0m] Reached target [0;1;39mgetty-pre.target[0m - Preparation for Logins.
+         Starting [0;1;39msnapd.seeded.service[0m - Wait until snapd is fully seeded...
+         Starting [0;1;39msnapd.service[0m - Snap Daemon...
+[[0;32m  OK  [0m] Reached target [0;1;39mnss-user-lookup.target[0m - User and Group Name Lookups.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-nss.socket[0m - SSSD NSS Service responder socket.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-autofs.socket[0m - SSSD AutoFS Service responder socket.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-pac.socket[0m - SSSD PAC Service responder socket.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-pam-priv.socket[0m - SSSD PAM Service responder private socket.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-pam.socket[0m - SSSD PAM Service responder socket.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-ssh.socket[0m - SSSD SSH Service responder socket.
+[[0;1;38;5;185mDEPEND[0m] Dependency failed for [0;1;39msssd-sudo.socket[0m - SSSD Sudo Service responder socket.
+         Starting [0;1;39maccounts-daemon.service[0m - Accounts Service...
+[[0;32m  OK  [0m] Started [0;1;39mcron.service[0m - Regular background program processing daemon.
+         Starting [0;1;39mswitcheroo-control.service[0m - Switcheroo Control Proxy service...
+         Starting [0;1;39msysstat.service[0m - Resets System Activity Logs...
+         Starting [0;1;39msystemd-logind.service[0m - User Login Management...
+         Starting [0;1;39mudisks2-inhibit.service[0m - inhibit disk automounting...
+         Starting [0;1;39mzfs-share.service[0m - ZFS file system shares...
+[[0;32m  OK  [0m] Started [0;1;39mzfs-zed.service[0m - ZFS Event Daemon (zed).
+[[0;32m  OK  [0m] Started [0;1;39mdbus.service[0m - D-Bus System Message Bus.
+[[0;32m  OK  [0m] Finished [0;1;39me2scrub_reap.service[0m - Remove Stale Online ext4 Metadata Check Snapshots.
+[[0;32m  OK  [0m] Finished [0;1;39mzfs-share.service[0m - ZFS file system shares.
+[[0;32m  OK  [0m] Started [0;1;39mavahi-daemon.service[0m - Avahi mDNS/DNS-SD Stack.
+[[0;32m  OK  [0m] Reached target [0;1;39mzfs.target[0m - ZFS startup target.
+         Starting [0;1;39mNetworkManager.service[0m - Network Manager...
+         Starting [0;1;39mwpa_supplicant.service[0m - WPA supplicant...
+[[0;32m  OK  [0m] Started [0;1;39mswitcheroo-control.service[0m - Switcheroo Control Proxy service.
+         Starting [0;1;39malsa-restore.service[0m - Save/Restore Sound Card State...
+[[0;32m  OK  [0m] Finished [0;1;39malsa-restore.service[0m - Save/Restore Sound Card State.
+[[0;32m  OK  [0m] Reached target [0;1;39msound.target[0m - Sound Card.
+[[0;32m  OK  [0m] Finished [0;1;39mgpu-manager.service[0m - Detect the available GPUs and deal with any system changes.
+[[0;32m  OK  [0m] Finished [0;1;39msysstat.service[0m - Resets System Activity Logs.
+[[0;32m  OK  [0m] Finished [0;1;39mudisks2-inhibit.service[0m - inhibit disk automounting.
+         Starting [0;1;39mudisks2.service[0m - Disk Manager...
+[[0;32m  OK  [0m] Started [0;1;39msystemd-logind.service[0m - User Login Management.
+[[0;32m  OK  [0m] Started [0;1;39mwpa_supplicant.service[0m - WPA supplicant.
+[[0;32m  OK  [0m] Started [0;1;39mpolkit.service[0m - Authorization Manager.
+         Starting [0;1;39mModemManager.service[0m - Modem Manager...
+[[0;32m  OK  [0m] Started [0;1;39mgnome-remote-desktop.service[0m - GNOME Remote Desktop.
+[[0;32m  OK  [0m] Started [0;1;39mpower-profiles-daemon.service[0m - Power Profiles daemon.
+[[0;32m  OK  [0m] Started [0;1;39maccounts-daemon.service[0m - Accounts Service.
+[[0;32m  OK  [0m] Started [0;1;39mrsyslog.service[0m - System Logging Service.
+[[0;32m  OK  [0m] Started [0;1;39mudisks2.service[0m - Disk Manager.
+         Starting [0;1;39msystemd-hostnamed.service[0m - Hostname Service...
+[[0;32m  OK  [0m] Started [0;1;39msystemd-hostnamed.service[0m - Hostname Service.
+         Starting [0;1;39mNetworkManager-dispatcher.service[0m - Network Manager Script Dispatcher Service...
+[[0;32m  OK  [0m] Started [0;1;39mNetworkManager-dispatcher.service[0m - Network Manager Script Dispatcher Service.
+[[0;32m  OK  [0m] Finished [0;1;39mapport.service[0m - automatic crash report generation.
+[[0;32m  OK  [0m] Started [0;1;39mModemManager.service[0m - Modem Manager.
+[[0;32m  OK  [0m] Started [0;1;39mNetworkManager.service[0m - Network Manager.
+[[0;32m  OK  [0m] Reached target [0;1;39mnetwork.target[0m - Network.
+         Starting [0;1;39mNetworkManager-wait-online.service[0m - Network Manager Wait Online...
+         Starting [0;1;39mcups.service[0m - CUPS Scheduler...
+         Starting [0;1;39mopenvpn.service[0m - OpenVPN service...
+[[0;32m  OK  [0m] Started [0;1;39munattended-upgrades.service[0m - Unattended Upgrades Shutdown.
+[[0;32m  OK  [0m] Finished [0;1;39mopenvpn.service[0m - OpenVPN service.
+[[0;32m  OK  [0m] Started [0;1;39mcups.service[0m - CUPS Scheduler.
+[[0;32m  OK  [0m] Finished [0;1;39mNetworkManager-wait-online.service[0m - Network Manager Wait Online.
+         Starting [0;1;39mcloud-init.service[0m - Initial cloud-init job (metadata service crawler)...
+[[0;32m  OK  [0m] Started [0;1;39msnapd.service[0m - Snap Daemon.
+         Starting [0;1;39msnapd.hold.service[0m - Holds Snappy daemon refresh...
+[[0;32m  OK  [0m] Finished [0;1;39msnapd.hold.service[0m - Holds Snappy daemon refresh.
+[[0;32m  OK  [0m] Started [0;1;39msnap.firefox.hook.configure-9e7f0d70-73a9-45ad-b75d-72a5988ad862.scope[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mcloud-init.service[0m - Initial cloud-init job (metadata service crawler).
+[[0;32m  OK  [0m] Reached target [0;1;39mcloud-config.target[0m - Cloud-config availability.
+[[0;32m  OK  [0m] Reached target [0;1;39mnetwork-online.target[0m - Network is Online.
+[[0;32m  OK  [0m] Started [0;1;39mupdate-notifier-download.timer[0m - Download data for packages that failed at package install time.
+[[0;32m  OK  [0m] Started [0;1;39mupdate-notifier-motd.timer[0m - Check to see whether there is a new version of Ubuntu available.
+[[0;32m  OK  [0m] Reached target [0;1;39mtimers.target[0m - Timer Units.
+         Starting [0;1;39mcloud-config.service[0m - Apply the settings specified in cloud-config...
+[[0;32m  OK  [0m] Started [0;1;39mcups-browsed.service[0m - Make remote CUPS printers available locally.
+         Starting [0;1;39mkerneloops.service[0m - Tool to automatically collect and submit kernel crash signatures...
+[[0;32m  OK  [0m] Started [0;1;39mkerneloops.service[0m - Tool to automatically collect and submit kernel crash signatures.
+[[0;32m  OK  [0m] Finished [0;1;39mcloud-config.service[0m - Apply the settings specified in cloud-config.
+         Starting [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions.
+         Starting [0;1;39mgdm.service[0m - GNOME Display Manager...
+         Starting [0;1;39mplymouth-quit-wait.service[0m - Hold until boot process finishes up...
+[[0;32m  OK  [0m] Started [0;1;39mgdm.service[0m - GNOME Display Manager.
