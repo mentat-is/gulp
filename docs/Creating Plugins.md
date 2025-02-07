@@ -12,9 +12,6 @@
     - [enrichment plugins](#enrichment-plugins)
   - [mapping files](#mapping-files)
     - [example](#example)
-      - [metadata](#metadata)
-        - [mappings](#mappings)
-          - [mapping\_id and fields](#mapping_id-and-fields)
   - [stacked plugins](#stacked-plugins)
     - [flow](#flow)
   - [extension plugins](#extension-plugins-1)
@@ -61,11 +58,11 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 ### extension
 
-TODO
+- use [`example`](../src/gulp/plugins/extension/example.py) plugin as a base, currently we have extension plugins (i.e. support for `OAUTH` login) on our paid offer only.
 
 ### enrichment
 
-TODO
+- use [`enrich_example`](../src/gulp/plugins/enrich_example.py) plugin as a base, currently we have enrichment plugins (i.e. `whois enrichment`) on our paid offer only.
 
 # architecture
 
@@ -135,7 +132,7 @@ the plugins must implement:
 
 ### ingestion plugins
 
-ingestion plugins must implement `ingest_file` and `ingest_raw` (the ingestion entrypoints).
+ingestion plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
 
 > optionally, `ingestion` plugins may implement `_enrich_documents_chunk` to perform enrichment before storing the chunk to Opensearch.
 
@@ -365,41 +362,6 @@ Here's a commented example, further details in the [model definition source](../
 }
 ```
 
-#### metadata
-
-Let's break it down, starting from `metadata`.
-This field contains useful information the server uses to categorize and suggest plugins to its clients.
-
-In particular, `plugin` array lists all (*bare filenames of, i.e. name.py*) plugins which gulp should suggest this mapping for, in our case it's the `csv` plugin.
-
-The next section is the `mappings` section, the core of the mapping file, this is a dictionary of `mapping_ids` with each representing a category of data this mapping file handles.
-
-##### mappings
-
-each key in the `mappings` dictionary is a `mapping_id`, representing a category of data this mapping file handles.
-
-###### mapping_id and fields
-
-this is the mapping itself, and includes `fields` with multiple optional flags as described in the example.
-
-currently defined `mapping` flags are:
-
-- `event_code`
-- `agent_type`
-- `exclude`
-- `include`
-- `timestamp_dayfirst`
-- `timestamp_yearfirst`
-- `timestamp_fuzzy`
-
-each `field` represents a `source` key to be mapped, and may have optional flags as well as described in the example.
-
-currently defined field flags are:
-
-- `is_timestamp_chrome`
-- `multiplier`
-- `extra_doc_with_event_code`
-
 ## stacked plugins
 
 plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can `enrich` it.
@@ -414,7 +376,7 @@ stacking is handled by the engine, which basically does this `for every record` 
 
 - calls plugin's own `_record_to_gulp_document`
 - if there is a plugin stacked on top, calls its `_record_to_gulp_document` with the `GulpDocument` returned as `dict`.
-- if the stacked plugin also implements `_is is called with each chunk of documents`right before` storing in gulp.
+- if the stacked plugin also implements `_enrich_documents_chunk`, this is called with each chunk of documents`right before` storing into gulp.
 
 ```mermaid
 flowchart TD
@@ -423,7 +385,7 @@ flowchart TD
     C --> |Modifies GulpDocument.model_dump| D(Ingest events)
 ```
 
-so, as every other plugin, they must implement `_record_to_gulp_document`, but instead of a `GulpDocument` object they receives (and returns) `record` as its `dict` representation: here they can postprocess the record (i.e. change/add/delete fields).
+so, basically, as every other plugin they must implement `_record_to_gulp_document`, but instead of a `GulpDocument` object they receives (and returns) `record` as its `dict` representation: here they can postprocess the record (i.e. change/add/delete fields).
 
 - they must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed)
 
@@ -434,8 +396,6 @@ so, as every other plugin, they must implement `_record_to_gulp_document`, but i
 extensions plugins starts with gulp and mostly runs **in the main process context**, even if it is supported to spwan them across worker processes.
 
 they may be used to extend gulp API, i.e. implement new sign-in code, ...
-
-- they are currently not used, just a [test implementation](../src/gulp/plugins/extension/example.py) is available here.
 
 # addendum: query using sigma rules
 
