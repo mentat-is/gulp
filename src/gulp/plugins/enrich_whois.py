@@ -145,7 +145,7 @@ class Plugin(GulpPluginBase):
             # 128.9.0.107
             # remove null fields
             enriched = {}
-            for k,v in whois_info.items():
+            for k,v in muty.json.flatten_json(whois_info).items():
                 if isinstance(v, datetime.datetime):
                     v: datetime.datetime = v.isoformat()
                 
