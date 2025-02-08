@@ -219,6 +219,10 @@ class Plugin(GulpPluginBase):
                 # netloc was extracted, we successfully parsed a URL
                 host = netloc
 
+            # if the field is not an IP address, try to resolve it
+            if not self._is_ip_field(host):
+                host = socket.gethostbyname(host)
+
             # Transform to ECS fields
             whois_info = IPWhois(host).lookup_rdap(depth=1)
 
