@@ -10,6 +10,7 @@
         "bierner.markdown-mermaid",
         "codezombiech.gitignore",
         "DavidAnson.vscode-markdownlint",
+        "dracula-theme.theme-dracula",
         "earshinov.permute-lines",
         "eliostruyf.vscode-hide-comments",
         "foxundermoon.shell-format",
@@ -25,13 +26,11 @@
         "ms-python.pylint",
         "ms-python.python",
         "ms-python.vscode-python-envs",
-        "rooveterinaryinc.roo-cline",
         "npxms.hide-gitignored",
         "roonie007.hide-files",
         "shivaprasanth.vscode-always-sidebar",
         "tamasfe.even-better-toml",
         "Tyriar.sort-lines",
-        "valsorym.smart-tabs",
         "yzhang.markdown-all-in-one",
         "zh9528.file-size"
       ]
