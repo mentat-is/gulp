@@ -142,20 +142,19 @@ class Plugin(GulpPluginBase):
             # Transform to ECS fields
             whois_info = whois.whois(host)
 
-            # 128.9.0.107
-            # remove null fields
             enriched = {}
             for k,v in muty.json.flatten_json(whois_info).items():
                 if isinstance(v, datetime.datetime):
                     v: datetime.datetime = v.isoformat()
                 
-                enriched[k] = v
+                if v:
+                    enriched[k] = v
 
             # add to cache
             self._whois_cache[host] = enriched
             return enriched
 
-        except (IPDefinedError, socket.error):
+        except (Exception, socket.error):
             self._whois_cache[host] = None
             return None
 
