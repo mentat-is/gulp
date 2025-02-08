@@ -35,11 +35,15 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
 
-4. once you are in the container, start the main [docker-compose](../docker-compose.yml) to start postgresql and opensearch and start developing as normal.
+4. **on the host**, start the main [docker-compose](../docker-compose.yml) to start postgresql and opensearch.
 
   ~~~bash
   docker compose --profile dev up -d
   ~~~
+
+5. go back in the container and develop as normal.
+
+you may also want to update/edit extensions installed in the container... just do it from vscode in the  `extensions -> dev container: gulp dev container` tab.
 
 ## install manually
 
