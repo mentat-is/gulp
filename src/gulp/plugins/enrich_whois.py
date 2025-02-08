@@ -1,8 +1,9 @@
-from ipwhois.exceptions import IPDefinedError
-from ipwhois import IPWhois
+import whois
 import ipaddress
 import json
 import socket
+import urllib
+import datetime
 from typing import Any, Optional, override
 import muty.file
 import muty.json
@@ -18,7 +19,7 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 from sqlalchemy.ext.asyncio import AsyncSession
 
-muty.os.check_and_install_package("ipwhois", ">=1.3.0,<2")
+muty.os.check_and_install_package("python-whois", ">=0.9.5")
 
 
 class Plugin(GulpPluginBase):
@@ -36,7 +37,7 @@ class Plugin(GulpPluginBase):
         },
         "plugin_params": {
             // those fields will be looked up for whois information
-            "ip_fields": [ "source.ip", "destination.ip" ]
+            "host_fields": [ "source.ip", "destination.ip" ]
         }
     }
 
@@ -109,107 +110,75 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="ip_fields",
+                name="host_fields",
                 type="list",
                 desc="a list of ip fields to enrich.",
-                default_value=["source.ip", "destination.ip"],
+                default_value=["source.ip", "destination.ip", "host.hostname", "dns.question.name"],
             )
         ]
 
-    async def _get_whois(self, ip: str) -> Optional[dict]:
+    async def _get_whois(self, host: str) -> Optional[dict]:
         """
-        get whois information for an IP address.
+        get whois information for an host address.
 
-        this function also caches the results to avoid multiple lookups for the same IP.
+        this function also caches the results to avoid multiple lookups for the same host.
 
         Args:
-            ip: IP address string
+            ip: host address string
         Returns:
             Whois information as a dictionary or None if not found
         """
-        if ip in self._whois_cache:
-            return self._whois_cache[ip]
+        if host in self._whois_cache:
+            return self._whois_cache[host]
 
         try:
-            obj = IPWhois(ip)
-            result = obj.lookup_rdap()
+
+            #check if field is a url, if so extract the host 
+            netloc = urllib.parse.urlparse(host).netloc
+            if netloc:
+                # netloc was extracted, we successfully parsed a URL
+                host = netloc
 
             # Transform to ECS fields
-            whois_info = {
-                "network_name": result.get("network", {}).get("name"),
-                "organization_name": result.get("network", {}).get("name"),
-                "as_number": result.get("asn"),
-                "as_organization.name": result.get("asn_description"),
-                "network_cidr": result.get("network", {}).get("cidr"),
-                "network_start_addr": result.get("network", {}).get("start_address"),
-                "network_end_addr": result.get("network", {}).get("end_address"),
-                "network_country_code": result.get("network", {}).get("country"),
-            }
+            whois_info = whois.whois(host)
+
             # 128.9.0.107
             # remove null fields
-            whois_info = {k: v for k, v in whois_info.items() if v is not None}
+            enriched = {}
+            for k,v in whois_info.items():
+                if isinstance(v, datetime.datetime):
+                    v: datetime.datetime = v.isoformat()
+                
+                enriched[k] = v
 
             # add to cache
-            self._whois_cache[ip] = whois_info
-            return whois_info
+            self._whois_cache[host] = enriched
+            return enriched
 
         except (IPDefinedError, socket.error):
-            self._whois_cache[ip] = None
-            return None
-
-    def _is_valid_public_ipv4(self, ip: str) -> Optional[str]:
-        """
-        Validate IP and return None if:
-        - Not a valid IP
-        - Is IPv6
-        - Is private/local
-
-        Args:
-            ip: IP address string
-        Returns:
-            IP string if valid public IPv4, None otherwise
-        """
-        try:
-            ip_obj = ipaddress.ip_address(ip)
-
-            # Check if IPv6
-            if isinstance(ip_obj, ipaddress.IPv6Address):
-                return None
-
-            # Check if private/local
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
-                return None
-
-            return ip
-
-        except ValueError:
+            self._whois_cache[host] = None
             return None
 
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         dd = []
-        ip_fields = self._custom_params.get("ip_fields", [])
-        # MutyLogger.get_instance().debug("ip_fields: %s, num_docs=%d" % (ip_fields, len(docs)))
+        host_fields = self._custom_params.get("host_fields", [])
+        # MutyLogger.get_instance().debug("host_fields: %s, num_docs=%d" % (host_fields, len(docs)))
         for doc in docs:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
             # either, we may also add text mappings to ip fields in the index template..... but keep it as is for now...
-            for ip_field in ip_fields:
-                f = doc.get(ip_field)
+            for host_field in host_fields:
+                f = doc.get(host_field)
                 if not f:
                     continue
 
-                # check if the IP is a valid public IPv4
-                ip = self._is_valid_public_ipv4(f)
-                if not ip:
-                    continue
-
                 # append flattened whois data to the document                
-                whois_data = await self._get_whois(ip)
+                whois_data = await self._get_whois(f)
                 if whois_data:
                     for key, value in whois_data.items():
                         if value:
                             # also replace . with _ in the field name
                             doc["gulp.%s.%s.%s" %
-                                (self.name, ip_field.replace(".", "_"), key)] = value
+                                (self.name, host_field.replace(".", "_"), key)] = value
                     dd.append(doc)
 
         return dd
@@ -229,7 +198,7 @@ class Plugin(GulpPluginBase):
         # parse custom parameters
         self._parse_custom_parameters(plugin_params)
 
-        ip_fields = self._custom_params.get("ip_fields", [])
+        host_fields = self._custom_params.get("host_fields", [])
         qq = {
             "query": {
                 "bool": {
@@ -240,15 +209,15 @@ class Plugin(GulpPluginBase):
         }
 
         # select all non-private,non-ipv6 IP addresses
-        for ip_field in ip_fields:
+        for host_field in host_fields:
             qq["query"]["bool"]["should"].append(
                 {
                     "bool": {
                         "must": [
-                            {"exists": {"field": ip_field}},
+                            {"exists": {"field": host_field}},
                             {
                                 "range": {
-                                    ip_field: {
+                                    host_field: {
                                         "gte": "0.0.0.0",
                                         "lte": "255.255.255.255",
                                     }
@@ -258,7 +227,7 @@ class Plugin(GulpPluginBase):
                         "must_not": [
                             {
                                 "range": {
-                                    ip_field: {
+                                    host_field: {
                                         "gte": "10.0.0.0",
                                         "lt": "11.0.0.0",
                                     }
@@ -266,7 +235,7 @@ class Plugin(GulpPluginBase):
                             },
                             {
                                 "range": {
-                                    ip_field: {
+                                    host_field: {
                                         "gte": "172.16.0.0",
                                         "lt": "172.32.0.0",
                                     }
@@ -274,7 +243,7 @@ class Plugin(GulpPluginBase):
                             },
                             {
                                 "range": {
-                                    ip_field: {
+                                    host_field: {
                                         "gte": "192.168.0.0",
                                         "lt": "192.169.0.0",
                                     }
@@ -282,7 +251,7 @@ class Plugin(GulpPluginBase):
                             },
                             {
                                 "range": {
-                                    ip_field: {
+                                    host_field: {
                                         "gte": "127.0.0.0",
                                         "lt": "128.0.0.0",
                                     }
