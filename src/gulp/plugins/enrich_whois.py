@@ -27,10 +27,12 @@ class Plugin(GulpPluginBase):
         body example:
 
         {
-            // q is a raw query
+            // q is a raw query, i.e. to match all
             "q": {
                 "query": {
-                "match_all": {}
+                    // "match_all": {} // match all documents
+                    // "query_string": { "query": "gulp.timestamp: >=1475739447131043840 AND gulp.timestamp: <=1475739547131043840" } // match in a time range
+                    // ...
                 }
             },
             "plugin_params": {
