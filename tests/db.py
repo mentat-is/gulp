@@ -124,7 +124,9 @@ async def test():
     await _ws_loop()
 
     # check rebase (only 6 docs should have been rebased)
-    await GulpAPIQuery.query_gulp(guest_token, new_index)
+    await GulpAPIQuery.query_gulp(
+        guest_token, new_index, flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID])
+    )
     await _ws_loop(total=5)
 
     # check same document on new idx (should be 1 day ahead)
@@ -142,7 +144,6 @@ async def test():
     # delete the new index
     await GulpAPIDb.opensearch_delete_index(ingest_token, new_index)
     MutyLogger.get_instance().info("all tests succeeded!")
-
 
     # verify deleted
     indexes = await GulpAPIDb.opensearch_list_index(guest_token)

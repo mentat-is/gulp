@@ -66,7 +66,10 @@ falsepositives:
 level: info
 """
 
-def _check_index_param(index: str=None, q_options: GulpQueryParameters=None) -> None:
+
+def _check_index_param(
+    index: str = None, q_options: GulpQueryParameters = None
+) -> None:
     """
     check index parameter for local queries
 
@@ -82,6 +85,7 @@ def _check_index_param(index: str=None, q_options: GulpQueryParameters=None) -> 
             raise ValueError("index must be set for local queries!")
         if q_options.external_parameters:
             MutyLogger.get_instance().warning("external query with index not set!")
+
 
 async def _stored_query_ids_to_gulp_queries(
     sess: AsyncSession, stored_query_ids: list[str]
@@ -185,7 +189,7 @@ async def _query_internal(
         if queries[0].external_plugin:
             # external query, load plugin (it is guaranteed it is the same for all queries)
             mod = await GulpPluginBase.load(queries[0].external_plugin)
-            
+
         async with GulpCollab.get_instance().session() as sess:
             for gq in queries:
                 # MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
@@ -291,8 +295,7 @@ async def _worker_coro(kwds: dict):
         if num_queries > 1 and query_matched == num_queries:
             # all queries in the group matched, change note names to query group name
             MutyLogger.get_instance().info(
-                "query group '%s' matched, updating notes!" % (
-                    q_options.group)
+                "query group '%s' matched, updating notes!" % (q_options.group)
             )
             if q_options.note_parameters.create_notes:
                 async with GulpCollab.get_instance().session() as sess:
@@ -310,7 +313,7 @@ async def _worker_coro(kwds: dict):
                 req_id=req_id,
                 data=p.model_dump(exclude_none=True),
             )
-            
+
         # also update stats
         d = dict(
             status=(
@@ -420,6 +423,11 @@ async def query_gulp_handler(
     ServerUtils.dump_params(params)
 
     try:
+        if not flt or not flt.operation_ids:
+            raise ValueError(
+                "at least one operation_id is mandatory in the query filter."
+            )
+
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
             s = await GulpUserSession.check_token(sess, token)
@@ -473,12 +481,15 @@ query Gulp or an external source using a raw DSL query.
 
 ### gulp queries
 
+- token must have `admin` permission
 - `q` must be a query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
 
 ### external queries
 
+- token must have `ingest` permission if `ingest_index` is set.
 - for `q`, refer to the external source query DSL.
 - at least `q_options.external_parameters.plugin` (the plugin to handle the external query) and `q_options.external_parameters.uri` must be set.
+
 """,
 )
 async def query_raw_handler(
@@ -493,7 +504,7 @@ or a query in the external source DSL.
             examples=[{"query": {"match_all": {}}}],
         ),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)]=None,
+    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -504,16 +515,22 @@ or a query in the external source DSL.
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # check index parameter for local queries        
+    # check index parameter for local queries
     _check_index_param(index, q_options)
 
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            if q_options.external_parameters and q_options.external_parameters.ingest_index:
+            if q_options.external_parameters.ingest_index:
+                # external query with ingest, needs ingest permission
                 permission = GulpUserPermission.INGEST
             else:
-                permission = GulpUserPermission.READ
+                if q_options.external_parameters.plugin:
+                    # external query
+                    permission = GulpUserPermission.READ
+                else:
+                    # local query, needs admin
+                    permission = GulpUserPermission.ADMIN
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
 
@@ -639,7 +656,7 @@ async def query_sigma_handler(
             examples=[EXAMPLE_SIGMA_RULE],
         ),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)]=None,
+    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -654,14 +671,13 @@ async def query_sigma_handler(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # check index parameter for local queries        
+    # check index parameter for local queries
     _check_index_param(index, q_options)
 
     mod = None
     try:
         if not q_options.sigma_parameters.plugin:
-            raise ValueError(
-                "q_options.sigma_parameters.plugin must be set")
+            raise ValueError("q_options.sigma_parameters.plugin must be set")
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
                 "if more than one query is provided, `q_options.group` must be set."
@@ -672,7 +688,10 @@ async def query_sigma_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            if q_options.external_parameters and q_options.external_parameters.ingest_index:
+            if (
+                q_options.external_parameters
+                and q_options.external_parameters.ingest_index
+            ):
                 permission = GulpUserPermission.INGEST
             else:
                 permission = GulpUserPermission.READ
@@ -689,8 +708,7 @@ async def query_sigma_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(
-                s, q_options.sigma_parameters)
+            q: list[GulpQuery] = mod.sigma_convert(s, q_options.sigma_parameters)
             for gq in q:
                 # set the external plugin to run the query with, if any
                 gq.external_plugin = q_options.external_parameters.plugin
@@ -784,10 +802,10 @@ async def query_stored_handler(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # check index parameter for local queries        
-    _check_index_param(index, q_options)
-
     try:
+        # check index parameter for local queries
+        _check_index_param(index, q_options)
+
         if len(stored_query_ids) > 1 and not q_options.group:
             raise ValueError(
                 "if more than one query is provided, `options.group` must be set."
@@ -799,7 +817,10 @@ async def query_stored_handler(
         queries: list[GulpQuery] = []
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            if q_options.external_parameters and q_options.external_parameters.ingest_index:
+            if (
+                q_options.external_parameters
+                and q_options.external_parameters.ingest_index
+            ):
                 permission = GulpUserPermission.INGEST
             else:
                 permission = GulpUserPermission.READ

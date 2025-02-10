@@ -187,7 +187,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     )
     operation_ids: Optional[list[str]] = Field(
         None,
-        description="include documents  matching the given `gulp.operation_id`/s.",
+        description="include documents  matching the given `gulp.operation_id`/s",
     )
     context_ids: Optional[list[str]] = Field(
         None,

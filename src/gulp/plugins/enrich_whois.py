@@ -11,7 +11,9 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
@@ -27,15 +29,13 @@ class Plugin(GulpPluginBase):
         body example:
 
         {
-            // q is a raw query, i.e. to match all
-            "q": {
-                "query": {
-                    // "match_all": {} // match all documents
-                    // "query_string": { "query": "gulp.timestamp: >=1475739447131043840 AND gulp.timestamp: <=1475739547131043840" } // match in a time range
-                    // ...
-                }
-            },
-            "plugin_params": {
+        "flt": {
+            "operation_ids": [
+            "test_operation"
+            ],
+            "int_filter": [ 1475739447131043840, 1475739547131043840 ]
+        },
+        "plugin_params": {
                 // those fields will be looked up for whois information
                 "host_fields": [ "source.ip", "destination.ip" ]
             }
@@ -256,34 +256,50 @@ class Plugin(GulpPluginBase):
         """Build a query that matches valid IP addresses while excluding private/local ranges"""
         return {
             "bool": {
-                "must": [
-                    {"exists": {"field": field}},
+                "must": [{"exists": {"field": field}}],
+                "must_not": [
+                    # IPv4 private/local ranges
+                    {"range": {field: {"gte": "10.0.0.0", "lte": "10.255.255.255"}}},
+                    {"range": {field: {"gte": "172.16.0.0", "lte": "172.31.255.255"}}},
                     {
-                        "script": {
-                            "script": {
-                                "source": """
-                                    try {
-                                        def fieldValue = doc[params.field].value;
-                                        
-                                        // handle both string (hostname) and numeric field types
-                                        if (fieldValue instanceof Long || fieldValue instanceof Integer) {
-                                            fieldValue = InetAddress.getByAddress(BigInteger.valueOf(fieldValue).toByteArray()).getHostAddress();
-                                        }
-                                        def ip = InetAddress.getByName(fieldValue);
-                                        return !ip.isLoopbackAddress() && 
-                                               !ip.isLinkLocalAddress() && 
-                                               !ip.isSiteLocalAddress() &&
-                                               !ip.isMulticastAddress();
-                                    } catch (Exception e) {
-                                        return false;
-                                    }
-                                """,
-                                "params": {"field": field},
-                                "lang": "painless",
+                        "range": {
+                            field: {"gte": "192.168.0.0", "lte": "192.168.255.255"}
+                        }
+                    },
+                    {"range": {field: {"gte": "127.0.0.0", "lte": "127.255.255.255"}}},
+                    {
+                        "range": {
+                            field: {"gte": "169.254.0.0", "lte": "169.254.255.255"}
+                        }
+                    },
+                    {"range": {field: {"gte": "224.0.0.0", "lte": "239.255.255.255"}}},
+                    # IPv6 private/local ranges
+                    {
+                        "range": {
+                            field: {
+                                "gte": "fc00::",
+                                "lte": "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
                             }
                         }
                     },
-                ]
+                    {
+                        "range": {
+                            field: {
+                                "gte": "fe80::",
+                                "lte": "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+                            }
+                        }
+                    },
+                    {"term": {field: "::1"}},
+                    {
+                        "range": {
+                            field: {
+                                "gte": "ff00::",
+                                "lte": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+                            }
+                        }
+                    },
+                ],
             }
         }
 
@@ -322,13 +338,21 @@ class Plugin(GulpPluginBase):
         req_id: str,
         ws_id: str,
         index: str,
-        q: dict = None,
-        q_options: GulpQueryParameters = None,
+        flt: GulpQueryFilter,
         plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> None:
         # parse custom parameters
         self._parse_custom_parameters(plugin_params)
 
+        if flt:
+            # convert filter to opensearch dsl
+            q = flt.to_opensearch_dsl()
+        else:
+            # match all
+            q = {"query": {"match_all": {}}}
+
+        # build queries for each host field that match non-private IP addresses (both v4 and v6)
         host_fields = self._custom_params.get("host_fields", [])
         qq = {
             "query": {
@@ -338,17 +362,14 @@ class Plugin(GulpPluginBase):
                 }
             }
         }
-
-        # Add queries for each host field that match non-private IP addresses (both v4 and v6)
         for host_field in host_fields:
             qq["query"]["bool"]["should"].append(self._build_ip_query(host_field))
 
-        if q:
-            # merge with provided query
-            qq = GulpQueryHelpers.merge_queries(q, qq)
-
+        # merge provided query (to pre-filter data, i.e. on time range) with the IP address queries
+        qq = GulpQueryHelpers.merge_queries(q, qq)
+        MutyLogger.get_instance().debug("query: %s" % qq)
         await super().enrich_documents(
-            sess, user_id, req_id, ws_id, index, qq, q_options, plugin_params
+            sess, user_id, req_id, ws_id, index, flt, plugin_params, rq=qq
         )
 
     @override

@@ -4,6 +4,7 @@ import pytest
 from muty.log import MutyLogger
 import websockets
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.rest.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -27,8 +28,7 @@ async def _ws_loop():
 
     async with websockets.connect(ws_url) as ws:
         # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(
-            token="monitor", ws_id=TEST_WS_ID)
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token="monitor", ws_id=TEST_WS_ID)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -115,14 +115,16 @@ async def test():
 
     # ingest can update operation
     updated = await GulpAPIOperation.operation_update(
-        ingest_token, operation["id"], description="Updated description", operation_data={"hello": "world"}
+        ingest_token,
+        operation["id"],
+        description="Updated description",
+        operation_data={"hello": "world"},
     )
     assert updated.get("description") == "Updated description"
     assert updated.get("operation_data")["hello"] == "world"
 
     updated = await GulpAPIOperation.operation_update(
-        ingest_token, operation["id"], operation_data={
-            "hello": "1234", "abc": "def"}
+        ingest_token, operation["id"], operation_data={"hello": "1234", "abc": "def"}
     )
     assert updated.get("description") == "Updated description"
     assert updated.get("operation_data")["hello"] == "1234"
@@ -155,8 +157,7 @@ async def test():
     operations = await GulpAPIOperation.operation_list(
         guest_token, GulpCollabFilter(names=["test_op"])
     )
-    assert operations and len(
-        operations) == 1 and operations[0]["id"] == updated["id"]
+    assert operations and len(operations) == 1 and operations[0]["id"] == updated["id"]
 
     # editor cannot delete operation
     await GulpAPIOperation.operation_delete(
@@ -180,8 +181,7 @@ async def test():
     )
     operations = await GulpAPIOperation.operation_list(guest_token)
     assert (
-        operations and len(
-            operations) == 1 and operations[0]["id"] == TEST_OPERATION_ID
+        operations and len(operations) == 1 and operations[0]["id"] == TEST_OPERATION_ID
     )
 
     contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
@@ -209,7 +209,9 @@ async def test():
         index=TEST_INDEX,
     )
     # check data on opensearch (should be empty)
-    res = await GulpAPIQuery.query_gulp(guest_token, TEST_INDEX)
+    res = await GulpAPIQuery.query_gulp(
+        guest_token, TEST_INDEX, flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID])
+    )
     assert not res
     await _ws_loop()
 

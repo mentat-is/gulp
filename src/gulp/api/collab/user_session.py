@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Optional, override
 
 import muty.time
+from muty.log import MutyLogger
 from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -127,7 +128,10 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         Raises:
             MissingPermission: If the user does not have the required permissions.
         """
-        # MutyLogger.get_instance().debug("---> check_token_permission: token=%s, permission=%s, sess=%s ..." % (token, permission, sess))
+        MutyLogger.get_instance().debug(
+            "---> check_token_permission: token=%s, permission=%s, sess=%s ..."
+            % (token, permission, sess)
+        )
         if not permission:
             # assume read permission if not provided
             permission = [GulpUserPermission.READ]

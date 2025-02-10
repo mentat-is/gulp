@@ -23,11 +23,9 @@ from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
-import gc
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -935,9 +933,9 @@ class GulpPluginBase(ABC):
         req_id: str,
         ws_id: str,
         index: str,
-        q: dict,
-        q_options: GulpQueryParameters = None,
+        flt: GulpQueryFilter,
         plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> None:
         """
         to be implemented in a plugin to enrich a chunk of GulpDocuments dictionaries on-demand.
@@ -951,9 +949,10 @@ class GulpPluginBase(ABC):
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
             index (str): the index to query
-            q(dict): a query in OpenSearch DSL format to restrict the documents to enrich
-            q_options (GulpQueryParameters, optional): additional query options. Defaults to None.
+            flt(GulpQueryFilter): a filter to restrict the documents to enrich
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
+            kwargs: additional keyword arguments:
+                - rq (dict): the raw query to use instead of the filter
 
         NOTE: implementers must implement _enrich_documents_chunk, call self._parse_custom_parameters and then super().enrich_documents
         """
@@ -972,16 +971,22 @@ class GulpPluginBase(ABC):
 
         await self._initialize(plugin_params=plugin_params)
 
-        if not q:
-            # use a match all query
-            q = {"query": {"match_all": {}}}
+        # check if the caller provided a raw query to be used
+        rq = kwargs.get("rq", None)
+        q: dict = {}
+        if rq:
+            # raw query provided by the caller
+            q = rq
+        else:
+            if not flt:
+                # match all query
+                q = {"query": {"match_all": {}}}
+            else:
+                # convert filter
+                q = flt.to_opensearch_dsl()
 
         # force return all fields
-        if q_options:
-            q_options.fields = "*"
-        else:
-            q_options = GulpQueryParameters(fields="*")
-
+        q_options = GulpQueryParameters(fields="*")
         await GulpQueryHelpers.query_raw(
             sess=sess,
             user_id=self._user_id,
@@ -1513,7 +1518,7 @@ class GulpPluginBase(ABC):
             plugin_params (GulpPluginParameters): the plugin parameters.
         """
         if not plugin_params:
-            return
+            plugin_params = GulpPluginParameters()
 
         # check any passed custom parameter against the plugin defined ones
         defined_custom_params = self.custom_parameters()

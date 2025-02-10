@@ -25,6 +25,7 @@ from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
 
+
 async def _tag_documents_internal(
     user_id: str,
     req_id: str,
@@ -36,10 +37,13 @@ async def _tag_documents_internal(
     """
     runs in a worker process to tag the given documents
     """
-    
+
     # build documents list
-    MutyLogger.get_instance().debug("---> _tag_documents_internal, tagging %d docs with tags=%s..." % (len(doc_ids), tags))
-    docs: list[dict]= [{ "_id": d, "gulp.tags": tags } for d in doc_ids]
+    MutyLogger.get_instance().debug(
+        "---> _tag_documents_internal, tagging %d docs with tags=%s..."
+        % (len(doc_ids), tags)
+    )
+    docs: list[dict] = [{"_id": d, "gulp.tags": tags} for d in doc_ids]
     status: GulpRequestStatus = GulpRequestStatus.DONE
     error: str = None
 
@@ -70,10 +74,9 @@ async def _enrich_documents_internal(
     user_id: str,
     req_id: str,
     ws_id: str,
-    q: dict,
+    flt: GulpQueryFilter,
     index: str,
     plugin: str,
-    q_options: GulpQueryParameters,
     plugin_params: GulpPluginParameters,
 ) -> None:
     """
@@ -95,8 +98,7 @@ async def _enrich_documents_internal(
                 req_id=req_id,
                 ws_id=ws_id,
                 index=index,
-                q=q,
-                q_options=q_options,
+                flt=flt,
                 plugin_params=plugin_params,
             )
         except Exception as ex:
@@ -161,16 +163,7 @@ async def enrich_documents_handler(
     index: Annotated[str, Depends(APIDependencies.param_index)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    q: Annotated[
-        dict,
-        Body(
-            examples=[{"query": {"match_all": {}}}],
-        ),
-    ] = None,
-    q_options: Annotated[
-        GulpQueryParameters,
-        Depends(APIDependencies.param_query_additional_parameters_optional),
-    ] = None,
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
     plugin_params: Annotated[
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params_optional),
@@ -178,13 +171,19 @@ async def enrich_documents_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["q_options"] = q_options.model_dump(exclude_none=True)
+    params["flt"] = flt.model_dump(exclude_none=True) if flt else None
     params["plugin_params"] = (
         plugin_params.model_dump(exclude_none=True) if plugin_params else None
     )
+
     ServerUtils.dump_params(params)
 
     try:
+        if not flt or not flt.operation_ids:
+            raise ValueError(
+                "at least one operation_id is mandatory in the query filter."
+            )
+
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
             s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
@@ -207,10 +206,9 @@ async def enrich_documents_handler(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            q=q,
+            flt=flt,
             index=index,
             plugin=plugin,
-            q_options=q_options,
             plugin_params=plugin_params,
         )
 
@@ -295,6 +293,7 @@ async def enrich_single_id_handler(
         if mod:
             await mod.unload()
 
+
 @router.post(
     "/tag_documents",
     response_model=JSendResponse,
@@ -325,8 +324,8 @@ async def tag_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
     doc_ids: Annotated[
-        list[str],
-        Body(description="The `_id` of the documents to be tagged.")],
+        list[str], Body(description="The `_id` of the documents to be tagged.")
+    ],
     tags: Annotated[list[str], Body(description="The tags to add.")],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -359,7 +358,7 @@ async def tag_documents_handler(
             ws_id=ws_id,
             index=index,
             doc_ids=doc_ids,
-            tags=tags            
+            tags=tags,
         )
 
         # print(json.dumps(kwds, indent=2))
