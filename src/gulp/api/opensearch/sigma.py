@@ -8,6 +8,7 @@ from sigma.collection import SigmaCollection
 from sigma.rule import (
     SigmaRule,
 )
+from sigma.rule import SigmaRuleTag
 from sigma.conversion.base import Backend
 
 import muty.string
@@ -133,7 +134,7 @@ def to_gulp_query_struct(
             # generate a GulpConvertedSigma for each
             rule_id = str(r.id) or muty.string.generate_unique()
             rule_name = r.name or r.title or "sigma_%s" % (rule_id)
-            rule_tags = r.tags or []
+            rule_tags:list[str] = [t.name for t in r.tags if t ]
             if tags:
                 # additional tags
                 [rule_tags.append(t) for t in tags if t not in rule_tags]
