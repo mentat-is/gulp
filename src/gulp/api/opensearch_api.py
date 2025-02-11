@@ -1449,7 +1449,7 @@ class GulpOpenSearch:
             q (dict): The DSL query to execute.
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
             raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to True.
-            
+
         Returns:
             tuple:
             - total_hits (int): The total number of hits found.
@@ -1602,6 +1602,18 @@ class GulpOpenSearch:
                 MutyLogger.get_instance().error(
                     "search_dsl: error=%s" % (
                         muty.log.exception_to_string(ex, with_full_traceback=True))
+                )
+                p = GulpQueryDonePacket(
+                    status=GulpRequestStatus.FAILED,
+                    total_hits=0,
+                    name=q_options.name,
+                )
+                GulpSharedWsQueue.get_instance().put(
+                    type=GulpWsQueueDataType.QUERY_DONE,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    req_id=req_id,
+                    data=p.model_dump(exclude_none=True),
                 )
                 raise ex
 
