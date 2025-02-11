@@ -20,6 +20,7 @@
 - review `stored_query` API: should it be used for `raw query` only or also sigma ?
 - should it include support for external query (actually it does, but imho should be removed)
 - create `stored_sigma` collab object ?
+- implement in the UI
 
 ## data normalization
 
