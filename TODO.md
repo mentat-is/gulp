@@ -25,7 +25,18 @@
 ## data normalization
 
 - > medium priority: data normalization across all plugins (remove unneeded fields)
+- > high priority: better ws messages, to handle most popular use cases of request.
+Example:
+```
+# When new source/file do this instead of query_operation and other sync requests 
+type: "new_source"
+data: GulpSourceObject
+# When new note/link, do this instead of note_list/link_list
+type: "new_note"
+data: GulpNoteObject
+```
 
 ## generic
 
 - improve `datastream_get_mapping_by_src`: use ws to send fields during the query, so the UI do not block (annoying as the dataset grows)
+
