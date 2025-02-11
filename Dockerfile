@@ -39,7 +39,7 @@ COPY ./requirements.txt* /app/requirements.txt
 RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
 
 RUN  echo "[.] Installing project"
-RUN pip3 install --no-cache-dir -e .      
+RUN pip3 install --no-cache-dir --timeout=1000 -e . 
 
 # should not be necessary but let's keep it for now
 RUN export PYTHONPATH="$PYTHONPATH:/app/src"
