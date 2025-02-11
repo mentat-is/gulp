@@ -504,7 +504,8 @@ or a query in the external source DSL.
             examples=[{"query": {"match_all": {}}}],
         ),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
+    index: Annotated[str, Depends(
+        APIDependencies.param_index_optional)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -525,12 +526,9 @@ or a query in the external source DSL.
                 # external query with ingest, needs ingest permission
                 permission = GulpUserPermission.INGEST
             else:
-                if q_options.external_parameters.plugin:
-                    # external query
-                    permission = GulpUserPermission.READ
-                else:
-                    # local query, needs admin
-                    permission = GulpUserPermission.ADMIN
+                # external query
+                permission = GulpUserPermission.READ
+
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
 
@@ -656,7 +654,8 @@ async def query_sigma_handler(
             examples=[EXAMPLE_SIGMA_RULE],
         ),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index_optional)] = None,
+    index: Annotated[str, Depends(
+        APIDependencies.param_index_optional)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -708,7 +707,8 @@ async def query_sigma_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(s, q_options.sigma_parameters)
+            q: list[GulpQuery] = mod.sigma_convert(
+                s, q_options.sigma_parameters)
             for gq in q:
                 # set the external plugin to run the query with, if any
                 gq.external_plugin = q_options.external_parameters.plugin
