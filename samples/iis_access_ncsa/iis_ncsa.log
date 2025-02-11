@@ -1,0 +1,4 @@
+172.21.13.45 - Microsoft\JohnDoe [07/Apr/2004:17:39:04 -0800] "GET /scripts/iisadmin/ism.dll?http/serv HTTP/1.0" 200 3401
+10.0.0.2 - Microsoft\JaneDoe [07/Apr/2004:17:40:23 -0800] "GET /homepage HTTP/1.0" 200 1000
+10.0.0.2 - Microsoft\JaneDoe [07/Apr/2004:17:42:01 -0800] "GET /homepage HTTP/1.0" 200 1000
+172.21.13.45 - Microsoft\JohnDoe [07/Apr/2004:18:00:12 -0800] "GET /images/duck.png HTTP/1.0" 200 13337
