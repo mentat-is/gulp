@@ -1578,6 +1578,7 @@ class GulpOpenSearch:
                     # no results at all
                     p = GulpQueryDonePacket(
                         status=GulpRequestStatus.FAILED,
+                        error=str(ex),
                         total_hits=0,
                         name=q_options.name,
                     )
@@ -1605,6 +1606,7 @@ class GulpOpenSearch:
                 )
                 p = GulpQueryDonePacket(
                     status=GulpRequestStatus.FAILED,
+                    error=str(ex),
                     total_hits=0,
                     name=q_options.name,
                 )
