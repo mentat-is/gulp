@@ -54,4 +54,4 @@ RUN python3 -m gulp --version
 
 EXPOSE ${PORT}
 
-CMD ["sh","-c","gulp ${ARGS:---log-level level info}"]
+CMD ["sh","-c","gulp ${ARGS:---log-level debug}"]
