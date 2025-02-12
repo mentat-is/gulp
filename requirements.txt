@@ -49,11 +49,15 @@ iniconfig==2.0.0
 ipwhois==1.3.0
 itsdangerous==2.2.0
 Jinja2==3.1.4
+json-stream==2.3.3
+json-stream-rs-tokenizer==0.4.27
 json5==0.9.25
+libpff-python==20231205
 llvmlite==0.44.0
 lxml==5.3.0
 MarkupSafe==2.1.5
 multidict==6.1.0
+muty @ git+https://github.com/mentat-is/muty-python.git@51c7a9f1adf55cce343259acd7f452d52b399dc7
 ntplib==0.4.0
 numba==0.61.0
 numpy==2.1.3
