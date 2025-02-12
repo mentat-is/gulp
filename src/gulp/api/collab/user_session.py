@@ -151,30 +151,24 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         except ObjectNotFound:
             raise MissingPermission('token "%s" not logged in' % (token))
 
-        if not obj and not permission:
-            # no permission or object provided, just return the session
+        if not obj:
+            # no object provided, just return the session
             return user_session
 
         if user_session.user.is_admin():
-            # admin user has all permissions, always allowed
+            # admin user can access any object
             return user_session
 
-        if obj:
-            # check if the user has access
-            if user_session.user.check_object_access(
-                obj,
-                throw_on_no_permission=throw_on_no_permission,
-                enforce_owner=enforce_owner,
+        # check if the user has access
+        if user_session.user.check_object_access(
+            obj,
+            throw_on_no_permission=throw_on_no_permission,
+            enforce_owner=enforce_owner,
+        ):
+            # check if the user have the required permission (owner always have permission)
+            if user_session.user.has_permission(permission) or obj.is_owner(
+                user_session.user.id
             ):
-                # check if the user have the required permission (owner always have permission)
-                if user_session.user.has_permission(permission) or obj.is_owner(
-                    user_session.user.id
-                ):
-                    # access granted
-                    return user_session
-        else:
-            # no object provided, check only the permission
-            if user_session.user.has_permission(permission):
                 # access granted
                 return user_session
 

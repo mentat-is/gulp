@@ -81,16 +81,16 @@ then depending on `type`, different entrypoints may be implemented:
 - `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
   
-- `sigma_support`: lists the [pysigma](https://github.com/SigmaHQ/pySigma) backends and pipelines the plugin supports, to support sigma rules conversion into queries for different targets.
-  - these are returned by the `plugin_list` API.
-  - the plugin must implement the `backends` and `pipelines` listed, which are to be used through `sigma_convert` entrypoint.
-  
-- `sigma_convert`: implements the actual sigma rule conversion using the selected pysigma `backend`, `pipeline`, `output_format` from `GulpQuerySigmaParameters`.
-  - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for implementation (it supports converting windows sigma rules to gulp queries)
+- `sigma_convert`: wether the plugin supports using sigma rules to query data ingested with this plugin.  
+  if so, the plugin must support the following:
+  - `opensearch` backend with `dsl_lucene` output format (through i.e. [pysigma-backend-opensearch](https://github.com/SigmaHQ/pySigma-backend-opensearch))
+  - an optional `pipeline` targeting the ingested gulp data.
 
+    > for a concrete example, check the [win_evtx](../src/gulp/plugins/win_evtx.py) plugin, which also uses a pipeline targeting ECS formatted data
+  
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
-  - `GulpQueryExternalParameters` holds parameters to query the external source, plus the `plugin` and `GulpPluginParameters` to be used.
+  - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
 
 other optional entrypoints are:
 
@@ -127,15 +127,15 @@ the plugins must implement:
   - the logic to enrich a set of documents
 - for `extension` plugins, they may install additional `API routes` during gulp initialization.
 
-> optionally, both `ingestion` and `external` plugins may implement `sigma_convert` and `sigma_support` to allow the `query` api to convert `sigma rules` to gulp queries for both local and external queries.
->
-> - read [pysigma documentation](https://github.com/SigmaHQ/pySigma) to learn more about backend/s and pipeline/s!
-
 ### ingestion plugins
 
 ingestion plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
 
-> optionally, `ingestion` plugins may implement `_enrich_documents_chunk` to perform enrichment before storing the chunk to Opensearch.
+optionally, `ingestion` plugins may implement:
+
+- `_enrich_documents_chunk` to perform enrichment before storing the chunk to Opensearch.
+- `sigma_convert` to allow query through `query_sigma`.
+  - > - read [pysigma documentation](https://github.com/SigmaHQ/pySigma) to learn more about backend/s and pipeline/s!
 
 this is how the data flows through an `ingestion plugin` when ingesting into gulp through `ingest_file` API.
 

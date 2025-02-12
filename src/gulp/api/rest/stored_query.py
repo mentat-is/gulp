@@ -2,21 +2,15 @@
 gulp stored_queries rest api
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
+
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.stored_query import GulpStoredQuery
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-)
-from gulp.api.opensearch.sigma import (
-    GulpQuerySigmaParameters,
-)
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from muty.jsend import JSendException, JSendResponse
 
+from gulp.api.collab.stored_query import GulpStoredQuery
+from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -45,10 +39,10 @@ router: APIRouter = APIRouter()
     description="""
 creates a stored query.
 
-a stored query is a *reusable* query (or query group) which may be shared with other users.
+a stored query is a *reusable* query which may be shared with other users.
 
 - `token` needs `edit` permission.
-- if `text` is provided and it is a valid sigma rule, the `id` is extracted from the rule and used as the stored query id.
+- if `text` is provided and it is a valid sigma rule, the sigma `id` is extracted from the rule and used as the stored query `id`.
 """,
 )
 async def stored_query_create_handler(
@@ -64,29 +58,27 @@ async def stored_query_create_handler(
             description="if set, one or more `query groups` to associate with this query.",
         ),
     ] = None,
-    s_options: Annotated[
-        GulpQuerySigmaParameters,
-        Body(
-            description="for a `sigma query`, these must be set for the `sigma rule` conversion."
-        ),
-    ] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
+    plugin: Annotated[str, Query(
+        description="If `q` is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion.")] = None,
+    tags: Annotated[list[str], Depends(
+        APIDependencies.param_tags_optional)] = None,
     description: Annotated[
         str, Depends(APIDependencies.param_description_optional)
     ] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    glyph_id: Annotated[str, Depends(
+        APIDependencies.param_glyph_id_optional)] = None,
+    private: Annotated[bool, Depends(
+        APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["s_options"] = s_options.model_dump(exclude_none=True) if s_options else None
     ServerUtils.dump_params(params)
     try:
         object_data = {
             "name": name,
             "q": q,
             "q_groups": q_groups,
-            "s_options": s_options.model_dump(exclude_none=True) if s_options else None,
+            "plugin": plugin,
             "tags": tags,
             "description": description,
             "glyph_id": glyph_id,
@@ -143,26 +135,23 @@ async def stored_query_update_handler(
             description="if set, one or more `query groups` to associate with this query.",
         ),
     ] = None,
-    s_options: Annotated[
-        GulpQuerySigmaParameters,
-        Body(
-            description="for a `sigma query`, these must be set for the `sigma rule` conversion."
-        ),
-    ] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
+    plugin: Annotated[str, Query(
+        description="If `q` is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion.")] = None,
+    tags: Annotated[list[str], Depends(
+        APIDependencies.param_tags_optional)] = None,
     description: Annotated[
         str, Depends(APIDependencies.param_description_optional)
     ] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(
+        APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["s_options"] = s_options.model_dump(exclude_none=True) if s_options else None
     ServerUtils.dump_params(params)
     try:
-        if not any([q, q_groups, tags, description, glyph_id, s_options]):
+        if not any([q, q_groups, tags, description, glyph_id, plugin]):
             raise ValueError(
-                "At least one of q, q_groups, tags, description, glyph_id, s_options must be provided."
+                "At least one of q, q_groups, tags, description, glyph_id, plugin must be provided."
             )
         d = {}
         if name:
@@ -177,8 +166,8 @@ async def stored_query_update_handler(
             d["description"] = description
         if glyph_id:
             d["glyph_id"] = glyph_id
-        if s_options:
-            d["s_options"] = s_options.model_dump(exclude_none=True)
+        if plugin:
+            d["plugin"] = plugin
         d = await GulpStoredQuery.update_by_id(
             token,
             object_id,

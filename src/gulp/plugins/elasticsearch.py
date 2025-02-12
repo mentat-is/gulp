@@ -1,5 +1,5 @@
-import json
 from typing import Any, override
+
 import muty.dict
 import muty.jsend
 import muty.log
@@ -7,68 +7,26 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
-from elasticsearch import AsyncElasticsearch
+
+try:
+    from elasticsearch import AsyncElasticsearch
+except ImportError:
+    muty.os.check_and_install_package("elasticsearch", ">=8.1.5, <9")
+    from elasticsearch import AsyncElasticsearch
+
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.operation import GulpOperation
-from gulp.api.mapping.models import GulpMapping
-from gulp.api.opensearch.query import (
-    GulpQuery,
-    GulpQueryParameters,
-    GulpQueryHelpers,
-)
-from gulp.api.opensearch.sigma import (
-    GulpPluginSigmaSupport,
-    GulpQuerySigmaParameters,
-    to_gulp_query_struct,
-)
-from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.structs import (
-    GulpDocument,
-)
+
+from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import (
-    GulpNameDescriptionEntry,
-    GulpPluginCustomParameter,
-    GulpPluginParameters,
-)
-
-muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.5, <2")
-muty.os.check_and_install_package("elasticsearch", ">=8.1.5, <9")
-
-from sigma.backends.opensearch import OpensearchLuceneBackend
-from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
-from sigma.backends.elasticsearch.elasticsearch_lucene import LuceneBackend
-from sigma.pipelines.elasticsearch.zeek import (
-    ecs_zeek_beats,
-    ecs_zeek_corelight,
-    zeek_raw,
-)
+from gulp.structs import GulpPluginCustomParameter
 
 
 class Plugin(GulpPluginBase):
     """
     query plugin for opensearch/elasticsearch.
-
-    TODO: outdated. must be reworked, based on the splunk plugin
-
-    example flt and plugin_params:
-
-     {
-        "flt": { "start_msec": 1475730263242, "end_msec": 1475830263242},
-        "plugin_params": {
-            "extra": {
-                "url": "localhost:9200",
-                "username": "admin",
-                "password": "Gulp1234!",
-                "index": "testidx",
-                "timestamp_is_string": false,
-                "timestamp_unit": "ms",
-                "is_elasticsearch": false
-            }
-        }
-    }
     """
 
     def type(self) -> GulpPluginType:
@@ -128,7 +86,8 @@ class Plugin(GulpPluginBase):
         doc: dict = record
 
         offset_msec: int = self._custom_params.get("offset_msec", 0)
-        timestamp_field: str = self._custom_params.get("timestamp_field", "@timestamp")
+        timestamp_field: str = self._custom_params.get(
+            "timestamp_field", "@timestamp")
 
         # get context and source
         self._context_id, self._source_id = await self._extract_context_and_source_from_doc(doc)
@@ -270,74 +229,3 @@ class Plugin(GulpPluginBase):
             )
             MutyLogger.get_instance().debug("closing client ...")
             await cl.close()
-
-    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
-        return [
-            GulpPluginSigmaSupport(
-                backends=[
-                    GulpNameDescriptionEntry(
-                        name="elasticsearch_lucene",
-                        description="Lucene backend for pySigma",
-                    ),
-                    GulpNameDescriptionEntry(
-                        name="opensearch",
-                        description="OpenSearch backend for pySigma",
-                    ),
-                ],
-                pipelines=[
-                    GulpNameDescriptionEntry(
-                        name="ecs_windows",
-                        description="ECS mapping for Windows event logs ingested with Winlogbeat.",
-                    ),
-                    GulpNameDescriptionEntry(
-                        name="ecs_windows_old",
-                        description="ECS mapping for Windows event logs ingested with Winlogbeat <= 6.x.",
-                    ),
-                    GulpNameDescriptionEntry(
-                        name="ecs_zeek_beats",
-                        description=" Zeek ECS mapping from Elastic.",
-                    ),
-                    GulpNameDescriptionEntry(
-                        name="ecs_zeek_corelight",
-                        description="Zeek ECS mapping from Corelight.",
-                    ),
-                    GulpNameDescriptionEntry(
-                        name="zeek_raw",
-                        description="Zeek raw JSON log fields.",
-                    ),
-                ],
-                output_formats=[
-                    GulpNameDescriptionEntry(
-                        name="dsl_lucene",
-                        description="DSL with embedded Lucene queries.",
-                    )
-                ],
-            )
-        ]
-
-    def sigma_convert(
-        self,
-        sigma: str,
-        s_options: GulpQuerySigmaParameters,
-    ) -> list[GulpQuery]:
-
-        # select pipeline, backend and output format to use
-        backend, pipeline, output_format = self._check_sigma_support(s_options)
-
-        if pipeline == "ecs_windows":
-            pipeline = ecs_windows()
-        elif pipeline == "ecs_windows_old":
-            pipeline = ecs_windows_old()
-        elif pipeline == "ecs_zeek_beats":
-            pipeline = ecs_zeek_beats()
-        elif pipeline == "ecs_zeek_corelight":
-            pipeline = ecs_zeek_corelight()
-        elif pipeline == "zeek_raw":
-            pipeline = zeek_raw()
-
-        if backend == "opensearch":
-            # this is not guaranteed to work with all pipelines, though...
-            backend = OpensearchLuceneBackend(processing_pipeline=pipeline)
-        else:
-            backend = LuceneBackend(processing_pipeline=pipeline)
-        return to_gulp_query_struct(sigma, backend, output_format=output_format)

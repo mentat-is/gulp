@@ -277,7 +277,7 @@ class GulpDocument(GulpBasicDocument):
 
         # id is a hash of the document
         data["id"] = muty.crypto.hash_xxh128(
-            f"{data['event_original']}{data['event_code']}{data['event_sequence']}"
+            f"{data['event_original']}{data['operation_id']}{data['context_id']}{data['source_id']}{data['event_sequence']}"
         )
 
         # initialize with complete data (and validate)

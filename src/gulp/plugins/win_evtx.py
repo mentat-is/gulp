@@ -1,3 +1,5 @@
+from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
+from sigma.backends.opensearch import OpensearchLuceneBackend
 import json
 import os
 from typing import Any, override
@@ -35,11 +37,10 @@ from gulp.structs import (
 from muty.log import MutyLogger
 
 # needs the following backends for sigma support (add others if needed)
-muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
-muty.os.check_and_install_package("pysigma-backend-opensearch", ">=1.0.3,<2.0.0")
-
-from sigma.backends.opensearch import OpensearchLuceneBackend
-from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
+muty.os.check_and_install_package(
+    "pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
+muty.os.check_and_install_package(
+    "pysigma-backend-opensearch", ">=1.0.3,<2.0.0")
 
 
 class Plugin(GulpPluginBase):
@@ -168,7 +169,8 @@ class Plugin(GulpPluginBase):
                         else:
                             if item not in (None, ""):
                                 self._process_leaf(
-                                    "_".join(current_path + [str(i)]), item, result
+                                    "_".join(current_path +
+                                             [str(i)]), item, result
                                 )
             else:
                 if value != "":
@@ -204,7 +206,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -227,7 +230,8 @@ class Plugin(GulpPluginBase):
     ) -> GulpRequestStatus:
         try:
             if not plugin_params or plugin_params.is_empty():
-                plugin_params = GulpPluginParameters(mapping_file="windows.json")
+                plugin_params = GulpPluginParameters(
+                    mapping_file="windows.json")
             await super().ingest_file(
                 sess=sess,
                 stats=stats,
@@ -269,47 +273,11 @@ class Plugin(GulpPluginBase):
             return self._stats_status()
 
     @override
-    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
-        return [
-            GulpPluginSigmaSupport(
-                backends=[
-                    GulpNameDescriptionEntry(
-                        name="opensearch",
-                        description="OpenSearch Lucene backend for pySigma",
-                    )
-                ],
-                pipelines=[
-                    GulpNameDescriptionEntry(
-                        name="ecs_windows",
-                        description="ECS Mapping for windows event logs ingested with Winlogbeat or Gulp.",
-                    ),
-                    GulpNameDescriptionEntry(
-                        name="ecs_windows_old",
-                        description="ECS Mapping for windows event logs ingested with Winlogbeat<=6.x",
-                    ),
-                ],
-                output_formats=[
-                    GulpNameDescriptionEntry(
-                        name="dsl_lucene",
-                        description="DSL with embedded Lucene queries.",
-                    )
-                ],
-            ),
-        ]
-
-    @override
     def sigma_convert(
         self,
         sigma: str,
-        s_options: GulpQuerySigmaParameters,
     ) -> list[GulpQuery]:
 
-        # select pipeline, backend and output format to use
-        backend, pipeline, output_format = self._check_sigma_support(s_options)
-        if pipeline == "ecs_windows":
-            pipeline = ecs_windows()
-        else:
-            pipeline = ecs_windows_old()
-
-        backend = OpensearchLuceneBackend(processing_pipeline=pipeline)
+        backend = OpensearchLuceneBackend(processing_pipeline=ecs_windows())
+        output_format = 'dsl_lucene'
         return to_gulp_query_struct(sigma, backend, output_format=output_format)

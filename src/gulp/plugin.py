@@ -45,7 +45,6 @@ from gulp.api.opensearch.query import (
     GulpQueryParameters,
     GulpQueryNoteParameters,
 )
-from gulp.api.opensearch.sigma import GulpPluginSigmaSupport, GulpQuerySigmaParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
@@ -93,11 +92,7 @@ class GulpPluginEntry(BaseModel):
                     "desc": "Windows Event Log plugin.",
                     "path": "/path/to/win_evtx.py",
                     "filename": "win_evtx.py",
-                    "sigma_support": [
-                        muty.pydantic.autogenerate_model_example_by_class(
-                            GulpPluginSigmaSupport
-                        ),
-                    ],
+                    "sigma_support": True,
                     "custom_parameters": [
                         muty.pydantic.autogenerate_model_example_by_class(
                             GulpPluginCustomParameter
@@ -133,9 +128,9 @@ class GulpPluginEntry(BaseModel):
         ...,
         description="This is the bare filename without extension (aka the `internal plugin name`, to be used as `plugin` throughout the whole gulp API).",
     )
-    sigma_support: Optional[list[GulpPluginSigmaSupport]] = Field(
-        [],
-        description="The supported backends/pipelines/output_formats.",
+    sigma_support: Optional[bool] = Field(
+        False,
+        description="Whether the plugin supports sigma conversion through `sigma_convert` entrypoint.",
     )
     custom_parameters: Optional[list[GulpPluginCustomParameter]] = Field(
         [],
@@ -557,106 +552,17 @@ class GulpPluginBase(ABC):
 
         return len(ingested_docs), skipped
 
-    def _check_sigma_support(
-        self, s_options: GulpQuerySigmaParameters
-    ) -> tuple[str, str, str]:
-        """
-        check if the plugin supports the given sigma backend/pipeline/output_format
-
-        if s_options.backend, pipeline or output_format are not set, the first supported is selected.
-
-        Args:
-            s_options (GulpQuerySigmaParameters): the sigma query parameters.
-
-        Returns:
-            tuple[str,str,str]: the selected backend, pipeline, output_format
-        """
-        if not self.sigma_support():
-            raise ValueError(
-                f"plugin {
-                    self.name} does not support any sigma backends/pipelines/output_formats"
-            )
-        if not s_options:
-            s_options = GulpQuerySigmaParameters()
-
-        # if set, get the specified backend/pipeline/output_format.
-        # either, get the first available for each
-        if not s_options.backend:
-            backend = self.sigma_support()[0].backends[0].name
-            MutyLogger.get_instance().debug(
-                f"no backend specified, using first supported: {backend}"
-            )
-        else:
-            backend = s_options.backend
-
-        if not s_options.pipeline:
-            pipeline = self.sigma_support()[0].pipelines[0].name
-            MutyLogger.get_instance().debug(
-                f"no pipeline specified, using first supported: {pipeline}"
-            )
-        else:
-            pipeline = s_options
-
-        if not s_options.output_format:
-            output_format = self.sigma_support()[0].output_formats[0].name
-            MutyLogger.get_instance().debug(
-                f"no output_format specified, using first supported: {
-                    output_format}"
-            )
-        else:
-            output_format = s_options.output_format
-
-        # check support
-        support_list = self.sigma_support()
-        for s in support_list:
-            backend_supported = False
-            pipeline_supported = False
-            output_format_supported = False
-            for b in s.backends:
-                if b.name == backend:
-                    backend_supported = True
-                    break
-            for p in s.pipelines:
-                if p.name == pipeline:
-                    pipeline_supported = True
-                    break
-            for o in s.output_formats:
-                if o.name == output_format:
-                    output_format_supported = True
-                    break
-
-            if backend_supported and pipeline_supported and output_format_supported:
-                return (backend, pipeline, output_format)
-
-        raise ValueError(
-            f"plugin {self.name} does not support the combination: backend={
-                backend}, pipeline={pipeline}, output_format={output_format}"
-        )
-
-    def sigma_support(self) -> list[GulpPluginSigmaSupport]:
-        """
-        return backends/pipelines supported by the plugin (check pysigma on github for details)
-
-        NOTE: "opensearch" backend and "dsl_lucene" output format are MANDATORY to query Gulp
-
-        Returns:
-            list[GulpPluginSigmaSupport]: the supported backends/pipelines/output_formats.
-        """
-        return []
-
     def sigma_convert(
         self,
         sigma: str,
-        s_options: GulpQuerySigmaParameters,
     ) -> list[GulpQuery]:
         """
-        convert a sigma rule specifically targeted to this plugin into a query for the target specified by backend/pipeline/output_format.
+        convert a sigma rule specifically targeted to this plugin into a raw query for gulp's OpenSearch.
 
         Args:
             sigma (str): the sigma rule YAML
-            s_options (GulpQuerySigmaParameters): the `backend`, `pipeline`, `output_format` to be used (`plugin` is ignored), the current plugin must implement them.
         Returns:
-            list[GulpConvertedSigma]: one or more queries in the format specified by backend/pipeline/output_format.
+            list[GulpQuery]: one or more queries.
         """
         raise NotImplementedError("not implemented!")
 
@@ -2289,13 +2195,15 @@ class GulpPluginBase(ABC):
                     await p.unload()
                     continue
 
+                # got entry
                 entry = GulpPluginEntry(
                     path=f,
                     display_name=p.display_name(),
                     type=p.type(),
                     desc=p.desc(),
                     filename=p.filename,
-                    sigma_support=p.sigma_support(),
+                    # check if plugin implements sigma_convert, if so it have sigma_support!
+                    sigma_support=inspect.getmodule(p.sigma_convert) != inspect.getmodule(GulpPluginBase.sigma_convert),
                     custom_parameters=p.custom_parameters(),
                     depends_on=p.depends_on(),
                     tags=p.tags(),
