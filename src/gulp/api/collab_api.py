@@ -94,17 +94,16 @@ class GulpCollab:
         if main_process:
             MutyLogger.get_instance().debug("init in MAIN process ...")
             if force_recreate:
+                # drop and recreate the database, including the default data
                 await GulpCollab.db_drop(url)
                 await GulpCollab.db_create(url)
+                await self.create_default_data()
 
             await self.shutdown()
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
                 bind=self._engine, expire_on_commit=expire_on_commit
             )
-            if force_recreate:
-                await self.create_default_data()
-                await self._setup_collab_expirations()
 
             # check tables exists
             async with self._collab_sessionmaker() as sess:
@@ -360,8 +359,6 @@ class GulpCollab:
         from gulp.api.collab.operation import GulpOperation
         from gulp.api.collab.source import GulpSource
         from gulp.api.collab.stored_query import GulpStoredQuery
-        from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
-        from gulp.structs import GulpPluginParameters
         from gulp.api.collab.structs import (
             PERMISSION_MASK_DELETE,
             PERMISSION_MASK_EDIT,
@@ -371,6 +368,8 @@ class GulpCollab:
         )
         from gulp.api.collab.user import GulpUser
         from gulp.api.collab.user_group import GulpUserGroup
+        from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
+        from gulp.structs import GulpPluginParameters
 
         # create database tables and functions
         async with self._engine.begin() as conn:
@@ -425,8 +424,9 @@ class GulpCollab:
                 user_session=admin_session,
             )
 
-            # create test stored queries (5)
-            s_options = GulpQuerySigmaParameters(plugin="win_evtx")
+            # create test stored queries
+
+            # windows sigma 1
             sigma_match_some = await muty.file.read_file_async(
                 muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")
             )
@@ -437,35 +437,37 @@ class GulpCollab:
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
-                    "name": "sigma stored query 1",
+                    "name": "win_evtx_sigma_1",
                     "tags": ["stored", "sigma"],
-                    "q_groups": ["test group"],
+                    "q_groups": ["group1"],
                     "q": sigma_match_some.decode("utf-8"),
-                    "s_options": s_options.model_dump(exclude_none=True),
+                    "plugin": "win_evtx",
                 },
                 id="test_stored_sigma_1",
                 owner_id=admin_user.id,
                 private=False
             )
 
+            # windows sigma 2
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
-                    "name": "sigma stored query 2",
+                    "name": "win_evtx_sigma_2",
                     "tags": ["stored", "sigma"],
-                    "q_groups": ["test group"],
+                    "q_groups": ["group1"],
                     "q": sigma_match_some_more.decode("utf-8"),
-                    "s_options": s_options.model_dump(exclude_none=True),
+                    "plugin": "win_evtx",
                 },
                 id="test_stored_sigma_2",
                 owner_id=admin_user.id,
                 private=False
             )
 
+            # raw query
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
-                    "name": "raw stored query",
+                    "name": "raw_query",
                     "tags": ["stored", "raw"],
                     "q_groups": ["group2"],
                     "q": json.dumps(
@@ -490,37 +492,13 @@ class GulpCollab:
                 private=False
             )
 
-            # some splunk queries
-            splunk_sigma = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "splunk_sigma_2.yaml")
-            )
-            s_options = GulpQuerySigmaParameters(plugin="splunk")
-            plugin_params = GulpPluginParameters(
-                additional_mapping_files=[("windows.json", "windows")]
-            )
+            # splunk query
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
-                    "name": "splunk sigma query",
-                    "tags": ["stored", "sigma", "splunk"],
-                    "q": splunk_sigma.decode("utf-8"),
-                    "external_plugin": "splunk",
-                    "s_options": s_options.model_dump(exclude_none=True),
-                    "plugin_params": plugin_params.model_dump(exclude_none=True),
-                },
-                id="test_stored_sigma_splunk",
-                owner_id=admin_user.id,
-                private=False
-            )
-
-            GulpStoredQuery = await GulpStoredQuery._create(
-                sess,
-                object_data={
-                    "name": "splunk raw query",
+                    "name": "splunk_raw_query",
                     "tags": ["stored", "raw", "splunk"],
-                    "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',
-                    "external_plugin": "splunk",
-                    "plugin_params": plugin_params.model_dump(exclude_none=True),
+                    "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',                    
                 },
                 id="test_stored_raw_splunk",
                 owner_id=admin_user.id,

@@ -1,21 +1,25 @@
 import asyncio
 import collections
-from enum import StrEnum
-from multiprocessing.managers import SyncManager
 import os
-from queue import Empty, Queue
+import queue
 import threading
 import time
+from enum import StrEnum
+from multiprocessing.managers import SyncManager
+from queue import Empty, Queue
 from typing import Any, Optional
-from muty.pydantic import autogenerate_model_example_by_class
+
 import muty
+import muty.time
 from fastapi import WebSocket, WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-import queue
+
+from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_INDEX,
@@ -25,10 +29,6 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 from gulp.config import GulpConfig
-import asyncio
-from fastapi.websockets import WebSocketState
-import muty.time
-
 from gulp.structs import GulpPluginParameters
 
 
@@ -113,7 +113,8 @@ class GulpCollabDeletePacket(BaseModel):
     Represents a delete collab event.
     """
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"id": "the id"}]})
     id: str = Field(..., description="The collab object ID.")
 
 
@@ -161,7 +162,8 @@ class GulpQueryDonePacket(BaseModel):
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."
     )
-    error: Optional[str] = Field(None, description="The error message, if any.")
+    error: Optional[str] = Field(
+        None, description="The error message, if any.")
     total_hits: Optional[int] = Field(
         None, description="The total number of hits for the query."
     )
@@ -241,7 +243,8 @@ class GulpCollabCreateUpdatePacket(BaseModel):
         None,
         description="Type of the event (may be a GulpCollabType or an arbitrary string).",
     )
-    bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
+    bulk_size: Optional[int] = Field(
+        None, description="The size of the bulk event.")
     created: Optional[bool] = Field(
         default=False, description="If the event is a create event."
     )
@@ -274,6 +277,7 @@ class GulpRebaseDonePacket(BaseModel):
             ]
         }
     )
+    operation_id: str = Field(..., description="The operation ID.")
     src_index: str = Field(..., description="The source index.")
     dest_index: str = Field(..., description="The destination index.")
     status: "GulpRequestStatus" = Field(
@@ -363,7 +367,8 @@ class GulpWsIngestPacket(BaseModel):
         ...,
         description="name of the context to associate data with.",
     )
-    source: str = Field(..., description="name of the source to associate data with.")
+    source: str = Field(...,
+                        description="name of the source to associate data with.")
     ws_id: str = Field(
         ...,
         description="id of the websocket to stream ingest data to.",
@@ -497,7 +502,8 @@ class GulpWsData(BaseModel):
         ..., description="The type of data carried by the websocket."
     )
     ws_id: str = Field(..., description="The WebSocket ID.")
-    user_id: Optional[str] = Field(None, description="The user who issued the request.")
+    user_id: Optional[str] = Field(
+        None, description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
         None,
@@ -508,7 +514,8 @@ class GulpWsData(BaseModel):
         False,
         description="If the data is private, only the websocket `ws_id` receives it.",
     )
-    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
+    data: Optional[Any] = Field(
+        None, description="The data carried by the websocket.")
 
 
 class WsQueueMessagePool:
@@ -614,7 +621,8 @@ class GulpConnectedSocket:
                 )
                 raise
             except Exception as ex:
-                MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
+                MutyLogger.get_instance().error(
+                    f"error in {task.get_name()}: {ex}")
                 raise
 
         finally:
@@ -749,7 +757,8 @@ class GulpConnectedSocket:
         send messages from the ws queue to the websocket
         """
         try:
-            MutyLogger.get_instance().debug(f'starting ws "{self.ws_id}" loop ...')
+            MutyLogger.get_instance().debug(
+                f'starting ws "{self.ws_id}" loop ...')
             ws_delay = GulpConfig.get_instance().ws_rate_limit_delay()
 
             while True:
@@ -773,10 +782,12 @@ class GulpConnectedSocket:
                     continue
 
         except asyncio.CancelledError:
-            MutyLogger.get_instance().debug(f'ws "{self.ws_id}" send loop cancelled')
+            MutyLogger.get_instance().debug(
+                f'ws "{self.ws_id}" send loop cancelled')
             raise
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().debug(f'ws "{self.ws_id}" disconnected: {ex}')
+            MutyLogger.get_instance().debug(
+                f'ws "{self.ws_id}" disconnected: {ex}')
             raise
         except Exception as ex:
             MutyLogger.get_instance().error(f'ws "{self.ws_id}" error: {ex}')
@@ -1040,7 +1051,8 @@ class GulpSharedWsQueue:
         from gulp.process import GulpProcess
 
         if GulpProcess.get_instance().is_main_process():
-            raise RuntimeError("set_queue() must be called in a worker process")
+            raise RuntimeError(
+                "set_queue() must be called in a worker process")
 
         MutyLogger.get_instance().debug(
             "setting shared ws queue in worker process: q=%s" % (q)
@@ -1057,7 +1069,8 @@ class GulpSharedWsQueue:
         from gulp.process import GulpProcess
 
         if not GulpProcess.get_instance().is_main_process():
-            raise RuntimeError("init_queue() must be called in the main process")
+            raise RuntimeError(
+                "init_queue() must be called in the main process")
 
         if self._shared_q:
             # close first
@@ -1065,7 +1078,8 @@ class GulpSharedWsQueue:
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
         self._shared_q = mgr.Queue()
-        self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
+        self._fill_task = asyncio.create_task(
+            self._fill_ws_queues_from_shared_queue())
 
         return self._shared_q
 
@@ -1221,7 +1235,8 @@ class GulpSharedWsQueue:
         if type == GulpWsQueueDataType.DOCUMENTS_CHUNK:
             # allow to interrupt lenghty processes if the websocket is dead
             if not GulpConnectedSocket.is_alive(ws_id):
-                raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
+                raise WebSocketDisconnect(
+                    "websocket '%s' is not connected!" % (ws_id))
 
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),

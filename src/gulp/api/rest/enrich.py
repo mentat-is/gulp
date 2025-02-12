@@ -7,6 +7,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
@@ -154,13 +155,16 @@ async def _enrich_documents_internal(
 uses an `enrichment` plugin to augment data in multiple documents.
 
 - token must have the `edit` permission.
-- the enriched documents are updated in the Gulp `index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
+- `flt.operation_ids` is ignored and set to `[operation_id]`
+- the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
 - `q` is a `raw` query which may be provided to restrict the documents to enrich. by default, whole data is considered.
 """,
 )
 async def enrich_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
@@ -175,19 +179,18 @@ async def enrich_documents_handler(
     params["plugin_params"] = (
         plugin_params.model_dump(exclude_none=True) if plugin_params else None
     )
-
     ServerUtils.dump_params(params)
 
     try:
-        if not flt or not flt.operation_ids:
-            raise ValueError(
-                "at least one operation_id is mandatory in the query filter."
-            )
+        # enforce operation_id
+        flt.operation_ids = [operation_id]
 
         async with GulpCollab.get_instance().session() as sess:
-            # check token and get caller user id
-            s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
             user_id = s.user_id
+            index = op.index
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(

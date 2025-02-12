@@ -17,6 +17,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from gulp.api.rest.test_values import TEST_INDEX
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpRebaseDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.process import GulpProcess
@@ -71,7 +72,7 @@ async def opensearch_delete_index_handler(
         )
 
         # delete the operation
-        await GulpOperation.delete_by_id(sess, operation_id)        
+        await GulpOperation.delete_by_id(sess, operation_id)
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index, "operation_id": operation_id}))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -370,7 +371,6 @@ async def postgres_init_collab_handler(
 )
 async def gulp_reset_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     restart_processes: Annotated[
         bool,
         Query(
@@ -391,7 +391,7 @@ async def gulp_reset_handler(
         await collab.init(main_process=True, force_recreate=True)
 
         # reset data
-        await _recreate_index_internal(index, restart_processes)
+        await _recreate_index_internal(TEST_INDEX, restart_processes)
         return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -406,7 +406,6 @@ async def _rebase_internal(
     dest_index: str,
     offset_msec: int,
     flt: GulpQueryFilter,
-    delete_if_exists: bool,
     rebase_script: str,
 ):
     """
@@ -415,7 +414,7 @@ async def _rebase_internal(
     try:
         # create the destination datastream
         await GulpOpenSearch.get_instance().datastream_create(
-            dest_index, delete_first=delete_if_exists
+            dest_index
         )
 
         # rebase
@@ -426,8 +425,21 @@ async def _rebase_internal(
             flt=flt,
             rebase_script=rebase_script,
         )
+
+        # the operation object must now point to the new index
+        async with GulpCollab.get_instance().session() as sess:
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id, with_for_update=True)
+            d = {
+                "index": dest_index,
+            }
+        await op.update(sess,
+                        d,
+                        ws_id=None,  # do not propagate on the websocket
+                        req_id=req_id,
+                        user_id=user_id)
+
     except Exception as ex:
-        # signal the websocket
+        # signal failure on the websocket
         MutyLogger.get_instance().exception(ex)
         GulpSharedWsQueue.get_instance().put(
             type=GulpWsQueueDataType.REBASE_DONE,
@@ -436,6 +448,7 @@ async def _rebase_internal(
             operation_id=operation_id,
             req_id=req_id,
             data=GulpRebaseDonePacket(
+                operation_id=operation_id,
                 src_index=index,
                 dest_index=dest_index,
                 status=GulpRequestStatus.FAILED,
@@ -456,6 +469,7 @@ async def _rebase_internal(
         req_id=req_id,
         operation_id=operation_id,
         data=GulpRebaseDonePacket(
+            operation_id=operation_id,
             src_index=index,
             dest_index=dest_index,
             status=GulpRequestStatus.DONE,
@@ -482,9 +496,9 @@ async def _rebase_internal(
             }
         }
     },
-    summary="rebases index/datastream to a different time.",
+    summary="rebases operation's index to a different time.",
     description="""
-rebases `index` and creates a new `dest_index` with rebased `@timestamp` + `offset`.
+rebases `operation_id.index` and creates a new `dest_index` with rebased `@timestamp` + `offset`, then set the operation's index to `dest_index` on success.
 
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
@@ -494,11 +508,10 @@ rebases `index` and creates a new `dest_index` with rebased `@timestamp` + `offs
 async def opensearch_rebase_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     dest_index: Annotated[
         str,
         Query(
-            description="name of the destination index.",
+            description="name of the destination index, will be reset or created if not exists.",
             example="new_index",
         ),
     ],
@@ -513,18 +526,6 @@ async def opensearch_rebase_index_handler(
         ),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    create_dest_index: Annotated[
-        bool,
-        Query(
-            description="if true, the destination index is created if it not exists. either, an error is reported if `dest_index` does not exists.",
-        ),
-    ] = True,
-    delete_if_exists: Annotated[
-        bool,
-        Query(
-            description="if true, the destination index is deleted first (and recreated), if it exists.",
-        ),
-    ] = True,
     flt: Annotated[str, Depends(
         APIDependencies.param_query_flt_optional)] = None,
     rebase_script: Annotated[
@@ -554,26 +555,18 @@ optional custom rebase script to run on the documents.
     ServerUtils.dump_params(params)
 
     try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check permission and get user id and index
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.INGEST)
+            user_id = s.user_id
+            index = op.index
+
         if index == dest_index:
             raise JSendException(
                 req_id=req_id, ex=Exception(
-                    "index and dest_index should be different!")
+                    "index and dest_index must be different! (index=%s, dest_index=%s)" % (index, dest_index))
             )
-
-        async with GulpCollab.get_instance().session() as sess:
-            # check permission and get user id
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.INGEST]
-            )
-            user_id = s.user_id
-
-        if not create_dest_index:
-            # check if the destination index exists
-            exists = await GulpOpenSearch.get_instance().datastream_exists(dest_index)
-            if not exists:
-                raise ObjectNotFound(
-                    "destination index %s does not exist!" % (dest_index)
-                )
 
         # spawn a task which runs the rebase in a worker process
         kwds = dict(
@@ -585,7 +578,6 @@ optional custom rebase script to run on the documents.
             dest_index=dest_index,
             offset_msec=offset_msec,
             flt=flt,
-            delete_if_exists=delete_if_exists,
             rebase_script=rebase_script,
         )
 

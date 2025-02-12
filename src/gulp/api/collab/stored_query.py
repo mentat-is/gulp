@@ -22,10 +22,11 @@ class GulpStoredQuery(GulpCollabBase, type=GulpCollabType.STORED_QUERY):
     )
     q: Mapped[str] = mapped_column(
         String,
-        doc="a query as string: may be YAML (for sigma) or JSON string, text, depending on the query type.",
+        doc="a query as string, i.e. YAML (i.e. sigma), JSON string, ...",
     )
     plugin: Mapped[str] = mapped_column(
         String,
+        default=None,
         doc="If q is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion.",
     )
 

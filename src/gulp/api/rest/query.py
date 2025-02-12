@@ -305,12 +305,16 @@ async def query_raw_handler(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    if len(q) > 1 and not q_options.group:
-        raise ValueError(
-            "if more than one query is provided, `q_options.group` must be set."
-        )
-
     try:
+        if len(q) > 1 and not q_options.group:
+            raise ValueError(
+                "if more than one query is provided, `q_options.group` must be set."
+            )
+
+        if q_options.external_parameters.plugin:
+            raise ValueError("use query_external for external queries")
+        
+        
         async with GulpCollab.get_instance().session() as sess:
             permission = GulpUserPermission.READ
 
@@ -454,7 +458,7 @@ async def query_external_handler(
             }
         }
     },
-    summary="Query using sigma rule/s.",
+    summary="Query using sigma rules.",
     description="""
 query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
@@ -501,8 +505,10 @@ async def query_sigma_handler(
     try:
         if not plugin:
             raise ValueError("plugin must be set!")
+        
         if q_options.external_parameters.plugin:
             raise ValueError("sigma not supported in external queries")
+        
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
                 "if more than one query is provided, `q_options.group` must be set."
