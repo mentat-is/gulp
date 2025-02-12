@@ -53,20 +53,7 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        parts = [
-            r"(?P<host>\S+)",  # host %h
-            r"\S+",  # indent %l (unused)
-            r"(?P<user>\S+)",  # user %u
-            # date and timezone %t
-            r"\[(?P<datetime>(?P<date>.*?)(?= ) (?P<timezone>.*?))\]",  # TODO: group timezone sould be optional
-            # request "%r"
-            r"\"(?P<request_method>.*?) (?P<path>.*?)(?P<request_version> HTTP\/.*)?\"",
-            r"(?P<status>[0-9]+)",  # status %>s
-            r"(?P<size>\S+)",  # size %b (might be '-')
-            r"\"(?P<referrer>.*)\"",  # referrer "%{Referer}i"
-            r"\"(?P<agent>.*)\"",  # user agent "%{User-agent}i"
-        ]
-        pattern = re.compile(r"\s+".join(parts) + r".*\Z")
+        pattern = kwargs.get("regex")
 
         matches = pattern.match(record.strip("\n"))
         event = {
@@ -159,6 +146,21 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
+        parts = [
+            r"(?P<host>\S+)",  # host %h
+            r"\S+",  # indent %l (unused)
+            r"(?P<user>\S+)",  # user %u
+            # date and timezone %t
+            r"\[(?P<datetime>(?P<date>.*?)(?= ) (?P<timezone>.*?))\]",  # TODO: group timezone sould be optional
+            # request "%r"
+            r"\"(?P<request_method>.*?) (?P<path>.*?)(?P<request_version> HTTP\/.*)?\"",
+            r"(?P<status>[0-9]+)",  # status %>s
+            r"(?P<size>\S+)",  # size %b (might be '-')
+            r"\"(?P<referrer>.*)\"",  # referrer "%{Referer}i"
+            r"\"(?P<agent>.*)\"",  # user agent "%{User-agent}i"
+        ]
+        pattern = re.compile(r"\s+".join(parts) + r".*\Z")
+
         doc_idx = 0
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
@@ -168,7 +170,7 @@ class Plugin(GulpPluginBase):
                         continue
 
                     try:
-                        await self.process_record(l, doc_idx, flt=flt)
+                        await self.process_record(l, doc_idx, flt=flt, regex=pattern)
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
