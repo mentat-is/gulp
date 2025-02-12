@@ -3,11 +3,7 @@ from typing import Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.rest.test_values import (
-    TEST_CONTEXT_ID,
-    TEST_OPERATION_ID,
-    TEST_SOURCE_ID,
-)
+from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
 
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = [
@@ -30,14 +26,12 @@ class GulpBaseDocumentFilter(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
         json_schema_extra={
             "examples": [
                 {
-                    "int_filter": [
+                    "time_range": [
                         1551385571023173120,
                         1551446406878338048,
-                        "gulp.timestamp",
                     ],
                     "query_string_parameters": {
                         "analyze_wildcard": True,
@@ -48,17 +42,12 @@ class GulpBaseDocumentFilter(BaseModel):
         },
     )
 
-    int_filter: Optional[tuple[int, int] | tuple[int, int, str]] = Field(
+    time_range: Optional[tuple[int, int]] = Field(
         default=None,
         description="""
-a tuple representing `[ start, end, field]`.
+a tuple representing a `gulp.timestamp` range `[ start, end ]`.
 
 - `start` and `end` are nanoseconds from the unix epoch.
-- `field` may be omitted (defaults to `gulp.timestamp`).
-
-### external queries
-
-- for `external` queries, `field` is always ignored and set by the plugin automatically.
 """,
     )
 
@@ -67,9 +56,6 @@ a tuple representing `[ start, end, field]`.
         description="""
 additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)
 
-### external queries
-
-- not applicable.
 """,
     )
 
@@ -96,10 +82,9 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
         json_schema_extra={
             "examples": [
                 {
-                    "int_filter": [
+                    "time_range": [
                         1551385571023173120,
                         1551446406878338048,
-                        "gulp.timestamp",
                     ],
                     "storage_ignore_filter": False,
                 }
@@ -137,9 +122,9 @@ default is False (both OpenSearch and websocket receives the filtered results).
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
 
-        if flt.int_filter:
+        if flt.time_range:
             ts = doc["gulp.timestamp"]
-            if ts <= flt.int_filter[0] or ts >= flt.int_filter[1]:
+            if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
                 return GulpDocumentFilterResult.SKIP
 
         return GulpDocumentFilterResult.ACCEPT
@@ -158,21 +143,15 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             "examples": [
                 {
                     "agent_types": ["win_evtx"],
-                    "doc_id": ["18b6332595d82048e31963e6960031a1"],
                     "operation_ids": [TEST_OPERATION_ID],
                     "context_ids": [TEST_CONTEXT_ID],
                     "source_ids": [TEST_SOURCE_ID],
                     "event_codes": ["5152"],
-                    "event_original": ["*searchme*", False],
-                    "date_range": [
-                        "2010-11-10T17:22:53.203125+00:00",
-                        "2010-11-10T17:23:50.000000+00:00",
-                        "@timestamp",
+                    "time_range": [
+                        1551385571023173120,
+                        1551446406878338048,
                     ],
-                    "range_parameters": {
-                        "time_zone": "+01:00",
-                        "format": "strict_date_optional_time",
-                    },
+                    "storage_ignore_filter": False,
                 }
             ]
         }
@@ -180,10 +159,6 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     agent_types: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `agent.type`/s.",
-    )
-    doc_ids: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `_id`/s.",
     )
     operation_ids: Optional[list[str]] = Field(
         None,
@@ -207,27 +182,6 @@ include documents matching the given `gulp.source_id`/s.
     event_codes: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `event.code`/s.",
-    )
-    event_original: Optional[tuple[str, bool] | str] = Field(
-        None,
-        description="""include documents with `event.original` matching the given text.
-
-        - if just a string is provided, assumes `keyword search` (`wildcard` and `case-insensitive` supported).
-        - if the second element is `False`, uses [the default keyword search](https://opensearch.org/docs/latest/field-types/supported-field-types/keyword/).
-        - if the second element is `True`, perform a full [text](https://opensearch.org/docs/latest/field-types/supported-field-types/text/) search on `event.original.text` field.
-        """,
-    )
-    date_range: Optional[tuple[str, str] | tuple[str, str, str]] = Field(
-        default=None,
-        description="""
-a tuple representing `[ time_start, time_end, field ]`.
-
-- `field` may be omitted (defaults to `@timestamp`, ISO-8601 string).
-""",
-    )
-    range_parameters: Optional[dict] = Field(
-        default=None,
-        description="additional parameters to be applied to `date_range`, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/term/range/#parameters)",
     )
 
     @override
@@ -298,7 +252,8 @@ a tuple representing `[ time_start, time_end, field ]`.
 
             if self.agent_types:
                 clauses.append(
-                    self._query_string_build_or_clauses("agent.type", self.agent_types)
+                    self._query_string_build_or_clauses(
+                        "agent.type", self.agent_types)
                 )
             if self.operation_ids:
                 clauses.append(
@@ -318,45 +273,24 @@ a tuple representing `[ time_start, time_end, field ]`.
                         "gulp.source_id", self.source_ids
                     )
                 )
-            if self.doc_ids:
-                clauses.append(self._query_string_build_or_clauses("_id", self.doc_ids))
-
-            if self.event_original:
-                # check for full text search or keyword search
-                if len(self.event_original) == 2:
-                    # tuple
-                    event_original, fts = self.event_original
-                else:
-                    # keyword search
-                    fts = False
-                    event_original = self.event_original
-
-                field = "event.original.text" if fts else "event.original"
-                clauses.append(
-                    self._query_string_build_eq_clause(field, event_original)
-                )
             if self.event_codes:
                 clauses.append(
-                    self._query_string_build_or_clauses("event.code", self.event_codes)
+                    self._query_string_build_or_clauses(
+                        "event.code", self.event_codes)
                 )
-            if self.int_filter:
+            if self.time_range:
                 # simple >=, <= clauses
-                if len(self.int_filter) == 2:
-                    field = "gulp.timestamp"
-                else:
-                    field = self.int_filter[2]
-                if self.int_filter[0]:
+                field = "gulp.timestamp"
+                if self.time_range[0]:
                     clauses.append(
-                        self._query_string_build_gte_clause(field, self.int_filter[0])
+                        self._query_string_build_gte_clause(
+                            field, self.time_range[0])
                     )
-                if self.int_filter[1]:
+                if self.time_range[1]:
                     clauses.append(
-                        self._query_string_build_lte_clause(field, self.int_filter[1])
+                        self._query_string_build_lte_clause(
+                            field, self.time_range[1])
                     )
-            if self.model_extra:
-                # extra fields
-                for k, v in self.model_extra.items():
-                    clauses.append(self._query_string_build_or_clauses(k, v))
 
             # only return non-empty clauses
             clauses = [c for c in clauses if c and c.strip()]
@@ -384,29 +318,10 @@ a tuple representing `[ time_start, time_end, field ]`.
                 }
             }
         }
-        must_array = query_dict["query"]["bool"]["must"]
         bool_dict = query_dict["query"]["bool"]
         q_string = query_dict["query"]["bool"]["must"][0]["query_string"]
         if self.query_string_parameters:
             q_string.update(self.query_string_parameters)
-
-        if self.date_range:
-            # build range query
-            range_q = {}
-            if len(self.date_range) == 2:
-                field = "@timestamp"
-            else:
-                field = self.date_range[2]
-            if self.date_range[0]:
-                range_q["gte"] = self.date_range[0]
-            if self.date_range[1]:
-                range_q["lte"] = self.date_range[1]
-
-            # add range query
-            r = {field: range_q}
-            if self.range_parameters:
-                r[field].update(self.range_parameters)
-            must_array.append({"range": {field: range_q}})
 
         if flt:
             # merge with the provided filter using a bool query
@@ -444,14 +359,11 @@ a tuple representing `[ time_start, time_end, field ]`.
         """
         return not any(
             [
-                self.int_filter,
+                self.time_range,
                 self.agent_types,
-                self.doc_ids,
                 self.operation_ids,
                 self.context_ids,
                 self.source_ids,
                 self.event_codes,
-                self.event_original,
-                self.model_extra,
             ]
         )

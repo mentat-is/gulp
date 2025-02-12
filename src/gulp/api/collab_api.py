@@ -72,7 +72,7 @@ class GulpCollab:
         if called on an already initialized instance, the existing engine is disposed and a new one is created.
 
         Args:
-            force_recreate (bool, optional): whether to drop and recreate the database. Defaults to False.
+            force_recreate (bool, optional): whether to drop and recreate the database (including the default data). Defaults to False.
             expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
             main_process (bool, optional): whether this is the main process. Defaults to False.
         """
@@ -103,7 +103,7 @@ class GulpCollab:
                 bind=self._engine, expire_on_commit=expire_on_commit
             )
             if force_recreate:
-                await self._create_default_data()
+                await self.create_default_data()
                 await self._setup_collab_expirations()
 
             # check tables exists
@@ -338,7 +338,7 @@ class GulpCollab:
             )
             await sess.commit()
 
-    async def _create_default_data(self) -> None:
+    async def create_default_data(self) -> None:
         """
         Initializes the default data for the application.
         This function performs the following tasks:

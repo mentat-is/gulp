@@ -536,6 +536,8 @@ class GulpOpenSearch:
 
         MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
         await self._opensearch.indices.delete_data_stream(ds, headers=headers)
+
+        # also delete corresponding template
         try:
             await self.index_template_delete(ds)
         except Exception as e:
