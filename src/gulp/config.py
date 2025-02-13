@@ -306,14 +306,14 @@ class GulpConfig:
 
     def debug_ignore_missing_ws(self) -> bool:
         """
-        Returns whether to ignore missing websocket connection (default: False).
+        Returns whether to ignore missing websocket connection (default: True).
         """
-        n = False
+        n = True
 
         if __debug__:
             if self.is_integration_test():
-                return False
-            n = self._config.get("debug_ignore_missing_ws", False)
+                return True
+            n = self._config.get("debug_ignore_missing_ws", True)
 
         return n
 
@@ -566,7 +566,7 @@ class GulpConfig:
         if not p:
             # try configuration
             p = self._config.get("path_plugins_extra", None)
-        
+
         if p:
             p = os.path.expanduser(p)
         return p
