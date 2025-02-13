@@ -368,7 +368,6 @@ class GulpCollab:
         )
         from gulp.api.collab.user import GulpUser
         from gulp.api.collab.user_group import GulpUserGroup
-        from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
         from gulp.structs import GulpPluginParameters
 
         # create database tables and functions

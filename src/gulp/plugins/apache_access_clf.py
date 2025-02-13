@@ -10,6 +10,7 @@ import muty.time
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -55,24 +56,22 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         pattern = kwargs.get("regex")
 
-        matches = pattern.match(record.strip("\n"))
+        matches: re.Match = pattern.match(record.strip("\n"))
+        if not matches:
+            raise ValueError("record does not match pattern")
+
         event = {
-            "host": matches["host"],
-            "user": matches["user"],
-            "datetime": matches["datetime"],
-            "date": matches["date"],
-            "timezone": matches["timezone"],
-            "request_method": matches["request_method"],
-            "path": matches["path"],
-            "request_version": matches["request_version"],
-            "status": matches["status"],
-            "size": matches["size"],
-            "referrer": matches["referrer"],
-            "agent": matches["agent"],
+            name: matches.group(name) if matches.groups(name) else None
+            for name in ["host", "user", "datetime", "date", "timezone",
+                         "request_method", "path", "request_version",
+                         "status", "size", "referrer", "agent"]
         }
 
-        url = urlparse(event["path"])
-        query = parse_qs(url.query)
+        url = urlparse(event.get("path"))
+        if url:
+            query = parse_qs(url.query)
+        else:
+            query: dict = {}
 
         # TODO: split netloc into user, pass, port and assign to event
         d: dict = {}
@@ -80,7 +79,8 @@ class Plugin(GulpPluginBase):
         # map timestamp manually
         time_str = event.pop("datetime")
         d["@timestamp"] = datetime.datetime.strptime(
-            time_str, self._custom_params.get("date_format", "%d/%b/%Y:%H:%M:%S %z")
+            time_str, self._custom_params.get(
+                "date_format", "%d/%b/%Y:%H:%M:%S %z")
         ).isoformat()
 
         # map
@@ -100,7 +100,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -151,7 +152,8 @@ class Plugin(GulpPluginBase):
             r"\S+",  # indent %l (unused)
             r"(?P<user>\S+)",  # user %u
             # date and timezone %t
-            r"\[(?P<datetime>(?P<date>.*?)(?= ) (?P<timezone>.*?))\]",  # TODO: group timezone sould be optional
+            # TODO: group timezone sould be optional
+            r"\[(?P<datetime>(?P<date>.*?)(?= ) (?P<timezone>.*?))\]",
             # request "%r"
             r"\"(?P<request_method>.*?) (?P<path>.*?)(?P<request_version> HTTP\/.*)?\"",
             r"(?P<status>[0-9]+)",  # status %>s
