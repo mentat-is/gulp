@@ -15,10 +15,9 @@ from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-from muty.pydantic import (
-    autogenerate_model_example_by_class,
-)
+
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
@@ -31,9 +30,9 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies, GulpUploadResponse
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
+    GulpIngestSourceDonePacket,
     GulpSharedWsQueue,
     GulpWsQueueDataType,
-    GulpIngestSourceDonePacket,
 )
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -275,7 +274,7 @@ async def _ingest_file_internal(
 The following is an example CURL for the request:
 
 ```bash
-curl -v -X POST http://localhost:8080/ingest_file?operation_id=test_operation&context_name=test_context&index=test_idx&plugin=win_evtx&ws_id=test_ws&req_id=test_req&file_total=1&token=6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H content-type: multipart/form-data -H token: 6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H size: 69632 -H continue_offset: 0 -F payload={"flt": {}, "plugin_params": {}, "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx"}; type=application/json -F f=@/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx;type=application/octet-stream
+curl -v -X POST http://localhost:8080/ingest_file?operation_id=test_operation&context_name=test_context&plugin=win_evtx&ws_id=test_ws&req_id=test_req&file_total=1&token=6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H content-type: multipart/form-data -H token: 6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H size: 69632 -H continue_offset: 0 -F payload={"flt": {}, "plugin_params": {}, "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx"}; type=application/json -F f=@/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx;type=application/octet-stream
 ```
 
 the request have the following headers:
@@ -383,10 +382,6 @@ async def ingest_file_handler(
         str,
         Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
     ],
-    index: Annotated[
-        str,
-        Depends(APIDependencies.param_index),
-    ],
     plugin: Annotated[
         str,
         Depends(APIDependencies.param_plugin),
@@ -427,16 +422,15 @@ async def ingest_file_handler(
         payload = GulpIngestPayload.model_validate(payload)
 
         async with GulpCollab.get_instance().session() as sess:
-            # check permission and get user id
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.INGEST]
-            )
+            # get operation and check acl
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=operation, permission=GulpUserPermission.INGEST)
+            index = operation.index
             user_id = s.user_id
 
             # create (and associate) context and source on the collab db, if they do not exist
-            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             ctx: GulpContext
-            src: GulpSource            
+            src: GulpSource
             ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=context_name
             )
@@ -471,7 +465,7 @@ async def ingest_file_handler(
             )
 
         await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
-        
+
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
 
@@ -579,10 +573,6 @@ async def ingest_raw_handler(
             example="raw source",
         ),
     ],
-    index: Annotated[
-        str,
-        Depends(APIDependencies.param_index),
-    ],
     ws_id: Annotated[
         str,
         Depends(APIDependencies.param_ws_id),
@@ -615,14 +605,13 @@ async def ingest_raw_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token and get caller user id
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.INGEST]
-            )
+            # get operation and check acl
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=operation, permission=GulpUserPermission.INGEST)
+            index = operation.index
             user_id = s.user_id
 
             # create (and associate) context and source on the collab db, if they do not exist
-            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             ctx: GulpContext
             src: GulpSource
             ctx, _ = await operation.add_context(
@@ -796,10 +785,6 @@ async def ingest_zip_handler(
         str,
         Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
     ],
-    index: Annotated[
-        str,
-        Depends(APIDependencies.param_index),
-    ],
     ws_id: Annotated[
         str,
         Depends(APIDependencies.param_ws_id),
@@ -817,14 +802,13 @@ async def ingest_zip_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token and get caller user id
-            s = await GulpUserSession.check_token(
-                sess, token, [GulpUserPermission.INGEST]
-            )
+            # get operation and check acl
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=operation, permission=GulpUserPermission.INGEST)
+            index = operation.index
             user_id = s.user_id
 
             # create (and associate) context on the collab db, if it does not exists
-            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             ctx: GulpContext
             ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=context_name

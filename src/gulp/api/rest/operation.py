@@ -58,7 +58,7 @@ async def operation_create_handler(
     ],
     index: Annotated[
         str,
-        Depends(APIDependencies.param_index),
+        Query(description="the Gulp's OpenSearch index to associate with the operation, it will be created if not exists.")
     ],
     description: Annotated[
         str,
