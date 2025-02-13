@@ -57,18 +57,18 @@ class Plugin(GulpPluginBase):
 
         matches = pattern.match(record.strip("\n"))
         event = {
-            "host": matches["host"],
-            "user": matches["user"],
-            "datetime": matches["datetime"],
-            "date": matches["date"],
-            "timezone": matches["timezone"],
-            "request_method": matches["request_method"],
-            "path": matches["path"],
-            "request_version": matches["request_version"],
-            "status": matches["status"],
-            "size": matches["size"],
-            "referrer": matches["referrer"],
-            "agent": matches["agent"],
+            "host": matches.get("host"),
+            "user": matches.get("user"),
+            "datetime": matches.get("datetime"),
+            "date": matches.get("date"),
+            "timezone": matches.get("timezone"),
+            "request_method": matches.get("request_method"),
+            "path": matches.get("path"),
+            "request_version": matches.get("request_version"),
+            "status": matches.get("status"),
+            "size": matches.get("size"),
+            "referrer": matches.get("referrer"),
+            "agent": matches.get("agent"),
         }
 
         url = urlparse(event["path"])
