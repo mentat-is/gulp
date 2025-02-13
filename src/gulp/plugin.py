@@ -774,7 +774,7 @@ class GulpPluginBase(ABC):
 
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         """
-        to be implemented in a plugin to enrich a chunk of documents.
+        to be implemented in a plugin to enrich a chunk of documents, called by GulpOpenSearch.search_dsl during loop for each chunk.
 
         NOTE: do not call this function directly:
             this is called by the engine right before ingesting a chunk of documents in _flush_buffer()
@@ -782,7 +782,10 @@ class GulpPluginBase(ABC):
 
         Args:
             docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
-            kwargs: additional keyword arguments
+            kwargs: additional keyword arguments, the following are guaranteed to be set:
+                - total_hits : total hits for the query
+                - chunk_num: the chunk number, 0 based
+                - last: whether this is the last chunk
         """
         return docs
 

@@ -13,7 +13,7 @@ from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -32,42 +32,78 @@ async def _tag_documents_internal(
     req_id: str,
     ws_id: str,
     index: str,
-    doc_ids: list[str],
+    flt: GulpQueryFilter,
     tags: list[str],
 ) -> None:
     """
     runs in a worker process to tag the given documents
     """
 
-    # build documents list
-    MutyLogger.get_instance().debug(
-        "---> _tag_documents_internal, tagging %d docs with tags=%s..."
-        % (len(doc_ids), tags)
-    )
-    docs: list[dict] = [{"_id": d, "gulp.tags": tags} for d in doc_ids]
-    status: GulpRequestStatus = GulpRequestStatus.DONE
-    error: str = None
+    async def _tag_documents_chunk_wrapper(self, docs: list[dict], **kwargs):
+        """
+        tags a chunk of documents, called by GulpOpenSearch.search_dsl during loop over chunks
 
-    try:
+        :param docs: the documents to tag
+        :param kwargs: the keyword arguments
+        """
+
+        # build documents list
+        MutyLogger.get_instance().debug(
+            "---> _tagging chunk of %d documents with tags=%s ..."
+            % (len(docs), tags)
+        )
+        tags = kwargs["tags"]
+        last = kwargs.get("last", False)
+
+        # add tags to documents
+        [d.update({"gulp.tags": tags}) for d in docs]
+
+        # update the documents
+        last = kwargs.get("last", False)
         await GulpOpenSearch.get_instance().update_documents(
-            index, docs, wait_for_refresh=True
+            self._enrich_index, docs, wait_for_refresh=last
         )
-    except Exception as ex:
-        status = GulpRequestStatus.FAILED
-        error = muty.log.exception_to_string(ex, with_full_traceback=True)
-    finally:
-        # also send a GulpQueryDonePacket
-        p = GulpQueryDonePacket(
-            status=status,
-            error=error,
-            total_hits=len(doc_ids),
-        )
-        GulpSharedWsQueue.get_instance().put(
-            type=GulpWsQueueDataType.ENRICH_DONE,
-            ws_id=ws_id,
+
+        if last:
+            # also send a GulpQueryDonePacket
+            p = GulpQueryDonePacket(
+                status=GulpRequestStatus.DONE,
+                total_hits=kwargs.get("total_hits", 0),
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=GulpWsQueueDataType.ENRICH_DONE,
+                ws_id=self._ws_id,
+                user_id=self._user_id,
+                req_id=self._req_id,
+                data=p.model_dump(exclude_none=True),
+            )
+
+    MutyLogger.get_instance().debug("---> _tag_documents_internal")
+
+    # build query
+    if not flt:
+        # match all query
+        q = {"query": {"match_all": {}}}
+    else:
+        # use the given filter
+        q = flt.to_opensearch_dsl()
+
+    # we need id only
+    q_options = GulpQueryParameters(fields=["_id"])
+
+    # call query_raw, which in turn calls _tag_documents_chunk_wrapper
+    async with GulpCollab.get_instance().session() as sess:
+        await GulpQueryHelpers.query_raw(
+            sess=sess,
             user_id=user_id,
             req_id=req_id,
-            data=p.model_dump(exclude_none=True),
+            ws_id=ws_id,
+            q=q,
+            index=index,
+            q_options=q_options,
+            callback_chunk=_tag_documents_chunk_wrapper,
+            callback_chunk_args={
+                "done_type": GulpWsQueueDataType.ENRICH_DONE, "tags": tags},
         )
 
 
@@ -175,7 +211,7 @@ async def enrich_documents_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["flt"] = flt.model_dump(exclude_none=True) if flt else None
+    params["flt"] = flt.model_dump(exclude_none=True)
     params["plugin_params"] = (
         plugin_params.model_dump(exclude_none=True) if plugin_params else None
     )
@@ -258,11 +294,13 @@ uses an `enrichment` plugin to augment data in a single document and returns it 
 )
 async def enrich_single_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id)],
     doc_id: Annotated[
         str,
-        Query(description="the `_id` of the document on Gulp `index`."),
+        Query(description="the `_id` of the document to enrich."),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     plugin_params: Annotated[
         GulpPluginParameters,
@@ -279,16 +317,17 @@ async def enrich_single_id_handler(
     mod = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token and get caller user id
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
+            index = op.index
 
-        # load plugin
-        mod = await GulpPluginBase.load(plugin)
+            # load plugin
+            mod = await GulpPluginBase.load(plugin)
 
-        # query document
-        async with GulpCollab.get_instance().session() as sess:
+            # query document
             doc = await mod.enrich_single_document(sess, doc_id, index, plugin_params)
-        return JSONResponse(JSendResponse.success(req_id, data=doc))
+            return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)
@@ -320,15 +359,16 @@ async def enrich_single_id_handler(
 Tag important documents, so they can be queried back via `gulp.tags` provided via `GulpQueryFilter` as custom key.
 
 - token must have the `edit` permission.
+- `flt.operation_ids` is ignored and set to `[operation_id]`
 - the enriched documents are updated in the Gulp `index`.
 """,
 )
 async def tag_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
-    doc_ids: Annotated[
-        list[str], Body(description="The `_id` of the documents to be tagged.")
-    ],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
     tags: Annotated[list[str], Body(description="The tags to add.")],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -338,9 +378,15 @@ async def tag_documents_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token and get caller user id
-            s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
-            user_id = s.user_id
+            # enforce operation_id
+            flt.operation_ids = [operation_id]
+
+            async with GulpCollab.get_instance().session() as sess:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
+                user_id = s.user_id
+                index = op.index
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(
@@ -360,7 +406,7 @@ async def tag_documents_handler(
             req_id=req_id,
             ws_id=ws_id,
             index=index,
-            doc_ids=doc_ids,
+            flt=flt,
             tags=tags,
         )
 

@@ -218,16 +218,16 @@ how to sort results, default=sort by ascending `@timestamp`.
 the set of fields to include in the returned documents.
 
 - for `external` queries, the plugin should ignore this and always return all fields
-- default=`%s` (unless `ensure_default_fields` is set), or use `*` to return all fields.
+- default=`%s`, use `*` to return all fields.
 """
         % (QUERY_DEFAULT_FIELDS),
     )
     ensure_default_fields: Optional[bool] = Field(
         True,
         description="""
-if set and `fields` is set, ensure the default fields are included in the returned documents (default=True).
+if set and `fields` is set, ensure the default fields (%s) are included in the returned documents (default=True).
 
-- for `external` queries, its the plugin responsibility to handle this.""",
+- for `external` queries, its the plugin responsibility to handle this.""" % (QUERY_DEFAULT_FIELDS),
     )
     limit: Optional[int] = Field(
         1000,

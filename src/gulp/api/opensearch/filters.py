@@ -26,6 +26,7 @@ class GulpBaseDocumentFilter(BaseModel):
     """
 
     model_config = ConfigDict(
+        extra="allow",
         json_schema_extra={
             "examples": [
                 {
@@ -135,7 +136,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     a GulpQueryFilter defines a filter for the query API.
 
     - query is built using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query.
-    - further not defined key,value pairs are allowed and are intended as k: [v1, v2, ...] filters: they matches any of the values as OR, i.e.: `{"key": ["v1", "v2"]}` matches `key: v1 OR key: v2`.
+    - further extra key=value pairs are allowed and are intended as k: [v1, v2, ...] filters: they match any of the values as OR, i.e.: `{"key": ["v1", "v2"]}` matches `key: v1 OR key: v2`.
     """
 
     model_config = ConfigDict(
@@ -146,6 +147,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
                     "operation_ids": [TEST_OPERATION_ID],
                     "context_ids": [TEST_CONTEXT_ID],
                     "source_ids": [TEST_SOURCE_ID],
+                    "doc_ids": ["d0739e61e3566845838fd78012b8201d"],
                     "event_codes": ["5152"],
                     "time_range": [
                         1551385571023173120,
@@ -159,6 +161,10 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     agent_types: Optional[list[str]] = Field(
         None,
         description="include documents matching the given `agent.type`/s.",
+    )
+    doc_ids: Optional[list[str]] = Field(
+        None,
+        description="include documents matching the given `_id`/s.",
     )
     operation_ids: Optional[list[str]] = Field(
         None,
@@ -273,6 +279,10 @@ include documents matching the given `gulp.source_id`/s.
                         "gulp.source_id", self.source_ids
                     )
                 )
+            if self.doc_ids:
+                clauses.append(
+                    self._query_string_build_or_clauses("_id", self.doc_ids))
+
             if self.event_codes:
                 clauses.append(
                     self._query_string_build_or_clauses(
@@ -291,6 +301,10 @@ include documents matching the given `gulp.source_id`/s.
                         self._query_string_build_lte_clause(
                             field, self.time_range[1])
                     )
+            if self.model_extra:
+                # extra fields
+                for k, v in self.model_extra.items():
+                    clauses.append(self._query_string_build_or_clauses(k, v))
 
             # only return non-empty clauses
             clauses = [c for c in clauses if c and c.strip()]
@@ -308,6 +322,7 @@ include documents matching the given `gulp.source_id`/s.
                     "must": [
                         {
                             "query_string": {
+                                # all clauses are ANDed, if none return all
                                 "query": " AND ".join(filter(None, _build_clauses()))
                                 or "*",
                                 "analyze_wildcard": True,
@@ -365,5 +380,6 @@ include documents matching the given `gulp.source_id`/s.
                 self.context_ids,
                 self.source_ids,
                 self.event_codes,
+                self.doc_ids,
             ]
         )
