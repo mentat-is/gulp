@@ -72,6 +72,8 @@ class GulpWsQueueDataType(StrEnum):
     REBASE_DONE = "rebase_done"
     # GulpClientDataPacket
     CLIENT_DATA = "client_data"
+    # GulpSourceFieldsChunkPacket
+    SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 
 
 class WsQueueFullException(Exception):
@@ -106,6 +108,45 @@ class GulpWsAcknowledgedPacket(BaseModel):
     )
     ws_id: str = Field(..., description="The WebSocket ID.")
     token: str = Field(..., description="The user token.")
+
+
+class GulpSourceFieldsChunkPacket(BaseModel):
+    """
+    Represents fields type mapping for a source
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "operation_id": "the_operation_id",
+                    "source_id": "the_source_id",
+                    "context_id": "the_context_id",
+                    "fields": {
+                        "gulp.operation_id": "keyword",
+                        "gulp.source_id": "keyword",
+                        "gulp.timestamp": "long",
+                    },
+                    "last": False,
+                }
+            ]
+        }
+    )
+
+    operation_id: str = Field(
+        ..., description="the operation ID.",
+    )
+    source_id: str = Field(
+        ..., description="the source ID.",
+    )
+    context_id: str = Field(
+        ..., description="the context ID.",
+    )
+    fields: dict = Field(
+        ..., description="mappings for the fields in a source.",
+    )
+    last: bool = Field(
+        False, description="if this is the last chunk.",
+    )
 
 
 class GulpCollabDeletePacket(BaseModel):
@@ -406,8 +447,8 @@ class GulpWsAuthPacket(BaseModel):
     )
     token: str = Field(
         ...,
-        description="""user token. 
-        
+        description="""user token.
+
         - `monitor` is a special token used to also monitor users login/logout.
     """,
     )

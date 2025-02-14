@@ -306,12 +306,13 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         # update user with new session and write the new session object itself
         u.session = new_session
         u.time_last_login = muty.time.now_msec()
+        MutyLogger.get_instance().info(
+            "user %s logged in, token=%s, expire=%d, admin=%r" % (
+                u.id, new_session.id, new_session.time_expire, u.is_admin())
+        )
         sess.add(u)
         await sess.commit()
         await sess.refresh(new_session)
-        MutyLogger.get_instance().info(
-            "user %s logged in, token=%s" % (u.id, new_session.id)
-        )
         return new_session
 
     @staticmethod
@@ -408,7 +409,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
             # public object, always granted
-            MutyLogger.get_instance().debug("allowing access to object without granted users or groups, user=%s" % (self.id))
+            MutyLogger.get_instance().debug(
+                "allowing access to object without granted users or groups, user=%s" % (self.id))
             return True
 
         # check if the user is in the granted groups

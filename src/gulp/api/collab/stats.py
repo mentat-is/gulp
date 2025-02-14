@@ -145,7 +145,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             T: The created stats.
         """
         MutyLogger.get_instance().debug(
-            "---> create_or_get: id=%s, operation_id=%s, context_id=%s, source_id=%s, source_total=%d",
+            "---> create: id=%s, operation_id=%s, context_id=%s, source_id=%s, source_total=%d",
             req_id,
             operation_id,
             context_id,
@@ -195,7 +195,6 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
             req_id=req_id,
         )
-        return s
 
     async def cancel(
         self,
@@ -339,7 +338,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         self.records_processed += d.get("records_processed", 0)
         self.records_ingested += d.get("records_ingested", 0)
         self.source_id = d.get("source_id", self.source_id)
-        
+
         error = d.get("error", None)
         if error:
             if not self.errors:
