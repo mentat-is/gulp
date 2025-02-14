@@ -126,7 +126,8 @@ class GulpCollabType(StrEnum):
     OPERATION = "operation"
     SOURCE = "source"
     USER_GROUP = "user_group"
-
+    SOURCE_FIELDS = "source_fields"
+    
     def __str__(self) -> str:
         return self.value
 

@@ -26,6 +26,7 @@ from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies, GulpUploadResponse
 from gulp.api.rest_api import GulpRestServer
@@ -248,6 +249,18 @@ async def _ingest_file_internal(
             )
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
+            # create/update mappings on the collab db
+            try:
+                await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
+                    index=index,
+                    operation_id=operation_id,
+                    context_id=context_id,
+                    source_id=source_id)
+            except Exception as ex:
+                MutyLogger.get_instance().exception(
+                    ex
+                )
+
             # delete file
             await muty.file.delete_file_or_dir_async(file_path)
 

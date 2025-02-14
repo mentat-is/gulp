@@ -36,7 +36,7 @@ async def _tag_documents_internal(
     tags: list[str],
 ) -> None:
     """
-    runs in a worker process to tag the given documents
+    runs in a worker to tag the given documents
     """
 
     async def _tag_documents_chunk_wrapper(self, docs: list[dict], **kwargs):
@@ -49,11 +49,12 @@ async def _tag_documents_internal(
 
         # build documents list
         MutyLogger.get_instance().debug(
-            "---> _tagging chunk of %d documents with tags=%s ..."
-            % (len(docs), tags)
+            "---> _tagging chunk of %d documents with tags=%s, kwargs=%s ..."
+            % (len(docs), tags, kwargs)
         )
         tags = kwargs["tags"]
         last = kwargs.get("last", False)
+        flt = kwargs["flt"]
 
         # add tags to documents
         [d.update({"gulp.tags": tags}) for d in docs]
@@ -77,6 +78,11 @@ async def _tag_documents_internal(
                 req_id=self._req_id,
                 data=p.model_dump(exclude_none=True),
             )
+
+            if last:
+                # update source -> fields mappings on the collab db
+                await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
+                    index, operation_ids=flt.operation_ids, context_ids=flt.context_ids, source_ids=flt.source_ids)
 
     MutyLogger.get_instance().debug("---> _tag_documents_internal")
 
@@ -103,7 +109,7 @@ async def _tag_documents_internal(
             q_options=q_options,
             callback_chunk=_tag_documents_chunk_wrapper,
             callback_chunk_args={
-                "done_type": GulpWsQueueDataType.ENRICH_DONE, "tags": tags},
+                "done_type": GulpWsQueueDataType.ENRICH_DONE, "tags": tags, "flt": flt},
         )
 
 
@@ -167,6 +173,11 @@ async def _enrich_documents_internal(
             if mod:
                 await mod.unload()
 
+            if not failed:
+                # update source -> fields mappings on the collab db
+                await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
+                    index, operation_ids=flt.operation_ids, context_ids=flt.context_ids, source_ids=flt.source_ids)
+
 
 @router.post(
     "/enrich_documents",
@@ -193,7 +204,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 - token must have the `edit` permission.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
 - the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
-- `q` is a `raw` query which may be provided to restrict the documents to enrich. by default, whole data is considered.
+- `flt` is provided as a `GulpQueryFilter` to select the documents to enrich.
 """,
 )
 async def enrich_documents_handler(
@@ -327,7 +338,16 @@ async def enrich_single_id_handler(
 
             # query document
             doc = await mod.enrich_single_document(sess, doc_id, index, plugin_params)
-            return JSONResponse(JSendResponse.success(req_id, data=doc))
+
+            # rebuild mapping
+            await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
+                index=index,
+                operation_id=doc["gulp.operation_id"],
+                context_id=doc["gulp.context_id"],
+                source_id=doc["gulp.source_id"],
+                doc_ids=[doc_id])
+
+        return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)

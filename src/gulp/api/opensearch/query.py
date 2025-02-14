@@ -231,7 +231,7 @@ if set and `fields` is set, ensure the default fields (%s) are included in the r
     )
     limit: Optional[int] = Field(
         1000,
-        gt=1,
+        ge=1,
         le=10000,
         description="""
 for pagination, the maximum number of documents to return **per chunk**, default=1000 (None=return up to 10000 documents per chunk).
