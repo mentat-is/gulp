@@ -1,18 +1,20 @@
 import json
 import os
-from urllib.parse import urlparse
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+
 import muty.crypto
 import muty.dict
 import muty.file
+import muty.log
 import muty.string
 import muty.time
-import muty.log
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.fields import GulpSourceFields
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
@@ -26,6 +28,7 @@ from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
     GulpSharedWsQueue,
+    GulpSourceFieldsChunkPacket,
     GulpWsQueueDataType,
 )
 from gulp.config import GulpConfig
@@ -213,73 +216,237 @@ class GulpOpenSearch:
 
     async def datastream_get_mapping_by_src(
         self,
-        index: str,
+        sess: AsyncSession,
         operation_id: str,
         context_id: str,
         source_id: str,
-        el: AsyncElasticsearch = None,
     ) -> dict:
         """
-        Get and parse mappings for the given index/datastream, considering only documents matching the tuple operation_id/context_id/source_id
-
-        The return type is the same as index_get_mapping with return_raw_result=False.
+        get source->fields mappings from the collab database
 
         Args:
-            index (str): The index/datastream name.
+            sess (AsyncSession): The database session.
             operation_id (str): The operation ID.
             context_id (str): The context ID.
             source_id (str): The source ID.
-            el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
+        Returns:
+            dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
+
+        """
+        # check if if a mapping already exists on the database
+        flt = GulpCollabFilter(operation_ids=[operation_id],
+                               context_ids=[context_id], source_ids=[source_id])
+        fields: list[GulpSourceFields] = await GulpSourceFields.get_by_filter(
+            sess, flt, throw_if_not_found=False)
+        if fields:
+            # cache hit!
+            return fields[0].fields
+
+        return None
+
+    def _extract_ids_from_query_operations_result(self, operations: list[dict]) -> list[tuple[str, str, str]]:
+        """
+        Extracts operation_id, context_id and source_id from the query_operations result
+
+        Args:
+            operations (list): List of operation dictionaries
 
         Returns:
-            dict: The mapping dict.
-        """
-        # query first
-        from gulp.api.opensearch.query import GulpQueryParameters
+            list[tuple]: List of tuples containing (operation_id, context_id, source_id)
 
+        Example:
+            [
+                ("test_operation", "66d98ed55d92b6b7382ffc77df70eda37a6efaa1", "fabae8858452af6c2acde7f90786b3de3a928289"),
+                ("test_operation", "66d98ed55d92b6b7382ffc77df70eda37a6efaa1", "60213bb57e849a624b7989c448b7baec75043a1b"),
+                ...
+            ]
+        """
+        result = []
+        for operation in operations:
+            operation_id = operation.get('id')
+            for context in operation.get('contexts', []):
+                context_id = context.get('id')
+                for plugin in context.get('plugins', []):
+                    for source in plugin.get('sources', []):
+                        source_id = source.get('id')
+                        result.append((operation_id, context_id, source_id))
+
+        return result
+
+    async def datastream_update_mapping_by_operation(
+            self,
+            index: str,
+            operation_ids: list[str],
+            context_ids: list[str] = None,
+            source_ids: list[str] = None) -> None:
+        """
+        Updates the mappings for the given operation/context/source IDs on the given index/datastream.
+
+        Args:
+            index (str): The index/datastream name.
+            operation_ids (list[str]): The operation IDs to update mappings for.
+            context_ids (list[str], optional): The context IDs to update mappings for. Defaults to None.
+            source_ids (list[str], optional): The source IDs to update mappings for. Defaults to None.
+
+        """
+        MutyLogger.get_instance().debug(
+            "updating mappings for index=%s, operation_ids=%s" % (index, operation_ids))
+        
+        l = await self.query_operations(index)
+        ids = self._extract_ids_from_query_operations_result(l)
+        for op, ctx, src in ids:
+            if (not operation_ids or (operation_ids and op in operation_ids)) and \
+                (not context_ids or (context_ids and ctx in context_ids)) and \
+                    (not source_ids or (source_ids and src in source_ids)):
+                await self.datastream_update_mapping_by_src(
+                    index=index,
+                    operation_id=op,
+                    context_id=ctx,
+                    source_id=src)
+
+                MutyLogger.get_instance().info(
+                    "mappings created/updated for index=%s, operation_id=%s, context_id=%s, source_id=%s" % (index, op, ctx, src))
+
+    async def datastream_update_mapping_by_src(
+        self,
+        index: str,
+        operation_id: str = None,
+        context_id: str = None,
+        source_id: str = None,
+        doc_ids: list[str] = None,
+        user_id: str = None,
+        ws_id: str = None,
+        req_id: str = None,
+        el: AsyncElasticsearch = None,
+    ) -> tuple[dict, bool]:
+        """
+        create/update source->fields mappings for the given operation/context/source on the collab database
+
+        - SOURCE_FIELDS_CHUNK are streamed to the websocket ws_id if it is not None.
+
+        WARNING: this call may take long time, so it is better to offload it to a worker coroutine.
+
+        Args:
+            index (str): The index/datastream name.
+            operation_id (str): The operation ID, may be None to indicate all operations.
+            context_id (str, optional): The context ID, may be None to indicate all contexts.
+            source_id (str, optional): The source ID, may be None to indicate all sources.
+            doc_ids (list[str], optional): limit to these document IDs. Defaults to None.
+            user_id (str, optional): The user ID. Defaults to None.
+            ws_id (str, optional): The websocket ID to stream SOURCE_FIELDS_CHUNK during the loop. Defaults to None.
+            req_id (str, optional): The request ID. Defaults to None.
+            el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
+        Returns:
+            dict: The mapping dict (same as index_get_mapping with return_raw_result=False), may be empty if no documents are found
+
+        """
+
+        MutyLogger.get_instance().debug(
+            "creating/updating source->fields mapping for source_id=%s, context_id=%s, operation_id=%s, doc_ids=%s ..."
+            % (source_id, context_id, operation_id, doc_ids)
+        )
+
+        from gulp.api.opensearch.query import GulpQueryParameters
         options = GulpQueryParameters()
         options.limit = 1000
         options.fields = ["*"]
-        q = {
-            "query": {
-                "query_string": {
-                    "query": "gulp.operation_id: %s AND gulp.context_id: %s AND gulp.source_id: %s"
-                    % (operation_id, context_id, source_id)
+        if not operation_id:
+            # all
+            q = {"query": {"match_all": {}}}
+        else:
+            q = {
+                "query": {
+                    "query_string": {
+                        "query": "gulp.operation_id: %s"
+                        % (operation_id)
+                    }
                 }
             }
-        }
+            if context_id:
+                q["query"]["query_string"]["query"] += " AND gulp.context_id: %s" % (
+                    context_id)
+            if source_id:
+                q["query"]["query_string"]["query"] += " AND gulp.source_id: %s" % (
+                    source_id)
+            if doc_ids:
+                # limit to these document IDs
+                q["query"]["query_string"]["query"] += " AND _id: (%s)" % (
+                    " OR ".join(doc_ids))
 
         # get mapping
         mapping = await self.datastream_get_key_value_mapping(index)
         filtered_mapping = {}
-        # loop with query_raw until there's data and update filtered_mapping
-        while True:
-            try:
-                parsed_options = options.parse()
-                _, docs, search_after = await self._search_dsl_internal(
-                    index, parsed_options, q, el=el
-                )
-            except ObjectNotFound:
-                break
-            options.search_after = search_after
 
-            # Update filtered_mapping with the current batch of documents
+        # loop with query_raw until there's data and update filtered_mapping
+        processed: int = 0
+        total_hits: int = 0
+        while True:
+            last: bool = False
+            parsed_options = options.parse()
+            total_hits, docs, search_after = await self._search_dsl_internal(
+                index, parsed_options, q, el=el, raise_on_error=False
+            )
+
+            options.search_after = search_after
+            processed += len(docs)
+            # MutyLogger.get_instance().debug("processed=%d, total=%d" % (processed, total_hits))
+            if processed >= total_hits:
+                # last chunk
+                last = True
+
+            # update filtered_mapping with the current batch of documents
+            chunk: dict = {}
             for doc in docs:
                 for k in mapping.keys():
                     if k in doc:
                         if k not in filtered_mapping:
                             filtered_mapping[k] = mapping[k]
+                            if k not in chunk:
+                                chunk[k] = mapping[k]
 
-            if search_after is None:
+            send: bool = True
+            if ws_id:
+                if not last:
+                    # avoid sending empty chunks except last
+                    if not chunk:
+                        send = False
+
+                if send:
+                    # send this chunk over the ws
+                    p = GulpSourceFieldsChunkPacket(
+                        operation_id=operation_id,
+                        source_id=source_id,
+                        context_id=context_id,
+                        fields=chunk,
+                        last=last
+                    )
+                    GulpSharedWsQueue.get_instance().put(
+                        type=GulpWsQueueDataType.SOURCE_FIELDS_CHUNK,
+                        ws_id=ws_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        data=p.model_dump(exclude_none=True),
+                    )
+
+            if last:
                 # no more results
                 break
 
         if not filtered_mapping:
-            raise ObjectNotFound(
-                "no documents found for src_file=%s" % (source_id))
+            MutyLogger.get_instance().warning
+            "no documents found for source_id=%s, context_id=%s, operation_id=%s" % (
+                source_id, context_id, operation_id)
+            return {}
 
         # sort the keys
-        filtered_mapping = dict(sorted(filtered_mapping.items()))
+        # filtered_mapping = dict(sorted(filtered_mapping.items()))
+
+        # store on database
+        MutyLogger.get_instance().debug("found %d mappings, storing on db ..." %
+                                        (len(filtered_mapping)))
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpSourceFields.create(sess, user_id, operation_id, context_id, source_id, filtered_mapping)
+
         return filtered_mapping
 
     async def index_template_delete(self, index: str) -> None:
@@ -1381,10 +1548,7 @@ class GulpOpenSearch:
         for k, v in parsed_options.items():
             if v:
                 body[k] = v
-        MutyLogger.get_instance().debug(
-            "index=%s, query_raw body=%s, parsed_options=%s"
-            % (index, json.dumps(body, indent=2), json.dumps(parsed_options, indent=2))
-        )
+        # MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, json.dumps(body, indent=2), json.dumps(parsed_options, indent=2)))
 
         headers = {
             "content-type": "application/json",

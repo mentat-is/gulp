@@ -63,7 +63,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         doc="The context associated with the note.",
     )
     source_id: Mapped[Optional[str]] = mapped_column(
-        String, doc="The log file path (source) associated with the note."
+        ForeignKey("source.id", ondelete="CASCADE"),
+        doc="The log file path (source) associated with the note."
     )
     docs: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
         MutableList.as_mutable(ARRAY(JSONB)),

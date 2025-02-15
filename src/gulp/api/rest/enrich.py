@@ -130,6 +130,11 @@ async def _enrich_documents_internal(
             if mod:
                 await mod.unload()
 
+            if not failed:
+                # update source -> fields mappings on the collab db
+                await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
+                    index, operation_ids=flt.operation_ids, context_ids=flt.context_ids, source_ids=flt.source_ids)
+
 
 @router.post(
     "/enrich_documents",
@@ -155,7 +160,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 
 - token must have the `edit` permission.
 - the enriched documents are updated in the Gulp `index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
-- `q` is a `raw` query which may be provided to restrict the documents to enrich. by default, whole data is considered.
+- `flt` is provided to restrict the documents to enrich.
 """,
 )
 async def enrich_documents_handler(
@@ -183,7 +188,16 @@ async def enrich_documents_handler(
             raise ValueError(
                 "at least one operation_id is mandatory in the query filter."
             )
-
+        """
+        {
+            "flt": {
+                "operation_ids": [
+                "test_operation"
+                ],
+                "int_filter": [ 1475751238061027072, 1485751238061027072 ]
+            }
+        }
+        """
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
             s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
@@ -285,6 +299,15 @@ async def enrich_single_id_handler(
         # query document
         async with GulpCollab.get_instance().session() as sess:
             doc = await mod.enrich_single_document(sess, doc_id, index, plugin_params)
+
+            # rebuild mapping
+            await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
+                index=index,
+                operation_id=doc["gulp.operation_id"],
+                context_id=doc["gulp.context_id"],
+                source_id=doc["gulp.source_id"],
+                doc_ids=[doc_id])
+
         return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
@@ -294,7 +317,7 @@ async def enrich_single_id_handler(
             await mod.unload()
 
 
-@router.post(
+@ router.post(
     "/tag_documents",
     response_model=JSendResponse,
     tags=["enrich"],
@@ -328,16 +351,16 @@ async def tag_documents_handler(
     ],
     tags: Annotated[list[str], Body(description="The tags to add.")],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)]=None,
 ) -> JSONResponse:
-    params = locals()
+    params=locals()
     ServerUtils.dump_params(params)
 
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            s = await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
-            user_id = s.user_id
+            s=await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+            user_id=s.user_id
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(
@@ -352,7 +375,7 @@ async def tag_documents_handler(
         # spawn a task which runs the enrichment in a worker process
         # run ingestion in a coroutine in one of the workers
         MutyLogger.get_instance().debug("spawning tagging task ...")
-        kwds = dict(
+        kwds=dict(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
