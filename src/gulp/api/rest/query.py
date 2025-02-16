@@ -1,6 +1,6 @@
 import asyncio
 from asyncio import Task
-from copy import copy, deepcopy
+from copy import deepcopy
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -251,7 +251,7 @@ async def _spawn_query_group_workers(
                 q_options.external_parameters.ingest_index
             )
     """
-    
+
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
 
@@ -315,8 +315,7 @@ async def query_raw_handler(
 
         if q_options.external_parameters.plugin:
             raise ValueError("use query_external for external queries")
-        
-        
+
         async with GulpCollab.get_instance().session() as sess:
             permission = GulpUserPermission.READ
 
@@ -507,10 +506,10 @@ async def query_sigma_handler(
     try:
         if not plugin:
             raise ValueError("plugin must be set!")
-        
+
         if q_options.external_parameters.plugin:
             raise ValueError("sigma not supported in external queries")
-        
+
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
                 "if more than one query is provided, `q_options.group` must be set."
@@ -752,3 +751,137 @@ async def query_operations(
         return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)
+
+
+async def _create_mapping_by_src_internal(index: str, operation_id: str,
+                                          context_id: str, source_id: str, user_id: str, req_id: str, ws_id: str) -> None:
+    """
+    this runs in a worker process to create the fields mapping for a source.
+    """
+    await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
+        index=index,
+        operation_id=operation_id,
+        context_id=context_id,
+        source_id=source_id,
+        user_id=user_id,
+        req_id=req_id,
+        ws_id=ws_id,
+    )
+
+
+@router.get(
+    "/query_fields_by_source",
+    tags=["query"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "@timestamp": "date_nanos",
+                            "agent.type": "keyword",
+                            "destination.ip": "ip",
+                            "destination.port": "long",
+                            "event.category": "keyword",
+                            "event.code": "keyword",
+                            "event.duration": "long",
+                            "event.original": "text",
+                            "event.sequence": "long",
+                            "event.type": "keyword",
+                            "gulp.context_id": "keyword",
+                            "gulp.event_code": "long",
+                            "gulp.operation_id": "keyword",
+                            "gulp.source_id": "keyword",
+                            "gulp.timestamp": "long",
+                            "gulp.timestamp_invalid": "boolean",
+                            "gulp.unmapped.AccessList": "keyword",
+                            "gulp.unmapped.AccessMask": "keyword",
+                            "gulp.unmapped.AccountExpires": "keyword",
+                            "gulp.unmapped.AdditionalInfo": "keyword",
+                            "gulp.unmapped.AllowedToDelegateTo": "keyword",
+                            "gulp.unmapped.AuthenticationPackageName": "keyword",
+                            "gulp.unmapped.Data": "keyword",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get fields mapping.",
+    description="""
+get all `key=type` mappings for the given given `operation_id`, `context_id` and `source_id`.
+
+this API initially `status="pending` on the first call for the tuple [`operation_id`, `context_id`, `source_id`], and `SOURCE_FIELDS_CHUNK` are streamed on the websocket `ws_id`.
+
+on subsequent calls, when an entry has been created on the database, the API returns the fields mapping as a dict.
+""",
+)
+async def query_fields_by_source_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token, obj=op)
+            index = op.index
+            user_id = s.user_id
+
+            # check if there is at least one document with operation_id, context_id and source_id
+            await GulpOpenSearch.get_instance().search_dsl_sync(
+                index=index,
+                q={
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"term": {"gulp.operation_id": operation_id}},
+                                {"term": {"gulp.context_id": context_id}},
+                                {"term": {"gulp.source_id": source_id}},
+                            ]
+                        }
+                    }
+                },
+                q_options=GulpQueryParameters(limit=1)
+            )
+
+            m = await GulpOpenSearch.get_instance().datastream_get_mapping_by_src(
+                sess, operation_id=operation_id, context_id=context_id, source_id=source_id
+            )
+            if m:
+                # return immediately
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
+
+            # spawn a task to run fields mapping in a worker
+            kwds = dict(
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+            )
+
+            async def worker_coro(kwds: dict):
+                await GulpProcess.get_instance().process_pool.apply(
+                    _create_mapping_by_src_internal, kwds=kwds
+                )
+
+            await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
