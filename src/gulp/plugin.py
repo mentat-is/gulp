@@ -2,6 +2,7 @@
 """
 
 import asyncio
+import inspect
 import ipaddress
 import json
 import os
@@ -10,7 +11,7 @@ from copy import deepcopy
 from enum import StrEnum
 from types import ModuleType
 from typing import Any, Callable, Optional
-import inspect
+
 import muty.crypto
 import muty.dynload
 import muty.file
@@ -23,6 +24,7 @@ from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
@@ -42,8 +44,8 @@ from gulp.api.opensearch.filters import (
 from gulp.api.opensearch.query import (
     GulpQuery,
     GulpQueryHelpers,
-    GulpQueryParameters,
     GulpQueryNoteParameters,
+    GulpQueryParameters,
 )
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -55,11 +57,7 @@ from gulp.api.ws_api import (
     GulpWsQueueDataType,
 )
 from gulp.config import GulpConfig
-from gulp.structs import (
-    GulpPluginCustomParameter,
-    GulpPluginParameters,
-    ObjectNotFound,
-)
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
 
 
 class GulpPluginType(StrEnum):
@@ -776,9 +774,10 @@ class GulpPluginBase(ABC):
         """
         to be implemented in a plugin to enrich a chunk of documents, called by GulpOpenSearch.search_dsl during loop for each chunk.
 
-        NOTE: do not call this function directly:
-            this is called by the engine right before ingesting a chunk of documents in _flush_buffer()
+        NOTE: do not call this function directly: this is called by the engine right before ingesting a chunk of documents in _flush_buffer()
             also, this is also called by the engine when enriching documents on-demand through the enrich_documents function.
+
+            THIS FUNCTION MUST NOT GENERATE EXCEPTIONS, on failure it should (i.e. cannot enrich one or more documents) it should return the original document/s instead.
 
         Args:
             docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
@@ -794,7 +793,8 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
+        MutyLogger.get_instance().debug(
+            f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
         last = kwargs.get("last", False)
@@ -1159,6 +1159,7 @@ class GulpPluginBase(ABC):
         a dictionary to be merged in the final gulp document.
 
         NOTE: called by the engine, do not call this function directly.
+            THIS FUNCTION MUST NOT GENERATE EXCEPTIONS, on failure it should return None to indicate a malformed record.
 
         Args:
             record (any): the record to convert.
@@ -1166,7 +1167,7 @@ class GulpPluginBase(ABC):
             record_idx (int): the index of the record in the source
             kwargs: additional keyword arguments
         Returns:
-            GulpDocument: the GulpDocument
+            GulpDocument: the GulpDocument, or None to skip processing (i.e. plugin detected malformed record)
 
         """
         raise NotImplementedError("not implemented!")
@@ -1249,7 +1250,7 @@ class GulpPluginBase(ABC):
                 # unmapped key
                 d[
                     f"{GulpOpenSearch.UNMAPPED_PREFIX}.{
-                    source_key}"
+                        source_key}"
                 ] = source_value
 
             return d
@@ -1502,12 +1503,14 @@ class GulpPluginBase(ABC):
                 # mapping id provided
                 self._mapping_id = plugin_params.mapping_id
                 MutyLogger.get_instance().debug(
-                    "using plugin_params.mapping_id=%s" % (plugin_params.mapping_id)
+                    "using plugin_params.mapping_id=%s" % (
+                        plugin_params.mapping_id)
                 )
 
             # checks
             if not self._mappings and self._mapping_id:
-                raise ValueError("mapping_id is set but mappings/mapping_file is not!")
+                raise ValueError(
+                    "mapping_id is set but mappings/mapping_file is not!")
             if not self._mappings and not self._mapping_id:
                 MutyLogger.get_instance().warning(
                     "mappings/mapping_file and mapping_id are both None/empty!"
@@ -1515,7 +1518,8 @@ class GulpPluginBase(ABC):
                 self._mappings = {"default": GulpMapping(fields={})}
 
             # ensure mapping_id is set
-            self._mapping_id = self._mapping_id or list(self._mappings.keys())[0]
+            self._mapping_id = self._mapping_id or list(
+                self._mappings.keys())[0]
 
             MutyLogger.get_instance().debug("mapping_id=%s" % (self._mapping_id))
 
@@ -1600,7 +1604,8 @@ class GulpPluginBase(ABC):
             )
         )
         MutyLogger.get_instance().debug(
-            "got index type mappings with %d entries" % (len(self._index_type_mapping))
+            "got index type mappings with %d entries" % (
+                len(self._index_type_mapping))
         )
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
 
@@ -1944,13 +1949,15 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs),
+                GulpPluginBase.load(plugin, extension,
+                                    ignore_cache, *args, **kwargs),
             )
             return future.result()
 
         # either, create a new event loop to run the coroutine
         return loop.run_until_complete(
-            GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+            GulpPluginBase.load(plugin, extension,
+                                ignore_cache, *args, **kwargs)
         )
 
     @staticmethod
@@ -2003,7 +2010,8 @@ class GulpPluginBase(ABC):
             f"loading plugin m={m}, pickled={pickled}, kwargs={kwargs}"
         )
         p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
-        MutyLogger.get_instance().debug(f"LOADED plugin m={m}, p={p}, name()={p.name}")
+        MutyLogger.get_instance().debug(
+            f"LOADED plugin m={m}, p={p}, name()={p.name}")
         if not ignore_cache:
             GulpPluginCache.get_instance().add(m, bare_name)
         return p
@@ -2109,11 +2117,13 @@ class GulpPluginBase(ABC):
             if is_extension:
                 # add extension
                 extra_path = muty.file.safe_path_join(extra_path, "extension")
-                default_path = muty.file.safe_path_join(default_path, "extension")
+                default_path = muty.file.safe_path_join(
+                    default_path, "extension")
 
             # first we check in extra_path
             if extra_path and os.path.exists(extra_path):
-                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
+                p = _check_path(muty.file.safe_path_join(
+                    extra_path, plugin.lower()))
                 if p:
                     return p
 

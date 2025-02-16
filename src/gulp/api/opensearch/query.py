@@ -178,7 +178,7 @@ class GulpQueryParameters(BaseModel):
                 {
                     "sort": {
                         "@timestamp": GulpSortOrder.ASC,
-                        "_id": GulpSortOrder.ASC,
+                        "_doc": GulpSortOrder.ASC,
                         "event.sequence": GulpSortOrder.ASC,
                     },
                     "fields": ["@timestamp", "event.id"],
@@ -280,7 +280,8 @@ if set, keep querying until all documents are returned (default=True, ignores `s
             # default sort
             sort = {
                 "@timestamp": GulpSortOrder.ASC,
-                "_id": GulpSortOrder.ASC,
+                # read the NOTE below...
+                "_doc": GulpSortOrder.ASC,
                 "event.sequence": GulpSortOrder.ASC,
             }
 
@@ -290,9 +291,10 @@ if set, keep querying until all documents are returned (default=True, ignores `s
 
         for k, v in sort.items():
             n["sort"].append({k: {"order": v}})
-            if "_id" not in sort:
-                # make sure _id is always sorted
-                n["sort"].append({"_id": {"order": v}})
+            # NOTE: test with VERY VERY large datasets (5M+), and consider to remove "_doc" here this since it may not be needed after all.... event.sequence should be enough.
+            if "_doc" not in sort:
+                # make sure document order is always sorted, use _doc instead of _id for less overhead (CircuitBreakingException error from opensearch)
+                n["sort"].append({"_doc": {"order": v}})
             if "event.sequence" not in sort:
                 # make sure event.sequence is always sorted
                 n["sort"].append({"event.sequence": {"order": v}})

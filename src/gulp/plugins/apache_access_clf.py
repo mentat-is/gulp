@@ -58,8 +58,8 @@ class Plugin(GulpPluginBase):
 
         matches: re.Match = pattern.match(record.strip("\n"))
         if not matches:
-            raise ValueError("record does not match pattern")
-
+            return None
+            
         event = {
             name: matches.group(name) if matches.groups(name) else None
             for name in ["host", "user", "datetime", "date", "timezone",
@@ -88,7 +88,11 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
+        null_param_key = 0
         for pk, pv in query.items():
+            if not pk:
+                pk = f"null_param_key_{null_param_key}"
+                null_param_key+=1
             k = "gulp.http.query.params.%s" % (pk)
             mapped = self._process_key(k, pv)
             d.update(mapped)
