@@ -2,14 +2,16 @@ from typing import Any, Optional
 
 import muty.string
 from elasticsearch import AsyncElasticsearch
+from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from opensearchpy import AsyncOpenSearch
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
 from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from gulp.structs import GulpPluginParameters, GulpSortOrder
-from muty.log import MutyLogger
+
 
 class GulpQuery(BaseModel):
     """
@@ -190,7 +192,7 @@ class GulpQueryParameters(BaseModel):
                 {
                     "sort": {
                         "@timestamp": GulpSortOrder.ASC,
-                        "_id": GulpSortOrder.ASC,
+                        "_doc": GulpSortOrder.ASC,
                         "event.sequence": GulpSortOrder.ASC,
                     },
                     "fields": ["@timestamp", "event.id"],
@@ -286,7 +288,8 @@ for pagination, this should be set to the `search_after` returned by the previou
             # default sort
             sort = {
                 "@timestamp": GulpSortOrder.ASC,
-                "_id": GulpSortOrder.ASC,
+                # read the NOTE below...
+                "_doc": GulpSortOrder.ASC,
                 "event.sequence": GulpSortOrder.ASC,
             }
 
@@ -296,9 +299,10 @@ for pagination, this should be set to the `search_after` returned by the previou
 
         for k, v in sort.items():
             n["sort"].append({k: {"order": v}})
-            if "_id" not in sort:
-                # make sure _id is always sorted
-                n["sort"].append({"_id": {"order": v}})
+            # NOTE: test with VERY VERY large datasets (5M+), and consider to remove "_doc" here this since it may not be needed after all.... event.sequence should be enough.
+            if "_doc" not in sort:
+                # make sure document order is always sorted, use _doc instead of _id for less overhead (CircuitBreakingException error from opensearch)
+                n["sort"].append({"_doc": {"order": v}})
             if "event.sequence" not in sort:
                 # make sure event.sequence is always sorted
                 n["sort"].append({"event.sequence": {"order": v}})
