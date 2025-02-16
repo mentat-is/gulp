@@ -239,6 +239,7 @@ async def _spawn_query_group_workers(
             source_total=len(queries),
         )
 
+    """
     if q_options.external_parameters.plugin and q_options.external_parameters.ingest_index:
         # external query, make sure the index to ingest into exists
         exists = await GulpOpenSearch.get_instance().datastream_exists(
@@ -249,7 +250,8 @@ async def _spawn_query_group_workers(
             await GulpOpenSearch.get_instance().datastream_create(
                 q_options.external_parameters.ingest_index
             )
-
+    """
+    
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
 
@@ -686,6 +688,7 @@ async def query_max_min_per_field(
                             {
                                 "name": "example operation",
                                 "id": "test_operation",
+                                "index": "test_idx",
                                 "contexts": [
                                     {
                                         "name": "test_context",

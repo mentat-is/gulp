@@ -476,10 +476,11 @@ async def _rebase_internal(
     runs in a worker process to rebase the index.
     """
     try:
-        # create the destination datastream
-        await GulpOpenSearch.get_instance().datastream_create(
-            dest_index
-        )
+        # get existing index datastream
+        template = await GulpOpenSearch.get_instance().index_template_get(index)
+
+        # create the destination datastream, applying the same template
+        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(dest_index, template)
 
         # rebase
         res = await GulpOpenSearch.get_instance().rebase(

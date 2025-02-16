@@ -58,12 +58,8 @@ async def operation_create_handler(
     ],
     index: Annotated[
         str,
-        Query(description="the Gulp's OpenSearch index to associate with the operation, it will be created if not exists.")
+        Query(description="the Gulp's OpenSearch index to associate with the operation.")
     ],
-    index_template: Optional[UploadFile] = File(
-        None,
-        description="optional custom index template, for advanced usage only: see [here](https://opensearch.org/docs/latest/im-plugin/index-templates/)",
-    ),
     description: Annotated[
         str,
         Depends(APIDependencies.param_description_optional),

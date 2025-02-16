@@ -291,7 +291,7 @@ class GulpOpenSearch:
         """
         MutyLogger.get_instance().debug(
             "updating mappings for index=%s, operation_ids=%s" % (index, operation_ids))
-        
+
         l = await self.query_operations(index)
         ids = self._extract_ids_from_query_operations_result(l)
         for op, ctx, src in ids:
@@ -473,7 +473,35 @@ class GulpOpenSearch:
             index (str): The index/datastream name.
 
         Returns:
-            dict: The index template.
+            dict: The index template, like:
+
+            {
+                "index_patterns": [
+                    "test_idx"
+                ],
+                "template": {
+                    "settings": {
+                    "index": {
+                        "number_of_replicas": "0",
+                        "mapping": {
+                        "total_fields": {
+                            "limit": "10000"
+                        }
+                        },
+                        "refresh_interval": "5s"
+                    }
+                    },
+                    "mappings": {
+                        "numeric_detection": false,
+                        "_meta": {
+                            "version": "8.8.0-dev"
+                        },
+                        "dynamic_templates: [ ... ],
+                        ...
+                    }
+                },
+                ...
+            }            
         """
         template_name = "%s-template" % (index)
         MutyLogger.get_instance().debug(
@@ -515,7 +543,7 @@ class GulpOpenSearch:
         """
         Asynchronously sets an index template in OpenSearch from a JSON file.
 
-                Args:
+        Args:
             index (str): The name of the index/datastream to set the template for.
             path (str): The file path to the JSON file containing the index template.
             apply_patches (bool, optional): Whether to apply specific patches to the mappings and settings before setting the index template. Defaults to True.
@@ -534,6 +562,7 @@ class GulpOpenSearch:
     ) -> dict:
         """
         Sets an index template in OpenSearch, applying the needed patches to the mappings and settings.
+
         Args:
             index (str): The name of the index for which the template is being set.
             d (dict): The dictionary containing the template, mappings, and settings for the index.
@@ -743,7 +772,8 @@ class GulpOpenSearch:
         """
         if delete_first:
             # attempt to delete the datastream first, if it exists
-            MutyLogger.get_instance().debug('re/creating datastream "%s" ...' % (ds))
+            MutyLogger.get_instance().debug(
+                "datastream_create, re/creating datastream: %s ..." % (ds))
             await self.datastream_delete(ds)
 
         # create index template, check if we are overriding the default index template.
@@ -754,7 +784,8 @@ class GulpOpenSearch:
         else:
             template_path = index_template
             MutyLogger.get_instance().debug(
-                'using custom index template "%s" ...' % (template_path)
+                "datastream_create, using custom index template: %s ..." % (
+                    template_path)
             )
             apply_patches = False
         await self.index_template_set_from_file(
@@ -766,7 +797,53 @@ class GulpOpenSearch:
             headers = {"accept": "application/json",
                        "content-type": "application/json"}
             r = await self._opensearch.indices.create_data_stream(ds, headers=headers)
-            MutyLogger.get_instance().debug("datastream created: %s" % (r))
+            MutyLogger.get_instance().debug("datastream_create, datastream created: %s" % (r))
+            return r
+        except Exception as e:
+            # delete the index template
+            await self.index_template_delete(ds)
+            raise e
+
+    async def datastream_create_from_raw_dict(
+        self, ds: str, index_template: dict = None, delete_first: bool = True
+    ) -> dict:
+        """
+        (re)creates the OpenSearch datastream (with backing index) and associates the index template from a dictionary (or uses the default).
+
+        Args:
+            ds(str): The name of the datastream to be created, the index template will be re/created as "<index_name>-template".
+                if it already exists, it will be deleted first.
+            index_template (dict, optional): The index template to use (same format as the output of index_template_get). Defaults to None (use the default index template).
+            delete_first (bool, optional): Whether to delete the datastream first if it exists. Defaults to True.
+
+        Returns:
+            dict: The response from the OpenSearch client after creating the datastream.
+        """
+        if delete_first:
+            # attempt to delete the datastream first, if it exists
+            MutyLogger.get_instance().debug(
+                'datastream_create_from_raw_dict, re/creating datastream: %s ...' % (ds))
+            await self.datastream_delete(ds)
+
+        # ensure the index template is set
+        try:
+            if not index_template:
+                # use default
+                template_path = GulpConfig.get_instance().path_index_template()
+                await self.index_template_set_from_file(
+                    ds, template_path
+                )
+            else:
+                # use provided as-is, just ensure the index is set
+                ds["index_patterns"] = [ds]
+                await self.index_template_put(ds, index_template)
+
+            # create datastream
+            headers = {"accept": "application/json",
+                       "content-type": "application/json"}
+            r = await self._opensearch.indices.create_data_stream(ds, headers=headers)
+            MutyLogger.get_instance().debug(
+                "datastream_create_from_raw_dict, datastream created: %s" % (r))
             return r
         except Exception as e:
             # delete the index template
@@ -1338,11 +1415,12 @@ class GulpOpenSearch:
             if operation_id not in operation_map:
                 continue
 
-            operation = operation_map[operation_id]
+            operation: GulpOperation = operation_map[operation_id]
 
             # build operation entry
             operation_entry = {
                 "name": operation.name,
+                "index": operation.index,
                 "id": operation.id,
                 "contexts": [],
             }

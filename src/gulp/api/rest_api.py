@@ -2,10 +2,12 @@
 This module contains the REST API for gULP (gui Universal Log Processor).
 """
 
+import asyncio
 import os
 import ssl
 from typing import Any, Coroutine
 
+import asyncio_atexit
 import muty.crypto
 import muty.file
 import muty.list
@@ -31,8 +33,6 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
-import asyncio_atexit
-import asyncio
 
 
 class GulpRestServer:
@@ -204,22 +204,22 @@ class GulpRestServer:
         return JSONResponse(js, status_code=status_code)
 
     def _add_routers(self):
-        from gulp.api.rest.ingest import router as ingest_router
-        from gulp.api.rest.operation import router as operation_router
-        from gulp.api.rest.ws import router as ws_router
-        from gulp.api.rest.user import router as user_router
-        from gulp.api.rest.note import router as note_router
         from gulp.api.rest.db import router as db_router
-        from gulp.api.rest.link import router as link_router
-        from gulp.api.rest.highlight import router as highlight_router
-        from gulp.api.rest.story import router as story_router
-        from gulp.api.rest.glyph import router as glyph_router
-        from gulp.api.rest.stored_query import router as stored_query_router
-        from gulp.api.rest.user_group import router as user_group_router
-        from gulp.api.rest.object_acl import router as object_acl_router
-        from gulp.api.rest.utility import router as utility_router
-        from gulp.api.rest.query import router as query_router
         from gulp.api.rest.enrich import router as enrich_router
+        from gulp.api.rest.glyph import router as glyph_router
+        from gulp.api.rest.highlight import router as highlight_router
+        from gulp.api.rest.ingest import router as ingest_router
+        from gulp.api.rest.link import router as link_router
+        from gulp.api.rest.note import router as note_router
+        from gulp.api.rest.object_acl import router as object_acl_router
+        from gulp.api.rest.operation import router as operation_router
+        from gulp.api.rest.query import router as query_router
+        from gulp.api.rest.stored_query import router as stored_query_router
+        from gulp.api.rest.story import router as story_router
+        from gulp.api.rest.user import router as user_router
+        from gulp.api.rest.user_group import router as user_group_router
+        from gulp.api.rest.utility import router as utility_router
+        from gulp.api.rest.ws import router as ws_router
 
         self._app.include_router(db_router)
         self._app.include_router(operation_router)
@@ -406,7 +406,7 @@ class GulpRestServer:
             kwds (dict, optional): the keyword arguments to pass to the coroutine
         """
         f = await GulpProcess.get_instance().coro_pool.spawn(coro)
-        _ = asyncio.create_task(self.handle_bg_future(f))        
+        _ = asyncio.create_task(self.handle_bg_future(f))
 
     async def _cleanup(self):
         """
@@ -424,6 +424,12 @@ class GulpRestServer:
 
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler
+        """import json
+
+        from gulp.api.opensearch_api import GulpOpenSearch
+        api = GulpOpenSearch.get_instance()
+        p = await api.index_template_get("test_idx")
+        MutyLogger.get_instance().info(json.dumps(p, indent=2))"""
         return
 
     async def _lifespan_handler(self, app: FastAPI):
