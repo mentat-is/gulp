@@ -289,7 +289,7 @@ async def _recreate_index_internal(
 
 
 @router.post(
-    "/opensearch_init_index",
+    "/opensearch_create_index",
     tags=["db"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -313,9 +313,10 @@ async def _recreate_index_internal(
 
 - `token` needs `admin` permission.
 - if `index` exists, it is **deleted** and recreated.
+- if `index_template` is provided, it is used to create the index, otherwise the default template is used.
 """,
 )
-async def opensearch_init_index_handler(
+async def opensearch_create_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     index_template: Optional[UploadFile] = File(
