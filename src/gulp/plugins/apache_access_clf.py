@@ -58,8 +58,8 @@ class Plugin(GulpPluginBase):
 
         matches: re.Match = pattern.match(record.strip("\n"))
         if not matches:
-            raise ValueError("record does not match pattern")
-
+            return None
+            
         event = {
             name: matches.group(name) if matches.groups(name) else None
             for name in ["host", "user", "datetime", "date", "timezone",
