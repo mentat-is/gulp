@@ -4,7 +4,7 @@ gulp operations rest api
 
 from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
@@ -60,6 +60,10 @@ async def operation_create_handler(
         str,
         Query(description="the Gulp's OpenSearch index to associate with the operation, it will be created if not exists.")
     ],
+    index_template: Optional[UploadFile] = File(
+        None,
+        description="optional custom index template, for advanced usage only: see [here](https://opensearch.org/docs/latest/im-plugin/index-templates/)",
+    ),
     description: Annotated[
         str,
         Depends(APIDependencies.param_description_optional),
@@ -80,6 +84,8 @@ async def operation_create_handler(
         "operation_data": {}
     }
     try:
+        # check if index exists
+        await GulpOpenSearch.get_instance().create_index(index)
         d = await GulpOperation.create(
             token,
             ws_id=None,  # do not propagate on the websocket
