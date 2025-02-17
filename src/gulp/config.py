@@ -222,6 +222,30 @@ class GulpConfig:
         )
         return n
 
+    def ingestion_retry_max(self) -> int:
+        """
+        Returns the maximum number of retries for ingestion.
+        """
+        n = self._config.get("ingestion_retry_max", 3)
+        if not n:
+            n = 3
+            MutyLogger.get_instance().debug(
+                "using default number of retries for ingestion=%d" % (n)
+            )
+        return n
+
+    def ingestion_retry_delay(self) -> int:
+        """
+        Returns the delay in seconds between ingestion retries.
+        """
+        n = self._config.get("ingestion_retry_delay", 1)
+        if not n:
+            n = 1
+            MutyLogger.get_instance().debug(
+                "using default delay between ingestion retries=%d" % (n)
+            )
+        return n
+
     def ingestion_request_timeout(self) -> int:
         """
         Returns the ingestion request timeout in seconds.
