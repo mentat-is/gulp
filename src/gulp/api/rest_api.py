@@ -27,7 +27,7 @@ from opensearchpy import RequestError
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.test_values import TEST_INDEX
+from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
 from gulp.api.ws_api import GulpConnectedSockets, GulpSharedWsQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -50,7 +50,7 @@ class GulpRestServer:
             self._logger_file_path = None
             self._log_level = None
             self._reset_collab = False
-            self._reset_index = None
+            self._reset_operation = None
             self._lifespan_task = None
             self._shutdown: bool = False
             self._restart_signal: asyncio.Event = asyncio.Event()
@@ -262,7 +262,7 @@ class GulpRestServer:
         logger_file_path: str = None,
         level: int = None,
         reset_collab: bool = False,
-        reset_index: str = None,
+        reset_operation: str = None,
     ):
         """
         starts the server.
@@ -271,12 +271,12 @@ class GulpRestServer:
             logger_file_path (str, optional): path to the logger file.
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, the collab database will be reset on start.
-            reset_index (str, optional): name of the OpenSearch/Elasticsearch index to reset (if --reset-data is provided on the commandline).
+            reset_operation (str, optional): the operation to be reset/created (opensearch index will be created/recreated too).
         """
         self._logger_file_path = logger_file_path
         self._log_level = level
         self._reset_collab = reset_collab
-        self._reset_index = reset_index
+        self._reset_operation = reset_operation
 
         # read configuration
         cfg = GulpConfig.get_instance()
@@ -326,7 +326,7 @@ class GulpRestServer:
         address, port = GulpConfig.get_instance().bind_to()
         MutyLogger.get_instance().info(
             "starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, reset_index=%s ..."
-            % (address, port, logger_file_path, reset_collab, reset_index)
+            % (address, port, logger_file_path, reset_collab, reset_operation)
         )
 
         if cfg.enforce_https():
@@ -428,7 +428,7 @@ class GulpRestServer:
 
         from gulp.api.opensearch_api import GulpOpenSearch
         api = GulpOpenSearch.get_instance()
-        p = await api.index_template_get("test_idx")
+        p = await api.index_template_get("test_operation")
         MutyLogger.get_instance().info(json.dumps(p, indent=2))"""
         return
 
@@ -448,29 +448,28 @@ class GulpRestServer:
         first_run: bool = False
         if self._check_first_run():
             # first run, create index
-            self._reset_index = TEST_INDEX
+            self._reset_operation = TEST_OPERATION_ID
             self._reset_collab = True
             first_run = True
             MutyLogger.get_instance().warning(
-                "FIRST RUN, creating collab database and data index '%s' ..."
-                % (self._reset_index)
+                "FIRST RUN, creating collab database and operation '%s' ..."
+                % (self._reset_operation)
             )
 
         # check for reset flags
         try:
             if self._reset_collab:
-                # reinit collab
+                # reset collab database
                 MutyLogger.get_instance().warning("resetting collab!")
                 collab = GulpCollab.get_instance()
                 await collab.init(main_process=True, force_recreate=True)
-            if self._reset_index:
-                # reinit elastic
-                MutyLogger.get_instance().warning(
-                    "resetting data, recreating index '%s' ..." % (
-                        self._reset_index)
-                )
-                gos = GulpOpenSearch.get_instance()
-                await gos.datastream_create(self._reset_index)
+                await collab.create_default_users()
+                await collab.create_default_data()
+
+            if self._reset_operation:
+                # delete and recreate operation and index
+                from gulp.api.rest.operation import operation_reset_internal
+                await operation_reset_internal(self._reset_operation)
         except Exception as ex:
             if first_run:
                 # allow restart on first run

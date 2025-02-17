@@ -401,12 +401,11 @@ async def tag_documents_handler(
             # enforce operation_id
             flt.operation_ids = [operation_id]
 
-            async with GulpCollab.get_instance().session() as sess:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
-                user_id = s.user_id
-                index = op.index
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
+            user_id = s.user_id
+            index = op.index
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(

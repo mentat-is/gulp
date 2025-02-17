@@ -687,7 +687,7 @@ async def query_max_min_per_field(
                             {
                                 "name": "example operation",
                                 "id": "test_operation",
-                                "index": "test_idx",
+                                "index": "test_operation",
                                 "contexts": [
                                     {
                                         "name": "test_context",

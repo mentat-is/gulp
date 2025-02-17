@@ -1347,9 +1347,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         helper to delete an object by ID, handling session
 
         Args:
-            token (str): The user token.
+            token (str): The user token, pass None to skip token check.
             id (str): The ID of the object to delete.
-            ws_id (str): The websocket ID.
+            ws_id (str): The websocket ID, ignored if token is None
             req_id (str): The request ID.
             permission (list[GulpUserPermission], optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
 
@@ -1363,13 +1363,18 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         async with GulpCollab.get_instance().session() as sess:
             n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
 
-            # token needs at least delete permission (or be the owner)
-            s = await GulpUserSession.check_token(
-                sess, token, permission=permission, obj=n
-            )
+            if token:
+                # token needs at least delete permission (or be the owner)
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission, obj=n
+                )
+                user_id = s.user_id
+            else:
+                user_id = None
+                ws_id = None
 
             # delete
-            await n.delete(sess, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
+            await n.delete(sess, ws_id=ws_id, user_id=user_id, req_id=req_id)
 
     @classmethod
     async def update_by_id(

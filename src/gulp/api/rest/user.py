@@ -4,7 +4,16 @@ This module contains the REST API for gULP (gui Universal Log Processor).
 
 from typing import Annotated, Optional
 
+import muty.os
+import muty.string
+import muty.uploadfile
+from fastapi import APIRouter, Body, Depends, Query
+from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
+
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
@@ -13,19 +22,9 @@ from gulp.api.collab.structs import (
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from muty.jsend import JSendException, JSendResponse
-from fastapi import Body, Depends
 from gulp.api.rest.server_utils import ServerUtils
-import muty.os
-import muty.string
-import muty.uploadfile
-from fastapi import APIRouter, Query
-from fastapi.responses import JSONResponse
-from muty.jsend import JSendResponse
 from gulp.api.rest.structs import REGEX_CHECK_USERNAME, APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
-from muty.log import MutyLogger
-from muty.pydantic import autogenerate_model_example_by_class
 from gulp.structs import GulpAPIMethod
 
 
@@ -393,8 +392,8 @@ async def user_delete_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if user_id == "admin":
-            raise MissingPermission('user "admin" cannot be deleted!')
+        if user_id == "admin" or user_id == "guest":
+            raise MissingPermission('user "admin" and user "guest" cannot be deleted!')
 
         await GulpUser.delete_by_id(
             token,

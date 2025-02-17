@@ -72,7 +72,7 @@ class GulpCollab:
         if called on an already initialized instance, the existing engine is disposed and a new one is created.
 
         Args:
-            force_recreate (bool, optional): whether to drop and recreate the database (including the default data). Defaults to False.
+            force_recreate (bool, optional): whether to drop and recreate the database tables. Defaults to False.
             expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
             main_process (bool, optional): whether this is the main process. Defaults to False.
         """
@@ -94,16 +94,17 @@ class GulpCollab:
         if main_process:
             MutyLogger.get_instance().debug("init in MAIN process ...")
             if force_recreate:
-                # drop and recreate the database, including the default data
+                # drop and recreate the database
                 await GulpCollab.db_drop(url)
                 await GulpCollab.db_create(url)
-                await self.create_default_data()
 
             await self.shutdown()
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
                 bind=self._engine, expire_on_commit=expire_on_commit
             )
+            if force_recreate:
+                await self.create_tables()
 
             # check tables exists
             async with self._collab_sessionmaker() as sess:
@@ -337,52 +338,81 @@ class GulpCollab:
             )
             await sess.commit()
 
-    async def create_default_data(self) -> None:
+    async def create_tables(self) -> None:
         """
-        Initializes the default data for the application.
-        This function performs the following tasks:
-        1. Dynamically imports all modules under the `gulp.api.collab` package.
-        2. Imports necessary classes from the `gulp.api.collab` package.
-        3. Creates database tables and functions.
-        4. Reads glyph assets from the specified path.
-        5. Creates an admin user with administrative permissions.
-        6. Creates glyphs for user and operation.
-        7. Updates the admin user with the created user glyph.
-        8. Creates a default context.
-        9. Creates a default operation.
-        10. Creates additional users with varying permissions: guest(read), editor(edit), and power(delete).
-        Raises:
-            Any exceptions that occur during the execution of the function.
+        creates the database tables and functions.
         """
-        from gulp.api.collab.context import GulpContext
-        from gulp.api.collab.glyph import GulpGlyph
-        from gulp.api.collab.operation import GulpOperation
-        from gulp.api.collab.source import GulpSource
-        from gulp.api.collab.stored_query import GulpStoredQuery
-        from gulp.api.collab.structs import (
-            PERMISSION_MASK_DELETE,
-            PERMISSION_MASK_EDIT,
-            PERMISSION_MASK_INGEST,
-            GulpCollabBase,
-            GulpUserPermission,
-        )
-        from gulp.api.collab.user import GulpUser
-        from gulp.api.collab.user_group import GulpUserGroup
-        from gulp.structs import GulpPluginParameters
-
         # create database tables and functions
         async with self._engine.begin() as conn:
             await conn.run_sync(GulpCollabBase.metadata.create_all)
         await self._setup_collab_expirations()
 
-        # read glyphs
-        assets_path = resources.files("gulp.api.collab.assets")
-        user_b = await muty.file.read_file_async(
-            muty.file.safe_path_join(assets_path, "user.png")
+    async def create_default_operation(self, operation_id: str = TEST_OPERATION_ID, index: str = TEST_INDEX) -> None:
+        """
+        create the default operation with a context and a source.
+
+        Args:
+            operation_id (str, optional): The operation ID to use. Defaults to TEST_OPERATION_ID.
+            index (str, optional): The index name to use. Defaults to TEST_INDEX.
+        """
+        from gulp.api.collab.context import GulpContext
+        from gulp.api.collab.glyph import GulpGlyph
+        from gulp.api.collab.operation import GulpOperation
+        from gulp.api.collab.structs import GulpCollabFilter
+        from gulp.api.collab.user import GulpUser
+
+        async with self._collab_sessionmaker() as sess:
+            admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
+            operation_glyph: GulpGlyph = await GulpGlyph.get_first_by_filter(sess, GulpCollabFilter(names=["test_operation_icon"]), throw_if_not_found=False)
+
+            # create default operation
+            operation: GulpOperation = await GulpOperation._create(
+                sess,
+                object_data={
+                    "name": operation_id,
+                    "index": index,
+                    "glyph_id": operation_glyph.id if operation_glyph else None,
+                },
+                id=operation_id,
+                owner_id=admin_user.id,
+            )
+
+            # add sources to context and context to operation
+            ctx: GulpContext
+            ctx, _ = await operation.add_context(
+                sess,
+                user_id=admin_user.id,
+                name=TEST_CONTEXT_NAME,
+            )
+            await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
+
+            # add user grants
+            await operation.add_user_grant(sess, "ingest")
+            await operation.add_user_grant(sess, "editor")
+            await operation.add_user_grant(sess, "power")
+            await operation.add_user_grant(sess, "guest")
+
+            # add group grants
+            await operation.add_group_grant(sess, "administrators")
+
+            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
+            for op in operations:
+                MutyLogger.get_instance().debug(
+                    json.dumps(op.to_dict(nested=True), indent=4)
+                )
+
+    async def create_default_users(self) -> None:
+        """
+        create default users and user groups
+        """
+        from gulp.api.collab.structs import (
+            PERMISSION_MASK_DELETE,
+            PERMISSION_MASK_EDIT,
+            PERMISSION_MASK_INGEST,
+            GulpUserPermission,
         )
-        operation_b = await muty.file.read_file_async(
-            muty.file.safe_path_join(assets_path, "operation.png")
-        )
+        from gulp.api.collab.user import GulpUser
+        from gulp.api.collab.user_group import GulpUserGroup
 
         async with self._collab_sessionmaker() as sess:
             # create admin user, which is the root of everything else
@@ -394,40 +424,122 @@ class GulpCollab:
             )
 
             # login admin user
-            admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
+            # admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
+
+            # create other users
+            guest_user = await GulpUser.create(
+                sess,
+                user_id="guest",
+                password="guest",
+            )
+            editor_user = await GulpUser.create(
+                sess,
+                user_id="editor",
+                password="editor",
+                permission=PERMISSION_MASK_EDIT,
+            )
+            ingest_user = await GulpUser.create(
+                sess,
+                user_id="ingest",
+                password="ingest",
+                permission=PERMISSION_MASK_INGEST,
+            )
+            power_user = await GulpUser.create(
+                sess,
+                user_id="power",
+                password="power",
+                permission=PERMISSION_MASK_DELETE,
+            )
+
+            # create user groups
+            group: GulpUserGroup = await GulpUserGroup._create(
+                sess,
+                id="administrators",
+                object_data={
+                    "name": "example group",
+                    "permission": [GulpUserPermission.ADMIN],
+                },
+                owner_id=admin_user.id,
+                private=False
+            )
+
+            # add admin to administrators group
+            await group.add_user(sess, admin_user.id)
+
+            # dump groups
+            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(sess)
+            for group in groups:
+                MutyLogger.get_instance().debug(
+                    json.dumps(group.to_dict(nested=True), indent=4)
+                )
+
+            # dump admin user
+            MutyLogger.get_instance().debug(
+                json.dumps(admin_user.to_dict(nested=True), indent=4)
+            )
+
+    async def create_default_data(self) -> None:
+        """
+        create the default data: glyphs, stored queries
+        """
+        from gulp.api.collab.glyph import GulpGlyph
+        from gulp.api.collab.stored_query import GulpStoredQuery
+        from gulp.api.collab.user import GulpUser
+
+        async with self._collab_sessionmaker() as sess:
+            # get users
+            admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
+            guest_user: GulpUser = await GulpUser.get_by_id(sess, "guest", throw_if_not_found=False)
+            editor_user: GulpUser = await GulpUser.get_by_id(sess, "editor", throw_if_not_found=False)
+            ingest_user: GulpUser = await GulpUser.get_by_id(sess, "ingest", throw_if_not_found=False)
+            power_user: GulpUser = await GulpUser.get_by_id(sess, "power", throw_if_not_found=False)
+
+            # read glyphs
+            assets_path = resources.files("gulp.api.collab.assets")
+            user_b = await muty.file.read_file_async(
+                muty.file.safe_path_join(assets_path, "user.png")
+            )
+            operation_b = await muty.file.read_file_async(
+                muty.file.safe_path_join(assets_path, "operation.png")
+            )
 
             # create glyphs
             user_glyph = await GulpGlyph._create(
                 sess,
                 object_data={
-                    "name": "user_icon",
+                    "name": "test_user_icon",
                     "img": user_b,
                 },
                 owner_id=admin_user.id,
                 private=False
             )
 
-            operation_glyph = await GulpGlyph._create(
+            _ = await GulpGlyph._create(
                 sess,
                 object_data={
-                    "name": "operation_icon",
+                    "name": "test_operation_icon",
                     "img": operation_b,
                 },
                 owner_id=admin_user.id,
                 private=False
             )
 
-            await admin_user.update(
-                sess,
-                d={"glyph_id": user_glyph.id},
-                user_session=admin_session,
-            )
+            # assign glyphs
+            admin_user.glyph_id = user_glyph.id
+            if guest_user:
+                guest_user.glyph_id = user_glyph.id
+            if editor_user:
+                editor_user.glyph_id = user_glyph.id
+            if ingest_user:
+                ingest_user.glyph_id = user_glyph.id
+            if power_user:
+                power_user.glyph_id = user_glyph.id
+            await sess.commit()
 
-            # create test stored queries
-
-            # windows sigma 1
+            # stored query: windows sigma 1
             sigma_match_some = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")
+                muty.file.safe_path_join(
+                    assets_path, "sigma_match_some.yaml")
             )
             sigma_match_some_more = await muty.file.read_file_async(
                 muty.file.safe_path_join(
@@ -447,7 +559,7 @@ class GulpCollab:
                 private=False
             )
 
-            # windows sigma 2
+            # stored query: windows sigma 2
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
@@ -462,7 +574,7 @@ class GulpCollab:
                 private=False
             )
 
-            # raw query
+            # stored query: raw query
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
@@ -491,106 +603,17 @@ class GulpCollab:
                 private=False
             )
 
-            # splunk query
+            # stored query: splunk query
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
                 object_data={
                     "name": "splunk_raw_query",
                     "tags": ["stored", "raw", "splunk"],
-                    "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',                    
+                    "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',
                 },
                 id="test_stored_raw_splunk",
                 owner_id=admin_user.id,
                 private=False
-            )
-
-            # create user groups
-            group: GulpUserGroup = await GulpUserGroup._create(
-                sess,
-                id="administrators",
-                object_data={
-                    "name": "example group",
-                    "permission": [GulpUserPermission.ADMIN],
-                },
-                owner_id=admin_user.id,
-                private=False
-            )
-            # add admin to group
-            await group.add_user(sess, admin_user.id)
-
-            # create default operation
-            operation: GulpOperation = await GulpOperation._create(
-                sess,
-                object_data={
-                    "name": "example operation",
-                    "index": TEST_INDEX,
-                    "glyph_id": operation_glyph.id,
-                },
-                id=TEST_OPERATION_ID,
-                owner_id=admin_user.id,
-            )
-
-            # add sources to context and context to operation
-            ctx: GulpContext
-            ctx, _ = await operation.add_context(
-                sess,
-                user_id=admin_user.id,
-                name=TEST_CONTEXT_NAME,
-            )
-            await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
-
-            # add user grants to everyone
-            await operation.add_user_grant(sess, "ingest")
-            await operation.add_user_grant(sess, "editor")
-            await operation.add_user_grant(sess, "power")
-            await operation.add_user_grant(sess, "guest")
-
-            # add group grants to the operation
-            await operation.add_group_grant(sess, "administrators")
-
-            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
-            for op in operations:
-                MutyLogger.get_instance().debug(
-                    json.dumps(op.to_dict(nested=True), indent=4)
-                )
-
-            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(sess)
-            for group in groups:
-                MutyLogger.get_instance().debug(
-                    json.dumps(group.to_dict(nested=True), indent=4)
-                )
-
-            MutyLogger.get_instance().debug(
-                json.dumps(admin_user.to_dict(nested=True), indent=4)
-            )
-
-            # create other users
-            guest_user = await GulpUser.create(
-                sess,
-                user_id="guest",
-                password="guest",
-                glyph_id=user_glyph.id,
-            )
-            editor_user = await GulpUser.create(
-                sess,
-                user_id="editor",
-                password="editor",
-                permission=PERMISSION_MASK_EDIT,
-                glyph_id=user_glyph.id,
-            )
-            ingest_user = await GulpUser.create(
-                sess,
-                user_id="ingest",
-                password="ingest",
-                permission=PERMISSION_MASK_INGEST,
-                glyph_id=user_glyph.id,
-            )
-            power_user = await GulpUser.create(
-                sess,
-                user_id="power",
-                password="power",
-                permission=PERMISSION_MASK_DELETE,
-                glyph_id=user_glyph.id,
             )
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:

@@ -477,7 +477,7 @@ class GulpOpenSearch:
 
             {
                 "index_patterns": [
-                    "test_idx"
+                    "test_operation"
                 ],
                 "template": {
                     "settings": {
@@ -727,17 +727,18 @@ class GulpOpenSearch:
         # params = {"ignore_unavailable": "true"}
         headers = {"accept": "application/json"}
         exists = await self.datastream_exists(ds)
-        if not exists and throw_on_error:
-            raise ObjectNotFound("datastream %s does not exist" % (ds))
-
-        MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
-        await self._opensearch.indices.delete_data_stream(ds, headers=headers)
-
-        # also delete corresponding template
         try:
-            await self.index_template_delete(ds)
-        except Exception as e:
-            MutyLogger.get_instance().error("error deleting index template: %s" % (e))
+            if not exists and throw_on_error:
+                raise ObjectNotFound("datastream %s does not exist" % (ds))
+
+            MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
+            await self._opensearch.indices.delete_data_stream(ds, headers=headers)
+        finally:
+            # also (try to) delete the corresponding template
+            try:
+                await self.index_template_delete(ds)
+            except Exception as e:
+                MutyLogger.get_instance().error("cannot delete template for index/datastream: %s (%s)" % (ds, e))
 
     async def datastream_exists(self, ds: str) -> bool:
         """

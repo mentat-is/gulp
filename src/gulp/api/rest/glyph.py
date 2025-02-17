@@ -3,7 +3,7 @@ gulp glyphs management rest api
 """
 
 from muty.jsend import JSendException, JSendResponse
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Union
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
 from gulp.api.collab.glyph import GulpGlyph
@@ -125,7 +125,7 @@ async def glyph_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    img: Annotated[Optional[UploadFile], File(description="an image file.")] = None,
+    img: Annotated[Union[UploadFile, str], File(description="an image file.")] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -137,7 +137,7 @@ async def glyph_update_handler(
         d = {}
         if name:
             d["name"] = name
-        if img:
+        if img and isinstance(img, UploadFile):
             data = _read_img_file(img)
             d["img"] = data
         d = await GulpGlyph.update_by_id(

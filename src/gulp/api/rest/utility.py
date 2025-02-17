@@ -1,39 +1,37 @@
-from collections import defaultdict
+import base64
 import gc
 import inspect
-import os
 import json
-import base64
+import os
+import sys
 import time
+from collections import defaultdict
+from typing import Annotated
+
 import muty.file
 import muty.obj
+import muty.uploadfile
 import psutil
-from gulp.api.mapping.models import GulpMappingFile
-import sys
-from gulp.plugin import GulpPluginBase
-from gulp.api.rest_api import GulpRestServer
-from muty.jsend import JSendException, JSendResponse
-from typing import Annotated
-from fastapi import APIRouter, UploadFile, File, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
+
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpRequestStatus,
     GulpUserPermission,
 )
-from gulp.config import GulpConfig
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
+from gulp.api.mapping.models import GulpMappingFile
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
-from muty.log import MutyLogger
-import muty.file
-import muty.uploadfile
-
+from gulp.api.rest_api import GulpRestServer
+from gulp.config import GulpConfig
+from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
@@ -158,10 +156,12 @@ async def request_list_handler(
     summary="""restart the server.
     """,
     description="""
+> WARNING: usage of this API is discouraged, properly restart the container is advised instead.
+
 use i.e. to apply changes to the server configuration or plugins, or if the server gets slow or consumes too much memory.
 
 - token needs `admin` permission.    
-    """
+"""
 )
 async def restart_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -889,6 +889,10 @@ async def plugin_upload_handler(
 
             # upload path
             extra_path = GulpConfig.get_instance().path_plugins_extra()
+            if is_extension:
+                # extension plugins are in a subdirectory
+                extra_path = os.path.join(extra_path, "extension") 
+
             file_path = muty.file.safe_path_join(extra_path, filename.lower())
             MutyLogger.get_instance().debug("saving plugin to: %s" % (file_path))
 

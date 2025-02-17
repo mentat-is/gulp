@@ -6,22 +6,21 @@ curl is used to send the files to the gulp ingestion api, to be as much close as
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import os
 import subprocess
 import sys
-import asyncio
 from multiprocessing import Pool
 
-import muty.file
 import muty.crypto
-from muty.log import MutyLogger
+import muty.file
 import websockets
+from muty.log import MutyLogger
 
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_NAME,
-    TEST_INDEX,
     TEST_OPERATION_ID,
     TEST_REQ_ID,
     TEST_WS_ID,
@@ -68,7 +67,6 @@ def _parse_args():
     )
     parser.add_argument("--ws_id", default=TEST_WS_ID, help="Websocket id")
     parser.add_argument("--req_id", default=TEST_REQ_ID, help="Request id")
-    parser.add_argument("--index", default=TEST_INDEX, help="Ingestion index")
     parser.add_argument(
         "--flt",
         default=None,
@@ -136,8 +134,7 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
     if raw_chunk:
         # raw request
         url = f"{base_url}/ingest_raw"
-        params = f"plugin=raw&operation_id={args.operation_id}&context_name={args.context_name}&source=raw_source&index={
-            args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
+        params = f"plugin=raw&operation_id={args.operation_id}&context_name={args.context_name}&source=raw_source&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
         command.extend(
             [
                 "-H",
@@ -170,12 +167,11 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
 
         if is_zip:
             url = f"{base_url}/ingest_zip"
-            params = f"operation_id={args.operation_id}&context_name={args.context_name}&index={
-                args.index}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
+            params = f"operation_id={args.operation_id}&context_name={args.context_name}&ws_id={args.ws_id}&req_id={args.req_id}&token={args.token}"
             file_type = "application/zip"
         else:
             url = f"{base_url}/ingest_file"
-            params = f"operation_id={args.operation_id}&context_name={args.context_name}&index={args.index}&plugin={
+            params = f"operation_id={args.operation_id}&context_name={args.context_name}&plugin={
                 args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&token={args.token}"
 
             file_type = "application/octet-stream"
@@ -243,7 +239,7 @@ def _login(host, username, password, req_id, ws_id) -> str:
     return token
 
 
-def _reset(host, index, req_id, ws_id):
+def _reset(host, req_id, ws_id):
     MutyLogger.get_instance().info("resetting gulp")
     admin_token = _login(host, "admin", "admin", req_id, ws_id)
     reset_command = [
@@ -253,7 +249,7 @@ def _reset(host, index, req_id, ws_id):
         f"token: {admin_token}",
         "-X",
         "POST",
-        f"{host}/gulp_reset?index={index}&req_id={req_id}",
+        f"{host}/gulp_reset?req_id={req_id}",
     ]
     MutyLogger.get_instance().info(f"reset command: {reset_command}")
     reset_response = subprocess.run(reset_command, capture_output=True)
@@ -320,7 +316,7 @@ def main():
 
     if args.reset:
         # reset first
-        _reset(args.host, args.index, args.req_id, args.ws_id)
+        _reset(args.host, args.req_id, args.ws_id)
 
     # get an ingest token
     args.token = _login(

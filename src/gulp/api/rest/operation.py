@@ -2,25 +2,22 @@
 gulp operations rest api
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated, Optional
+
+import muty.string
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+from muty.log import MutyLogger
+
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpUserPermission,
-)
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
-from muty.log import MutyLogger
-import muty.string
-
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -45,8 +42,10 @@ router: APIRouter = APIRouter()
             }
         }
     },
-    summary="creates a operation.",
+    summary="creates an operation.",
     description="""
+- `operation_id` is derived from `name` by removing spaces and special characters.
+- `index`, if not set, is set as `operation_id`.
 - `token` needs `ingest` permission.
 """,
 )
@@ -58,8 +57,8 @@ async def operation_create_handler(
     ],
     index: Annotated[
         str,
-        Query(description="the Gulp's OpenSearch index to associate with the operation.")
-    ],
+        Query(description="the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`)."),
+    ] = None,
     description: Annotated[
         str,
         Depends(APIDependencies.param_description_optional),
@@ -71,6 +70,10 @@ async def operation_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+
+    operation_id = muty.string.ensure_no_space_no_special(name.lower())
+    if not index:
+        index = operation_id
 
     d = {
         "index": index,
@@ -88,7 +91,7 @@ async def operation_create_handler(
             req_id=req_id,
             object_data=d,
             permission=[GulpUserPermission.INGEST],
-            id=muty.string.ensure_no_space_no_special(name.lower()),
+            id=operation_id,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -189,7 +192,54 @@ async def operation_update_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.delete(
+async def operation_reset_internal(operation_id: str) -> None:
+    """
+    reset an operation (internal usage only)
+
+    - if the operation exists, delete all data on the associated index
+    - if the operation does not exist, create it and create the associated index
+
+    Args:
+        operation_id (str): the operation    
+    """
+
+    async with GulpCollab.get_instance().session() as sess:
+        # get operation if exists
+        op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id, throw_if_not_found=False)
+        if not op:
+            # create the operation
+            index = operation_id
+            MutyLogger.get_instance().info("creating new operation=%s, index=%s" %
+                                           (operation_id, index))
+
+            d = {
+                "index": index,
+                "name": operation_id,
+                "description": None,
+                "glyph_id": None,
+                "operation_data": {}
+            }
+            await GulpOperation._create(
+                sess,
+                d,
+                id=operation_id,
+                owner_id="admin",
+                ws_id=None,
+                private=False
+            )
+
+            # set default users on the operation
+            op = await GulpOperation.get_by_id(sess, operation_id)
+            await op.add_user_grant(sess, "admin")
+            await op.add_user_grant(sess, "guest")
+            await op.add_group_grant(sess, "administrators")
+
+        # recreate the index
+        MutyLogger.get_instance().info("re/creating index=%s ..." % (index))
+        await GulpOpenSearch.get_instance().datastream_create(index)
+
+
+@router.delete(
     "/operation_delete",
     tags=["operation"],
     response_model=JSendResponse,
@@ -222,40 +272,37 @@ async def operation_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    index: Annotated[str, Depends(
-        APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if delete_data and not index:
-            raise ValueError(
-                "If `delete_data` is set, `index` must be provided.")
 
-        await GulpOperation.delete_by_id(
-            token,
-            operation_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            permission=[GulpUserPermission.INGEST],
-        )
+        # get operation
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.INGEST)
+            index = op.index
 
-        if delete_data:
-            # delete all data
-            MutyLogger.get_instance().info(
-                f"deleting data related to operation_id={
-                    operation_id} on index={index} ..."
-            )
-            await GulpOpenSearch.get_instance().delete_data_by_operation(
-                index, operation_id
-            )
+            if delete_data:
+                MutyLogger.get_instance().info(
+                    f"deleting data related to operation_id={
+                        operation_id} on index={index} ..."
+                )
+
+                # delete the index
+                await GulpOpenSearch.get_instance().datastream_delete(index)
+
+            # delete the operation itself
+            MutyLogger.get_instance().info("deleting operation_id=%s ..." % operation_id)
+            await op.delete(sess)
 
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.get(
+@router.get(
     "/operation_get_by_id",
     tags=["operation"],
     response_model=JSendResponse,
@@ -295,7 +342,7 @@ async def operation_get_by_id_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.post(
+@router.post(
     "/operation_list",
     tags=["operation"],
     response_model=JSendResponse,
@@ -341,7 +388,7 @@ async def operation_list_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.get(
+@router.get(
     "/context_list",
     tags=["operation"],
     response_model=JSendResponse,
@@ -385,7 +432,7 @@ async def context_list_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.delete(
+@router.delete(
     "/context_delete",
     tags=["operation"],
     response_model=JSendResponse,
@@ -452,7 +499,7 @@ async def context_delete_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.get(
+@router.get(
     "/source_list",
     tags=["operation"],
     response_model=JSendResponse,
@@ -493,7 +540,7 @@ async def source_list_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@ router.delete(
+@router.delete(
     "/source_delete",
     tags=["operation"],
     response_model=JSendResponse,

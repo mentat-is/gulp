@@ -4,14 +4,17 @@ import logging
 import os
 import sys
 from multiprocessing import freeze_support
+
 import art
 from muty.log import MutyLogger
+
 from gulp.api.rest_api import GulpRestServer
 
 # just for quick testing from the command line
 __RUN_TESTS__ = os.getenv("INTERNAL_TEST", False)
 if not __debug__:
     __RUN_TESTS__ = False
+
 
 async def async_test():
     if not __debug__:
@@ -69,10 +72,10 @@ def main():
         default=False,
     )
     parser.add_argument(
-        "--reset-index",
-        help="reset the given opensearch index.",
+        "--reset-operation",
+        help="resets/creates the given operation (and the backing index) on start.",
         nargs=1,
-        metavar=("indexname"),
+        metavar=("operation_id"),
     )
     parser.add_argument(
         "--version",
@@ -103,12 +106,12 @@ def main():
             # default
             print("%s\n%s" % (banner, ver))
             reset_collab = args.reset_collab
-            reset_index = args.reset_index[0] if args.reset_index is not None else None
+            reset_operation = args.reset_operation[0] if args.reset_operation is not None else None
             GulpRestServer.get_instance().start(
                 logger_file_path=logger_file_path,
                 level=lv,
                 reset_collab=reset_collab,
-                reset_index=reset_index,
+                reset_operation=reset_operation,
             )
     except Exception as ex:
         # print exception and exit

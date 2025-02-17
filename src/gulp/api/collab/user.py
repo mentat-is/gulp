@@ -141,7 +141,7 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         Args:
             sess (AsyncSession): The database session.
             d (dict): The data to update.
-            user_session (GulpUserSession): The user session object.
+            user_session (GulpUserSession): The user session object (will be invalidated).
 
         Raises:
             MissingPermission: If the user does not have the required permission.
@@ -180,12 +180,13 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         # update
         await super().update(sess, d)
 
-        # invalidate session for the user
-        MutyLogger.get_instance().warning(
-            "updated user, invalidating session for user_id=%s" % (self.id)
-        )
+        if user_session:
+            # invalidate session for the user
+            MutyLogger.get_instance().warning(
+                "updated user, invalidating session for user_id=%s" % (self.id)
+            )
 
-        await sess.delete(user_session)
+            await sess.delete(user_session)
         await sess.flush()
 
     def is_admin(self) -> bool:

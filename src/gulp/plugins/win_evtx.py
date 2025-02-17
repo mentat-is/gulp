@@ -14,8 +14,6 @@ import muty.xml
 from evtx import PyEvtxParser
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.sigma import (
-    GulpPluginSigmaSupport,
-    GulpQuerySigmaParameters,
     to_gulp_query_struct,
 )
 from gulp.api.collab.stats import (
