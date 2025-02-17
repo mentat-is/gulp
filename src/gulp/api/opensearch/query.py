@@ -114,11 +114,9 @@ class GulpQueryExternalParameters(BaseModel):
                     "uri": "http://localhost:8080",
                     "username": "user",
                     "password": "password",
-                    "params": None,
-                    "ingest_index": "target_index",
+                    "ingest": True,
                     "operation_id": "operation_1",
                     "context_name": "context_1",
-                    "source": "test_source",
                 }
             ]
         },
@@ -140,27 +138,6 @@ class GulpQueryExternalParameters(BaseModel):
     )
     password: Optional[str] = Field(
         None, description="The password to connect to the external service."
-    )
-    ingest_index: Optional[str] = Field(
-        None, description="if set, ingest the results to this gulp index/datastream."
-    )
-    operation_id: Optional[str] = Field(
-        None,
-        description="""
-if set, the operation id to associate with the ingestion.
-
-- ignored if `ingest_index` is not set.
-""",
-    )
-    context_name: Optional[str] = Field(
-        None,
-        description="""
-if set, name of the context to associate with the ingestion.
-
-- an id will be generated if not yet present.
-- if not set, the plugin is responsible to generate a `context_id` and `source_id` for the ingestion.
-- ignored if `ingest_index` is not set.
-""",
     )
 
 
@@ -208,7 +185,7 @@ class GulpQueryParameters(BaseModel):
     sort: Optional[dict[str, GulpSortOrder]] = Field(
         default=None,
         description="""
-how to sort results, default=sort by ascending `@timestamp`. 
+how to sort results, default=sort by ascending `@timestamp`.
 
 - for `external` queries, its the plugin responsibility to handle this.""",
     )
@@ -260,9 +237,13 @@ if set, keep querying until all documents are returned (default=True, ignores `s
         GulpQueryNoteParameters(),
         description="controls how notes are created during queries.",
     )
-    external_parameters: Optional[GulpQueryExternalParameters] = Field(
-        GulpQueryExternalParameters(),
-        description="external query specific parameters, including `plugin` and `GulpPluginParameters` used to perform the external query.",
+    plugin: Optional[str] = Field(
+        None,
+        description="for external queries, the plugin to be used to query the external source.",
+    )
+    plugin_params: Optional[GulpPluginParameters] = Field(
+        GulpPluginParameters(),
+        description="for external queries, custom plugin parameters to pass to the external plugin.",
     )
 
     def parse(self) -> dict:

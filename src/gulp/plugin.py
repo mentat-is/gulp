@@ -352,7 +352,6 @@ class GulpPluginBase(ABC):
         self._tot_enriched: int = 0
 
         self._note_parameters: GulpQueryNoteParameters = GulpQueryNoteParameters()
-        self._external_plugin_params: GulpPluginParameters = GulpPluginParameters()
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
         # to minimize db requests to postgres to get context and source at every record
@@ -546,7 +545,8 @@ class GulpPluginBase(ABC):
         )
         if stats and stats.status == GulpRequestStatus.CANCELED:
             self._req_canceled = True
-            MutyLogger.get_instance().warning("_process_docs_chunk: request %s cancelled" % (self._req_id))
+            MutyLogger.get_instance().warning(
+                "_process_docs_chunk: request %s cancelled" % (self._req_id))
 
         return len(ingested_docs), skipped
 
@@ -647,9 +647,10 @@ class GulpPluginBase(ABC):
         user_id: str,
         req_id: str,
         ws_id: str,
-        index: Any,
+        operation_id: str,
         q: Any,
         q_options: GulpQueryParameters,
+        index: str = None,
     ) -> tuple[int, int]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
@@ -658,12 +659,13 @@ class GulpPluginBase(ABC):
 
         Args:
             sess (AsyncSession): The database session.
+            user_id (str): the user performing the query
             req_id (str): the request id
             ws_id (str): the websocket id
-            user (str): the user performing the query
-            index (Any): the index to query on the external source (format is plugin specific)
+            operation_id (str): the operation id
             q(Any): the query to perform, format is plugin specific
-            q_options (GulpQueryParameters): additional query options, `q_options.external_parameters` must be set accordingly.
+            q_options (GulpQueryParameters): additional query options, `q_options.plugin' and 'q_options.plugin_parameters` must be set to connect to the external source.
+            index (str, optional): the operation index to ingest into, may be None for no ingestion
 
         Notes:
             - implementers must call super().query_external first
@@ -675,8 +677,8 @@ class GulpPluginBase(ABC):
             ObjectNotFound: if no document is found.
         """
         MutyLogger.get_instance().debug(
-            "GulpPluginBase.query_external: q=%s, index=%s, q_options=%s"
-            % (q, index, q_options)
+            "GulpPluginBase.query_external: q=%s, index=%s, operation_id=%s, q_options=%s"
+            % (q, index, operation_id, q_options)
         )
 
         self._sess = sess
@@ -689,26 +691,26 @@ class GulpPluginBase(ABC):
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
 
-        if q_options.external_parameters.plugin_params.is_empty():
-            q_options.external_parameters.plugin_params = GulpPluginParameters()
+        if q_options.plugin_params.is_empty():
+            q_options.plugin_params = GulpPluginParameters()
 
         # load any mapping set
-        await self._initialize(q_options.external_parameters.plugin_params)
+        await self._initialize(q_options.plugin_params)
 
-        self._operation_id = q_options.external_parameters.operation_id
+        self._operation_id = operation_id
         self._note_parameters = q_options.note_parameters
-        self._external_plugin_params = q_options.external_parameters.plugin_params
+        self._plugin_params = q_options.plugin_params
 
-        if q_options.external_parameters.ingest_index:
-            # ingestion is enabled
-            self._ingest_index = q_options.external_parameters.ingest_index
+        if index:
+            # ingestion is enabled, set index
+            self._ingest_index = index
         else:
             # just query, no ingestion
             self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
             "querying external source, plugin_params=%s"
-            % (q_options.external_parameters.plugin_params)
+            % (q_options._plugin_params)
         )
 
         return (0, 0)
@@ -1338,15 +1340,9 @@ class GulpPluginBase(ABC):
             flt = None
 
         ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
-        if (
-            self._plugin_params.override_chunk_size
-            or self._external_plugin_params.override_chunk_size
-        ):
+        if self._plugin_params.override_chunk_size:
             # using the provided chunk size instead
-            if self._external_query:
-                ingestion_buffer_size = self._external_plugin_params.override_chunk_size
-            else:
-                ingestion_buffer_size = self._plugin_params.override_chunk_size
+            ingestion_buffer_size = self._plugin_params.override_chunk_size
 
         self._extra_docs = []
 
@@ -1372,7 +1368,8 @@ class GulpPluginBase(ABC):
                     flt, wait_for_refresh, **kwargs
                 )
                 if self._req_canceled:
-                    raise RequestCanceledError("request %s canceled!" % (self._req_id))
+                    raise RequestCanceledError(
+                        "request %s canceled!" % (self._req_id))
 
                 # check threshold
                 failure_threshold = (
@@ -1432,16 +1429,15 @@ class GulpPluginBase(ABC):
 
         # check any passed custom parameter against the plugin defined ones
         defined_custom_params = self.custom_parameters()
-
         for p in defined_custom_params:
             k = p.name
-            if p.required and k not in plugin_params.custom_parameters:
+            if p.required and k not in plugin_params.model_extra:
                 raise ValueError(
                     "required plugin parameter '%s' not found in plugin_params=%s"
                     % (k, plugin_params)
                 )
             if k not in self._custom_params:
-                self._custom_params[k] = plugin_params.custom_parameters.get(
+                self._custom_params[k] = plugin_params.model_extra.get(
                     k, p.default_value
                 )
                 MutyLogger.get_instance().debug(
@@ -2051,7 +2047,6 @@ class GulpPluginBase(ABC):
         self._extra_docs = None
         self._extra_docs: list[dict]
         self._note_parameters = None
-        self._external_plugin_params = None
         self._plugin_params = None
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
@@ -2216,7 +2211,8 @@ class GulpPluginBase(ABC):
                     desc=p.desc(),
                     filename=p.filename,
                     # check if plugin implements sigma_convert, if so it have sigma_support!
-                    sigma_support=inspect.getmodule(p.sigma_convert) != inspect.getmodule(GulpPluginBase.sigma_convert),
+                    sigma_support=inspect.getmodule(p.sigma_convert) != inspect.getmodule(
+                        GulpPluginBase.sigma_convert),
                     custom_parameters=p.custom_parameters(),
                     depends_on=p.depends_on(),
                     tags=p.tags(),

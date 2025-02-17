@@ -3,12 +3,10 @@
 from enum import StrEnum
 from typing import Any, Literal, Optional
 
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping
-from muty.pydantic import (
-    autogenerate_model_example_by_class,
-)
 
 
 class ObjectAlreadyExists(Exception):
@@ -63,9 +61,9 @@ class GulpAPIMethod(BaseModel):
 
 class GulpPluginParameters(BaseModel):
     """
-    common parameters for a plugin, to be passed to ingest and query API.
+    parameters for a plugin, to be passed to ingest and query API.
 
-    this may also include GulpPluginCustomParameter.name entries specific to the plugin
+    additional custom parameters defined in GulpPlugin.custom_parameters may be added to the "model_extra" field, they will be passed to the plugin as is.
     """
 
     model_config = ConfigDict(
@@ -80,10 +78,9 @@ class GulpPluginParameters(BaseModel):
                         ("mftecmd_csv.json", "record"),
                         ("mftecmd_csv.json", "file"),
                     ],
-                    "custom_parameters": {
-                        "custom1": "parameter1",
-                        "custom2": "parameter2",
-                    }
+                    # other custom parameters allowed as model_extra
+                    "custom1": "parameter1",
+                    "custom2": "parameter2",
                 }
             ]
         },
@@ -119,11 +116,6 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         description="this is used to override the websocket chunk size for the request, which is normally taken from configuration 'documents_chunk_size'.",
     )
 
-    custom_parameters: Optional[dict] = Field(
-        {},
-        description="optional additional plugin parameters defined in `Plugin.custom_parameters()`.",
-    )
-
     def is_empty(self) -> bool:
         """
         a mapping is empty if mappings or mapping_file or mapping_id is empty
@@ -135,7 +127,6 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
             self.mappings is not None
             or self.mapping_file is not None
             or self.override_chunk_size is not None
-            or len(self.custom_parameters) > 0
             or len(self.model_extra) > 0
         ):
             return False
@@ -146,7 +137,24 @@ class GulpPluginCustomParameter(GulpAPIParameter):
     """
     this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
 
-    `name` may also be a key in the `GulpPluginParameters.custom_parameters` object, to list additional parameters specific for the plugin.
+    `name` may also be a key in the `GulpPluginParameters.model_extra` field, to list additional parameters specific for the plugin.
+
+    when passed via GulpPluginParameters.model_extra, they may be accessed through the `GulpPlugin._custom_params` field once the plugin is initialized, i.e.
+
+    GulpPluginParmeters: 
+
+    {
+        "mapping_file": "mftecmd_csv.json",
+        "mappings": { "record": { "fields": { "timestamp": { "type": "datetime" } } } },
+        "mapping_id": "record",
+        "some_custom_param": "some_value",
+        "some_custom_param_2": "some_value_2"
+    }
+
+    in the plugin code, after GulpPlugin._initialize() has been called, the custom parameters can be accessed through the _custom_params field:
+
+    self._custom_params["some_custom_param"] # "some_value"
+
     """
 
     model_config = ConfigDict(

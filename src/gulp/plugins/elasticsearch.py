@@ -43,6 +43,42 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
+                name="uri",
+                type="str",
+                desc="""
+                    Elasticsearch/opensearch URI.
+                    """,
+                required=True,
+            ),
+
+            GulpPluginCustomParameter(
+                name="username",
+                type="str",
+                desc="""
+                    username
+                    """,
+                default_value=None,
+            ),
+
+            GulpPluginCustomParameter(
+                name="password",
+                type="str",
+                desc="""
+                    password
+                    """,
+                default_value=None,
+            ),
+
+            GulpPluginCustomParameter(
+                name="index",
+                type="str",
+                desc="""
+                    the index to query.
+                    """,
+                required=True,
+            ),
+
+            GulpPluginCustomParameter(
                 name="offset_msec",
                 type="int",
                 desc="""
@@ -51,7 +87,7 @@ class Plugin(GulpPluginBase):
                     - to subtract, use a negative offset.
                     """,
                 default_value=0,
-            ),
+            ),            
             GulpPluginCustomParameter(
                 name="timestamp_field",
                 type="str",
@@ -145,6 +181,7 @@ class Plugin(GulpPluginBase):
         user_id: str,
         req_id: str,
         ws_id: str,
+        operation_id: str,
         index: Any,
         q: Any,
         q_options: GulpQueryParameters,

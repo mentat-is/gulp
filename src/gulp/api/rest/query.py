@@ -57,6 +57,7 @@ async def _query_internal(
     user_id: str,
     req_id: str,
     ws_id: str,
+    operation_id: str,
     index: str,
     q: Any,
     q_options: GulpQueryParameters,
@@ -94,6 +95,7 @@ async def _query_internal(
                     user_id=user_id,
                     req_id=req_id,
                     ws_id=ws_id,
+                    operation_id=operation_id,
                     index=index,
                     q=q,
                     q_options=q_options,
@@ -110,7 +112,7 @@ async def _query_internal(
 
 async def _worker_coro(kwds: dict):
     """
-    runs in background an spawn/waits workers
+    runs in background an spawn/waits query workers
 
     1. run queries
     2. wait each and collect totals
@@ -119,6 +121,7 @@ async def _worker_coro(kwds: dict):
 
     tasks: list[Task] = []
     queries: list[GulpQuery] = kwds["queries"]
+    operation_id: str = kwds["operation_id"]
     q_options: GulpQueryParameters = kwds["q_options"]
     user_id: str = kwds["user_id"]
     req_id: str = kwds["req_id"]
@@ -145,6 +148,7 @@ async def _worker_coro(kwds: dict):
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
+                operation_id=operation_id,
                 index=index,
                 q=gq.q,
                 q_options=q_opt,
@@ -209,6 +213,7 @@ async def _spawn_query_group_workers(
     user_id: str,
     req_id: str,
     ws_id: str,
+    operation_id: str,
     index: str,
     queries: list[GulpQuery],
     q_options: GulpQueryParameters,
@@ -222,6 +227,7 @@ async def _spawn_query_group_workers(
         user_id=user_id,
         req_id=req_id,
         ws_id=ws_id,
+        operation_id=operation_id,
         index=index,
         queries=queries,
         q_options=q_options,
@@ -235,22 +241,9 @@ async def _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            operation_id=None,
+            operation_id=operation_id,
             context_id=None,
         )
-
-    """
-    if q_options.external_parameters.plugin and q_options.external_parameters.ingest_index:
-        # external query, make sure the index to ingest into exists
-        exists = await GulpOpenSearch.get_instance().datastream_exists(
-            q_options.external_parameters.ingest_index
-        )
-        if not exists:
-            # create
-            await GulpOpenSearch.get_instance().datastream_create(
-                q_options.external_parameters.ingest_index
-            )
-    """
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
@@ -336,6 +329,7 @@ async def query_raw_handler(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
+            operation_id=operation_id,
             index=op.index,
             queries=queries,
             q_options=q_options,
@@ -366,13 +360,13 @@ async def query_raw_handler(
             }
         }
     },
-    summary="Queries an external source.",
+    summary="Query an external source.",
     description="""
-query an external source using the target source query language.
+query an external source using the target source query language, and optionally ingest data back into gulp.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 - at least `q_options.external_parameters.plugin` (the plugin to handle the external query) must be set.
-- token must have `ingest` permission if `q_options.external_parameters.ingest_index` is set.
+- token must have `ingest` permission if `ingest` is set.
 """,
 )
 async def query_external_handler(
@@ -382,12 +376,14 @@ async def query_external_handler(
     q: Annotated[
         Any,
         Body(
-            description="""a query according to the source language specifications.""",
+            description="""one or more queries according to the source language specifications.""",
             examples=[
                 [{"query": {"match_all": {}}}]
             ],
         ),
     ],
+    ingest: Annotated[Optional[bool], Query(
+        description="set to `True` to ingest data into gulp operation's index.")] = False,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_query_additional_parameters_optional),
@@ -405,7 +401,7 @@ async def query_external_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            if q_options.external_parameters.ingest_index:
+            if ingest:
                 # external query with ingest, needs ingest permission
                 permission = GulpUserPermission.INGEST
             else:
@@ -416,6 +412,7 @@ async def query_external_handler(
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s = await GulpUserSession.check_token(sess, token, permission=permission, obj=op)
             user_id = s.user_id
+            index = op.index
 
         queries: list[GulpQuery] = []
         for qq in q:
@@ -424,12 +421,13 @@ async def query_external_handler(
                 name=q_options.name,
                 q=qq
             )
-            queries.extend(gq)
+            queries.append(gq)
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
-            index=op.index,
+            operation_id=operation_id,
+            index=index if ingest else None,
             queries=queries,
             q_options=q_options,
             flt=None,
@@ -539,6 +537,7 @@ async def query_sigma_handler(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
+            operation_id=operation_id,
             index=index,
             queries=queries,
             q_options=q_options,
