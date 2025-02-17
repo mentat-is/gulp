@@ -45,7 +45,7 @@ router: APIRouter = APIRouter()
     summary="creates an operation.",
     description="""
 - `operation_id` is derived from `name` by removing spaces and special characters.
-- `index`, if not set, is set as `operation_id`.
+- if not set, `index` is set as `operation_id` and it is created using the default template: to specify another template, create index first using `opensearch_create_index` and then create the operation with such `index`.
 - `token` needs `ingest` permission.
 """,
 )
@@ -57,7 +57,8 @@ async def operation_create_handler(
     ],
     index: Annotated[
         str,
-        Query(description="the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`)."),
+        Query(description="""the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
+it is created if not exists, and **recreated** if it exists.""")
     ] = None,
     description: Annotated[
         str,
@@ -83,8 +84,8 @@ async def operation_create_handler(
         "operation_data": {}
     }
     try:
-        # check if index exists
-        await GulpOpenSearch.get_instance().create_index(index)
+        # recreate the index first
+        await GulpOpenSearch.get_instance().datastream_create(index)
         d = await GulpOperation.create(
             token,
             ws_id=None,  # do not propagate on the websocket

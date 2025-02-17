@@ -71,11 +71,14 @@ async def opensearch_delete_index_handler(
             # we must be admin
             s: GulpUserSession = await GulpUserSession.check_token(sess, token, permission=GulpUserPermission.ADMIN)
 
-            # get operation
-            op: GulpOperation = await GulpOperation.get_first_by_filter(sess, GulpCollabFilter(index=[index]))
-            if not op:
-                raise ObjectNotFound(f"operation with index {index} not found")
+            op: GulpOperation = None
             if delete_operation:
+                # get operation
+                op = await GulpOperation.get_first_by_filter(sess, GulpCollabFilter(index=[index]))
+                if not op:
+                    raise ObjectNotFound(
+                        f"operation with index {index} not found")
+
                 # delete the operation on collab
                 await op.delete(sess, ws_id=None, user_id=s.user_id, req_id=req_id)
 
@@ -83,7 +86,7 @@ async def opensearch_delete_index_handler(
             await GulpOpenSearch.get_instance().datastream_delete(
                 ds=index, throw_on_error=True
             )
-            return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index, "operation_id": op.id}))
+            return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index, "operation_id": op.id if op else None}))
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
