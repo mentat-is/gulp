@@ -738,7 +738,8 @@ class GulpOpenSearch:
             try:
                 await self.index_template_delete(ds)
             except Exception as e:
-                MutyLogger.get_instance().error("cannot delete template for index/datastream: %s (%s)" % (ds, e))
+                MutyLogger.get_instance().error(
+                    "cannot delete template for index/datastream: %s (%s)" % (ds, e))
 
     async def datastream_exists(self, ds: str) -> bool:
         """
@@ -836,7 +837,7 @@ class GulpOpenSearch:
                 )
             else:
                 # use provided as-is, just ensure the index is set
-                ds["index_patterns"] = [ds]
+                index_template["index_patterns"] = [ds]
                 await self.index_template_put(ds, index_template)
 
             # create datastream
@@ -1112,10 +1113,11 @@ class GulpOpenSearch:
             convert_script = """
                 if (ctx._source['@timestamp'] != 0) {
                     def ts = ZonedDateTime.parse(ctx._source['@timestamp']);
+                    def fmt = DateTimeFormatter.ofPattern('yyyy-MM-dd\'T\'HH:mm:ss.nnnnnnnnnX');
                     def new_ts = ts.plusNanos(params.offset_nsec);
-                    ctx._source['@timestamp'] = new_ts.toString();
+                    ctx._source['@timestamp'] = new_ts.format(fmt);
                     ctx._source["gulp.timestamp"] += params.offset_nsec;
-                }
+                }                
             """
 
         body: dict = {
