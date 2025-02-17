@@ -29,6 +29,10 @@
   "ingestion_evt_failure_threshold": 5000,
   // how many seconds to wait for a connection during ingestion (default=60, tune up if you have request timeouts during ingestion)
   "ingestion_request_timeout": 180,
+  // how many times to retry ingestion on error (default=3)
+  "ingestion_retry_max": 3,
+  // how many seconds between ingestion retries on error (default=1)
+  "ingestion_retry_delay": 1,
   // client certificate password (not supported, ignored)
   "opensearch_client_cert_password": null,
   // this is the default, set to true only if your opensearch cluster has multiple nodes
