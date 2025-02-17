@@ -233,6 +233,8 @@ async def operation_reset_internal(operation_id: str) -> None:
             await op.add_user_grant(sess, "admin")
             await op.add_user_grant(sess, "guest")
             await op.add_group_grant(sess, "administrators")
+        else:
+            index = op.index
 
         # recreate the index
         MutyLogger.get_instance().info("re/creating index=%s ..." % (index))

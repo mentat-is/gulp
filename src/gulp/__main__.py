@@ -66,14 +66,21 @@ def main():
     )
     parser.add_argument(
         "--reset-collab",
-        help="reset collaboration database on start.",
+        help="reset collaboration database on start (do not delete data in 'operation' table).",
+        action="store_const",
+        const=True,
+        default=False,
+    )
+    parser.add_argument(
+        "--reset-collab-full",
+        help="same as --reset-collab but also delete operations data on OpenSearch.",
         action="store_const",
         const=True,
         default=False,
     )
     parser.add_argument(
         "--reset-operation",
-        help="resets/creates the given operation (and the backing index) on start.",
+        help="clear data for the given operation on start (the operation will be created if it doesn't exist).",
         nargs=1,
         metavar=("operation_id"),
     )
@@ -103,9 +110,13 @@ def main():
             # print version string and exit
             print(ver)
         else:
+            reset_collab = 0
+            if args.reset_collab:
+                reset_collab = 1
+            if args.reset_collab_full:
+                reset_collab = 2
             # default
             print("%s\n%s" % (banner, ver))
-            reset_collab = args.reset_collab
             reset_operation = args.reset_operation[0] if args.reset_operation is not None else None
             GulpRestServer.get_instance().start(
                 logger_file_path=logger_file_path,

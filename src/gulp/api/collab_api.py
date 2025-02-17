@@ -347,6 +347,23 @@ class GulpCollab:
             await conn.run_sync(GulpCollabBase.metadata.create_all)
         await self._setup_collab_expirations()
 
+    async def clear_tables(self, exclude: list[str] = None) -> None:
+        """
+        clears the database tables, excluding the ones in the exclude list.
+
+        Args:
+            exclude (list[str], optional): The list of tables to exclude. Defaults to None.
+        """
+        if not exclude:
+            # clear all tables
+            exclude = []
+
+        async with self._engine.begin() as conn:
+            for table_name, table in GulpCollabBase.metadata.tables.items():
+                # MutyLogger.get_instance().debug("---> clear: table=%s" % (table_name))
+                if table_name not in exclude:
+                    await conn.execute(table.delete())
+
     async def create_default_operation(self, operation_id: str = TEST_OPERATION_ID, index: str = TEST_INDEX) -> None:
         """
         create the default operation with a context and a source.
@@ -511,7 +528,8 @@ class GulpCollab:
                     "img": user_b,
                 },
                 owner_id=admin_user.id,
-                private=False
+                private=False,
+                id="test_user_icon"
             )
 
             _ = await GulpGlyph._create(
@@ -521,7 +539,8 @@ class GulpCollab:
                     "img": operation_b,
                 },
                 owner_id=admin_user.id,
-                private=False
+                private=False,
+                id="test_operation_icon"
             )
 
             # assign glyphs

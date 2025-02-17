@@ -242,6 +242,37 @@ async def opensearch_create_index_handler(
             await muty.file.delete_file_or_dir_async(f)
 
 
+async def postgres_reset_collab_internal(reinit: bool = False) -> None:
+    """
+    resets the collab database.
+
+    Args:
+        reinit: if true, the whole collab database is dropped and recreated. 
+            either, the operation table is left untouched and the rest is just cleared.
+
+    """
+    MutyLogger.get_instance().warning("resetting collab!")
+    if reinit:
+        MutyLogger.get_instance().warning(
+            "drop and recreate whole collab database..."
+        )
+        # reinit whole collab
+        collab = GulpCollab.get_instance()
+        await collab.init(main_process=True, force_recreate=True)
+        await collab.create_default_users()
+        await collab.create_default_data()
+    else:
+        MutyLogger.get_instance().warning(
+            "collab: leaving operation table untouched!"
+        )
+        collab = GulpCollab.get_instance()
+        await collab.init(main_process=True)
+
+        # do not touch these tables
+        await collab.clear_tables(exclude=["operation", "user", "user_associations", "user_group", "source", "source_fields", "context", ])
+        await collab.create_default_data()
+
+
 @router.post(
     "/postgres_reset_collab",
     tags=["db"],
@@ -262,19 +293,19 @@ async def opensearch_create_index_handler(
     },
     summary="(re)creates gulp collab database.",
     description="""
-> **WARNING: ALL COLLABORATION DATA WILL BE ERASED **
+> **WARNING: ALL COLLABORATION AND INDEXED DATA WILL BE ERASED IF `full_reset` IS SET**
 
-- default users are created: `admin/admin`, `guest/guest`, `ingest/ingest`, `editor/editor`, `power/power`.
 - `token` needs to have `admin` permission.
-- if `delete_all_operations_data` is set, all gulp's OpenSearch data belonging to **ALL** indexes found in the `operation` table is **DELETED** as well.
+- if `full_reset` is set, default `users` and `user groups` are recreated, a new operation must be created then using the `operation_create` API.
+- if `full_reset` is not set, the following tables are left untouched: 'operation', 'user', 'user_groups', 'user_associations', 'context', 'source', 'source_fields'.
 """,
 )
 async def postgres_reset_collab_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    delete_all_operations_data: Annotated[
+    full_reset: Annotated[
         bool,
         Query(
-            description="if set, all gulp's OpenSearch indexes belonging to entries in the `operation` table are DELETED as well.",
+            description="if set, the whole collab database is cleared and also operation data on gulp's OpenSearch is DELETED as well.",
         ),
     ] = False,
     restart_processes: Annotated[
@@ -291,7 +322,7 @@ async def postgres_reset_collab_handler(
             await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.ADMIN
             )
-            if delete_all_operations_data:
+            if full_reset:
                 # check if we have operations
                 ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
                 if ops:
@@ -304,13 +335,12 @@ async def postgres_reset_collab_handler(
                             ds=op.index, throw_on_error=False
                         )
 
-        # reinit collab
-        collab = GulpCollab.get_instance()
-        await collab.init(main_process=True, force_recreate=True)
-
-        # create default data
-        await collab.create_default_users()
-        await collab.create_default_data()
+        if full_reset:
+            # reinit whole collab
+            await postgres_reset_collab_internal(reinit=True)
+        else:
+            # do not delete operations
+            await postgres_reset_collab_internal(reinit=False)
 
         if restart_processes:
             # restart the process pool
@@ -341,11 +371,9 @@ async def postgres_reset_collab_handler(
     },
     summary="reset whole gulp's OpenSearch and PostgreSQL storages.",
     description="""
-> **WARNING: ALL COLLABORATION AND INDEXED DATA WILL BE ERASED **
+> **WARNING: ALL COLLABORATION AND INDEXED DATA WILL BE ERASED AND DEFAULT USERS/DATA RECREATED ON THE COLLAB DATABASE**
 
 - `token` needs to have `admin` permission.
-- existing operations in PostgreSQL 'operation' table are deleted, including the backing OpenSearch indexes.
-- default users, data and operation=`test_operation` are created.
 """,
 )
 async def gulp_reset_handler(
@@ -357,7 +385,7 @@ async def gulp_reset_handler(
     try:
         # reset collab
         await postgres_reset_collab_handler(token,
-                                            delete_all_operations_data=True,
+                                            full_reset=True,
                                             restart_processes=False,
                                             req_id=req_id)
 

@@ -49,7 +49,7 @@ class GulpRestServer:
             self._app = None
             self._logger_file_path = None
             self._log_level = None
-            self._reset_collab = False
+            self._reset_collab: int = 0
             self._reset_operation = None
             self._lifespan_task = None
             self._shutdown: bool = False
@@ -261,7 +261,7 @@ class GulpRestServer:
         self,
         logger_file_path: str = None,
         level: int = None,
-        reset_collab: bool = False,
+        reset_collab: int = 0,
         reset_operation: str = None,
     ):
         """
@@ -270,7 +270,7 @@ class GulpRestServer:
         Args:
             logger_file_path (str, optional): path to the logger file.
             level (int, optional): the log level.
-            reset_collab (bool, optional): if True, the collab database will be reset on start.
+            reset_collab (int, optional): 0=do not reset, 1=reset collab (leaves operations, users, user groups), 2=reset collab and delete operation data.
             reset_operation (str, optional): the operation to be reset/created (opensearch index will be created/recreated too).
         """
         self._logger_file_path = logger_file_path
@@ -458,13 +458,24 @@ class GulpRestServer:
 
         # check for reset flags
         try:
-            if self._reset_collab:
+            if self._reset_collab > 0:
+                from gulp.api.rest.db import postgres_reset_collab_internal
+
                 # reset collab database
-                MutyLogger.get_instance().warning("resetting collab!")
-                collab = GulpCollab.get_instance()
-                await collab.init(main_process=True, force_recreate=True)
-                await collab.create_default_users()
-                await collab.create_default_data()
+                GulpCollab.get_instance()
+                if self._reset_collab == 1:
+                    # reset and leave data
+                    reinit = False
+                elif self._reset_collab == 2:
+                    # full reset
+                    reinit = True
+                else:
+                    reinit: bool = first_run
+
+                # either it's _reset_collab = 2 (full reset) or first run (full reset as well)
+                MutyLogger.get_instance().warning("resetting collab, reset_collab=%d, first_run=%r, reinit=%r !" %
+                                                  (self._reset_collab, first_run, reinit))
+                await postgres_reset_collab_internal(reinit=reinit)
 
             if self._reset_operation:
                 # delete and recreate operation and index
