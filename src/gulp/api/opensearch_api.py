@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.fields import GulpSourceFields
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
@@ -1143,7 +1144,7 @@ class GulpOpenSearch:
         if rebase_script:
             convert_script = rebase_script
         else:
-             convert_script = """
+            convert_script = """
                 if (ctx._source['@timestamp'] != null && ctx._source['@timestamp'] != '0') {
                     ZonedDateTime ts = ZonedDateTime.parse(ctx._source['@timestamp']);
                     DateTimeFormatter fmt = DateTimeFormatter.ofPattern('yyyy-MM-dd\\'T\\'HH:mm:ss.nnnnnnnnnX');
@@ -1817,6 +1818,8 @@ class GulpOpenSearch:
         parsed_options: dict = q_options.parse()
         processed: int = 0
         chunk_num: int = 0
+        check_canceled_count: int = 0
+
         while True:
             last: bool = False
             docs: list[dict] = []
@@ -1832,6 +1835,18 @@ class GulpOpenSearch:
                 if processed >= total_hits or not q_options.loop:
                     # this is the last chunk
                     last = True
+
+                check_canceled_count += 1
+                if check_canceled_count >= 10:
+                    # every 10 chunk, check for request cancelation
+                    check_canceled_count = 0
+                    stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+                        sess, req_id, throw_if_not_found=False
+                    )
+                    # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s" % (req_id, stats))
+                    if stats and stats.status == GulpRequestStatus.CANCELED:
+                        last = True
+                        MutyLogger.get_instance().warning("search_dsl: request %s cancelled!" % (req_id))
 
                 if callback:
                     # call the callback for each document

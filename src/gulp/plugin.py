@@ -546,7 +546,7 @@ class GulpPluginBase(ABC):
         )
         if stats and stats.status == GulpRequestStatus.CANCELED:
             self._req_canceled = True
-            MutyLogger.get_instance().warning("_process_docs_chunk: request cancelled")
+            MutyLogger.get_instance().warning("_process_docs_chunk: request %s cancelled" % (self._req_id))
 
         return len(ingested_docs), skipped
 
@@ -1372,7 +1372,7 @@ class GulpPluginBase(ABC):
                     flt, wait_for_refresh, **kwargs
                 )
                 if self._req_canceled:
-                    raise RequestCanceledError("request canceled!")
+                    raise RequestCanceledError("request %s canceled!" % (self._req_id))
 
                 # check threshold
                 failure_threshold = (

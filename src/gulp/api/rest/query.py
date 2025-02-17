@@ -127,6 +127,7 @@ async def _worker_coro(kwds: dict):
     flt: GulpQueryFilter = kwds["flt"]
     try:
         for gq in queries:
+
             q_opt = deepcopy(q_options)
 
             # set name, i.e. for sigma rules we want the sigma rule name to be used (which has been set in the GulpQuery struct)
@@ -157,7 +158,7 @@ async def _worker_coro(kwds: dict):
         num_queries = len(queries)
         res = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # check if all sigmas matched
+        # check if all queries matched
         query_matched = 0
         total_doc_matches = 0
         for r in res:
@@ -236,7 +237,6 @@ async def _spawn_query_group_workers(
             ws_id=ws_id,
             operation_id=None,
             context_id=None,
-            source_total=len(queries),
         )
 
     """
@@ -331,7 +331,7 @@ async def query_raw_handler(
                 name=q_options.name,
                 q=qq
             )
-            queries.extend(gq)
+            queries.append(gq)
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
