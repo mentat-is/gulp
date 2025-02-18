@@ -8,6 +8,7 @@ import aiofiles
 import muty.string
 import muty.time
 import muty.xml
+import muty.elastic
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,8 +92,9 @@ class Plugin(GulpPluginBase):
         null_param_key = 0
         for pk, pv in query.items():
             if not pk:
-                pk = f"null_param_key_{null_param_key}"
                 null_param_key+=1
+            pk = muty.elastic.normalize_elastic_fieldname(pk, null_field_prefix=f"null_param_key{null_param_key}")
+           
             k = "gulp.http.query.params.%s" % (pk)
             mapped = self._process_key(k, pv)
             d.update(mapped)
