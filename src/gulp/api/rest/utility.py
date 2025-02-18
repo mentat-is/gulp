@@ -36,8 +36,44 @@ from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
 
+@router.get(
+    "/request_get_by_id",
+    tags=["stats"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpRequestStats.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets a request stats.",
+)
+async def request_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        d = await GulpRequestStats.get_by_id_wrapper(
+            token,
+            object_id,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id, ex=ex) from ex
 
-@router.post(
+
+@router.patch(
     "/request_cancel",
     tags=["stats"],
     response_model=JSendResponse,
@@ -86,8 +122,8 @@ async def request_cancel_handler(
         raise JSendException(req_id=req_id, ex=ex) from ex
 
 
-@router.post(
-    "/stats_list",
+@router.get(
+    "/request_list",
     tags=["stats"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -112,7 +148,7 @@ get a list of all requests (identified by their `req_id`) issued by the calling 
 - if token has `admin` permission, requests from all users are returned (according to the `operation_id` filter).
 """,
 )
-async def stats_list_handler(
+async def request_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[
         str, Query(description="optional ID of operation to filter requests by.")
@@ -144,7 +180,7 @@ async def stats_list_handler(
 
 
 @router.post(
-    "/restart_server",
+    "/server_restart",
     tags=["utility"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -184,8 +220,8 @@ async def restart_handler(
     return JSendResponse.success(req_id=req_id)
 
 
-@router.post(
-    "/status",
+@router.get(
+    "/server_status",
     tags=["utility"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
@@ -412,7 +448,7 @@ gets detailed gulp server health status, including memory, cpu, disk usage, and 
 - token needs `admin` permission.    
     """
 )
-async def server_stats_handler(
+async def server_status_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     gulp_only: Annotated[bool, Query(
         description="if set, only return process information for gulp processes only. either, return process information for all the running processes.")] = True,
@@ -483,7 +519,7 @@ async def server_stats_handler(
     return JSendResponse.success(data=stats, req_id=req_id)
 
 
-@router.get(
+@router.post(
     "/trigger_gc",
     tags=["utility"],
     responses={

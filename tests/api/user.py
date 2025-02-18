@@ -1,6 +1,8 @@
 from typing import Optional
-from tests.api.common import GulpAPICommon
+
 from muty.log import MutyLogger
+
+from tests.api.common import GulpAPICommon
 
 
 class GulpAPIUser:
@@ -9,12 +11,12 @@ class GulpAPIUser:
     """
 
     @staticmethod
-    async def login_admin() -> str:
+    async def login_admin(req_id: str = None, ws_id: str = None) -> str:
         MutyLogger.get_instance().info("Logging in as admin...")
         api_common = GulpAPICommon.get_instance()
         params = {
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
         body = {
             "user_id": "admin",
@@ -26,16 +28,21 @@ class GulpAPIUser:
         return token
 
     @staticmethod
-    async def logout(token: str) -> str:
+    async def logout(token: str, req_id: str = None, ws_id: str = None) -> str:
         """
         Returns:
 
         the logged out token
         """
         api_common = GulpAPICommon.get_instance()
-        params = {"ws_id": api_common.ws_id, "req_id": api_common.req_id}
+        params = {
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
+        }
 
-        res = await api_common.make_request("POST", "logout", params=params, token=token)
+        res = await api_common.make_request(
+            "POST", "logout", params=params, token=token
+        )
         t = res.get("token")
         assert t
         return t
@@ -48,11 +55,13 @@ class GulpAPIUser:
         return res
 
     @staticmethod
-    async def login(user_id: str, password: str) -> str:
+    async def login(
+        user_id: str, password: str, req_id: str = None, ws_id: str = None
+    ) -> str:
         api_common = GulpAPICommon.get_instance()
         params = {
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
         body = {
             "password": password,
@@ -65,10 +74,10 @@ class GulpAPIUser:
 
     @staticmethod
     async def user_get_by_id(
-        token: str, user_id: str, expected_status: int = 200
+        token: str, user_id: str, req_id: str = None, expected_status: int = 200
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
-        params = {"user_id": user_id}
+        params = {"user_id": user_id, "req_id": req_id or api_common.req_id}
         res = await api_common.make_request(
             "GET",
             "user_get_by_id",
@@ -79,9 +88,11 @@ class GulpAPIUser:
         return res
 
     @staticmethod
-    async def user_delete(token: str, user_id: str, expected_status: int = 200) -> str:
+    async def user_delete(
+        token: str, user_id: str, req_id: str = None, expected_status: int = 200
+    ) -> str:
         api_common = GulpAPICommon.get_instance()
-        params = {"user_id": user_id}
+        params = {"user_id": user_id, "req_id": req_id or api_common.req_id}
         res = await api_common.make_request(
             "DELETE",
             "user_delete",
@@ -100,11 +111,16 @@ class GulpAPIUser:
         email: Optional[str] = None,
         user_data: Optional[dict] = None,
         merge_user_data: bool = False,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         body = {}
-        params = {"user_id": username, "merge_user_data": merge_user_data}
+        params = {
+            "user_id": username,
+            "merge_user_data": merge_user_data,
+            "req_id": req_id or api_common.req_id,
+        }
         if password:
             params["password"] = password
         if permission:
@@ -125,10 +141,16 @@ class GulpAPIUser:
         return res
 
     @staticmethod
-    async def user_list(token: str, expected_status: int = 200) -> list[dict]:
+    async def user_list(
+        token: str, req_id: str = None, expected_status: int = 200
+    ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
         res = await api_common.make_request(
-            "GET", "user_list", params={}, token=token, expected_status=expected_status
+            "GET",
+            "user_list",
+            params={"req_id": req_id or api_common.req_id},
+            token=token,
+            expected_status=expected_status,
         )
         return res
 
@@ -139,10 +161,15 @@ class GulpAPIUser:
         password: str,
         permission: list[str],
         email: Optional[str] = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
-        params = {"user_id": user_id, "password": password}
+        params = {
+            "user_id": user_id,
+            "password": password,
+            "req_id": req_id or api_common.req_id,
+        }
         body = permission
         if email:
             params["email"] = email

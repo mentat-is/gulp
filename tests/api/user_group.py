@@ -1,11 +1,13 @@
-from tests.api.common import GulpAPICommon
 from muty.log import MutyLogger
+
+from tests.api.common import GulpAPICommon
 
 
 class GulpAPIUserGroup:
     """
     bindings to call gulp's user group related API endpoints
     """
+
     @staticmethod
     async def usergroup_create(
         token: str,
@@ -13,13 +15,14 @@ class GulpAPIUserGroup:
         permission: list,
         description: str = None,
         glyph_id: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "name": name,
             "glyph_id": glyph_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         body = {
             "description": description,
@@ -42,13 +45,14 @@ class GulpAPIUserGroup:
         permission: list = None,
         description: str = None,
         glyph_id: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "group_id": group_id,
             "glyph_id": glyph_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         body = {
             "description": description,
@@ -68,12 +72,13 @@ class GulpAPIUserGroup:
     async def usergroup_delete(
         token: str,
         group_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "group_id": group_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
             "DELETE",
@@ -88,12 +93,13 @@ class GulpAPIUserGroup:
     async def usergroup_get_by_id(
         token: str,
         group_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "group_id": group_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
             "GET",
@@ -108,11 +114,12 @@ class GulpAPIUserGroup:
     async def usergroup_list(
         token: str,
         flt: dict = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
         params = {
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         body = {
             "flt": flt,
@@ -126,13 +133,14 @@ class GulpAPIUserGroup:
             expected_status=expected_status,
         )
         return res
-    
+
     @staticmethod
     async def _usergroup_add_remove_user(
         token: str,
         user_id: str,
         group_id: str,
         remove: bool,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         MutyLogger.get_instance().info(
@@ -148,7 +156,7 @@ class GulpAPIUserGroup:
         params = {
             "group_id": group_id,
             "user_id": user_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
             "PATCH",
@@ -164,10 +172,16 @@ class GulpAPIUserGroup:
         token: str,
         user_id: str,
         group_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIUserGroup._usergroup_add_remove_user(
-            token, user_id, group_id, remove=False, expected_status=expected_status
+            token,
+            user_id,
+            group_id,
+            remove=False,
+            expected_status=expected_status,
+            req_id=req_id,
         )
 
     @staticmethod
@@ -175,8 +189,14 @@ class GulpAPIUserGroup:
         token: str,
         user_id: str,
         group_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIUserGroup._usergroup_add_remove_user(
-            token, user_id, group_id, remove=True, expected_status=expected_status
+            token,
+            user_id,
+            group_id,
+            remove=True,
+            expected_status=expected_status,
+            req_id=req_id,
         )

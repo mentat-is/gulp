@@ -16,6 +16,8 @@ class GulpAPIStory:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
+        req_id: str = None,
+        ws_id: str = None,        
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -25,8 +27,8 @@ class GulpAPIStory:
             "name": name,
             "color": color,
             "glyph_id": glyph_id,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
@@ -53,6 +55,8 @@ class GulpAPIStory:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
+        req_id: str = None,
+        ws_id: str = None,        
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -61,8 +65,8 @@ class GulpAPIStory:
             "color": color,
             "name": name,
             "glyph_id": glyph_id,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
@@ -84,6 +88,8 @@ class GulpAPIStory:
     async def story_delete(
         token: str,
         object_id: str,
+        req_id: str = None,
+        ws_id: str = None,        
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -91,6 +97,8 @@ class GulpAPIStory:
             token=token,
             object_id=object_id,
             api="story_delete",
+            req_id=req_id,
+            ws_id=ws_id,
             expected_status=expected_status,
         )
 
@@ -98,12 +106,14 @@ class GulpAPIStory:
     async def story_get_by_id(
         token: str,
         object_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
             object_id=object_id,
+            req_id=req_id,
             api="story_get_by_id",
             expected_status=expected_status,
         )
@@ -112,6 +122,7 @@ class GulpAPIStory:
     async def story_list(
         token: str,
         flt: GulpCollabFilter = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
@@ -119,5 +130,6 @@ class GulpAPIStory:
             token=token,
             api="story_list",
             flt=flt,
+            req_id=req_id,
             expected_status=expected_status,
         )
