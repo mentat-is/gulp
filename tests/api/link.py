@@ -17,18 +17,20 @@ class GulpAPILink:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
 
         params = {
             "operation_id": operation_id,
-            "ws_id": api_common.ws_id,
+            "ws_id": ws_id or api_common.ws_id,
             "doc_id_from": doc_id_from,
             "name": name,
             "color": color,
             "glyph_id": glyph_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
@@ -55,16 +57,18 @@ class GulpAPILink:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "object_id": object_id,
-            "ws_id": api_common.ws_id,
+            "ws_id": ws_id or api_common.ws_id,
             "name": name,
             "color": color,
             "glyph_id": glyph_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
@@ -86,6 +90,8 @@ class GulpAPILink:
     async def link_delete(
         token: str,
         object_id: str,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -93,6 +99,8 @@ class GulpAPILink:
             token=token,
             object_id=object_id,
             api="link_delete",
+            req_id=req_id,
+            ws_id=ws_id,
             expected_status=expected_status,
         )
 
@@ -100,6 +108,7 @@ class GulpAPILink:
     async def link_get_by_id(
         token: str,
         object_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -107,6 +116,7 @@ class GulpAPILink:
             token=token,
             object_id=object_id,
             api="link_get_by_id",
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -114,6 +124,7 @@ class GulpAPILink:
     async def link_list(
         token: str,
         flt: GulpCollabFilter = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
@@ -121,5 +132,6 @@ class GulpAPILink:
             token=token,
             api="link_list",
             flt=flt,
+            req_id=req_id,
             expected_status=expected_status,
         )

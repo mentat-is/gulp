@@ -57,8 +57,12 @@ async def operation_create_handler(
     ],
     index: Annotated[
         str,
-        Query(description="""the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
-it is created if not exists, and **recreated** if it exists.""")
+        Query(
+            description="""
+the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
+              
+`index` is **created** if it doesn't exist, and **recreated** if it exists."""
+        ),
     ] = None,
     description: Annotated[
         str,
@@ -81,7 +85,7 @@ it is created if not exists, and **recreated** if it exists.""")
         "name": name,
         "description": description,
         "glyph_id": glyph_id,
-        "operation_data": {}
+        "operation_data": {},
     }
     try:
         # recreate the index first
@@ -135,14 +139,14 @@ async def operation_update_handler(
         Depends(APIDependencies.param_description_optional),
     ] = None,
     operation_data: Annotated[
-        dict,
-        Body(description="arbitrary operation data.",
-             examples=[{"op": "data"}])] = None,
+        dict, Body(description="arbitrary operation data.", examples=[{"op": "data"}])
+    ] = None,
     merge_operation_data: Annotated[
         Optional[bool],
         Query(
             description="if `True`, `operation_data` will be merged with the existing data, if set. Either, it will be replaced."
-        )] = True,
+        ),
+    ] = True,
     glyph_id: Annotated[
         str,
         Depends(APIDependencies.param_glyph_id_optional),
@@ -151,17 +155,22 @@ async def operation_update_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     from gulp.api.collab.user_session import GulpUserSession
+
     try:
         if not any([index, description, glyph_id, operation_data]):
             raise ValueError(
                 "At least one of index, description, operation_data or glyph_id must be provided."
             )
         async with GulpCollab.get_instance().session() as sess:
-            s: GulpUserSession = await GulpUserSession.check_token(sess, token, permission=[GulpUserPermission.INGEST])
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, permission=[GulpUserPermission.INGEST]
+            )
             user_id = s.user_id
 
             # get the operation to be updated
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id, with_for_update=True)
+            op: GulpOperation = await GulpOperation.get_by_id(
+                sess, operation_id, with_for_update=True
+            )
 
             # build update dict
             d = {}
@@ -174,18 +183,19 @@ async def operation_update_handler(
             if operation_data:
                 if merge_operation_data:
                     # merge with existing
-                    d["operation_data"] = {
-                        **op.operation_data, **operation_data}
+                    d["operation_data"] = {**op.operation_data, **operation_data}
                 else:
                     # replace
                     d["operation_data"] = operation_data
 
             # update
-            await op.update(sess,
-                            d,
-                            ws_id=None,  # do not propagate on the websocket
-                            req_id=req_id,
-                            user_id=user_id)
+            await op.update(
+                sess,
+                d,
+                ws_id=None,  # do not propagate on the websocket
+                req_id=req_id,
+                user_id=user_id,
+            )
 
             d = op.to_dict(nested=True)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
@@ -201,32 +211,30 @@ async def operation_reset_internal(operation_id: str) -> None:
     - if the operation does not exist, create it and create the associated index
 
     Args:
-        operation_id (str): the operation    
+        operation_id (str): the operation
     """
 
     async with GulpCollab.get_instance().session() as sess:
         # get operation if exists
-        op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id, throw_if_not_found=False)
+        op: GulpOperation = await GulpOperation.get_by_id(
+            sess, operation_id, throw_if_not_found=False
+        )
         if not op:
             # create the operation
             index = operation_id
-            MutyLogger.get_instance().info("creating new operation=%s, index=%s" %
-                                           (operation_id, index))
+            MutyLogger.get_instance().info(
+                "creating new operation=%s, index=%s" % (operation_id, index)
+            )
 
             d = {
                 "index": index,
                 "name": operation_id,
                 "description": None,
                 "glyph_id": None,
-                "operation_data": {}
+                "operation_data": {},
             }
             await GulpOperation._create(
-                sess,
-                d,
-                id=operation_id,
-                owner_id="admin",
-                ws_id=None,
-                private=False
+                sess, d, id=operation_id, owner_id="admin", ws_id=None, private=False
             )
 
             # set default users on the operation
@@ -284,7 +292,9 @@ async def operation_delete_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.INGEST)
+            await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            )
             index = op.index
 
             if delete_data:
@@ -297,7 +307,9 @@ async def operation_delete_handler(
                 await GulpOpenSearch.get_instance().datastream_delete(index)
 
             # delete the operation itself
-            MutyLogger.get_instance().info("deleting operation_id=%s ..." % operation_id)
+            MutyLogger.get_instance().info(
+                "deleting operation_id=%s ..." % operation_id
+            )
             await op.delete(sess)
 
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
@@ -469,23 +481,21 @@ async def context_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    index: Annotated[str, Depends(
-        APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if delete_data and not index:
-            raise ValueError(
-                "If `delete_data` is set, `index` must be provided.")
-
-        await GulpContext.delete_by_id(
-            token,
-            context_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            permission=[GulpUserPermission.INGEST],
-        )
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            )
+            index = op.index
+            
+            # ok, delete context
+            ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
+            await ctx.delete(sess)
 
         if delete_data:
             # delete all data
@@ -535,8 +545,7 @@ async def source_list_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        flt = GulpCollabFilter(
-            operation_ids=[operation_id], context_ids=[context_id])
+        flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
@@ -578,23 +587,21 @@ async def source_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    index: Annotated[str, Depends(
-        APIDependencies.param_index_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if delete_data and not index:
-            raise ValueError(
-                "If `delete_data` is set, `index` must be provided.")
-
-        await GulpSource.delete_by_id(
-            token,
-            source_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            permission=[GulpUserPermission.INGEST],
-        )
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            )
+            index = op.index
+            
+            # ok, delete source
+            src: GulpSource = await GulpSource.get_by_id(sess, source_id)
+            await src.delete(sess)
 
         if delete_data:
             # delete all data

@@ -15,11 +15,12 @@ class GulpAPIIngest:
         file_path: str,
         operation_id: str,
         context_name: str,
-        index: str,
         plugin: str,
         file_total: int = 1,
         flt: Optional[GulpIngestionFilter] = None,
         plugin_params: Optional[GulpPluginParameters] = None,
+        ws_id: str = None,
+        req_id: str = None,
         restart_from: int = 0,
         expected_status: int = 200,
     ) -> dict:
@@ -29,10 +30,9 @@ class GulpAPIIngest:
         params = {
             "operation_id": operation_id,
             "context_name": context_name,
-            "index": index,
             "plugin": plugin,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
             "file_total": file_total,
         }
 
@@ -69,8 +69,9 @@ class GulpAPIIngest:
         file_path: str,
         operation_id: str,
         context_name: str,
-        index: str,
         flt: Optional[GulpIngestionFilter] = None,
+        ws_id: str = None,
+        req_id: str = None,
         restart_from: int = 0,
         expected_status: int = 200,
     ) -> dict:
@@ -81,9 +82,8 @@ class GulpAPIIngest:
         params = {
             "operation_id": operation_id,
             "context_name": context_name,
-            "index": index,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         payload = {"flt": flt.model_dump(exclude_none=True) if flt else {}}
@@ -115,11 +115,12 @@ class GulpAPIIngest:
         raw_data: Dict,
         operation_id: str,
         context_name: str,
-        index: str,
         plugin: str = None,
         plugin_params: Optional[GulpPluginParameters] = None,
         flt: Optional[GulpIngestionFilter] = None,
         source: str = None,
+        ws_id: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         """Ingest raw data using the raw plugin"""
@@ -129,10 +130,9 @@ class GulpAPIIngest:
             "operation_id": operation_id,
             "context_name": context_name,
             "source": source or "raw",
-            "index": index,
             "plugin": plugin or "raw",
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {

@@ -109,6 +109,7 @@ class GulpAPICommon:
         object_id: str,
         api: str,
         req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         """
@@ -117,7 +118,7 @@ class GulpAPICommon:
         MutyLogger.get_instance().info(
             f"Deleting object {object_id}, api={api}...")
         params = {"object_id": object_id,
-                  "ws_id": self.ws_id, "req_id": req_id or self.req_id}
+                  "ws_id": req_id or self.ws_id, "req_id": req_id or self.req_id}
         res = await self.make_request(
             "DELETE", api, params=params, token=token, expected_status=expected_status
         )

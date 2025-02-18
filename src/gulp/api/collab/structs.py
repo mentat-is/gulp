@@ -1365,7 +1365,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
     ) -> None:
         """
-        helper to delete an object by ID, handling session
+        helper to delete an object by ID, handling session and permission check
 
         Args:
             token (str): The user token, pass None to skip token check.

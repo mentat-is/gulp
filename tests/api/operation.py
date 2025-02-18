@@ -11,9 +11,10 @@ class GulpAPIOperation:
     async def operation_create(
         token: str,
         name: str,
-        index: str,
+        index: str = None,
         description: str = None,
         glyph_id: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -22,7 +23,7 @@ class GulpAPIOperation:
             "name": name,
             "index": index,
             "glyph_id": glyph_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         body = description
 
@@ -45,6 +46,7 @@ class GulpAPIOperation:
         operation_data: dict = None,
         merge_operation_data: bool = True,
         glyph_id: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -53,7 +55,7 @@ class GulpAPIOperation:
             "operation_id": operation_id,
             "index": index,
             "glyph_id": glyph_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
             "merge_operation_data": merge_operation_data,
         }
         body = {
@@ -76,16 +78,15 @@ class GulpAPIOperation:
         token: str,
         operation_id: str,
         delete_data: bool = True,
-        index: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
 
         params = {
             "operation_id": operation_id,
-            "delete_data": delete_data,
-            "index": index,
-            "req_id": api_common.req_id,
+            "delete_data": delete_data,            
+            "req_id": req_id or api_common.req_id,
         }
 
         return await api_common.make_request(
@@ -100,6 +101,7 @@ class GulpAPIOperation:
     async def operation_get_by_id(
         token: str,
         operation_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -107,6 +109,7 @@ class GulpAPIOperation:
             token=token,
             object_id=operation_id,
             api="operation_get_by_id",
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -114,12 +117,14 @@ class GulpAPIOperation:
     async def operation_list(
         token: str,
         flt: GulpCollabFilter = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_list(
             token=token,
             api="operation_list",
+            req_id=req_id,
             flt=flt,
             expected_status=expected_status,
         )
@@ -128,12 +133,13 @@ class GulpAPIOperation:
     async def context_list(
         token: str,
         operation_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,            
         }
         res = await api_common.make_request(
             "GET",
@@ -150,7 +156,7 @@ class GulpAPIOperation:
         operation_id: str,
         context_id: str,
         delete_data: bool = True,
-        index: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -158,8 +164,7 @@ class GulpAPIOperation:
             "operation_id": operation_id,
             "context_id": context_id,
             "delete_data": delete_data,
-            "index": index,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         return await api_common.make_request(
             "DELETE",
@@ -174,13 +179,14 @@ class GulpAPIOperation:
         token: str,
         operation_id: str,
         context_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
             "context_id": context_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         return await api_common.make_request(
             "GET",
@@ -197,7 +203,6 @@ class GulpAPIOperation:
         context_id: str,
         source_id: str,
         delete_data: bool = True,
-        index: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -206,8 +211,7 @@ class GulpAPIOperation:
             "context_id": context_id,
             "source_id": source_id,
             "delete_data": delete_data,
-            "index": index,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         return await api_common.make_request(
             "DELETE",

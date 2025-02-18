@@ -76,7 +76,8 @@ class GulpAPIGlyph:
     async def glyph_delete(
         token: str,
         object_id: str,
-        req_id: str = None, 
+        req_id: str = None,
+        ws_id: str = None, 
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -85,6 +86,7 @@ class GulpAPIGlyph:
             object_id=object_id,
             api="glyph_delete",
             req_id=req_id,
+            ws_id=ws_id,
             expected_status=expected_status,
         )
 

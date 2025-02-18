@@ -1,6 +1,7 @@
+from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabType
 from tests.api.common import GulpAPICommon
-from muty.log import MutyLogger
 
 
 class GulpAPIObjectACL:
@@ -14,6 +15,7 @@ class GulpAPIObjectACL:
         object_id: str,
         object_type: GulpCollabType,
         private: bool,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -27,7 +29,7 @@ class GulpAPIObjectACL:
         params = {
             "object_id": object_id,
             "type": object_type.value,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
             "PATCH",
@@ -43,6 +45,7 @@ class GulpAPIObjectACL:
         token: str,
         object_id: str,
         object_type: GulpCollabType,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_make_public_or_private(
@@ -50,6 +53,7 @@ class GulpAPIObjectACL:
             object_id=object_id,
             object_type=object_type,
             private=False,
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -58,6 +62,7 @@ class GulpAPIObjectACL:
         token: str,
         object_id: str,
         object_type: GulpCollabType,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_make_public_or_private(
@@ -65,6 +70,7 @@ class GulpAPIObjectACL:
             object_id=object_id,
             object_type=object_type,
             private=True,
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -75,6 +81,7 @@ class GulpAPIObjectACL:
         object_type: GulpCollabType,
         user_id: str,
         remove: bool,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -90,7 +97,7 @@ class GulpAPIObjectACL:
             "object_id": object_id,
             "type": object_type.value,
             "user_id": user_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
             "PATCH",
@@ -107,6 +114,7 @@ class GulpAPIObjectACL:
         object_id: str,
         object_type: GulpCollabType,
         user_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_user(
@@ -114,6 +122,7 @@ class GulpAPIObjectACL:
             object_id=object_id,
             object_type=object_type,
             user_id=user_id,
+            req_id=req_id,
             remove=False,
             expected_status=expected_status,
         )
@@ -124,6 +133,7 @@ class GulpAPIObjectACL:
         object_id: str,
         object_type: GulpCollabType,
         user_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_user(
@@ -131,6 +141,7 @@ class GulpAPIObjectACL:
             object_id=object_id,
             object_type=object_type,
             user_id=user_id,
+            req_id=req_id,
             remove=True,
             expected_status=expected_status,
         )
@@ -142,6 +153,7 @@ class GulpAPIObjectACL:
         object_type: GulpCollabType,
         group_id: str,
         remove: bool,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -157,7 +169,7 @@ class GulpAPIObjectACL:
             "object_id": object_id,
             "type": object_type.value,
             "group_id": group_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
             "PATCH",
@@ -174,6 +186,7 @@ class GulpAPIObjectACL:
         object_id: str,
         object_type: GulpCollabType,
         group_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_group(
@@ -182,6 +195,7 @@ class GulpAPIObjectACL:
             object_type=object_type,
             group_id=group_id,
             remove=False,
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -191,6 +205,7 @@ class GulpAPIObjectACL:
         object_id: str,
         object_type: GulpCollabType,
         group_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_group(
@@ -199,5 +214,6 @@ class GulpAPIObjectACL:
             object_type=object_type,
             group_id=group_id,
             remove=True,
+            req_id=req_id,
             expected_status=expected_status,
         )

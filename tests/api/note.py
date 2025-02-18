@@ -19,6 +19,8 @@ class GulpAPINote:
         name: str = None,
         tags: list[str] = None,
         color: str = None,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -30,8 +32,8 @@ class GulpAPINote:
             "time_pin": time_pin,
             "name": name,
             "color": color,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
@@ -60,6 +62,8 @@ class GulpAPINote:
         name: str = None,
         tags: list[str] = None,
         color: str = None,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
 
@@ -69,8 +73,8 @@ class GulpAPINote:
             "time_pin": time_pin,
             "color": color,
             "name": name,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
@@ -93,12 +97,16 @@ class GulpAPINote:
     async def note_delete(
         token: str,
         object_id: str,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_delete(
             token=token,
             object_id=object_id,
+            req_id=req_id,
+            ws_id=ws_id,
             api="note_delete",
             expected_status=expected_status,
         )
@@ -107,12 +115,14 @@ class GulpAPINote:
     async def note_get_by_id(
         token: str,
         object_id: str,
+        req_id: str = None, 
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
             object_id=object_id,
+            req_id=req_id,
             api="note_get_by_id",
             expected_status=expected_status,
         )
@@ -121,6 +131,7 @@ class GulpAPINote:
     async def note_list(
         token: str,
         flt: GulpCollabFilter = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
@@ -128,5 +139,6 @@ class GulpAPINote:
             token=token,
             api="note_list",
             flt=flt,
+            req_id=req_id,
             expected_status=expected_status,
         )
