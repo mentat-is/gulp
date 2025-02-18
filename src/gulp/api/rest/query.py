@@ -587,7 +587,6 @@ async def query_single_id_handler(
         str,
         Query(description="the `_id` of the document on Gulp `index`."),
     ],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -597,6 +596,7 @@ async def query_single_id_handler(
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             await GulpUserSession.check_token(sess, token, obj=op)
+            index = op.index
 
         d = await GulpQueryHelpers.query_single(index, doc_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))

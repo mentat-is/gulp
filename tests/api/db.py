@@ -1,7 +1,7 @@
-from gulp.api.opensearch.filters import GulpQueryFilter
-from tests.api.common import GulpAPICommon
 from muty.log import MutyLogger
 
+from gulp.api.opensearch.filters import GulpQueryFilter
+from tests.api.common import GulpAPICommon
 from tests.api.user import GulpAPIUser
 
 
@@ -13,6 +13,7 @@ class GulpAPIDb:
     @staticmethod
     async def opensearch_list_index(
         token: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
@@ -20,37 +21,8 @@ class GulpAPIDb:
             "GET",
             "opensearch_list_index",
             params={
-                "ws_id": api_common.ws_id,
-                "req_id": api_common.req_id,
+                "req_id": req_id or api_common.req_id,
             },
-            token=token,
-            expected_status=expected_status,
-        )
-        return res
-
-    @staticmethod
-    async def opensearch_get_mapping_by_src(
-        token: str,
-        index: str,
-        operation_id: str,
-        context_id: str,
-        source_id: str,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-        params = {
-            "index": index,
-            "operation_id": operation_id,
-            "context_id": context_id,
-            "source_id": source_id,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
-        }
-
-        res = await api_common.make_request(
-            "GET",
-            "opensearch_get_mapping_by_src",
-            params=params,
             token=token,
             expected_status=expected_status,
         )
@@ -60,13 +32,15 @@ class GulpAPIDb:
     async def opensearch_delete_index(
         token: str,
         index: str,
+        delete_operation: bool = True,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "index": index,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "delete_operation": delete_operation,
+            "req_id": req_id or api_common.req_id,
         }
 
         res = await api_common.make_request(
@@ -82,25 +56,20 @@ class GulpAPIDb:
     async def opensearch_rebase_index(
         token: str,
         operation_id: str,
-        index: str,
         dest_index: str,
         offset_msec: int,
-        create_dest_index: bool = True,
-        overwrite_dest_index: bool = True,
         flt: GulpQueryFilter = None,
         rebase_script: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
-            "index": index,
             "dest_index": dest_index,
             "offset_msec": offset_msec,
-            "create_dest_index": create_dest_index,
-            "overwrite_dest_index": overwrite_dest_index,
             "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {}
@@ -120,35 +89,45 @@ class GulpAPIDb:
         return res
 
     @staticmethod
-    async def gulp_reset(token: str, index: str, restart_process: bool = False) -> None:
+    async def gulp_reset(token: str, req_id: str = None) -> None:
         api_common = GulpAPICommon.get_instance()
         await api_common.make_request(
             "POST",
             "gulp_reset",
-            params={"restart_processes": False, "index": api_common.index},
+            params={"req_id": req_id or api_common.req_id},
             token=token,
         )
 
     @staticmethod
-    async def postgres_init_collab(token: str, restart_process: bool = False) -> None:
+    async def postgres_reset_collab(
+        token: str,
+        full_reset: bool = False,
+        restart_process: bool = False,
+        req_id: str = None,
+    ) -> None:
         api_common = GulpAPICommon.get_instance()
         await api_common.make_request(
             "POST",
-            "postgres_init_collab",
-            params={"restart_processes": restart_process},
+            "postgres_reset_collab",
+            params={
+                "restart_processes": restart_process,
+                "full_reset": full_reset,
+                "req_id": req_id or api_common.req_id,
+            },
             token=token,
         )
 
     @staticmethod
-    async def reset_as_admin() -> None:
-        MutyLogger.get_instance().info("Resetting gULP...")
+    async def reset_as_admin(req_id: str = None) -> None:
+        MutyLogger.get_instance().info("Resetting gULP ...")
         token = await GulpAPIUser.login_admin()
-
-        api_common = GulpAPICommon.get_instance()
-        await GulpAPIDb.gulp_reset(token, api_common.index, restart_process=True)
+        await GulpAPIDb.gulp_reset(token, req_id=req_id)
 
     @staticmethod
-    async def reset_collab_as_admin() -> None:
+    async def reset_collab_as_admin(full_reset: bool=False, req_id: str = None) -> None:
+        """
+        NOTE: using full_reset=True means also the test operation must be recreated
+        """
         MutyLogger.get_instance().info("Resetting gULP collab database ...")
-        token = await GulpAPIUser.login_admin()
-        await GulpAPIDb.postgres_init_collab(token, restart_process=False)
+        token = await GulpAPIUser.login_admin(req_id=req_id)
+        await GulpAPIDb.postgres_reset_collab(token, full_reset=full_reset, restart_process=False, req_id=req_id)
