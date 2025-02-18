@@ -1257,7 +1257,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         enforce_owner: bool = False,
     ) -> dict:
         """
-        helper to get an object by ID, handling session
+        helper to get an object by ID, handling session and ACL check 
 
         Args:
             token (str): The user token.
@@ -1298,7 +1298,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         nested: bool = False,
     ) -> list[dict]:
         """
-        helper to get objects by filter, handling session and checking ACL for each returned object (based on token permission)
+        helper to get objects by filter, handling session and ACL check for each returned object (based on token permission)
 
         Args:
             token (str): The user token.
@@ -1365,7 +1365,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
     ) -> None:
         """
-        helper to delete an object by ID, handling session and permission check
+        helper to delete an object by ID, handling session and ACL check 
 
         Args:
             token (str): The user token, pass None to skip token check.

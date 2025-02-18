@@ -14,10 +14,12 @@ class GulpAPIStoredQuery:
         name: str,
         q: str,
         q_groups: list[str] = None,
-        s_options: GulpQuerySigmaParameters = None,
+        plugin: str = None,
         tags: list[str] = None,
         description: str = None,
         glyph_id: str = None,
+        private: bool = False,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         """Create a new stored query"""
@@ -25,15 +27,15 @@ class GulpAPIStoredQuery:
 
         params = {
             "name": name,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
+            "plugin": plugin,
             "glyph_id": glyph_id,
+            "private": private,
         }
 
         body = {
             "q": q,
             "q_groups": q_groups,
-            "s_options": s_options.model_dump(exclude_none=True) if s_options else None,
             "tags": tags,
             "description": description,
         }
@@ -55,10 +57,11 @@ class GulpAPIStoredQuery:
         name: str = None,
         q: list[str] = None,
         q_groups: list[str] = None,
-        s_options: GulpQuerySigmaParameters = None,
+        plugin: str = None,
         tags: list[str] = None,
         description: str = None,
         glyph_id: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         """Update an existing stored query"""
@@ -66,15 +69,14 @@ class GulpAPIStoredQuery:
         params = {
             "object_id": object_id,
             "name": name,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "plugin": plugin,
+            "req_id": req_id or api_common.req_id,
             "glyph_id": glyph_id,
         }
 
         body = {
             "q": q,
             "q_groups": q_groups,
-            "s_options": s_options.model_dump(exclude_none=True) if s_options else None,
             "tags": tags,
             "description": description,
         }
@@ -93,6 +95,7 @@ class GulpAPIStoredQuery:
     async def stored_query_delete(
         token: str,
         object_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         """Delete a stored query"""
@@ -101,6 +104,7 @@ class GulpAPIStoredQuery:
             token=token,
             object_id=object_id,
             api="stored_query_delete",
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -108,6 +112,7 @@ class GulpAPIStoredQuery:
     async def stored_query_get_by_id(
         token: str,
         object_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         """Get stored query by ID"""
@@ -115,6 +120,7 @@ class GulpAPIStoredQuery:
         return await api_common.object_get_by_id(
             token=token,
             object_id=object_id,
+            req_id=req_id,
             api="stored_query_get_by_id",
             expected_status=expected_status,
         )
@@ -123,6 +129,7 @@ class GulpAPIStoredQuery:
     async def stored_query_list(
         token: str,
         flt: GulpCollabFilter = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         """List stored queries"""
@@ -131,5 +138,6 @@ class GulpAPIStoredQuery:
             token=token,
             api="stored_query_list",
             flt=flt,
+            req_id=req_id,
             expected_status=expected_status,
         )

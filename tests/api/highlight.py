@@ -58,6 +58,7 @@ class GulpAPIHighlight:
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
+        private: bool = False,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -67,6 +68,7 @@ class GulpAPIHighlight:
             "object_id": object_id,
             "ws_id": ws_id,
             "name": name,
+            "private": private,
             "glyph_id": glyph_id,
             "color": color,
             "req_id": req_id or api_common.req_id,

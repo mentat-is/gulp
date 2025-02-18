@@ -19,8 +19,9 @@ class GulpAPINote:
         name: str = None,
         tags: list[str] = None,
         color: str = None,
+        private: bool = False,
         req_id: str = None,
-        ws_id: str = None,
+        ws_id: str = None,        
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -32,6 +33,7 @@ class GulpAPINote:
             "time_pin": time_pin,
             "name": name,
             "color": color,
+            "private": private,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }

@@ -25,7 +25,7 @@ class GulpAPIGlyph:
         files = {"img": (os.path.basename(img), BytesIO(buffer))}
         params = {
             "name": name,
-            private: private,
+            "private": private,
             "req_id": req_id or api_common.req_id,
         }
 
