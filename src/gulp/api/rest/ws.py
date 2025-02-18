@@ -1,6 +1,6 @@
 import asyncio
 from multiprocessing import Queue
-from fastapi.websockets import WebSocketState
+
 import muty.jsend
 import muty.list
 import muty.log
@@ -9,6 +9,7 @@ import muty.string
 import muty.time
 import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 
@@ -35,7 +36,6 @@ from gulp.api.ws_api import (
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
-
 
 router = APIRouter()
 
@@ -117,14 +117,16 @@ class WsIngestRawWorker:
                     operation: GulpOperation = await GulpOperation.get_by_id(
                         sess, packet.data.operation_id
                     )
-                    
+
                     ctx: GulpContext
                     src: GulpSource
                     ctx, _ = await operation.add_context(
-                        sess, user_id=packet.user_id, name=packet.data.context_name
+                        sess, user_id=packet.user_id, name=packet.data.context_name,
+                        ws_id=packet.data.ws_id, req_id=packet.data.req_id
                     )
                     src, _ = await ctx.add_source(
-                        sess, user_id=packet.user_id, name=packet.data.source
+                        sess, user_id=packet.user_id, name=packet.data.source,
+                        ws_id=packet.data.ws_id, req_id=packet.data.req_id
                     )
 
                     # Process documents using plugin

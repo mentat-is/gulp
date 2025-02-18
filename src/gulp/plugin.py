@@ -544,7 +544,8 @@ class GulpPluginBase(ABC):
         if stats and stats.status == GulpRequestStatus.CANCELED:
             self._req_canceled = True
             MutyLogger.get_instance().warning(
-                "_process_docs_chunk: request %s cancelled" % (self._req_id))
+                "_process_docs_chunk: request %s cancelled" % (self._req_id)
+            )
 
         return len(ingested_docs), skipped
 
@@ -580,10 +581,8 @@ class GulpPluginBase(ABC):
         ctx: GulpContext = None
 
         # get context and field
-        record_context = self._plugin_params.custom_parameters.get(
-            "context_field")
-        record_source = self._plugin_params.custom_parameters.get(
-            "source_field")
+        record_context = self._plugin_params.custom_parameters.get("context_field")
+        record_source = self._plugin_params.custom_parameters.get("source_field")
         # MutyLogger.get_instance().debug(f"record_context={record_context}, record_source={record_source}, ingest_index={self._ingest_index}")
 
         if not self._ingest_index:
@@ -615,7 +614,7 @@ class GulpPluginBase(ABC):
         if record_context not in self._ctx_cache:
             # context cache miss
             ctx, _ = await self._operation.add_context(
-                self._sess, self._user_id, record_context
+                self._sess, self._user_id, record_context, self._ws_id, self._req_id
             )
             self._ctx_cache[record_context] = ctx.id
             ctx_id = ctx.id
@@ -629,7 +628,9 @@ class GulpPluginBase(ABC):
 
         if src_cache_key not in self._src_cache:
             # source cache miss
-            src, _ = await ctx.add_source(self._sess, self._user_id, record_source)
+            src, _ = await ctx.add_source(
+                self._sess, self._user_id, record_source, self._ws_id, self._req_id
+            )
             self._src_cache[src_cache_key] = src.id
             src_id = src.id
             MutyLogger.get_instance().warning(
@@ -787,8 +788,7 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        MutyLogger.get_instance().debug(
-            f"enriched ({self.name}) {len(docs)} documents")
+        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
         last = kwargs.get("last", False)
@@ -1371,8 +1371,7 @@ class GulpPluginBase(ABC):
                     flt, wait_for_refresh, **kwargs
                 )
                 if self._req_canceled:
-                    raise RequestCanceledError(
-                        "request %s canceled!" % (self._req_id))
+                    raise RequestCanceledError("request %s canceled!" % (self._req_id))
 
                 # check threshold
                 failure_threshold = (
@@ -1420,9 +1419,7 @@ class GulpPluginBase(ABC):
                 self._records_processed_per_chunk = 0
                 self._records_failed_per_chunk = 0
 
-    async def _initialize(
-        self, plugin_params: GulpPluginParameters = None
-    ) -> None:
+    async def _initialize(self, plugin_params: GulpPluginParameters = None) -> None:
         """
         initialize mapping and plugin custom parameters
 
@@ -1468,8 +1465,7 @@ class GulpPluginBase(ABC):
                     for k, v in self._plugin_params.mappings.items()
                 }
                 MutyLogger.get_instance().debug(
-                    'using plugin_params.mappings="%s"' % (
-                        self._plugin_params.mappings)
+                    'using plugin_params.mappings="%s"' % (self._plugin_params.mappings)
                 )
                 self._mappings = mappings_dict
             else:
@@ -1497,14 +1493,13 @@ class GulpPluginBase(ABC):
                 # mapping id provided
                 self._mapping_id = self._plugin_params.mapping_id
                 MutyLogger.get_instance().debug(
-                    "using plugin_params.mapping_id=%s" % (
-                        self._plugin_params.mapping_id)
+                    "using plugin_params.mapping_id=%s"
+                    % (self._plugin_params.mapping_id)
                 )
 
             # checks
             if not self._mappings and self._mapping_id:
-                raise ValueError(
-                    "mapping_id is set but mappings/mapping_file is not!")
+                raise ValueError("mapping_id is set but mappings/mapping_file is not!")
             if not self._mappings and not self._mapping_id:
                 MutyLogger.get_instance().warning(
                     "mappings/mapping_file and mapping_id are both None/empty!"
@@ -1512,13 +1507,15 @@ class GulpPluginBase(ABC):
                 self._mappings = {"default": GulpMapping(fields={})}
 
             # ensure mapping_id is set
-            self._mapping_id = self._mapping_id or list(
-                self._mappings.keys())[0]
+            self._mapping_id = self._mapping_id or list(self._mappings.keys())[0]
 
             MutyLogger.get_instance().debug("mapping_id=%s" % (self._mapping_id))
 
             # now go for additional mappings
-            if not self._plugin_params.mappings and self._plugin_params.additional_mapping_files:
+            if (
+                not self._plugin_params.mappings
+                and self._plugin_params.additional_mapping_files
+            ):
                 MutyLogger.get_instance().debug(
                     "loading additional mapping files/id: %s ..."
                     % (self._plugin_params.additional_mapping_files)
@@ -1581,7 +1578,7 @@ class GulpPluginBase(ABC):
 
         if not self._mappings:
             # set mappings
-            await _setup_mapping(plugin_params)
+            await _setup_mapping()
 
         if self._stacked:
             # if we are in a stacked plugin, and we are the lower
@@ -1594,10 +1591,14 @@ class GulpPluginBase(ABC):
 
         # initialize index types k,v mapping from opensearch
         if not self._index_type_mapping:
-            self._index_type_mapping = await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(self._ingest_index)
+            self._index_type_mapping = (
+                await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
+                    self._ingest_index
+                )
+            )
             MutyLogger.get_instance().debug(
-                "got index type mappings with %d entries" % (
-                    len(self._index_type_mapping))
+                "got index type mappings with %d entries"
+                % (len(self._index_type_mapping))
             )
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
 
@@ -1941,15 +1942,13 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(plugin, extension,
-                                    ignore_cache, *args, **kwargs),
+                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs),
             )
             return future.result()
 
         # either, create a new event loop to run the coroutine
         return loop.run_until_complete(
-            GulpPluginBase.load(plugin, extension,
-                                ignore_cache, *args, **kwargs)
+            GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
         )
 
     @staticmethod
@@ -2002,8 +2001,7 @@ class GulpPluginBase(ABC):
             f"loading plugin m={m}, pickled={pickled}, kwargs={kwargs}"
         )
         p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
-        MutyLogger.get_instance().debug(
-            f"LOADED plugin m={m}, p={p}, name()={p.name}")
+        MutyLogger.get_instance().debug(f"LOADED plugin m={m}, p={p}, name()={p.name}")
         if not ignore_cache:
             GulpPluginCache.get_instance().add(m, bare_name)
         return p
@@ -2106,13 +2104,11 @@ class GulpPluginBase(ABC):
             if is_extension:
                 # add extension
                 extra_path = muty.file.safe_path_join(extra_path, "extension")
-                default_path = muty.file.safe_path_join(
-                    default_path, "extension")
+                default_path = muty.file.safe_path_join(default_path, "extension")
 
             # first we check in extra_path
             if extra_path and os.path.exists(extra_path):
-                p = _check_path(muty.file.safe_path_join(
-                    extra_path, plugin.lower()))
+                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
                 if p:
                     return p
 
@@ -2205,8 +2201,8 @@ class GulpPluginBase(ABC):
                     desc=p.desc(),
                     filename=p.filename,
                     # check if plugin implements sigma_convert, if so it have sigma_support!
-                    sigma_support=inspect.getmodule(p.sigma_convert) != inspect.getmodule(
-                        GulpPluginBase.sigma_convert),
+                    sigma_support=inspect.getmodule(p.sigma_convert)
+                    != inspect.getmodule(GulpPluginBase.sigma_convert),
                     custom_parameters=p.custom_parameters(),
                     depends_on=p.depends_on(),
                     tags=p.tags(),

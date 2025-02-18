@@ -1,14 +1,15 @@
 from typing import Optional, override
 
 import muty.crypto
-from muty.log import MutyLogger
 import muty.string
+from muty.log import MutyLogger
 from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType, T
+from gulp.api.ws_api import GulpWsQueueDataType
 
 
 class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
@@ -38,7 +39,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
     color: Mapped[Optional[str]] = mapped_column(
         String, default="white", doc="The color of the context."
     )
-    
+
     @staticmethod
     def make_context_id_key(operation_id: str, context_name: str) -> str:
         """
@@ -75,6 +76,8 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         sess: AsyncSession,
         user_id: str,
         name: str,
+        ws_id: str = None,
+        req_id: str = None,
     ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
@@ -83,6 +86,8 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             sess (AsyncSession): The session to use.
             user_id (str): The id of the user adding the source.
             name (str): The name of the source (may be file name, path, etc...)
+            ws_id (str, optional): The websocket id to stream NEW_SOURCE to. Defaults to None.
+            req_id (str, optional): The request id. Defaults to None.
         Returns:
             tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
@@ -125,6 +130,9 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             object_data,
             id=src_id,
             owner_id=user_id,
+            ws_queue_datatype=GulpWsQueueDataType.NEW_SOURCE if ws_id else None,
+            ws_id=ws_id,
+            req_id=req_id,
         )
 
         # add same grants to the source as the context

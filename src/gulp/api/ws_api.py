@@ -50,7 +50,7 @@ class GulpWsQueueDataType(StrEnum):
     WS_CONNECTED = "ws_connected"
     # GulpCollabCreateUpdatePacket
     STATS_UPDATE = "stats_update"
-    # GulpCollabCreateUpdatePacket
+    # GulpCollabCreateUpdatePacket with type=collab object type
     COLLAB_UPDATE = "collab_update"
     # GulpUserLoginLogoutPacket
     USER_LOGIN = "user_login"
@@ -74,7 +74,10 @@ class GulpWsQueueDataType(StrEnum):
     CLIENT_DATA = "client_data"
     # GulpSourceFieldsChunkPacket
     SOURCE_FIELDS_CHUNK = "source_fields_chunk"
-
+    # GulpCollabCreateUpdatePacket with type=NEW_SOURCE
+    NEW_SOURCE = "new_source"
+    # GulpCollabCreateUpdatePacket with type=NEW_CONTEXT
+    NEW_CONTEXT = "new_context"
 
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""

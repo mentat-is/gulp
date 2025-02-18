@@ -439,13 +439,15 @@ async def ingest_file_handler(
             ctx: GulpContext
             src: GulpSource
             ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=context_name
+                sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
 
             src, _ = await ctx.add_source(
                 sess,
                 user_id=user_id,
                 name=payload.original_file_path or os.path.basename(file_path),
+                ws_id=ws_id,
+                req_id=req_id,
             )
 
         # run ingestion in a coroutine in one of the workers
@@ -622,12 +624,15 @@ async def ingest_raw_handler(
             ctx: GulpContext
             src: GulpSource
             ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=context_name
+                sess, user_id=user_id, name=context_name,
+                ws_id=ws_id, req_id=req_id
             )
             src, _ = await ctx.add_source(
                 sess,
                 user_id=user_id,
                 name=source,
+                ws_id=ws_id,
+                req_id=req_id,
             )
 
         # run ingestion in a coroutine in one of the workers
@@ -818,7 +823,7 @@ async def ingest_zip_handler(
             # create (and associate) context on the collab db, if it does not exists
             ctx: GulpContext
             ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=context_name
+                sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
 
         # handle multipart request manually
@@ -851,7 +856,8 @@ async def ingest_zip_handler(
             async with GulpCollab.get_instance().session() as sess:
                 src: GulpSource
                 src, _ = await ctx.add_source(
-                    sess, user_id=user_id, name=f.original_file_path
+                    sess, user_id=user_id, name=f.original_file_path,
+                    ws_id=ws_id, req_id=req_id
                 )
 
             kwds = dict(
