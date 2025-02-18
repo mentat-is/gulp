@@ -1436,7 +1436,7 @@ class GulpOpenSearch:
         """
         # girst get all operations from collab db
         async with GulpCollab.get_instance().session() as sess:
-            all_operations = await GulpOperation.get_by_filter(sess, GulpCollabFilter())
+            all_operations = await GulpOperation.get_by_filter(sess)
 
         # create operation lookup map
         operation_map = {op.id: op for op in all_operations}

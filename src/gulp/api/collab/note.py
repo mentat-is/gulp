@@ -1,26 +1,16 @@
 from typing import Optional, override
 
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import (
-    ARRAY,
-    BIGINT,
-    ForeignKey,
-    Index,
-    String,
-    insert,
-)
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, String, insert
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column
-from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy.ext.mutable import MutableList
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpCollabObject,
-    GulpCollabType,
-)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from gulp.api.collab.structs import GulpCollabFilter, GulpCollabObject, GulpCollabType
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
     GulpCollabCreateUpdatePacket,
@@ -64,7 +54,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
     )
     source_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("source.id", ondelete="CASCADE"),
-        doc="The log file path (source) associated with the note."
+        doc="The log file path (source) associated with the note.",
     )
     docs: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
         MutableList.as_mutable(ARRAY(JSONB)),
@@ -174,7 +164,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         name: str,
         tags: list[str] = None,
         color: str = None,
-        glyph_id: str = None
+        glyph_id: str = None,
     ) -> int:
         """
         creates a note for each document in the list, using bulk insert
@@ -270,17 +260,35 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         sess: AsyncSession,
         tags: list[str],
         new_tags: list[str],
+        operation_id: str,
+        user_id: str,
     ) -> None:
         """
         get tags from notes and update them with new tags
+
+        Args:
+            sess (AsyncSession): the database session
+            tags (list[str]): the tags to match
+            new_tags (list[str]): the new tags to add
+            operation_id (str): the operation id
+            user_id (str): the user id making the request
         """
         offset = 0
         chunk_size = 1000
+
+        # build filter
         flt = GulpCollabFilter(
             tags=tags,
             limit=chunk_size,
             offset=offset,
         )
+
+        # restrict to operation_id and user_id
+        if operation_id:
+            flt.operation_ids = [operation_id]
+        if user_id:
+            flt.owner_user_ids = [user_id]
+
         updated = 0
 
         while True:

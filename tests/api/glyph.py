@@ -15,6 +15,8 @@ class GulpAPIGlyph:
         token: str,
         img: str,
         name: str = None,
+        private: bool=False,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -23,7 +25,8 @@ class GulpAPIGlyph:
         files = {"img": (os.path.basename(img), BytesIO(buffer))}
         params = {
             "name": name,
-            "req_id": api_common.req_id,
+            private: private,
+            "req_id": req_id or api_common.req_id,
         }
 
         res = await api_common.make_request(
@@ -42,6 +45,7 @@ class GulpAPIGlyph:
         object_id: str,
         img: str = None,
         name: str = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -55,7 +59,7 @@ class GulpAPIGlyph:
         params = {
             "name": name,
             "object_id": object_id,
-            "req_id": api_common.req_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         res = await api_common.make_request(
@@ -72,6 +76,7 @@ class GulpAPIGlyph:
     async def glyph_delete(
         token: str,
         object_id: str,
+        req_id: str = None, 
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -79,6 +84,7 @@ class GulpAPIGlyph:
             token=token,
             object_id=object_id,
             api="glyph_delete",
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -86,6 +92,7 @@ class GulpAPIGlyph:
     async def glyph_get_by_id(
         token: str,
         object_id: str,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -93,6 +100,7 @@ class GulpAPIGlyph:
             token=token,
             object_id=object_id,
             api="glyph_get_by_id",
+            req_id=req_id,
             expected_status=expected_status,
         )
 
@@ -100,6 +108,7 @@ class GulpAPIGlyph:
     async def glyph_list(
         token: str,
         flt: GulpCollabFilter = None,
+        req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
         api_common = GulpAPICommon.get_instance()
@@ -107,5 +116,6 @@ class GulpAPIGlyph:
             token=token,
             api="glyph_list",
             flt=flt,
+            req_id=req_id,
             expected_status=expected_status,
         )

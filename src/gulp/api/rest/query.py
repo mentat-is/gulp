@@ -181,14 +181,15 @@ async def _worker_coro(kwds: dict):
                 total_doc_matches += r
 
         if num_queries > 1 and query_matched == num_queries:
-            # all queries in the group matched, change note names to query group name
+            # all queries in the group matched, update note tags with group name
             MutyLogger.get_instance().info(
                 "query group '%s' matched, updating notes!" % (q_options.group)
             )
             if q_options.note_parameters.create_notes:
                 async with GulpCollab.get_instance().session() as sess:
+                    # look for tags = query name and update them with the group name
                     await GulpNote.bulk_update_tags(
-                        sess, [q_opt.name], [q_options.group]
+                        sess, [q_opt.name], [q_options.group], operation_id=operation_id, 
                     )
             # and signal websocket
             p = GulpQueryGroupMatchPacket(

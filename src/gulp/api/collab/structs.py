@@ -1169,6 +1169,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt: GulpCollabFilter = None,
         throw_if_not_found: bool = True,
         with_for_update: bool = False,
+        user_id: str = None,
+        user_id_is_admin: bool = False,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -1177,6 +1179,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            user_id (str, optional): if set, only return objects that the user has access to.
+            user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -1185,6 +1189,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # filter or empty filter
         flt = flt or GulpCollabFilter()
+        if user_id and not user_id_is_admin:
+            # add to filter, so that the user can only see objects he has access to
+            if not flt.owner_user_ids:
+                flt.owner_user_ids = [user_id]
 
         # build and run query (ensure eager loading)
         q = flt.to_select_query(cls, with_for_update=with_for_update)
@@ -1208,6 +1216,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt: GulpCollabFilter = None,
         throw_if_not_found: bool = True,
         with_for_update: bool = False,
+        user_id: str = None,
+        user_id_is_admin: bool = False,
     ) -> T:
         """
         Asynchronously retrieves the first object based on the provided filter.
@@ -1217,6 +1227,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
             with_for_update (bool, optional): If True, the query will be executed
+            user_id (str, optional): if set, only return objects that the user has access to.
+            user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
 
         Returns:
             T: The first object that matches the filter criteria or None if not found.
@@ -1226,6 +1238,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt=flt,
             throw_if_not_found=throw_if_not_found,
             with_for_update=with_for_update,
+            user_id=user_id,
+            user_id_is_admin=user_id_is_admin,
         )
 
         if obj:
@@ -1301,13 +1315,20 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
+            user_id = s.user_id
+            is_admin = s.user.is_admin()
+
             objs = await cls.get_by_filter(
-                sess, flt, throw_if_not_found=throw_if_not_found
+                sess, flt, throw_if_not_found=throw_if_not_found, user_id=user_id, user_id_is_admin=is_admin
             )
             if not objs:
                 return []
 
             data = []
+            for o in objs:
+                data.append(o.to_dict(exclude_none=True, nested=nested))
+
+            """ the code below should not be needed anymore, due to the filtering in the query            
             for o in objs:
                 o: GulpCollabBase
                 # perform access checks on the object
@@ -1323,7 +1344,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                             ),
                         )
                     )
-
+            """
             MutyLogger.get_instance().debug(
                 "User %s get_by_filter_result: %s"
                 % (
