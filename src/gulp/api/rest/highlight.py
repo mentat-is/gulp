@@ -2,17 +2,15 @@
 gulp highlights rest api
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
+
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+
 from gulp.api.collab.highlight import GulpHighlight
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-)
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -63,9 +61,7 @@ async def highlight_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[
-        bool, Depends(APIDependencies.param_private_optional)
-    ] = False,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -85,6 +81,7 @@ async def highlight_create_handler(
             req_id=req_id,
             object_data=object_data,
             private=private,
+            operation_id=operation_id,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

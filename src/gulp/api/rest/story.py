@@ -83,6 +83,7 @@ async def story_create_handler(
             object_data=object_data,
             permission=[GulpUserPermission.EDIT],
             private=private,
+            operation_id=operation_id,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

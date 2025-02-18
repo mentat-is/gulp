@@ -1460,6 +1460,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
         id: str = None,
         private: bool = True,
+        operation_id: str = None,
     ) -> dict:
         """
         helper to create a new object, handling session
@@ -1472,6 +1473,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.
             id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             private (bool, optional): If True, the object will be private. Defaults to False.
+            operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None.
         Returns:
             dict: The created object as a dictionary.
 
@@ -1482,9 +1484,20 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
 
         async with GulpCollab.get_instance().session() as sess:
-
             # check permission for creation
-            s = await GulpUserSession.check_token(sess, token, permission=permission)
+            if operation_id:
+                # check permission on the operation
+                from gulp.api.collab.operation import GulpOperation
+                op: GulpOperation = await GulpOperation.get_by_id(
+                    sess, operation_id
+                )
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission, obj=op
+                )
+            else:
+                # just check token permission
+                s = await GulpUserSession.check_token(sess, token, permission=permission)
+
             n: GulpCollabBase = await cls._create(
                 sess,
                 object_data,
