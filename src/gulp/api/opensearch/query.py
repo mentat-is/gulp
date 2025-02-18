@@ -101,46 +101,6 @@ class GulpQueryNoteParameters(BaseModel):
     )
 
 
-class GulpQueryExternalParameters(BaseModel):
-    """
-    parameters to be set for ingestion via `external` sources query.
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "plugin": "test_plugin",
-                    "uri": "http://localhost:8080",
-                    "username": "user",
-                    "password": "password",
-                    "ingest": True,
-                    "operation_id": "operation_1",
-                    "context_name": "context_1",
-                }
-            ]
-        },
-        extra="allow",
-    )
-    plugin: Optional[str] = Field(
-        None,
-        description="the plugin to be used to query the external source.",
-    )
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        GulpPluginParameters(),
-        description="custom plugin parameters to pass to the external plugin.",
-    )
-    uri: Optional[str] = Field(
-        None, description="The URI to connect to the external service."
-    )
-    username: Optional[str] = Field(
-        None, description="The username to connect to the external service."
-    )
-    password: Optional[str] = Field(
-        None, description="The password to connect to the external service."
-    )
-
-
 class GulpQueryParameters(BaseModel):
     """
     additional options for a query.
@@ -166,10 +126,7 @@ class GulpQueryParameters(BaseModel):
                     "loop": True,
                     "note_parameters": autogenerate_model_example_by_class(
                         GulpQueryNoteParameters
-                    ),
-                    "external_parameters": autogenerate_model_example_by_class(
-                        GulpQueryExternalParameters
-                    ),
+                    )
                 }
             ]
         },
@@ -236,14 +193,6 @@ if set, keep querying until all documents are returned (default=True, ignores `s
     note_parameters: Optional[GulpQueryNoteParameters] = Field(
         GulpQueryNoteParameters(),
         description="controls how notes are created during queries.",
-    )
-    plugin: Optional[str] = Field(
-        None,
-        description="for external queries, the plugin to be used to query the external source.",
-    )
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        GulpPluginParameters(),
-        description="for external queries, custom plugin parameters to pass to the external plugin.",
     )
 
     def parse(self) -> dict:

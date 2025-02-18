@@ -287,8 +287,6 @@ class GulpPluginBase(ABC):
         self._mappings: dict[str, GulpMapping] = {}
         # for ingestion, the key in the mappings dict to be used
         self._mapping_id: str = None
-        # plugin specific parameters (k: v, where k is one of the GulpPluginSpecificParams "name")
-        self._custom_params: dict = {}
         # calling user
         self._user_id: str = None
         # current gulp operation
@@ -393,7 +391,7 @@ class GulpPluginBase(ABC):
         """
         this is to be used by the UI to list the supported options, and their types, for a plugin.
 
-        NOTE: after `_initialize` has been called these are accessible by the plugin through the `self._custom_params` dictionary using GulpPluginCustomParameter.name as the key.
+        NOTE: after `_initialize` has been called these are accessible by the plugin through `self._plugin_params.custom_parameters` dictionary using GulpPluginCustomParameter.name as the key.
 
         Returns:
             list[GulpPluginCustomParameter]: a list of custom parameters this plugin supports.
@@ -568,6 +566,8 @@ class GulpPluginBase(ABC):
         """
         extract context and source (using cache to avoid too many queries) from the document, or set bogus values if not found.
 
+        NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set.
+
         Args:
             doc (dict): the document to extract context and source from.
 
@@ -580,8 +580,10 @@ class GulpPluginBase(ABC):
         ctx: GulpContext = None
 
         # get context and field
-        record_context = self._custom_params.get("context_field")
-        record_source = self._custom_params.get("source_field")
+        record_context = self._plugin_params.custom_parameters.get(
+            "context_field")
+        record_source = self._plugin_params.custom_parameters.get(
+            "source_field")
         # MutyLogger.get_instance().debug(f"record_context={record_context}, record_source={record_source}, ingest_index={self._ingest_index}")
 
         if not self._ingest_index:
@@ -649,7 +651,8 @@ class GulpPluginBase(ABC):
         ws_id: str,
         operation_id: str,
         q: Any,
-        q_options: GulpQueryParameters,
+        plugin_params: GulpPluginParameters,
+        q_options: GulpQueryParameters = None,
         index: str = None,
     ) -> tuple[int, int]:
         """
@@ -664,8 +667,9 @@ class GulpPluginBase(ABC):
             ws_id (str): the websocket id
             operation_id (str): the operation id
             q(Any): the query to perform, format is plugin specific
-            q_options (GulpQueryParameters): additional query options, `q_options.plugin' and 'q_options.plugin_parameters` must be set to connect to the external source.
-            index (str, optional): the operation index to ingest into, may be None for no ingestion
+            plugin_params (GulpPluginParameters): the plugin parameters, they are mandatory here (custom_parameters should usually be set with specific external source parameters, i.e. how to connect)
+            q_options (GulpQueryParameters): additional query options.
+            index (str, optional): the gulp's operation index to ingest into during query, may be None for no ingestion
 
         Notes:
             - implementers must call super().query_external first
@@ -677,29 +681,20 @@ class GulpPluginBase(ABC):
             ObjectNotFound: if no document is found.
         """
         MutyLogger.get_instance().debug(
-            "GulpPluginBase.query_external: q=%s, index=%s, operation_id=%s, q_options=%s"
-            % (q, index, operation_id, q_options)
+            "GulpPluginBase.query_external: q=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s"
+            % (q, index, operation_id, q_options, plugin_params)
         )
-
         self._sess = sess
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
         self._external_query = True
         self._enrich_during_ingestion = False
+        self._operation_id = operation_id
+        self._note_parameters = q_options.note_parameters or GulpQueryNoteParameters()
 
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
-
-        if q_options.plugin_params.is_empty():
-            q_options.plugin_params = GulpPluginParameters()
-
-        # load any mapping set
-        await self._initialize(q_options.plugin_params)
-
-        self._operation_id = operation_id
-        self._note_parameters = q_options.note_parameters
-        self._plugin_params = q_options.plugin_params
 
         if index:
             # ingestion is enabled, set index
@@ -708,10 +703,8 @@ class GulpPluginBase(ABC):
             # just query, no ingestion
             self._ingestion_enabled = False
 
-        MutyLogger.get_instance().debug(
-            "querying external source, plugin_params=%s"
-            % (q_options._plugin_params)
-        )
+        # initialize
+        await self._initialize(plugin_params)
 
         return (0, 0)
 
@@ -762,7 +755,6 @@ class GulpPluginBase(ABC):
         self._context_id = context_id
         self._ingest_index = index
         self._source_id = source_id
-        self._plugin_params = plugin_params or GulpPluginParameters()
         MutyLogger.get_instance().debug(
             f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={
                 operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
@@ -843,8 +835,9 @@ class GulpPluginBase(ABC):
         user_id: str,
         req_id: str,
         ws_id: str,
+        operation_id: str,
         index: str,
-        flt: GulpQueryFilter,
+        flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> None:
@@ -853,19 +846,19 @@ class GulpPluginBase(ABC):
 
         the resulting documents will be streamed to the websocket `ws_id` as GulpDocumentsChunkPacket.
 
-        usually, this fun
         Args:
             sess (AsyncSession): The database session.
             user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
-            index (str): the index to query
-            flt(GulpQueryFilter): a filter to restrict the documents to enrich
+            operation_id (str): id of the operation on collab database.
+            index (str): the index to query and enrich
+            flt(GulpQueryFilter, optional): a filter to restrict the documents to enrich. Defaults to None.
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
             kwargs: additional keyword arguments:
-                - rq (dict): the raw query to use instead of the filter
+                - rq (dict): a raw query to be used, additionally to the filter
 
-        NOTE: implementers must implement _enrich_documents_chunk, call self._parse_custom_parameters and then super().enrich_documents
+        NOTE: implementers must implement _enrich_documents_chunk, call self._initialize() and then super().enrich_documents
         """
         if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
             GulpPluginBase._enrich_documents_chunk
@@ -874,22 +867,30 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
 
+        # initialize
+        await self._initialize(plugin_params=plugin_params)
+
         self._user_id = user_id
         self._req_id = req_id
         self._ws_id = ws_id
+        self._operation_id = operation_id
         self._enrich_index = index
-        self._plugin_params = plugin_params or GulpPluginParameters()
-
-        await self._initialize(plugin_params=plugin_params)
 
         # check if the caller provided a raw query to be used
         rq = kwargs.get("rq", None)
         q: dict = {}
         if rq:
             # raw query provided by the caller
-            q = rq
+            if not flt or flt.is_empty():
+                # no filter, use the raw query
+                q = rq
+            else:
+                # merge raw query and filter
+                qq = flt.to_opensearch_dsl()
+                q = GulpQueryHelpers.merge_queries(qq, rq)
         else:
-            if not flt:
+            # no raw query, just filter
+            if not flt or flt.is_empty():
                 # match all query
                 q = {"query": {"match_all": {}}}
             else:
@@ -914,6 +915,7 @@ class GulpPluginBase(ABC):
         self,
         sess: AsyncSession,
         doc_id: str,
+        operation_id: str,
         index: str,
         plugin_params: GulpPluginParameters,
     ) -> dict:
@@ -923,6 +925,7 @@ class GulpPluginBase(ABC):
         Args:
             sess (AsyncSession): The database session.
             doc (dict): the document to enrich
+            operation_id (str): id of the operation on collab database.
             index (str): the index to query
             plugin_params (GulpPluginParameters): the plugin parameters
         Returns:
@@ -937,6 +940,7 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
 
+        self._operation_id = operation_id
         await self._initialize(plugin_params=plugin_params)
 
         # get the document
@@ -1006,7 +1010,6 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
-        self._plugin_params = plugin_params or GulpPluginParameters()
 
         MutyLogger.get_instance().debug(
             f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
@@ -1417,70 +1420,65 @@ class GulpPluginBase(ABC):
                 self._records_processed_per_chunk = 0
                 self._records_failed_per_chunk = 0
 
-    def _parse_custom_parameters(self, plugin_params: GulpPluginParameters) -> None:
-        """
-        parse custom plugin parameters in plugin_params.custom_parameters, they must correspond to the plugin defined ones.
-
-        Args:
-            plugin_params (GulpPluginParameters): the plugin parameters.
-        """
-        if not plugin_params:
-            plugin_params = GulpPluginParameters()
-
-        # check any passed custom parameter against the plugin defined ones
-        defined_custom_params = self.custom_parameters()
-        for p in defined_custom_params:
-            k = p.name
-            if p.required and k not in plugin_params.model_extra:
-                raise ValueError(
-                    "required plugin parameter '%s' not found in plugin_params=%s"
-                    % (k, plugin_params)
-                )
-            if k not in self._custom_params:
-                self._custom_params[k] = plugin_params.model_extra.get(
-                    k, p.default_value
-                )
-                MutyLogger.get_instance().debug(
-                    "setting plugin custom parameter: %s=%s"
-                    % (k, self._custom_params[k])
-                )
-
     async def _initialize(
-        self,
-        plugin_params: GulpPluginParameters = None,
+        self, plugin_params: GulpPluginParameters = None
     ) -> None:
         """
         initialize mapping and plugin custom parameters
 
-        this sets self._mappings, self._mapping_id, self._custom_params (the plugin specific parameters), self._index_type_mapping
+        this sets self._mappings, self._mapping_id, self._plugin_params (the plugin specific parameters), self._index_type_mapping
 
         Args:
-            plugin_params (GulpPluginParameters, optional): plugin parameters. Defaults to None.
-
+            plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
         Raises:
             ValueError: if mapping_id is set but mappings/mapping_file is not.
             ValueError: if a specific parameter is required but not found in plugin_params.
 
         """
 
-        async def _setup_mapping(plugin_params: GulpPluginParameters) -> None:
-            if plugin_params.mappings:
+        def _parse_custom_parameters() -> None:
+            """
+            parse custom plugin parameters in plugin_params.custom_parameters against the one defined in GulpPlugin.custom_parameters(), and set default values if needed
+
+            """
+            # check any passed custom parameter against the plugin defined ones
+            defined_custom_params = self.custom_parameters()
+            for p in defined_custom_params:
+                k = p.name
+                if p.required and k not in plugin_params.custom_parameters:
+                    raise ValueError(
+                        "required plugin parameter '%s' not found in plugin_params.custom_parameters"
+                        % (k)
+                    )
+                v = self._plugin_params.custom_parameters.get(k)
+                if v == None and p.default_value != None:
+                    # use default value if any
+                    v = p.default_value
+                    self._plugin_params.custom_parameters[k] = v
+                MutyLogger.get_instance().debug(
+                    "---> found plugin custom parameter: %s=%s"
+                    % (k, self._plugin_params.custom_parameters[k])
+                )
+
+        async def _setup_mapping() -> None:
+            if self._plugin_params.mappings:
                 # mappings dict provided
                 mappings_dict = {
                     k: GulpMapping.model_validate(v)
-                    for k, v in plugin_params.mappings.items()
+                    for k, v in self._plugin_params.mappings.items()
                 }
                 MutyLogger.get_instance().debug(
-                    'using plugin_params.mappings="%s"' % plugin_params.mappings
+                    'using plugin_params.mappings="%s"' % (
+                        self._plugin_params.mappings)
                 )
                 self._mappings = mappings_dict
             else:
-                if plugin_params.mapping_file:
+                if self._plugin_params.mapping_file:
                     # load from file
-                    mapping_file = plugin_params.mapping_file
+                    mapping_file = self._plugin_params.mapping_file
                     MutyLogger.get_instance().debug(
                         "using plugin_params.mapping_file=%s"
-                        % (plugin_params.mapping_file)
+                        % (self._plugin_params.mapping_file)
                     )
                     mapping_file_path = (
                         GulpConfig.get_instance().build_mapping_file_path(mapping_file)
@@ -1495,12 +1493,12 @@ class GulpPluginBase(ABC):
                     gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
                     self._mappings = gmf.mappings
 
-            if plugin_params.mapping_id:
+            if self._plugin_params.mapping_id:
                 # mapping id provided
-                self._mapping_id = plugin_params.mapping_id
+                self._mapping_id = self._plugin_params.mapping_id
                 MutyLogger.get_instance().debug(
                     "using plugin_params.mapping_id=%s" % (
-                        plugin_params.mapping_id)
+                        self._plugin_params.mapping_id)
                 )
 
             # checks
@@ -1520,12 +1518,12 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().debug("mapping_id=%s" % (self._mapping_id))
 
             # now go for additional mappings
-            if not plugin_params.mappings and plugin_params.additional_mapping_files:
+            if not self._plugin_params.mappings and self._plugin_params.additional_mapping_files:
                 MutyLogger.get_instance().debug(
                     "loading additional mapping files/id: %s ..."
-                    % (plugin_params.additional_mapping_files)
+                    % (self._plugin_params.additional_mapping_files)
                 )
-                for f in plugin_params.additional_mapping_files:
+                for f in self._plugin_params.additional_mapping_files:
                     # each entry is a tuple (file, mapping_id)
                     additional_mapping_file_path = (
                         GulpConfig.get_instance().build_mapping_file_path(f[0])
@@ -1560,18 +1558,18 @@ class GulpPluginBase(ABC):
                     self._mappings[self._mapping_id] = main_mapping
 
         # ensure we have a plugin_params object
-        if not plugin_params:
-            plugin_params = GulpPluginParameters()
+        self._plugin_params = plugin_params or GulpPluginParameters()
+
         MutyLogger.get_instance().debug(
             "---> _initialize: plugin=%s, plugin_params=%s"
             % (
                 self.filename,
-                json.dumps(plugin_params.model_dump(), indent=2),
+                json.dumps(self._plugin_params.model_dump(), indent=2),
             )
         )
 
-        # check any custom plugin paramter
-        self._parse_custom_parameters(plugin_params)
+        # parse the custom parameters
+        _parse_custom_parameters()
         if (
             GulpPluginType.EXTENSION in self.type()
             or GulpPluginType.ENRICHMENT in self.type()
@@ -1581,8 +1579,9 @@ class GulpPluginBase(ABC):
             )
             return
 
-        # set mappings
-        await _setup_mapping(plugin_params)
+        if not self._mappings:
+            # set mappings
+            await _setup_mapping(plugin_params)
 
         if self._stacked:
             # if we are in a stacked plugin, and we are the lower
@@ -1594,15 +1593,12 @@ class GulpPluginBase(ABC):
                 self._upper_instance._mappings = self._mappings
 
         # initialize index types k,v mapping from opensearch
-        self._index_type_mapping = (
-            await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
-                self._ingest_index
+        if not self._index_type_mapping:
+            self._index_type_mapping = await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(self._ingest_index)
+            MutyLogger.get_instance().debug(
+                "got index type mappings with %d entries" % (
+                    len(self._index_type_mapping))
             )
-        )
-        MutyLogger.get_instance().debug(
-            "got index type mappings with %d entries" % (
-                len(self._index_type_mapping))
-        )
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
 
     def _type_checks(self, k: str, v: Any) -> tuple[str, Any]:
@@ -2034,8 +2030,6 @@ class GulpPluginBase(ABC):
         self._stats = None
         self._mappings.clear()
         self._mappings = None
-        self._custom_params.clear()
-        self._custom_params = None
         self._index_type_mapping.clear()
         self._index_type_mapping = None
         self._upper_record_to_gulp_document_fun = None

@@ -1,5 +1,8 @@
-from fastapi import Body, Depends, Header, Query
+import re
 from typing import Annotated, Optional
+
+import muty.string
+from fastapi import Body, Depends, Header, Query
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gulp.api.collab.context import GulpContext
@@ -16,8 +19,6 @@ from gulp.api.rest.test_values import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
-import muty.string
-import re
 
 # 5-16 characters length, only letters, numbers, underscore, dot, @, dash allowed
 REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.@-]).{4,16}$"
@@ -51,7 +52,8 @@ class GulpUploadResponse(BaseModel):
             ]
         },
     )
-    done: bool = Field(..., description="Indicates whether the upload is complete.")
+    done: bool = Field(...,
+                       description="Indicates whether the upload is complete.")
     continue_offset: Optional[int] = Field(
         0, description="The offset of the next chunk to be uploaded, to resume."
     )
@@ -731,7 +733,7 @@ the query filter, to filter for common fields, including:
         """
         return flt or GulpQueryFilter()
 
-    def param_query_additional_parameters_optional(
+    def param_q_options(
         q_options: Annotated[
             Optional[GulpQueryParameters],
             Body(
@@ -741,8 +743,6 @@ additional parameters for querying, including:
 - `limit`, `offset`, `search_after` for pagination.
 - `fields` to restrict returned fields.
 - `sort` for sorting
-- `sigma_parameters` to control annotations in `sigma` queries.
-- `external_parameters` to control `external` queries.
 """
             ),
         ] = None

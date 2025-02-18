@@ -1,8 +1,8 @@
-import zipfile
-import hashlib
 import datetime
-import mimetypes
+import hashlib
 import json
+import mimetypes
+import zipfile
 from typing import Any, override
 
 import muty.crypto
@@ -10,6 +10,7 @@ import muty.json
 import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -83,48 +84,49 @@ class Plugin(GulpPluginBase):
         hash_type: str = kwargs.get("hash_type")
         chunk_size: int = kwargs.get("chunk_size")
         password: str = kwargs.get("password")
-        d={}
+        d = {}
         for attr in dir(record):
             v = getattr(f, attr)
             # ignore functions and private methods while collecting attributes
-            if not callable(v) and not (attr.startswith("__")): #not (attr.startswith("__") or attr.endswith("__")):
+            # not (attr.startswith("__") or attr.endswith("__")):
+            if not callable(v) and not (attr.startswith("__")):
                 if isinstance(v, bytes):
                     v = v.decode(encoding)
                 d[attr] = v
             d["is_dir"] = f.is_dir()
 
-        #TODO: get metadata for each file... (creation date, etc)
+        # TODO: get metadata for each file... (creation date, etc)
         #      could we pass this file to an enrich plugin which handles files based on known
         #      file formats to get extra information?
-        event_original=""
-        content = zip.read(f, pwd=password.encode(encoding) if password is not None else None)
+        event_original = ""
+        content = zip.read(f, pwd=password.encode(encoding)
+                           if password is not None else None)
         hash = hashlib.__dict__[hash_type]()
         with zip.open(f) as i:
             while True:
                 chunk = i.read(chunk_size)
-                event_original+=chunk.hex()
+                event_original += chunk.hex()
                 if not chunk:
-                    break                  
+                    break
                 hash.update(chunk)
-        d[hash_type]=hash.hexdigest()
+        d[hash_type] = hash.hexdigest()
 
-
-        
-        mimetype = mimetypes.guess_file_type(f.filename) 
+        mimetype = mimetypes.guess_file_type(f.filename)
         guessed_mimetype = mimetype[0] if mimetype[0] is not None else "file/unknown"
         d["guessed_mimetype"] = guessed_mimetype
-        event_code=str()
+        event_code = str()
 
-        timestamp = datetime.datetime(*d["date_time"], tzinfo=datetime.timezone.utc).isoformat()
-        d["date_time"] = str(d["date_time"])        
-        
+        timestamp = datetime.datetime(
+            *d["date_time"], tzinfo=datetime.timezone.utc).isoformat()
+        d["date_time"] = str(d["date_time"])
+
         # if keep_file is false, discard original files and only keep raw metadata
-        if not self._custom_params.get("keep_files"):
+        if not self._plugin_params.custom_parameters.get("keep_files"):
             event_original = json.dumps(d)
 
-        #apply mappings
-        final={}
-        for k,v in muty.json.flatten_json(d).items():
+        # apply mappings
+        final = {}
+        for k, v in muty.json.flatten_json(d).items():
             mapped = self._process_key(k, v)
             final.update(mapped)
 
@@ -137,7 +139,8 @@ class Plugin(GulpPluginBase):
             timestamp=timestamp,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **final,
         )
 
@@ -180,22 +183,23 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        password=self._custom_params.get("password")
-        encoding=self._custom_params.get("encoding")
-        hash_type=self._custom_params.get("hash_type")
-        chunk_size=self._custom_params.get("chunk_size")
+        password = self._plugin_params.custom_parameters.get("password")
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        hash_type = self._plugin_params.custom_parameters.get("hash_type")
+        chunk_size = self._plugin_params.custom_parameters.custom_parameters.custom_parameters.get(
+            "chunk_size")
         doc_idx = 0
         try:
-            d={}
+            d = {}
             with zipfile.ZipFile(file_path) as zip:
                 for f in zip.filelist:
                     try:
                         await self.process_record(
-                            f, doc_idx, 
-                            flt=flt, 
-                            zip=zip, 
-                            file=f, 
-                            encoding=encoding, 
+                            f, doc_idx,
+                            flt=flt,
+                            zip=zip,
+                            file=f,
+                            encoding=encoding,
                             password=password,
                             hash_type=hash_type,
                             chunk_size=chunk_size
@@ -203,7 +207,7 @@ class Plugin(GulpPluginBase):
                     except (RequestCanceledError, SourceCanceledError) as expand_lists:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
-                    
+
                     doc_idx += 1
         except Exception as ex:
             await self._source_failed(ex)

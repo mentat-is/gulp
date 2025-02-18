@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -50,7 +50,6 @@ class Plugin(GulpPluginBase):
                     """,
                 required=True,
             ),
-
             GulpPluginCustomParameter(
                 name="username",
                 type="str",
@@ -59,7 +58,6 @@ class Plugin(GulpPluginBase):
                     """,
                 default_value=None,
             ),
-
             GulpPluginCustomParameter(
                 name="password",
                 type="str",
@@ -68,7 +66,6 @@ class Plugin(GulpPluginBase):
                     """,
                 default_value=None,
             ),
-
             GulpPluginCustomParameter(
                 name="index",
                 type="str",
@@ -77,7 +74,6 @@ class Plugin(GulpPluginBase):
                     """,
                 required=True,
             ),
-
             GulpPluginCustomParameter(
                 name="offset_msec",
                 type="int",
@@ -87,7 +83,7 @@ class Plugin(GulpPluginBase):
                     - to subtract, use a negative offset.
                     """,
                 default_value=0,
-            ),            
+            ),
             GulpPluginCustomParameter(
                 name="timestamp_field",
                 type="str",
@@ -121,8 +117,9 @@ class Plugin(GulpPluginBase):
         # record is a dict
         doc: dict = record
 
-        offset_msec: int = self._custom_params.get("offset_msec", 0)
-        timestamp_field: str = self._custom_params.get(
+        offset_msec: int = self._plugin_params.custom_parameters.get(
+            "offset_msec", 0)
+        timestamp_field: str = self._plugin_params.custom_parameters.get(
             "timestamp_field", "@timestamp")
 
         # get context and source
@@ -175,6 +172,7 @@ class Plugin(GulpPluginBase):
         # MutyLogger.get_instance().debug(d)
         return d
 
+    @override
     async def query_external(
         self,
         sess: AsyncSession,
@@ -182,18 +180,21 @@ class Plugin(GulpPluginBase):
         req_id: str,
         ws_id: str,
         operation_id: str,
-        index: Any,
         q: Any,
-        q_options: GulpQueryParameters,
+        plugin_params: GulpPluginParameters,
+        q_options: GulpQueryParameters = None,
+        index: str = None,
     ) -> tuple[int, int]:
-
-        await super().query_external(sess, user_id, req_id, ws_id, index, q, q_options)
+        await super().query_external(sess, user_id, req_id, ws_id, operation_id, q, plugin_params, q_options, index)
 
         # connect
-        is_elasticsearch = self._custom_params.get("is_elasticsearch")
-        uri = q_options.external_parameters.uri
-        user = q_options.external_parameters.username
-        password = q_options.external_parameters.password
+        is_elasticsearch = self._plugin_params.custom_parameters.get(
+            "is_elasticsearch")
+        uri = self._plugin_params.custom_parameters["uri"]
+        user = self._plugin_params.custom_parameters["username"]
+        password = self._plugin_params.custom_parameters["password"]
+        query_index = self._plugin_params.custom_parameters["index"]
+
         MutyLogger.get_instance().info(
             "connecting to %s, is_elasticsearch=%r, user=%s"
             % (uri, is_elasticsearch, user)
@@ -229,7 +230,7 @@ class Plugin(GulpPluginBase):
                 req_id=req_id,
                 ws_id=ws_id,
                 q=q,
-                index=index,
+                index=query_index,
                 q_options=q_options,
                 el=cl,
                 callback=self.process_record,

@@ -71,7 +71,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         default_factory=list,
         doc="The errors that occurred during processing.",
     )
-    # TODO: consider to remove this column and convert "status" as a String column instead, to ease comparison
+    # TODO: consider to remove this column and convert "status" to a String column instead, to ease comparison
     completed: Mapped[Optional[str]] = mapped_column(
         String,
         default="0",

@@ -3,10 +3,13 @@ from typing import Any, override
 
 import muty.crypto
 import muty.json
-import muty.time
 import muty.os
+import muty.time
+import pefile
+import peutils
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -19,8 +22,7 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("pefile", ">=2024.8.26")
-import pefile
-import peutils
+
 
 class Plugin(GulpPluginBase):
     """
@@ -72,52 +74,56 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        
+
         record: pefile.PE = record
         relos: str = kwargs.get("include_relocations")
         entropy_checks: str = kwargs.get("entropy_checks")
-        keep_files: bool = self._custom_params.get("keep_files")
-        keep_warnings: bool = self._custom_params.get("keep_warnings")
+        keep_files: bool = self._plugin_params.custom_parameters.get(
+            "keep_files")
+        keep_warnings: bool = self._plugin_params.custom_parameters.get(
+            "keep_warnings")
 
-        d=record.dump_dict()
+        d = record.dump_dict()
         if entropy_checks:
             d["peutils.is_suspicious"] = peutils.is_suspicious(record)
-            d["peutils.is_probably_packed"] = peutils.is_probably_packed(record)
+            d["peutils.is_probably_packed"] = peutils.is_probably_packed(
+                record)
             d["peutils.is_valid"] = peutils.is_valid(record)
-    
+
         if not relos:
             del d["Base relocations"]
 
         if not keep_warnings:
             del d["Parsing Warnings"]
 
-        event_original=str(d)
+        event_original = str(d)
         if keep_files:
-            event_original=memoryview(record.__data__).hex() 
+            event_original = memoryview(record.__data__).hex()
 
         def pretty(s):
             return s.lower().replace(" ", "_")
 
-        #apply mappings
-        final={}
-        for k,v in muty.json.flatten_json(d, normalize=pretty, expand_lists=False).items():
+        # apply mappings
+        final = {}
+        for k, v in muty.json.flatten_json(d, normalize=pretty, expand_lists=False).items():
             if isinstance(v, bytes):
-                v=v.encode("utf8")
+                v = v.encode("utf8")
             mapped = self._process_key(str(k), str(v))
             final.update(mapped)
 
         if record.is_dll():
-            event_code=muty.crypto.hash_xxh64("dll")
+            event_code = muty.crypto.hash_xxh64("dll")
         elif record.is_driver():
-            event_code=muty.crypto.hash_xxh64("driver")
+            event_code = muty.crypto.hash_xxh64("driver")
         elif record.is_exe():
-            event_code=muty.crypto.hash_xxh64("exe")
+            event_code = muty.crypto.hash_xxh64("exe")
         else:
-            event_code=muty.crypto.hash_xxh64("pe")
+            event_code = muty.crypto.hash_xxh64("pe")
 
         timestamp = d["FILE_HEADER"]["TimeDateStamp"]["Value"].split(" ")[0]
         timestamp = int(timestamp, 0)
-        timestamp = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc).isoformat()
+        timestamp = datetime.datetime.fromtimestamp(
+            timestamp, tz=datetime.timezone.utc).isoformat()
 
         return GulpDocument(
             self,
@@ -128,7 +134,8 @@ class Plugin(GulpPluginBase):
             timestamp=timestamp,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **final,
         )
 
@@ -171,24 +178,26 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        relos=self._custom_params.get("include_relocations")
-        entropy_check=self._custom_params.get("entropy_checks")
+        relos = self._plugin_params.custom_parameters.get(
+            "include_relocations")
+        entropy_check = self._plugin_params.custom_parameters.get(
+            "entropy_checks")
 
         doc_idx = 0
         try:
-            d={}
+            d = {}
             with pefile.PE(file_path) as pe:
                 try:
                     await self.process_record(
-                        pe, doc_idx, 
-                        flt=flt, 
+                        pe, doc_idx,
+                        flt=flt,
                         include_relocations=relos,
                         entropy_checks=entropy_check
                     )
                 except (RequestCanceledError, SourceCanceledError) as expand_lists:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)
-                
+
                 doc_idx += 1
         except Exception as ex:
             await self._source_failed(ex)

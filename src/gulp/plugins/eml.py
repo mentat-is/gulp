@@ -1,17 +1,18 @@
 import email
 import os
+from email.message import Message
 from typing import Any, override
 
 import aiofiles
+import muty.crypto
 import muty.dict
 import muty.json
 import muty.os
 import muty.string
 import muty.time
-import muty.crypto
-from email.message import Message
-from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -87,13 +88,15 @@ class Plugin(GulpPluginBase):
         if event.is_multipart():
             email_dict["email.is_multipart"] = True
             for part in event.walk():
-                msg = part.get_payload(decode=self._custom_params.get("decode"))
+                msg = part.get_payload(
+                    decode=self._plugin_params.custom_parameters.get("decode"))
                 enc = part.get_content_charset()
 
                 if msg is None:
                     msg = ""
 
-                email_dict["email.parts"].append(self._normalize_value(msg, enc))
+                email_dict["email.parts"].append(
+                    self._normalize_value(msg, enc))
         else:
             msg = event.get_payload(decode=True)
             enc = event.get_content_charset()
@@ -122,7 +125,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=str(event),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 

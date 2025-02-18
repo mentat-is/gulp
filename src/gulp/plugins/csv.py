@@ -8,6 +8,7 @@ import muty.string
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -103,7 +104,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -150,7 +152,7 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        delimiter = self._custom_params.get("delimiter", ",")
+        delimiter = self._plugin_params.custom_parameters.get("delimiter", ",")
         doc_idx = 0
         try:
             async with aiofiles.open(

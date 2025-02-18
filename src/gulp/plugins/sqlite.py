@@ -2,13 +2,15 @@ import os
 import string
 from typing import Any, override
 
+import aiosqlite
+import muty.crypto
 import muty.dict
 import muty.os
 import muty.string
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
-import muty.crypto
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -21,7 +23,6 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("aiosqlite", ">=0.20.0")
-import aiosqlite
 
 
 class Plugin(GulpPluginBase):
@@ -117,7 +118,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=str(record),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -204,14 +206,18 @@ class Plugin(GulpPluginBase):
                 tables_to_map.append(m)
 
             # get custom parameters
-            encryption_key: str = self._custom_params.get("encryption_key")
-            key_type: str = self._custom_params.get("key_type")
-            queries: dict = self._custom_params.get("queries")
+            encryption_key: str = self._plugin_params.custom_parameters.get(
+                "encryption_key")
+            key_type: str = self._plugin_params.custom_parameters.get(
+                "key_type")
+            queries: dict = self._plugin_params.custom_parameters.get(
+                "queries")
 
             # check if key_type is supported
             if key_type.lower() not in ["key", "textkey", "hexkey"]:
                 MutyLogger.get_instance().warning(
-                    "unsupported key type %s, defaulting to 'key'" % (key_type,)
+                    "unsupported key type %s, defaulting to 'key'" % (
+                        key_type,)
                 )
                 key_type = "key"
 
@@ -277,7 +283,8 @@ class Plugin(GulpPluginBase):
                         for row in await cur.fetchall():
                             # print(f"gulp.sqlite.{db_name}.{table}.{column} = {value}")
                             d: dict = {}
-                            d["gulp.sqlite.db.name"] = os.path.basename(file_path)
+                            d["gulp.sqlite.db.name"] = os.path.basename(
+                                file_path)
                             d["gulp.sqlite.db.table.name"] = table
 
                             # use this mapping id

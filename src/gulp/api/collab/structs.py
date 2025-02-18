@@ -1284,7 +1284,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         nested: bool = False,
     ) -> list[dict]:
         """
-        helper to get objects by filter, handling session
+        helper to get objects by filter, handling session and checking ACL for each returned object (based on token permission)
 
         Args:
             token (str): The user token.

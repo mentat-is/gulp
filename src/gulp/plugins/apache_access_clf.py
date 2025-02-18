@@ -59,7 +59,7 @@ class Plugin(GulpPluginBase):
         matches: re.Match = pattern.match(record.strip("\n"))
         if not matches:
             return None
-            
+
         event = {
             name: matches.group(name) if matches.groups(name) else None
             for name in ["host", "user", "datetime", "date", "timezone",
@@ -79,7 +79,7 @@ class Plugin(GulpPluginBase):
         # map timestamp manually
         time_str = event.pop("datetime")
         d["@timestamp"] = datetime.datetime.strptime(
-            time_str, self._custom_params.get(
+            time_str, self._plugin_params.custom_parameters.get(
                 "date_format", "%d/%b/%Y:%H:%M:%S %z")
         ).isoformat()
 
@@ -92,7 +92,7 @@ class Plugin(GulpPluginBase):
         for pk, pv in query.items():
             if not pk:
                 pk = f"null_param_key_{null_param_key}"
-                null_param_key+=1
+                null_param_key += 1
             k = "gulp.http.query.params.%s" % (pk)
             mapped = self._process_key(k, pv)
             d.update(mapped)

@@ -1720,7 +1720,7 @@ class GulpOpenSearch:
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         raise_on_error: bool = True,
-    ) -> list[dict]:
+    ) -> tuple[int, list[dict], list[dict]]:
         """
         Executes a raw DSL query on OpenSearch/Elasticsearch and returns the results.
 

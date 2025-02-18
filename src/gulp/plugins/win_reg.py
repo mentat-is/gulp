@@ -8,8 +8,11 @@ import muty.json
 import muty.os
 import muty.string
 import muty.time
+from construct.core import EnumInteger
 from muty.log import MutyLogger
+from regipy.registry import RegistryHive, Subkey
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -19,14 +22,9 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import (
-    GulpPluginCustomParameter,
-    GulpPluginParameters,
-)
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
-from regipy.registry import RegistryHive, Subkey
-from construct.core import EnumInteger
 
 
 class Plugin(GulpPluginBase):
@@ -132,7 +130,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=str(record),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -178,11 +177,13 @@ class Plugin(GulpPluginBase):
         try:
             hive = RegistryHive(
                 file_path,
-                hive_type=self._custom_params.get("partial_hive_type"),
-                partial_hive_path=self._custom_params.get("partial_hive_path"),
+                hive_type=self._plugin_params.custom_parameters.get(
+                    "partial_hive_type"),
+                partial_hive_path=self._plugin_params.custom_parameters.get(
+                    "partial_hive_path"),
             )
             for entry in hive.recurse_subkeys(
-                as_json=True, path_root=self._custom_params.get("path")
+                as_json=True, path_root=self._plugin_params.custom_parameters.get("path")
             ):
 
                 if len(entry.values) < 1:

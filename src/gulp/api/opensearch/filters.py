@@ -380,6 +380,6 @@ include documents matching the given `gulp.source_id`/s.
                 self.context_ids,
                 self.source_ids,
                 self.event_codes,
-                self.doc_ids,
+                self.doc_ids,                
             ]
         )

@@ -11,15 +11,16 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from ipwhois import IPWhois
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("ipwhois", ">=1.3.0")
-from ipwhois import IPWhois
 
 
 class Plugin(GulpPluginBase):
@@ -263,13 +264,15 @@ class Plugin(GulpPluginBase):
                     {"range": {field: {"gte": "172.16.0.0", "lte": "172.31.255.255"}}},
                     {
                         "range": {
-                            field: {"gte": "192.168.0.0", "lte": "192.168.255.255"}
+                            field: {"gte": "192.168.0.0",
+                                    "lte": "192.168.255.255"}
                         }
                     },
                     {"range": {field: {"gte": "127.0.0.0", "lte": "127.255.255.255"}}},
                     {
                         "range": {
-                            field: {"gte": "169.254.0.0", "lte": "169.254.255.255"}
+                            field: {"gte": "169.254.0.0",
+                                    "lte": "169.254.255.255"}
                         }
                     },
                     {"range": {field: {"gte": "224.0.0.0", "lte": "239.255.255.255"}}},
@@ -305,7 +308,8 @@ class Plugin(GulpPluginBase):
 
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         dd = []
-        host_fields = self._custom_params.get("host_fields", [])
+        host_fields = self._plugin_params.custom_parameters.get(
+            "host_fields", [])
         # MutyLogger.get_instance().debug("host_fields: %s, num_docs=%d" % (host_fields, len(docs)))
         for doc in docs:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
@@ -337,23 +341,18 @@ class Plugin(GulpPluginBase):
         user_id: str,
         req_id: str,
         ws_id: str,
+        operation_id: str,
         index: str,
-        flt: GulpQueryFilter,
+        flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> None:
         # parse custom parameters
-        self._parse_custom_parameters(plugin_params)
-
-        if flt:
-            # convert filter to opensearch dsl
-            q = flt.to_opensearch_dsl()
-        else:
-            # match all
-            q = {"query": {"match_all": {}}}
+        self._initialize(plugin_params)
 
         # build queries for each host field that match non-private IP addresses (both v4 and v6)
-        host_fields = self._custom_params.get("host_fields", [])
+        host_fields = self._plugin_params.custom_parameters.get(
+            "host_fields", [])
         qq = {
             "query": {
                 "bool": {
@@ -363,13 +362,12 @@ class Plugin(GulpPluginBase):
             }
         }
         for host_field in host_fields:
-            qq["query"]["bool"]["should"].append(self._build_ip_query(host_field))
+            qq["query"]["bool"]["should"].append(
+                self._build_ip_query(host_field))
 
-        # merge provided query (to pre-filter data, i.e. on time range) with the IP address queries
-        qq = GulpQueryHelpers.merge_queries(q, qq)
-        MutyLogger.get_instance().debug("query: %s" % qq)
+        # MutyLogger.get_instance().debug("query: %s" % qq)
         await super().enrich_documents(
-            sess, user_id, req_id, ws_id, index, flt, plugin_params, rq=qq
+            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
         )
 
     @override
@@ -377,10 +375,11 @@ class Plugin(GulpPluginBase):
         self,
         sess: AsyncSession,
         doc_id: str,
+        operation_id: str,
         index: str,
         plugin_params: GulpPluginParameters,
     ) -> dict:
 
         # parse custom parameters
-        self._parse_custom_parameters(plugin_params)
-        return await super().enrich_single_document(sess, doc_id, index, plugin_params)
+        self._initialize(plugin_params)
+        return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)

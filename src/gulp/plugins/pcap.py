@@ -1,3 +1,8 @@
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.api.opensearch.structs import GulpDocument
+from scapy.packet import Raw
+from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
 import json
 import os
 import pathlib
@@ -14,6 +19,7 @@ import muty.string
 import muty.time
 import muty.xml
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
@@ -22,15 +28,8 @@ from gulp.api.collab.stats import (
 )
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from sqlalchemy.ext.asyncio import AsyncSession
 
 muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
-from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
-from scapy.packet import Raw
-
-from gulp.api.opensearch.structs import GulpDocument
-from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -77,7 +76,8 @@ class Plugin(GulpPluginBase):
             d[layer_name] = {}
 
             # get field names and map attributes
-            field_names = [field.name for field in p.getlayer(layer_name).fields_desc]
+            field_names = [field.name for field in p.getlayer(
+                layer_name).fields_desc]
 
             # MutyLogger.get_instance().debug(f"Dissecting layer: {layer_name}")
             # MutyLogger.get_instance().debug(f"Field names: {field_names}")
@@ -85,7 +85,8 @@ class Plugin(GulpPluginBase):
             fields = {}
             for field_name in field_names:
                 try:
-                    fields[field_name] = getattr(p.getlayer(layer_name), field_name)
+                    fields[field_name] = getattr(
+                        p.getlayer(layer_name), field_name)
                     # MutyLogger.get_instance().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
                 except Exception as ex:
                     # skip fields that cannot be accessed
@@ -149,7 +150,8 @@ class Plugin(GulpPluginBase):
 
         # normalize timestamp
         normalized: float = record.time.normalize(20)
-        ts: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
+        ts: str = str(
+            muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
         d["@timestamp"] = ts
 
         # print(f"TEST IS {dir(event_code)}")
@@ -162,7 +164,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record.build().hex(),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -205,7 +208,7 @@ class Plugin(GulpPluginBase):
             return GulpRequestStatus.FAILED
 
         try:
-            file_format = self._custom_params.get("format")
+            file_format = self._plugin_params.custom_parameters.get("format")
             if file_format is None:
                 # attempt to get format from source name (TODO: do it by checking bytes header instead?)
                 file_format = pathlib.Path(file_path).suffix.lower()[1:]
@@ -220,7 +223,8 @@ class Plugin(GulpPluginBase):
                 file_format = "pcap"
 
             MutyLogger.get_instance().debug(
-                "detected file format: %s for file %s" % (file_format, file_path)
+                "detected file format: %s for file %s" % (
+                    file_format, file_path)
             )
 
             MutyLogger.get_instance().debug("parsing file: %s" % (file_path))

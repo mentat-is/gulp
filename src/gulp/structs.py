@@ -116,6 +116,11 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         description="this is used to override the websocket chunk size for the request, which is normally taken from configuration 'documents_chunk_size'.",
     )
 
+    custom_parameters: Optional[dict] = Field(
+        {},
+        description="additional custom parameters for the plugin.",
+    )
+
     def is_empty(self) -> bool:
         """
         a mapping is empty if mappings or mapping_file or mapping_id is empty
@@ -127,7 +132,7 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
             self.mappings is not None
             or self.mapping_file is not None
             or self.override_chunk_size is not None
-            or len(self.model_extra) > 0
+            or len(self.custom_parameters) > 0
         ):
             return False
         return True
@@ -135,26 +140,28 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
 
 class GulpPluginCustomParameter(GulpAPIParameter):
     """
-    this is used by the UI through the plugin.options() method to list the supported options, and their types, for a plugin.
+    this is used by the UI through `plugin_list` API, which calls each plugin `custom_parameters()` entrypoint to get custom parameters name/type/description/default if defined.
 
-    `name` may also be a key in the `GulpPluginParameters.model_extra` field, to list additional parameters specific for the plugin.
+    to pass custom parameters to a plugin, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary: 
 
-    when passed via GulpPluginParameters.model_extra, they may be accessed through the `GulpPlugin._custom_params` field once the plugin is initialized, i.e.
-
-    GulpPluginParmeters: 
-
+    ~~~js
     {
+        // example GulpPluginParameters
         "mapping_file": "mftecmd_csv.json",
         "mappings": { "record": { "fields": { "timestamp": { "type": "datetime" } } } },
         "mapping_id": "record",
-        "some_custom_param": "some_value",
-        "some_custom_param_2": "some_value_2"
+        "custom_parameters": {
+            "some_custom_param": "some_value",
+            "some_custom_param_2": "some_value_2"
+        }
     }
+    ~~~
 
-    in the plugin code, after GulpPlugin._initialize() has been called, the custom parameters can be accessed through the _custom_params field:
+    after `_initialize()` is called, the custom parameters will be available in `self._plugin_params.custom_parameters` field.
 
-    self._custom_params["some_custom_param"] # "some_value"
-
+    ~~~python
+    v = self._plugin_params.custom_parameters["some_custom_param"]
+    ~~~
     """
 
     model_config = ConfigDict(

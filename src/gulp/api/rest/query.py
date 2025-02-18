@@ -33,6 +33,7 @@ from gulp.api.ws_api import (
 )
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
+from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
 
@@ -61,6 +62,8 @@ async def _query_internal(
     index: str,
     q: Any,
     q_options: GulpQueryParameters,
+    plugin: str,
+    plugin_params: GulpPluginParameters,
     flt: GulpQueryFilter,
 ) -> int:
     """
@@ -70,9 +73,9 @@ async def _query_internal(
     mod: GulpPluginBase = None
 
     try:
-        if q_options.external_parameters.plugin:
+        if plugin:
             # external query, load plugin (it is guaranteed to be the same for all queries)
-            mod = await GulpPluginBase.load(q_options.external_parameters.plugin)
+            mod = await GulpPluginBase.load(plugin)
 
         async with GulpCollab.get_instance().session() as sess:
             # MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
@@ -96,9 +99,10 @@ async def _query_internal(
                     req_id=req_id,
                     ws_id=ws_id,
                     operation_id=operation_id,
-                    index=index,
                     q=q,
+                    plugin_params=plugin_params,
                     q_options=q_options,
+                    index=index,
                 )
 
     except Exception as ex:
@@ -128,6 +132,9 @@ async def _worker_coro(kwds: dict):
     ws_id: str = kwds["ws_id"]
     index: str = kwds["index"]
     flt: GulpQueryFilter = kwds["flt"]
+    plugin: str = kwds.get("plugin")
+    plugin_params: GulpPluginParameters = kwds.get("plugin_params")
+
     try:
         for gq in queries:
 
@@ -152,8 +159,11 @@ async def _worker_coro(kwds: dict):
                 index=index,
                 q=gq.q,
                 q_options=q_opt,
+                plugin=plugin,
+                plugin_params=plugin_params,
                 flt=flt,
             )
+
             tasks.append(
                 GulpProcess.get_instance().process_pool.apply(_query_internal, kwds=d)
             )
@@ -216,7 +226,9 @@ async def _spawn_query_group_workers(
     operation_id: str,
     index: str,
     queries: list[GulpQuery],
-    q_options: GulpQueryParameters,
+    q_options: GulpQueryParameters = None,
+    plugin: str = None,
+    plugin_params: GulpPluginParameters = None,
     flt: GulpQueryFilter = None,
 ) -> None:
     """
@@ -231,6 +243,8 @@ async def _spawn_query_group_workers(
         index=index,
         queries=queries,
         q_options=q_options,
+        plugin=plugin,
+        plugin_params=plugin_params,
         flt=flt,
     )
 
@@ -292,7 +306,7 @@ async def query_raw_handler(
     ],
     q_options: Annotated[
         GulpQueryParameters,
-        Depends(APIDependencies.param_query_additional_parameters_optional),
+        Depends(APIDependencies.param_q_options),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -305,9 +319,6 @@ async def query_raw_handler(
             raise ValueError(
                 "if more than one query is provided, `q_options.group` must be set."
             )
-
-        if q_options.external_parameters.plugin:
-            raise ValueError("use query_external for external queries")
 
         async with GulpCollab.get_instance().session() as sess:
             permission = GulpUserPermission.READ
@@ -333,7 +344,6 @@ async def query_raw_handler(
             index=op.index,
             queries=queries,
             q_options=q_options,
-            flt=None,
         )
 
         # and return pending
@@ -365,7 +375,7 @@ async def query_raw_handler(
 query an external source using the target source query language, and optionally ingest data back into gulp.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
-- at least `q_options.external_parameters.plugin` (the plugin to handle the external query) must be set.
+- `plugin_params.custom_parameters` must include all the parameters needed to connect to the external source.
 - token must have `ingest` permission if `ingest` is set.
 """,
 )
@@ -382,11 +392,13 @@ async def query_external_handler(
             ],
         ),
     ],
+    plugin: Annotated[str, Query(description="the plugin implementing `query_external` to handle the external query.")],
+    plugin_params: Annotated[GulpPluginParameters, Body(description="parameters for the external plugin.")],
     ingest: Annotated[Optional[bool], Query(
         description="set to `True` to ingest data into gulp operation's index.")] = False,
     q_options: Annotated[
         GulpQueryParameters,
-        Depends(APIDependencies.param_query_additional_parameters_optional),
+        Depends(APIDependencies.param_q_options),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -395,10 +407,6 @@ async def query_external_handler(
     ServerUtils.dump_params(params)
 
     try:
-        if not q_options.external_parameters.plugin:
-            raise ValueError(
-                "q_options.external_parameters.plugin must be set!")
-
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
             if ingest:
@@ -430,7 +438,8 @@ async def query_external_handler(
             index=index if ingest else None,
             queries=queries,
             q_options=q_options,
-            flt=None,
+            plugin=plugin,
+            plugin_params=plugin_params
         )
 
         # and return pending
@@ -488,7 +497,7 @@ async def query_sigma_handler(
     ],
     q_options: Annotated[
         GulpQueryParameters,
-        Depends(APIDependencies.param_query_additional_parameters_optional),
+        Depends(APIDependencies.param_q_options),
     ] = None,
     flt: Annotated[
         GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
@@ -502,12 +511,6 @@ async def query_sigma_handler(
 
     mod = None
     try:
-        if not plugin:
-            raise ValueError("plugin must be set!")
-
-        if q_options.external_parameters.plugin:
-            raise ValueError("sigma not supported in external queries")
-
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
                 "if more than one query is provided, `q_options.group` must be set."

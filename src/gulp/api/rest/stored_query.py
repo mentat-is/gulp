@@ -42,7 +42,8 @@ creates a stored query.
 a stored query is a *reusable* query which may be shared with other users.
 
 - `token` needs `edit` permission.
-- if `text` is provided and it is a valid sigma rule, the sigma `id` is extracted from the rule and used as the stored query `id`.
+- `q` is either a YAML string if `q` is a `sigma rule` or a `JSON` string if `q` is a `gulp raw query`.
+- if `q` represents a `sigma rule`, `plugin` must be set to the plugin implementing `sigma_convert` to be used for conversion.
 """,
 )
 async def stored_query_create_handler(
@@ -50,7 +51,7 @@ async def stored_query_create_handler(
     name: Annotated[str, Depends(APIDependencies.param_display_name)],
     q: Annotated[
         str,
-        Body(description="a query as string."),
+        Body(description="a query as string, may be YAML (sigma rule) or JSON string (gulp raw query)."),
     ],
     q_groups: Annotated[
         Optional[list[str]],
@@ -83,13 +84,11 @@ async def stored_query_create_handler(
             "description": description,
             "glyph_id": glyph_id,
         }
-        q_id: str = None
         d = await GulpStoredQuery.create(
             token,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
             object_data=object_data,
-            id=q_id,
             private=private,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
@@ -126,8 +125,8 @@ async def stored_query_update_handler(
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)],
     q: Annotated[
-        list[str],
-        Body(description="one or more queries as string."),
+        str,
+        Body(description="a query as string, may be YAML (sigma rule) or JSON string (gulp raw query)."),
     ],
     q_groups: Annotated[
         Optional[list[str]],

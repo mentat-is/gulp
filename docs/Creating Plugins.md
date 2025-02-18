@@ -17,7 +17,7 @@
   - [extension plugins](#extension-plugins-1)
 - [addendum: query using sigma rules](#addendum-query-using-sigma-rules)
   - [gulp](#gulp)
-  - [external plugins](#external-plugins-1)
+  - [external queries](#external-queries)
 
 # plugins
 
@@ -95,8 +95,8 @@ then depending on `type`, different entrypoints may be implemented:
 other optional entrypoints are:
 
 - `custom_parameters`: returned by the `plugin_list` API, this defines each custom parameter the plugin support and may be used by the UI to build a configurator for the plugin.
-  - they are available in each plugin after initialization via `self._custom_params`.
-  - they are passed in the `GulpPluginParameters.custom_parameters` dict as additional keys.
+  - they are passed to the plugin via `GulpPluginParameters.custom_parameters` dict.
+  - they are available to the plugin at runtime (after `_initialize` has been called)  via `self._plugin_params.custom_parameters`.
   
 - `tags`: returned by the `plugin_list` API, defines tags to categorize the plugin
 - `version`: the plugin version string
@@ -267,7 +267,7 @@ a preliminary example is [here](../src/gulp/plugins/enrich_example.py).
 
 ## mapping files
 
-`ingestion` and `external` plugins both support mapping files through [GulpPluginParameters](../src/gulp/structs.py) and [GulpQueryParameters.external_parameters.plugin_params](../src/gulp/api/opensearch/structs.py), to customize both ingested documents and/or documents returned from an `external` query.
+`ingestion` and `external` plugins both support mapping files through [GulpPluginParameters](../src/gulp/structs.py), to customize mapping for both ingested documents and/or documents returned from an `external` query.
 
 mapping files may be used standalone (i.e. with the `csv` plugin without having another plugin) or together with an existing one by setting parameters when the plugin calls `_initialize`.
 
@@ -412,8 +412,10 @@ we must setup [GulpQueryParameters.sigma_parameters.plugin](../src/gulp/api/open
 
 - look at [test_win_evtx](../tests/query.py) in the query tests for an example
 
-## external plugins
+## external queries
 
-to query an external plugin, we must fill the needed parameters (i.e. `username`, `password`, `uri`, `plugin`) in [GulpQueryParameters.external_parameters](../src/gulp/api/opensearch/structs.py) as well as [GulpQueryParameters.sigma_parameters.plugin](../src/gulp/api/opensearch/structs.py) to indicate the plugin used to perform the conversion (which may be the same as the one used for querying).
+to query an external source with an `external plugin`, we must fill the following in [GulpQueryParameters](../src/gulp/api/opensearch/structs.py)
+
+- `GulpQueryParameters.plugin_params.custom_parameters`: here we have the specific parameters for the plugin, including anything which could be needed to connect to the external source (i.e. `uri`, `username`, `password`, and such ).
 
 - look at [test_elasticsearch](../tests/query.py) in the query tests for an example

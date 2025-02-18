@@ -1,15 +1,17 @@
-import datetime, dateutil
+import datetime
 import os
 import re
 from typing import Any, override
 from urllib.parse import parse_qs, urlparse
 
 import aiofiles
+import dateutil
 import muty.string
 import muty.time
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -20,6 +22,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+
 
 class Plugin(GulpPluginBase):
     """
@@ -53,7 +56,7 @@ class Plugin(GulpPluginBase):
         date_format = kwargs.get("date_format")
         event: dict = {}
         fields = record.split(",")
-        
+
         # TODO: move compile regex outside _record_to_gulp_document (also in apache plugin)
         regex = "".join([
                 r"^(?P<remote_host>(.*)\s)-",
@@ -75,10 +78,11 @@ class Plugin(GulpPluginBase):
             "bytes_sent": matches["bytes_sent"]
         }
 
-        d={}
+        d = {}
         # map timestamp manually
         time_str = event.get("timestamp")
-        d["@timestamp"] = datetime.datetime.strptime(time_str, date_format).isoformat()
+        d["@timestamp"] = datetime.datetime.strptime(
+            time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -92,7 +96,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -114,8 +119,9 @@ class Plugin(GulpPluginBase):
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
 
-        date_format = self._custom_params.get("date_format", "%d/%b/%Y:%H:%M:%S %z")
-        #log_format = log_format.lower()
+        date_format = self._plugin_params.custom_parameters.get(
+            "date_format", "%d/%b/%Y:%H:%M:%S %z")
+        # log_format = log_format.lower()
         try:
             # if not plugin_params or plugin_params.is_empty():
             #     plugin_params = GulpPluginParameters(
@@ -145,9 +151,9 @@ class Plugin(GulpPluginBase):
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
                 async for l in log_src:
-                    #if log_format == "w3c" and l.startswith("#"):
-                        #TODO: parse header, skip other comments, is this needed/useful info, other than the fields part? 
-                        #continue 
+                    # if log_format == "w3c" and l.startswith("#"):
+                    # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
+                    # continue
 
                     try:
                         await self.process_record(l, doc_idx, flt=flt, date_format=date_format)

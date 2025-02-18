@@ -39,7 +39,7 @@ router: APIRouter = APIRouter()
 
 @router.post(
     "/request_cancel",
-    tags=["request"],
+    tags=["stats"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -87,8 +87,8 @@ async def request_cancel_handler(
 
 
 @router.post(
-    "/request_list",
-    tags=["request"],
+    "/stats_list",
+    tags=["stats"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
@@ -109,14 +109,17 @@ async def request_cancel_handler(
     description="""
 get a list of all requests (identified by their `req_id`) issued by the calling user.
 
-- if token has `admin` permission, all requests are returned.
-
+- if token has `admin` permission, requests from all users are returned (according to the `operation_id` filter).
 """,
 )
-async def request_list_handler(
+async def stats_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[
+        str, Query(description="optional ID of operation to filter requests by.")
+    ] = None,
     running_only: Annotated[
-        bool, Query(description="if set, only return requests that are still running.")
+        bool, Query(
+            description="if set, only return requests that are still running.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -125,15 +128,20 @@ async def request_list_handler(
     try:
         if running_only:
             # only return ongoing requests
-            flt = GulpCollabFilter(completed=["0"])            
+            flt = GulpCollabFilter(completed=["0"])
         else:
             # all requests
-            flt = None
-        
+            flt = GulpCollabFilter()
+
+        if operation_id:
+            # restrict to operation id
+            flt.operation_ids = [operation_id]
+
         stats: list[dict] = await GulpRequestStats.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=stats)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
+
 
 @router.post(
     "/restart_server",
@@ -156,7 +164,7 @@ async def request_list_handler(
     summary="""restart the server.
     """,
     description="""
-> WARNING: usage of this API is discouraged, properly restart the container is advised instead.
+> **WARNING**: usage of this API is discouraged, properly restart the container is advised instead.
 
 use i.e. to apply changes to the server configuration or plugins, or if the server gets slow or consumes too much memory.
 
@@ -552,7 +560,7 @@ async def trigger_gc_handler(
         await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
 
     MutyLogger.get_instance().info("triggering garbage collection ...")
-    d=muty.obj.trigger_gc_and_get_stats()
+    d = muty.obj.trigger_gc_and_get_stats()
     return JSendResponse.success(data=d, req_id=req_id)
 
 
@@ -891,7 +899,7 @@ async def plugin_upload_handler(
             extra_path = GulpConfig.get_instance().path_plugins_extra()
             if is_extension:
                 # extension plugins are in a subdirectory
-                extra_path = os.path.join(extra_path, "extension") 
+                extra_path = os.path.join(extra_path, "extension")
 
             file_path = muty.file.safe_path_join(extra_path, filename.lower())
             MutyLogger.get_instance().debug("saving plugin to: %s" % (file_path))

@@ -1,7 +1,10 @@
+import itertools
 import json
 import socket
-import aiohttp
 from typing import Any, Optional, override
+from urllib.parse import urlparse
+
+import aiohttp
 import muty.file
 import muty.json
 import muty.log
@@ -9,22 +12,22 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
-import itertools
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
-from gulp.config import GulpConfig
-from sqlalchemy.ext.asyncio import AsyncSession
-from urllib.parse import urlparse
+
 
 class Plugin(GulpPluginBase):
     """
     enric a file hash using circl.lu hash lookup API
     """
     class MissingAuthKey(Exception):
-        def __init__(self, message, errors):            
+        def __init__(self, message, errors):
             # Call the base class constructor with the parameters it needs
             super().__init__(message)
 
@@ -54,7 +57,8 @@ class Plugin(GulpPluginBase):
                 name="hash_fields",
                 type="list",
                 desc="a list of url fields to enrich.",
-                default_value=["".join(r) for r in itertools.product(["file.hash.", "hash."], ["md5", "sha1", "sha256", "sha512"])],
+                default_value=["".join(r) for r in itertools.product(
+                    ["file.hash.", "hash."], ["md5", "sha1", "sha256", "sha512"])],
             ),
             GulpPluginCustomParameter(
                 name="hash_type",
@@ -64,7 +68,7 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    async def _get_hash(self, hash: str, hash_type:str) -> Optional[dict]:
+    async def _get_hash(self, hash: str, hash_type: str) -> Optional[dict]:
         """
             Given a hash get info from circl.lu's db
         """
@@ -77,10 +81,11 @@ class Plugin(GulpPluginBase):
                     return None
 
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
-        hash_type = self._custom_params.get("hash_type")
-        
+        hash_type = self._plugin_params.custom_parameters.get("hash_type")
+
         dd = []
-        hash_fields = self._custom_params.get("hash_fields", [])
+        hash_fields = self._plugin_params.custom_parameters.get(
+            "hash_fields", [])
         for doc in docs:
             for hash_field in hash_fields:
                 f = doc.get(hash_field)
@@ -89,13 +94,14 @@ class Plugin(GulpPluginBase):
 
                 # no hash type was provided, attempt autodetection from field name
                 if not hash_type:
-                    supported_hashes = ["md5", "sha1", "sha256", "sha512"] #TODO check actual supported ones from circl.lu
-                    for s in supported_hashes: #TODO: this is prone to error, actually unpack fields "."s and check
+                    # TODO check actual supported ones from circl.lu
+                    supported_hashes = ["md5", "sha1", "sha256", "sha512"]
+                    for s in supported_hashes:  # TODO: this is prone to error, actually unpack fields "."s and check
                         if s in hash_field.lower():
                             hash_type = s
                             break
 
-                # append flattened data to the document                
+                # append flattened data to the document
                 hash_data = await self._get_hash(f, hash_type)
                 if hash_data:
                     for key, value in hash_data.items():
@@ -112,15 +118,17 @@ class Plugin(GulpPluginBase):
         user_id: str,
         req_id: str,
         ws_id: str,
+        operation_id: str,
         index: str,
-        q: dict = None,
-        q_options: GulpQueryParameters = None,
+        flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
-    ) -> None:
+        **kwargs,
+   ) -> None:
         # parse custom parameters
-        self._parse_custom_parameters(plugin_params)
+        self._initialize(plugin_params)
 
-        hash_fields = self._custom_params.get("hash_fields", [])
+        hash_fields = self._plugin_params.custom_parameters.get(
+            "hash_fields", [])
         qq = {
             "query": {
                 "bool": {
@@ -142,22 +150,20 @@ class Plugin(GulpPluginBase):
                 }
             )
 
-        if q:
-            # merge with provided query
-            qq = GulpQueryHelpers.merge_queries(q, qq)
-
+        # enrich
         await super().enrich_documents(
-            sess, user_id, req_id, ws_id, index, qq, q_options, plugin_params
+            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
         )
 
-    @ override
+    @override
     async def enrich_single_document(
         self,
         sess: AsyncSession,
         doc_id: str,
+        operation_id: str,
         index: str,
         plugin_params: GulpPluginParameters,
     ) -> dict:
         # parse custom parameters
-        self._parse_custom_parameters(plugin_params)
-        return await super().enrich_single_document(sess, doc_id, index, plugin_params)
+        self._initialize(plugin_params)
+        return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)

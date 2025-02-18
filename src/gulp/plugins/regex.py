@@ -10,6 +10,7 @@ import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Match
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -80,7 +81,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=line,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -127,7 +129,8 @@ class Plugin(GulpPluginBase):
             if not mappings:
                 mappings = {
                     "default": GulpMapping(
-                        fields={"timestamp": GulpMappingField(ecs="@timestamp")}
+                        fields={"timestamp": GulpMappingField(
+                            ecs="@timestamp")}
                     )
                 }
                 plugin_params.mappings = mappings
@@ -137,8 +140,9 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        regex = self._custom_params["regex"]
-        regex = re.compile(regex, self._custom_params["flags"])
+        regex = self._plugin_params.custom_parameters["regex"]
+        regex = re.compile(
+            regex, self._plugin_params.custom_parameters["flags"])
 
         # make sure we have at least 1 named group
         if regex.groups == 0:
