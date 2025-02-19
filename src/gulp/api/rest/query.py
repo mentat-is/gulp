@@ -67,7 +67,7 @@ async def _query_internal(
     plugin: str,
     plugin_params: GulpPluginParameters,
     flt: GulpQueryFilter,
-) -> tuple[int, Exception]:
+) -> tuple[int, Exception, str]:
     """
     runs in a worker process and perform a query, streaming results to the `ws_id` websocket
 
@@ -189,26 +189,30 @@ async def _worker_coro(kwds: dict):
             # res is a tuple (hits, exception)
             hits: int = 0
             ex: Exception = None
-            err: str = None            
-            hits, ex = r
+            q_name: str = None
+            err: str = None
+            hits, ex, q_name = r
+            MutyLogger.get_instance().debug(
+                "query %s matched %d hits, ex=%s" % (q_name, hits, ex)
+            )
             if hits > 0:
                 # we have a match
                 query_matched += 1
-                total_doc_matches += r
+                total_doc_matches += hits
             if ex:
                 # we have an error
                 err = muty.log.exception_to_string(ex, with_full_traceback=True)
                 errors.append(err)
-                
+
             # we send a query_done on the ws for each
             p = GulpQueryDonePacket(
                 status=GulpRequestStatus.DONE if not ex else GulpRequestStatus.FAILED,
-                errors=[err],
+                errors=[err] if err else None,
                 total_hits=hits,
                 name=q_name,
             )
             GulpSharedWsQueue.get_instance().put(
-                type=ws_queue_datatype,
+                type=GulpWsQueueDataType.QUERY_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
                 req_id=req_id,
@@ -255,7 +259,7 @@ async def _worker_coro(kwds: dict):
                 user_id=user_id,
                 hits=total_doc_matches,
                 errors=errors,
-                send_query_done=False
+                send_query_done=False,
             )
 
     finally:
@@ -431,10 +435,6 @@ async def query_external_handler(
             examples=[[{"query": {"match_all": {}}}]],
         ),
     ],
-    q_options: Annotated[
-        GulpQueryParameters,
-        Depends(APIDependencies.param_q_options),
-    ],
     plugin: Annotated[
         str,
         Query(
@@ -448,6 +448,10 @@ async def query_external_handler(
         Optional[bool],
         Query(description="set to `True` to ingest data into gulp operation's index."),
     ] = False,
+    q_options: Annotated[
+        GulpQueryParameters,
+        Depends(APIDependencies.param_q_options),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()

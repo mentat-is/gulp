@@ -680,6 +680,7 @@ class GulpOpenSearch:
             }
 
             # support for original event both as keyword and text
+            # keyword is case sensitive, text is not
             mappings["properties"]["event"]["properties"]["original"] = {
                 "type": "text",
                 "analyzer": "standard",
