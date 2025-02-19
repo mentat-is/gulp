@@ -19,6 +19,8 @@ class GulpAPIQuery:
         operation_id: str,
         context_id: str,
         source_id: str,
+        req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -26,8 +28,8 @@ class GulpAPIQuery:
             "operation_id": operation_id,
             "context_id": context_id,
             "source_id": source_id,
-            "ws_id": api_common.ws_id,
-            "req_id": api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
         }
 
         res = await api_common.make_request(
@@ -50,13 +52,14 @@ class GulpAPIQuery:
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
         req_id: str = None,
+        ws_id: str = None,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
             "plugin": plugin,
             "req_id": req_id or api_common.req_id,
-            "ws_id": api_common.ws_id,
+            "ws_id": ws_id or api_common.ws_id,
         }
         body = {
             "sigmas": sigmas,
@@ -126,7 +129,6 @@ class GulpAPIQuery:
         )
         return res
 
-
     @staticmethod
     async def query_single_id(
         token: str,
@@ -159,12 +161,13 @@ class GulpAPIQuery:
         q_options: GulpQueryParameters = None,
         expected_status: int = 200,
         req_id: str = None,
+        ws_id: str = None,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
             "req_id": req_id or api_common.req_id,
-            "ws_id": api_common.ws_id,
+            "ws_id": ws_id or api_common.ws_id,
         }
         body = {
             "q": q,
@@ -180,6 +183,55 @@ class GulpAPIQuery:
         res = await api_common.make_request(
             "POST",
             "query_raw",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
+    async def query_external(
+        token: str,
+        operation_id: str,
+        q: Any,
+        plugin: str,
+        q_options: GulpQueryParameters,
+        plugin_params: GulpPluginParameters = None,
+        ingest: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "ingest": ingest,
+            "plugin": plugin,
+            "req_id": req_id or api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+        }
+        body = {
+            "q": q,
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+            "plugin_params": (
+                plugin_params.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if plugin_params
+                else None
+            ),
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "query_external",
             params=params,
             body=body,
             token=token,

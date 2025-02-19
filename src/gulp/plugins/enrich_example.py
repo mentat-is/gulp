@@ -55,7 +55,7 @@ class Plugin(GulpPluginBase):
         q: dict = None,
         q_options: GulpQueryParameters = None,
         plugin_params: GulpPluginParameters = None,
-    ) -> None:
+    ) -> int:
         """
         example query:
         {
@@ -79,7 +79,7 @@ class Plugin(GulpPluginBase):
             }
         }
         """
-        await super().enrich_documents(
+        return await super().enrich_documents(
             sess, user_id, req_id, ws_id, index, q, q_options, plugin_params
         )
 

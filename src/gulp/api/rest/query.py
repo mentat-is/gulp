@@ -1,8 +1,9 @@
 import asyncio
 from asyncio import Task
 from copy import deepcopy
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, Union
 
+import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -27,6 +28,7 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
+    GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpSharedWsQueue,
     GulpWsQueueDataType,
@@ -42,15 +44,15 @@ id: 1a070ea4-87f4-467c-b1a9-f556c56b2449
 status: test
 description: Matches all events in the data source
 logsource:
-    category: *
-    product: *
+    category: '*'
+    product: '*'
 detection:
     selection:
         '*': '*'
     condition: selection
 falsepositives:
-    - 'This rule matches everything'
-level: info
+    - This rule matches everything
+level: informational
 """
 
 
@@ -65,11 +67,17 @@ async def _query_internal(
     plugin: str,
     plugin_params: GulpPluginParameters,
     flt: GulpQueryFilter,
-) -> int:
+) -> tuple[int, Exception]:
     """
     runs in a worker process and perform a query, streaming results to the `ws_id` websocket
+
+    Returns:
+        int: number of hits
+        Exception: if any
+        query_name: str
     """
     hits: int = 0
+    q_name: str = None
     mod: GulpPluginBase = None
 
     try:
@@ -81,7 +89,7 @@ async def _query_internal(
             # MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
             if not mod:
                 # local query, gq.q is a dict
-                _, hits = await GulpQueryHelpers.query_raw(
+                _, hits, q_name = await GulpQueryHelpers.query_raw(
                     sess=sess,
                     user_id=user_id,
                     req_id=req_id,
@@ -93,7 +101,7 @@ async def _query_internal(
                 )
             else:
                 # external query
-                _, hits = await mod.query_external(
+                _, hits, q_name = await mod.query_external(
                     sess=sess,
                     user_id=user_id,
                     req_id=req_id,
@@ -107,11 +115,12 @@ async def _query_internal(
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
+        return 0, ex, q_name
 
     finally:
         if mod:
             await mod.unload()
-    return hits
+    return hits, None, q_name
 
 
 async def _worker_coro(kwds: dict):
@@ -175,11 +184,41 @@ async def _worker_coro(kwds: dict):
         # check if all queries matched
         query_matched = 0
         total_doc_matches = 0
+        errors: list[str] = []
         for r in res:
-            if isinstance(r, int):
+            # res is a tuple (hits, exception)
+            hits: int = 0
+            ex: Exception = None
+            err: str = None            
+            hits, ex = r
+            if hits > 0:
+                # we have a match
                 query_matched += 1
                 total_doc_matches += r
+            if ex:
+                # we have an error
+                err = muty.log.exception_to_string(ex, with_full_traceback=True)
+                errors.append(err)
+                
+            # we send a query_done on the ws for each
+            p = GulpQueryDonePacket(
+                status=GulpRequestStatus.DONE if not ex else GulpRequestStatus.FAILED,
+                errors=[err],
+                total_hits=hits,
+                name=q_name,
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=ws_queue_datatype,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )
 
+        MutyLogger.get_instance().info(
+            "query group=%s matched %d/%d queries, total hits=%d"
+            % (q_options.group, query_matched, num_queries, total_doc_matches)
+        )
         if num_queries > 1 and query_matched == num_queries:
             # all queries in the group matched, update note tags with group name
             MutyLogger.get_instance().info(
@@ -189,7 +228,11 @@ async def _worker_coro(kwds: dict):
                 async with GulpCollab.get_instance().session() as sess:
                     # look for tags = query name and update them with the group name
                     await GulpNote.bulk_update_tags(
-                        sess, [q_opt.name], [q_options.group], operation_id=operation_id, user_id=user_id
+                        sess,
+                        [q_opt.name],
+                        [q_options.group],
+                        operation_id=operation_id,
+                        user_id=user_id,
                     )
             # and signal websocket
             p = GulpQueryGroupMatchPacket(
@@ -204,17 +247,17 @@ async def _worker_coro(kwds: dict):
             )
 
         # also update stats
-        d = dict(
-            status=(
-                GulpRequestStatus.DONE
-                if query_matched >= 1
-                else GulpRequestStatus.FAILED
-            )
-        )
         async with GulpCollab.get_instance().session() as sess:
-            await GulpRequestStats.update_by_id(
-                sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
+            await GulpRequestStats.finalize_query_stats(
+                sess,
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                hits=total_doc_matches,
+                errors=errors,
+                send_query_done=False
             )
+
     finally:
         tasks.clear()
         tasks = None
@@ -300,9 +343,7 @@ async def query_raw_handler(
         Body(
             description="""one or more queries according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 """,
-            examples=[
-                [{"query": {"match_all": {}}}]
-            ],
+            examples=[[{"query": {"match_all": {}}}]],
         ),
     ],
     q_options: Annotated[
@@ -326,16 +367,15 @@ async def query_raw_handler(
 
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, permission=permission, obj=op)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=op
+            )
             user_id = s.user_id
 
         queries: list[GulpQuery] = []
         for qq in q:
             # build query
-            gq = GulpQuery(
-                name=q_options.name,
-                q=qq
-            )
+            gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -385,26 +425,34 @@ async def query_external_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     q: Annotated[
-        Any,
+        list[Any],
         Body(
             description="""one or more queries according to the source language specifications.""",
-            examples=[
-                [{"query": {"match_all": {}}}]
-            ],
+            examples=[[{"query": {"match_all": {}}}]],
         ),
     ],
-    plugin: Annotated[str, Query(description="the plugin implementing `query_external` to handle the external query.")],
-    plugin_params: Annotated[GulpPluginParameters, Body(description="parameters for the external plugin.")],
-    ingest: Annotated[Optional[bool], Query(
-        description="set to `True` to ingest data into gulp operation's index.")] = False,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
+    ],
+    plugin: Annotated[
+        str,
+        Query(
+            description="the plugin implementing `query_external` to handle the external query."
+        ),
+    ],
+    plugin_params: Annotated[
+        GulpPluginParameters, Depends(APIDependencies.param_plugin_params_optional)
     ] = None,
+    ingest: Annotated[
+        Optional[bool],
+        Query(description="set to `True` to ingest data into gulp operation's index."),
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
     try:
@@ -419,17 +467,16 @@ async def query_external_handler(
 
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, permission=permission, obj=op)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=op
+            )
             user_id = s.user_id
             index = op.index
 
         queries: list[GulpQuery] = []
         for qq in q:
             # build query
-            gq = GulpQuery(
-                name=q_options.name,
-                q=qq
-            )
+            gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -440,7 +487,7 @@ async def query_external_handler(
             queries=queries,
             q_options=q_options,
             plugin=plugin,
-            plugin_params=plugin_params
+            plugin_params=plugin_params,
         )
 
         # and return pending
@@ -488,7 +535,12 @@ async def query_sigma_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    plugin: Annotated[str, Query(description="the plugin implementing `sigma_convert` to convert the sigma rule.")],
+    plugin: Annotated[
+        str,
+        Query(
+            description="the plugin implementing `sigma_convert` to convert the sigma rule."
+        ),
+    ],
     sigmas: Annotated[
         list[str],
         Body(
@@ -537,8 +589,7 @@ async def query_sigma_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(
-                s, plugin, plugin_params)
+            q: list[GulpQuery] = mod.sigma_convert(s, plugin, plugin_params)
             queries.extend(q)
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
@@ -572,9 +623,30 @@ async def query_sigma_handler(
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "pending",
+                        "status": "success",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": [
+                            {
+                                "q": {
+                                    "query": {
+                                        "bool": {
+                                            "must": [
+                                                {
+                                                    "query_string": {
+                                                        "query": "\\*:*",
+                                                        "analyze_wildcard": True,
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "name": "Match All Events",
+                                "sigma_id": "1a070ea4-87f4-467c-b1a9-f556c56b2449",
+                                "tags": [],
+                            }
+                        ],
                     }
                 }
             }
@@ -584,18 +656,25 @@ async def query_sigma_handler(
     description="""
 to be used to build i.e. raw queries for `query_external` API from [sigma rules](https://github.com/SigmaHQ/sigma).
 
-- use `plugin_params.custom_parameters` to customize the conversion, depending on the specific plugin options (i.e. `backend`, 'target query language`, ...)
+- use `plugin_params.custom_parameters` if needed to customize the conversion, depending on the specific plugin options (i.e. backend, target query language, ...)
 """,
 )
 async def sigma_convert_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    sigma: Annotated[str,
+    sigma: Annotated[
+        str,
         Body(
             description="the sigma rule YAML to be converted.",
             examples=[EXAMPLE_SIGMA_RULE],
         ),
     ],
-    plugin: Annotated[str, Query(description="the plugin implementing `sigma_convert` to convert the sigma rule.")],
+    plugin: Annotated[
+        str,
+        Query(
+            description="the plugin implementing `sigma_convert` to convert the sigma rule.",
+            example="win_evtx",
+        ),
+    ],
     plugin_params: Annotated[
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params_optional),
@@ -613,19 +692,19 @@ async def sigma_convert_handler(
 
         # convert sigma rule/s using pysigma
         mod = await GulpPluginBase.load(plugin)
-        q: list[GulpQuery] = mod.sigma_convert(
-            sigma, plugin, plugin_params)
+        q: list[GulpQuery] = mod.sigma_convert(sigma, plugin_params)
 
         l: list[dict] = []
-        for qq in q:    
+        for qq in q:
             l.append(qq.model_dump(exclude_none=True))
-        
+
         return JSONResponse(JSendResponse.success(req_id, data=l))
     except Exception as ex:
         raise JSendException(ex=ex, req_id=req_id)
     finally:
         if mod:
             await mod.unload()
+
 
 @router.post(
     "/query_single_id",
@@ -814,11 +893,13 @@ async def query_operations(
 
     try:
         # check token and get its accessible operations
-        ops: list[dict] = await GulpOperation.get_by_filter_wrapper(token, GulpCollabFilter())
+        ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
+            token, GulpCollabFilter()
+        )
         operations: list[dict] = []
         for o in ops:
             # get each op details by querying the associated index
-            d = await GulpOpenSearch.get_instance().query_operations(o['index'])
+            d = await GulpOpenSearch.get_instance().query_operations(o["index"])
             operations.extend(d)
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
@@ -826,8 +907,15 @@ async def query_operations(
         raise JSendException(ex=ex, req_id=req_id)
 
 
-async def _create_mapping_by_src_internal(index: str, operation_id: str,
-                                          context_id: str, source_id: str, user_id: str, req_id: str, ws_id: str) -> None:
+async def _create_mapping_by_src_internal(
+    index: str,
+    operation_id: str,
+    context_id: str,
+    source_id: str,
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+) -> None:
     """
     this runs in a worker process to create the fields mapping for a source.
     """
@@ -926,11 +1014,14 @@ async def query_fields_by_source_handler(
                         }
                     }
                 },
-                q_options=GulpQueryParameters(limit=1)
+                q_options=GulpQueryParameters(limit=1),
             )
 
             m = await GulpOpenSearch.get_instance().datastream_get_mapping_by_src(
-                sess, operation_id=operation_id, context_id=context_id, source_id=source_id
+                sess,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
             )
             if m:
                 # return immediately

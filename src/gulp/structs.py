@@ -72,15 +72,14 @@ class GulpPluginParameters(BaseModel):
             "examples": [
                 {
                     "mapping_file": "mftecmd_csv.json",
-                    "mappings": autogenerate_model_example_by_class(GulpMapping),
+                    "mappings": {
+                        "the_mapping_id": autogenerate_model_example_by_class(GulpMapping),
+                    },
                     "mapping_id": "record",
                     "additional_mapping_files": [
                         ("mftecmd_csv.json", "record"),
                         ("mftecmd_csv.json", "file"),
-                    ],
-                    # other custom parameters allowed as model_extra
-                    "custom1": "parameter1",
-                    "custom2": "parameter2",
+                    ]
                 }
             ]
         },

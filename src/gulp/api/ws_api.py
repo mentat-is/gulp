@@ -66,6 +66,8 @@ class GulpWsQueueDataType(StrEnum):
     QUERY_DONE = "query_done"
     # GulpQueryDonePacket
     ENRICH_DONE = "enrich_done"
+    # GulpQueryDonePacket
+    TAG_DONE = "tag_done"
     # GulpQueryGroupMatch
     QUERY_GROUP_MATCH = "query_group_match"
     # GulpRebaseDonePacket
@@ -197,7 +199,7 @@ class GulpQueryDonePacket(BaseModel):
                     "status": GulpRequestStatus.DONE,
                     "name": "the query name",
                     "total_hits": 100,
-                    "error": None,
+                    "errors": None,
                 }
             ]
         },
@@ -206,8 +208,8 @@ class GulpQueryDonePacket(BaseModel):
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."
     )
-    error: Optional[str] = Field(
-        None, description="The error message, if any.")
+    errors: Optional[list[str]] = Field(
+        None, description="The error message/s, if any.")
     total_hits: Optional[int] = Field(
         None, description="The total number of hits for the query."
     )
@@ -646,10 +648,10 @@ class GulpConnectedSocket:
         try:
             # Create tasks with names for better debugging
             self.send_task = asyncio.create_task(
-                self._send_loop(), name=f"send_loop_{self.ws_id}"
+                self._send_loop(), name=f"send_loop-{self.ws_id}"
             )
             self.receive_task = asyncio.create_task(
-                self._receive_loop(), name=f"receive_loop_{self.ws_id}"
+                self._receive_loop(), name=f"receive_loop-{self.ws_id}"
             )
             tasks.extend([self.send_task, self.receive_task])
 
@@ -835,15 +837,17 @@ class GulpConnectedSocket:
 
         except asyncio.CancelledError:
             MutyLogger.get_instance().warning(
-                f'---> canceled ws={self.ws}, ws_id={self.ws_id}, id_str={str(id(self.ws))}')
+                '---> canceled ws=%s, ws_id=%s, id_str=%s' % (self.ws, self.ws_id, str(id(self.ws))))
             raise
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().exception(
-                f'---> disconnected ws={self.ws}, ws_id={self.ws_id}, id_str={str(id(self.ws))}\n' % (ex))
+            MutyLogger.get_instance().warning(
+                '---> disconnected ws=%s, ws_id=%s, id_str=%s' % (self.ws, self.ws_id, str(id(self.ws))))
+            MutyLogger.get_instance().exception(ex)
             raise
         except Exception as ex:
             MutyLogger.get_instance().error(
-                f'---> error ws={self.ws}, ws_id={self.ws_id}, id_str={str(id(self.ws))}\n' % (ex))
+                '---> error ws=%s, ws_id=%s, id_str=%s' % (self.ws, self.ws_id, str(id(self.ws))))
+            MutyLogger.get_instance().exception(ex)
             raise
 
     def __str__(self):

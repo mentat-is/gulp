@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+import muty.log
 import muty.string
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
@@ -9,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpQueryFilter
-from gulp.structs import GulpPluginParameters, GulpSortOrder
+from gulp.structs import GulpSortOrder
 
 
 class GulpQuery(BaseModel):
@@ -126,7 +127,7 @@ class GulpQueryParameters(BaseModel):
                     "loop": True,
                     "note_parameters": autogenerate_model_example_by_class(
                         GulpQueryNoteParameters
-                    )
+                    ),
                 }
             ]
         },
@@ -161,7 +162,8 @@ the set of fields to include in the returned documents.
         description="""
 if set and `fields` is set, ensure the default fields (%s) are included in the returned documents (default=True).
 
-- for `external` queries, its the plugin responsibility to handle this.""" % (QUERY_DEFAULT_FIELDS),
+- for `external` queries, its the plugin responsibility to handle this."""
+        % (QUERY_DEFAULT_FIELDS),
     )
     limit: Optional[int] = Field(
         1000,
@@ -306,7 +308,7 @@ class GulpQueryHelpers:
         callback_args: dict = None,
         callback_chunk: callable = None,
         callback_chunk_args: dict = None,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, str]:
         """
         Perform a raw opensearch/elasticsearch DSL query using "search" API, streaming GulpDocumentChunk results to the websocket.
 
@@ -329,7 +331,7 @@ class GulpQueryHelpers:
                 async def callback_chunk(docs: list[dict], **kwargs) -> None
             callback_chunk_args (dict, optional): further arguments to pass to the callback_chunk. Defaults to None.
         Returns:
-            tuple[int, int]: the number of documents processed and the total number of documents found
+            tuple[int, int, str]: the number of documents processed, the total number of hits (they should be the same if all documents are processed), the query name.
         Raises:
             Exception: if an error occurs during the query
         """
@@ -363,7 +365,7 @@ class GulpQueryHelpers:
             callback_chunk=callback_chunk,
             callback_chunk_args=callback_chunk_args or {},
         )
-        return processed, total
+        return processed, total, q_options.name
 
     @staticmethod
     async def query_single(

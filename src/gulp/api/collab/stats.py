@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, GulpRequestStatus, T
-from gulp.api.ws_api import GulpWsQueueDataType
+from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
 from gulp.config import GulpConfig
 
 
@@ -99,6 +99,11 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         Integer,
         default=0,
         doc="The number of records that were ingested (may be more than records_processed: a single record may originate more than one record to be ingested).",
+    )
+    total_hits: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        default=0,
+        doc="The total number of hits for the query (used for search requests).",
     )
     __table_args__ = (Index("idx_stats_operation", "operation_id"),)
 
@@ -234,8 +239,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         ws_data=None,
         req_id=None,
     ):
-        raise NotImplementedError(
-            "Stats will be deleted by the system automatically.")
+        raise NotImplementedError("Stats will be deleted by the system automatically.")
 
     @classmethod
     async def update_by_id(
@@ -268,8 +272,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             MissingPermissionError: If the user does not have permission to update the object.
         """
         if d and updated_instance:
-            raise ValueError(
-                "only one of d or updated_instance should be provided")
+            raise ValueError("only one of d or updated_instance should be provided")
 
         n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
         try:
@@ -417,3 +420,68 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             req_id=self.id,
             updated_instance=self,
         )
+
+    @staticmethod
+    async def finalize_query_stats(
+        sess: AsyncSession,
+        req_id: str,
+        ws_id: str,
+        user_id: str,
+        q_name: str = None,
+        hits: int = 0,
+        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.QUERY_DONE,
+        errors: list[str] = None,
+        send_query_done: bool = True,
+    ) -> None:
+        """
+        sets the final status of a query stats
+
+        Args:
+            sess(AsyncSession): collab database session
+            req_id(str): the request id
+            ws_id(str): the websocket id
+            user_id(str): the user id
+            q_name(str, optional): the query name (default: None)
+            hits(int, optiona): the number of hits (default: 0)
+            ws_queue_datatype(GulpWsQueueDataType, optional): the websocket queue data type (default: GulpWsQueueDataType.QUERY_DONE)
+            errors(list[str], optional): the list of errors (default: None)
+            send_query_done(bool, optional): whether to send the query done packet to the websocket (default: True)
+        """
+        stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+            sess, req_id, throw_if_not_found=False
+        )
+        status: GulpRequestStatus = GulpRequestStatus.DONE
+
+        if stats and stats.status != GulpRequestStatus.CANCELED:
+            # set completed
+            stats.completed = "1"
+            stats.time_finished = muty.time.now_msec()
+            if hits >= 1:
+                stats.status = GulpRequestStatus.DONE
+            else:
+                stats.status = GulpRequestStatus.FAILED
+            if errors:
+                if not stats.errors:
+                    stats.errors = errors
+                else:
+                    stats.errors.extend(errors)
+            status = stats.status
+            stats.total_hits = hits
+            MutyLogger.get_instance().debug(f"update_query_stats: %s" % (stats))
+            await sess.commit()
+
+        if send_query_done:
+            # inform the websocket
+            p = GulpQueryDonePacket(
+                status=status,
+                errors=errors,
+                total_hits=hits,
+                name=q_name,
+            )
+            GulpSharedWsQueue.get_instance().put(
+                type=ws_queue_datatype,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )

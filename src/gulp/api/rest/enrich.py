@@ -82,7 +82,11 @@ async def _tag_documents_internal(
             if last:
                 # update source -> fields mappings on the collab db
                 await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
-                    index, operation_ids=flt.operation_ids, context_ids=flt.context_ids, source_ids=flt.source_ids)
+                    index,
+                    operation_ids=flt.operation_ids,
+                    context_ids=flt.context_ids,
+                    source_ids=flt.source_ids,
+                )
 
     MutyLogger.get_instance().debug("---> _tag_documents_internal")
 
@@ -98,19 +102,39 @@ async def _tag_documents_internal(
     q_options = GulpQueryParameters(fields=["_id"])
 
     # call query_raw, which in turn calls _tag_documents_chunk_wrapper
+    errors: list[str] = []
+    total = 0
     async with GulpCollab.get_instance().session() as sess:
-        await GulpQueryHelpers.query_raw(
-            sess=sess,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            q=q,
-            index=index,
-            q_options=q_options,
-            callback_chunk=_tag_documents_chunk_wrapper,
-            callback_chunk_args={
-                "done_type": GulpWsQueueDataType.ENRICH_DONE, "tags": tags, "flt": flt},
-        )
+        try:
+            _, total, _ = await GulpQueryHelpers.query_raw(
+                sess=sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                q=q,
+                index=index,
+                q_options=q_options,
+                callback_chunk=_tag_documents_chunk_wrapper,
+                callback_chunk_args={
+                    "tags": tags,
+                    "flt": flt,
+                },
+            )
+        except Exception as ex:
+            # record error
+            errors = [muty.log.exception_to_string(ex, with_full_traceback=True)]
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            # also update stats
+            await GulpRequestStats.finalize_query_stats(
+                sess,
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                hits=total,
+                ws_queue_datatype=GulpWsQueueDataType.TAG_DONE,
+                errors=errors,
+            )
 
 
 async def _enrich_documents_internal(
@@ -128,14 +152,15 @@ async def _enrich_documents_internal(
     # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
     mod: GulpPluginBase = None
     failed = False
-    error = None
+    error: str = None
+    total: int = 0
     async with GulpCollab.get_instance().session() as sess:
         try:
             # load plugin
             mod = await GulpPluginBase.load(plugin)
 
             # enrich
-            await mod.enrich_documents(
+            total = await mod.enrich_documents(
                 sess=sess,
                 user_id=user_id,
                 req_id=req_id,
@@ -147,26 +172,16 @@ async def _enrich_documents_internal(
         except Exception as ex:
             failed = True
             error = muty.log.exception_to_string(ex, with_full_traceback=True)
-            p = GulpQueryDonePacket(
-                status=GulpRequestStatus.FAILED,
-                error=error,
-            )
-            GulpSharedWsQueue.get_instance().put(
-                type=GulpWsQueueDataType.ENRICH_DONE,
+        finally:
+            # also update stats
+            await GulpRequestStats.finalize_query_stats(
+                sess,
+                req_id=req_id,
                 ws_id=ws_id,
                 user_id=user_id,
-                req_id=req_id,
-                data=p.model_dump(exclude_none=True),
-            )
-        finally:
-            d = dict(
-                status=(
-                    GulpRequestStatus.DONE if not failed else GulpRequestStatus.FAILED
-                ),
-                error=error,
-            )
-            await GulpRequestStats.update_by_id(
-                sess=sess, id=req_id, user_id=user_id, ws_id=ws_id, req_id=req_id, d=d
+                hits=total,
+                ws_queue_datatype=GulpWsQueueDataType.ENRICH_DONE,
+                errors=[error],
             )
 
             # done
@@ -176,7 +191,11 @@ async def _enrich_documents_internal(
             if not failed:
                 # update source -> fields mappings on the collab db
                 await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
-                    index, operation_ids=flt.operation_ids, context_ids=flt.context_ids, source_ids=flt.source_ids)
+                    index,
+                    operation_ids=flt.operation_ids,
+                    context_ids=flt.context_ids,
+                    source_ids=flt.source_ids,
+                )
 
 
 @router.post(
@@ -209,9 +228,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 )
 async def enrich_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
@@ -235,7 +252,9 @@ async def enrich_documents_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
             user_id = s.user_id
             index = op.index
 
@@ -245,7 +264,7 @@ async def enrich_documents_handler(
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                operation_id=None,
+                operation_id=operation_id,
                 context_id=None,
             )
 
@@ -305,9 +324,7 @@ uses an `enrichment` plugin to augment data in a single document and returns it 
 )
 async def enrich_single_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     doc_id: Annotated[
         str,
         Query(description="the `_id` of the document to enrich."),
@@ -330,7 +347,9 @@ async def enrich_single_id_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
+            await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
             index = op.index
 
             # load plugin
@@ -345,7 +364,8 @@ async def enrich_single_id_handler(
                 operation_id=doc["gulp.operation_id"],
                 context_id=doc["gulp.context_id"],
                 source_id=doc["gulp.source_id"],
-                doc_ids=[doc_id])
+                doc_ids=[doc_id],
+            )
 
         return JSONResponse(JSendResponse.success(req_id, data=doc))
 
@@ -385,9 +405,7 @@ Tag important documents, so they can be queried back via `gulp.tags` provided vi
 )
 async def tag_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
     tags: Annotated[list[str], Body(description="The tags to add.")],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
@@ -403,7 +421,9 @@ async def tag_documents_handler(
 
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.EDIT)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
             user_id = s.user_id
             index = op.index
 
@@ -413,8 +433,7 @@ async def tag_documents_handler(
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                operation_id=None,
-                context_id=None,
+                operation_id=operation_id,
             )
 
         # spawn a task which runs the enrichment in a worker process

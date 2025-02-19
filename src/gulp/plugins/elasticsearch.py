@@ -117,13 +117,15 @@ class Plugin(GulpPluginBase):
         # record is a dict
         doc: dict = record
 
-        offset_msec: int = self._plugin_params.custom_parameters.get(
-            "offset_msec", 0)
+        offset_msec: int = self._plugin_params.custom_parameters.get("offset_msec", 0)
         timestamp_field: str = self._plugin_params.custom_parameters.get(
-            "timestamp_field", "@timestamp")
+            "timestamp_field", "@timestamp"
+        )
 
         # get context and source
-        self._context_id, self._source_id = await self._extract_context_and_source_from_doc(doc)
+        self._context_id, self._source_id = await self._add_context_and_source_from_doc(
+            doc
+        )
         # MutyLogger.get_instance().debug(f"ctx_id={self._context_id}, src_id={self._source_id}")
 
         # convert timestamp to nanoseconds
@@ -182,14 +184,23 @@ class Plugin(GulpPluginBase):
         operation_id: str,
         q: Any,
         plugin_params: GulpPluginParameters,
-        q_options: GulpQueryParameters = None,
+        q_options: GulpQueryParameters,
         index: str = None,
-    ) -> tuple[int, int]:
-        await super().query_external(sess, user_id, req_id, ws_id, operation_id, q, plugin_params, q_options, index)
+    ) -> tuple[int, int, str]:
+        await super().query_external(
+            sess,
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            q,
+            plugin_params,
+            q_options,
+            index,
+        )
 
         # connect
-        is_elasticsearch = self._plugin_params.custom_parameters.get(
-            "is_elasticsearch")
+        is_elasticsearch = self._plugin_params.custom_parameters.get("is_elasticsearch")
         uri = self._plugin_params.custom_parameters["uri"]
         user = self._plugin_params.custom_parameters["username"]
         password = self._plugin_params.custom_parameters["password"]
@@ -216,15 +227,13 @@ class Plugin(GulpPluginBase):
                 )
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
-            await self._query_external_done(q_options.name, 0, ex)
-            return 0, 0
+            return 0, 0, q_options.name
 
         # query
         q_options.fields = "*"
-        query_error = None
         total_count = 0
         try:
-            total_count, processed = await GulpQueryHelpers.query_raw(
+            total_count, processed, _ = await GulpQueryHelpers.query_raw(
                 sess=sess,
                 user_id=user_id,
                 req_id=req_id,
@@ -237,33 +246,21 @@ class Plugin(GulpPluginBase):
             )
             if total_count == 0:
                 MutyLogger.get_instance().warning("no results!")
-                await self._query_external_done(
-                    q_options.name,
-                    0,
-                )
                 return 0, 0
 
             MutyLogger.get_instance().debug(
                 "elasticsearch/opensearch query done, total=%d, processed=%d!"
                 % (total_count, processed)
             )
-            return total_count, processed
+            return total_count, processed, q_options.name
 
         except Exception as ex:
             # error during query
             MutyLogger.get_instance().exception(ex)
-            query_error = ex
-            return 0, 0
+            return 0, 0, q_options.name
 
         finally:
             # last flush
             await self._source_done()
-
-            # and signal websocket
-            await self._query_external_done(
-                q_options.name,
-                total_count,
-                error=query_error,
-            )
             MutyLogger.get_instance().debug("closing client ...")
             await cl.close()

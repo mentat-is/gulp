@@ -1,3 +1,5 @@
+import os
+
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
@@ -61,6 +63,7 @@ class GulpAPIDb:
         flt: GulpQueryFilter = None,
         rebase_script: str = None,
         req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -68,7 +71,7 @@ class GulpAPIDb:
             "operation_id": operation_id,
             "dest_index": dest_index,
             "offset_msec": offset_msec,
-            "ws_id": api_common.ws_id,
+            "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }
 
@@ -119,7 +122,15 @@ class GulpAPIDb:
 
     @staticmethod
     async def reset_all_as_admin(req_id: str = None) -> None:
-        MutyLogger.get_instance().info("Resetting gULP (both collab and opensearch, creating default data) ...")
+        no_reset = os.getenv("GULP_NO_RESET", None)
+        if no_reset:
+            MutyLogger.get_instance().info(
+                "GULP_NO_RESET is set, skipping reset_all_as_admin."
+            )
+            return
+        MutyLogger.get_instance().info(
+            "Resetting gULP (both collab and opensearch, creating default data) ..."
+        )
         token = await GulpAPIUser.login_admin()
         await GulpAPIDb.gulp_reset(token, req_id=req_id)
 
@@ -130,7 +141,15 @@ class GulpAPIDb:
         """
         NOTE: using full_reset=True means also the test operation must be recreated
         """
-        MutyLogger.get_instance().info("Resetting gULP collab database, full_reset=%r ..." % (full_reset))
+        no_reset = os.getenv("GULP_NO_RESET_COLLAB", None)
+        if no_reset:
+            MutyLogger.get_instance().info(
+                "GULP_NO_RESET_COLLAB is set, skipping reset_collab_as_admin."
+            )
+            return
+        MutyLogger.get_instance().info(
+            "Resetting gULP collab database, full_reset=%r ..." % (full_reset)
+        )
         token = await GulpAPIUser.login_admin(req_id=req_id)
         await GulpAPIDb.postgres_reset_collab(
             token, full_reset=full_reset, restart_process=False, req_id=req_id

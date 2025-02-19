@@ -123,7 +123,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-   ) -> None:
+   ) -> int:
         # parse custom parameters
         self._initialize(plugin_params)
 
@@ -151,7 +151,7 @@ class Plugin(GulpPluginBase):
             )
 
         # enrich
-        await super().enrich_documents(
+        return await super().enrich_documents(
             sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
         )
 

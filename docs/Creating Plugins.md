@@ -217,7 +217,6 @@ sequenceDiagram
     end
     
     Plugin->>Base: _source_done()
-    Plugin->>Base: _query_external_done()
     Base-->>Engine: Send completion status
 ~~~
 

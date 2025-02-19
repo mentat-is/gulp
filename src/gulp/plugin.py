@@ -522,7 +522,6 @@ class GulpPluginBase(ABC):
             )
             self._chunks_ingested += 1
 
-
         # check if the request is cancelled ()
         stats: GulpRequestStats = await GulpRequestStats.get_by_id(
             self._sess, self._req_id, throw_if_not_found=False
@@ -536,9 +535,7 @@ class GulpPluginBase(ABC):
         return len(ingested_docs), skipped
 
     def sigma_convert(
-        self,
-        sigma: str,
-        plugin_params: GulpPluginParameters=None
+        self, sigma: str, plugin_params: GulpPluginParameters = None
     ) -> list[GulpQuery]:
         """
         convert a sigma rule specifically targeted to this plugin into a raw query for gulp's OpenSearch.
@@ -548,20 +545,20 @@ class GulpPluginBase(ABC):
         `sigma_convert` may be used to:
             - query gulp itself via `query_sigma` REST API (must implement OpenSearch pysigma backend and, possibly, a pysigma pipeline targeting the ECS formatted data ingested in gulp)
             - convert a sigma rule to generate a raw query to be used then with `query_external` REST API: in this case the plugin must implement a pysigma backend suitable for the external source DSL.
-        
+
         Args:
             sigma (str): the sigma rule YAML
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
-            
+
         Returns:
             list[GulpQuery]: one or more queries.
         """
         raise NotImplementedError("not implemented!")
 
-    async def _extract_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
+    async def _add_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
         """
-        extract context and source (using cache to avoid too many queries) from the document, or set bogus values if not found.
-
+        extract (and add to collab database) GulpContext and GulpSource from the document, or set bogus values if not found.
+        a cache to avoid too many queries.
         NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set.
 
         Args:
@@ -650,7 +647,7 @@ class GulpPluginBase(ABC):
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
         index: str = None,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, str]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
 
@@ -672,7 +669,7 @@ class GulpPluginBase(ABC):
             - this function *MUST NOT* raise exceptions.
 
         Returns:
-            tuple[int, int]: total documents found, total processed(ingested)
+            tuple[int, int, str]: total documents found, total processed(ingested, usually=found unless errors), query_name
         Raises:
             ObjectNotFound: if no document is found.
         """
@@ -701,7 +698,7 @@ class GulpPluginBase(ABC):
         # initialize
         await self._initialize(plugin_params)
 
-        return (0, 0)
+        return (0, 0, None)
 
     async def ingest_raw(
         self,
@@ -834,7 +831,7 @@ class GulpPluginBase(ABC):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> None:
+    ) -> int:
         """
         to be implemented in a plugin to enrich a chunk of GulpDocuments dictionaries on-demand.
 
@@ -851,6 +848,9 @@ class GulpPluginBase(ABC):
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
             kwargs: additional keyword arguments:
                 - rq (dict): a raw query to be used, additionally to the filter
+
+        Returns:
+            int: the total number of enriched documents
 
         NOTE: implementers must implement _enrich_documents_chunk, call self._initialize() and then super().enrich_documents
         """
@@ -893,7 +893,7 @@ class GulpPluginBase(ABC):
 
         # force return all fields
         q_options = GulpQueryParameters(fields="*")
-        await GulpQueryHelpers.query_raw(
+        _, matched, _ = await GulpQueryHelpers.query_raw(
             sess=sess,
             user_id=self._user_id,
             req_id=self._req_id,
@@ -902,8 +902,8 @@ class GulpPluginBase(ABC):
             index=index,
             q_options=q_options,
             callback_chunk=self._enrich_documents_chunk_wrapper,
-            callback_chunk_args={"done_type": GulpWsQueueDataType.ENRICH_DONE},
         )
+        return matched
 
     async def enrich_single_document(
         self,
@@ -1447,8 +1447,7 @@ class GulpPluginBase(ABC):
                     v = p.default_value
                     self._plugin_params.custom_parameters[k] = v
                 MutyLogger.get_instance().debug(
-                    "---> found plugin custom parameter: %s=%s"
-                    % (k, self._plugin_params.custom_parameters[k])
+                    "---> found plugin custom parameter: %s=%s" % (k, v)
                 )
 
         async def _setup_mapping() -> None:
@@ -1865,51 +1864,6 @@ class GulpPluginBase(ABC):
             finally:
                 self._sess = None
 
-    async def _query_external_done(
-        self, query_name: str, hits: int, error: Exception | str = None
-    ) -> None:
-        """
-        for external sources, called by the engine when the query is done to send a GulpQueryDonePacket.
-
-        Args:
-            query_name (str): The name of the query.
-            hits (int): The number of hits.
-            error (Exception | str, optional): The error that caused the query to fail. Defaults to None
-        """
-        MutyLogger.get_instance().debug(
-            "EXTERNAL QUERY DONE: query %s, %d hits, error=%s"
-            % (
-                query_name,
-                hits,
-                error,
-            )
-        )
-
-        # any error sets status to failed
-        if not error:
-            # but also 0 hits
-            status = GulpRequestStatus.DONE if hits > 0 else GulpRequestStatus.FAILED
-        else:
-            status = GulpRequestStatus.FAILED
-
-        if error and isinstance(error, Exception):
-            error = muty.log.exception_to_string(error, True)
-
-        # send a GulpQueryDonePacket
-        p = GulpQueryDonePacket(
-            status=status,
-            total_hits=hits,
-            name=query_name,
-            error=error,
-        )
-        GulpSharedWsQueue.get_instance().put(
-            type=GulpWsQueueDataType.QUERY_DONE,
-            ws_id=self._ws_id,
-            user_id=self._user_id,
-            req_id=self._req_id,
-            data=p.model_dump(exclude_none=True),
-        )
-
     @staticmethod
     def load_sync(
         plugin: str,
@@ -2033,6 +1987,7 @@ class GulpPluginBase(ABC):
         self._extra_docs = None
         self._extra_docs: list[dict]
         self._plugin_params = None
+        self._operation = None
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
             return

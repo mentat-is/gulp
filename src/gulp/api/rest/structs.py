@@ -704,7 +704,7 @@ to customize `mapping` and specific `plugin` parameters.
         Returns:
             GulpPluginParameters: The plugin parameters or None if empty
         """
-        return plugin_params or None
+        return plugin_params or GulpPluginParameters()
 
     def param_query_flt_optional(
         flt: Annotated[
