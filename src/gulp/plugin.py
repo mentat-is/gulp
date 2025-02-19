@@ -349,7 +349,6 @@ class GulpPluginBase(ABC):
         self._enrich_index: str = None
         self._tot_enriched: int = 0
 
-        self._note_parameters: GulpQueryNoteParameters = GulpQueryNoteParameters()
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
         # to minimize db requests to postgres to get context and source at every record
@@ -523,19 +522,6 @@ class GulpPluginBase(ABC):
             )
             self._chunks_ingested += 1
 
-            if self._note_parameters.create_notes and self._ingestion_enabled:
-                # auto-create notes during external query with ingestion (this is a sigma query)
-                await GulpNote.bulk_create_from_documents(
-                    sess=self._sess,
-                    user_id=self._user_id,
-                    ws_id=self._ws_id,
-                    req_id=self._req_id,
-                    docs=data["docs"],
-                    name=self._note_parameters.note_name,
-                    tags=self._note_parameters.note_tags,
-                    color=self._note_parameters.note_color,
-                    glyph_id=self._note_parameters.note_glyph_id,
-                )
 
         # check if the request is cancelled ()
         stats: GulpRequestStats = await GulpRequestStats.get_by_id(
@@ -552,12 +538,21 @@ class GulpPluginBase(ABC):
     def sigma_convert(
         self,
         sigma: str,
+        plugin_params: GulpPluginParameters=None
     ) -> list[GulpQuery]:
         """
         convert a sigma rule specifically targeted to this plugin into a raw query for gulp's OpenSearch.
 
+        usually, this is implemented in the same `ingestion` or `external` plugin handling a particular data type (i.e. windows, splunk, ...)
+
+        `sigma_convert` may be used to:
+            - query gulp itself via `query_sigma` REST API (must implement OpenSearch pysigma backend and, possibly, a pysigma pipeline targeting the ECS formatted data ingested in gulp)
+            - convert a sigma rule to generate a raw query to be used then with `query_external` REST API: in this case the plugin must implement a pysigma backend suitable for the external source DSL.
+        
         Args:
             sigma (str): the sigma rule YAML
+            plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
+            
         Returns:
             list[GulpQuery]: one or more queries.
         """
@@ -692,7 +687,6 @@ class GulpPluginBase(ABC):
         self._external_query = True
         self._enrich_during_ingestion = False
         self._operation_id = operation_id
-        self._note_parameters = q_options.note_parameters or GulpQueryNoteParameters()
 
         # setup internal state to be able to call process_record as during ingestion
         self._stats = None
@@ -2038,7 +2032,6 @@ class GulpPluginBase(ABC):
         self._extra_docs.clear()
         self._extra_docs = None
         self._extra_docs: list[dict]
-        self._note_parameters = None
         self._plugin_params = None
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled

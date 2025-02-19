@@ -1,5 +1,4 @@
 from gulp.api.collab.structs import GulpCollabFilter
-from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from tests.api.common import GulpAPICommon
 
 

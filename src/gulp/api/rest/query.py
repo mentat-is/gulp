@@ -189,7 +189,7 @@ async def _worker_coro(kwds: dict):
                 async with GulpCollab.get_instance().session() as sess:
                     # look for tags = query name and update them with the group name
                     await GulpNote.bulk_update_tags(
-                        sess, [q_opt.name], [q_options.group], operation_id=operation_id, 
+                        sess, [q_opt.name], [q_options.group], operation_id=operation_id, user_id=user_id
                     )
             # and signal websocket
             p = GulpQueryGroupMatchPacket(
@@ -472,16 +472,16 @@ async def query_external_handler(
 query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
+- `flt` may be used to restrict the query.
 
 ### q_options
 
 - `create_notes` is set to `True` to create notes on match.
 - if more than one query is provided, `q_options.group` must be set.
 
-### gulp queries
+### plugin_params
 
-- `flt` may be used to restrict the query.
-
+- usually pass None here, unless the plugin requires specific parameters.
 """,
 )
 async def query_sigma_handler(
@@ -500,6 +500,10 @@ async def query_sigma_handler(
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
     ] = None,
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Depends(APIDependencies.param_plugin_params_optional),
+    ] = None,
     flt: Annotated[
         GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
     ] = None,
@@ -508,6 +512,7 @@ async def query_sigma_handler(
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
     mod = None
@@ -533,7 +538,7 @@ async def query_sigma_handler(
         queries: list[GulpQuery] = []
         for s in sigmas:
             q: list[GulpQuery] = mod.sigma_convert(
-                s, plugin)
+                s, plugin, plugin_params)
             queries.extend(q)
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
@@ -556,6 +561,71 @@ async def query_sigma_handler(
         if mod:
             await mod.unload()
 
+
+@router.post(
+    "/sigma_convert",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="Convert a sigma rule to raw query for the specific target.",
+    description="""
+to be used to build i.e. raw queries for `query_external` API from [sigma rules](https://github.com/SigmaHQ/sigma).
+
+- use `plugin_params.custom_parameters` to customize the conversion, depending on the specific plugin options (i.e. `backend`, 'target query language`, ...)
+""",
+)
+async def sigma_convert_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    sigma: Annotated[str,
+        Body(
+            description="the sigma rule YAML to be converted.",
+            examples=[EXAMPLE_SIGMA_RULE],
+        ),
+    ],
+    plugin: Annotated[str, Query(description="the plugin implementing `sigma_convert` to convert the sigma rule.")],
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Depends(APIDependencies.param_plugin_params_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    mod = None
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s = await GulpUserSession.check_token(sess, token)
+
+        # convert sigma rule/s using pysigma
+        mod = await GulpPluginBase.load(plugin)
+        q: list[GulpQuery] = mod.sigma_convert(
+            sigma, plugin, plugin_params)
+
+        l: list[dict] = []
+        for qq in q:    
+            l.append(qq.model_dump(exclude_none=True))
+        
+        return JSONResponse(JSendResponse.success(req_id, data=l))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+    finally:
+        if mod:
+            await mod.unload()
 
 @router.post(
     "/query_single_id",

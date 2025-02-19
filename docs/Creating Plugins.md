@@ -15,9 +15,9 @@
   - [stacked plugins](#stacked-plugins)
     - [flow](#flow)
   - [extension plugins](#extension-plugins-1)
-- [addendum: query using sigma rules](#addendum-query-using-sigma-rules)
-  - [gulp](#gulp)
+- [addendum](#addendum)
   - [external queries](#external-queries)
+  - [sigma queries](#sigma-queries)
 
 # plugins
 
@@ -73,7 +73,7 @@ While plugins can be as complex as needed, a basic plugin **must** implement the
 - `type`: may be `ingestion`, `extension`, `external`
 - `_record_to_gulp_document`: this is called automatically by the engine on each record in the source being processed
 
-then depending on `type`, different entrypoints may be implemented:
+then, different entrypoints may be implemented:
 
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
@@ -81,13 +81,16 @@ then depending on `type`, different entrypoints may be implemented:
 - `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
   
-- `sigma_convert`: wether the plugin supports using sigma rules to query data ingested with this plugin.  
-  if so, the plugin must support the following:
-  - `opensearch` backend with `dsl_lucene` output format (through i.e. [pysigma-backend-opensearch](https://github.com/SigmaHQ/pySigma-backend-opensearch))
-  - an optional `pipeline` targeting the ingested gulp data.
-
-    > for a concrete example, check the [win_evtx](../src/gulp/plugins/win_evtx.py) plugin, which also uses a pipeline targeting ECS formatted data
+- `sigma_convert`: this may be implemented in both `ingestion` and `external` plugins, and tells wether the plugin supports sigma rules conversion.
   
+  - to support direct gulp queries through the `query_sigma` REST API, the plugin must support the following:
+    - **pysigma** `opensearch` backend with `dsl_lucene` output format (through i.e. [pysigma-backend-opensearch](https://github.com/SigmaHQ/pySigma-backend-opensearch)): this targets the OpenSearch DSL language, on which gulp is based on.
+    - an optional **pysigma** `pipeline` targeting the ingested gulp data, i.e. a `windows` specific pipeline to query data ingested by the `win_evtx` plugin.
+
+    > 1. for a real use-case example, check the [win_evtx](../src/gulp/plugins/win_evtx.py) plugin, which also uses a pipeline targeting ECS formatted data  
+  
+    > 2. `sigma_convert` plugin entrypoint may also be used through the `sigma_convert` REST API to generate `raw queries` from sigma rules, to be used then with the `query_external` REST API.
+
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
@@ -133,9 +136,7 @@ ingestion plugins must implement `ingest_file` and/or `ingest_raw` (the ingestio
 
 optionally, `ingestion` plugins may implement:
 
-- `_enrich_documents_chunk` to perform enrichment before storing the chunk to Opensearch.
-- `sigma_convert` to allow query through `query_sigma`.
-  - > - read [pysigma documentation](https://github.com/SigmaHQ/pySigma) to learn more about backend/s and pipeline/s!
+- `_enrich_documents_chunk` to perform enrichment before storing each chunk in gulp's Opensearch.
 
 this is how the data flows through an `ingestion plugin` when ingesting into gulp through `ingest_file` API.
 
@@ -398,24 +399,26 @@ extensions plugins starts with gulp and mostly runs **in the main process contex
 
 they may be used to extend gulp API, i.e. implement new sign-in code, ...
 
-# addendum: query using sigma rules
-
-a sigma rule must be converted to the target DSL first, i.e. to query gulp with sigma rules we need OpenSearch pysigma backend support.
-
-querying through sigma rules is fully supported both for gulp and `external` sources.
-
-> queries using standard query follows the same path, just `query_gulp`, `query_raw`, `query_stored` API is used instead.
-
-## gulp
-
-we must setup [GulpQueryParameters.sigma_parameters.plugin](../src/gulp/api/opensearch/structs.py) to the plugin implementing `sigma_convert` for an OpenSearch backend, for example the [win_evtx](../src/gulp/plugins/win_evtx.py) plugin implements windows-specific sigma rules conversion for OpenSearch backend.
-
-- look at [test_win_evtx](../tests/query.py) in the query tests for an example
+# addendum
 
 ## external queries
 
-to query an external source with an `external plugin`, we must fill the following in [GulpQueryParameters](../src/gulp/api/opensearch/structs.py)
+to query an external source with an `external plugin`, we use the `query_external` API:
 
-- `GulpQueryParameters.plugin_params.custom_parameters`: here we have the specific parameters for the plugin, including anything which could be needed to connect to the external source (i.e. `uri`, `username`, `password`, and such ).
+1. specify the `plugin` to be used (must implement `query_external`)
+2. pass the specific `GulpPluginParameters.custom_parameters`, which may include i.e. `uri`, `username`, `password` to allow the plugin to connect to the external source
+3. pass the `q` parameter, which is the query in the `external specific DSL(Domain Specific Language) format`.
+4. optionally pass the `q_options` parameter, which controls how the query is performed (*not all parameters may be supported by the plugin*)
+5. optionally pass `ingest=True` to ingest data into gulp while querying.
 
-- look at [test_elasticsearch](../tests/query.py) in the query tests for an example
+> look at [test_elasticsearch](../tests/query.py) in the query tests for an example usage
+
+## sigma queries
+
+to query gulp using sigma rules, we use the `query_sigma` API:
+
+1. specify the `plugin` to be used (must implement `sigma_convert`)
+2. pass the `q` parameter with one or more sigma rules to be translated: the resulting queries will be executed **in parallel**.
+
+> look at [test_win_evtx](../tests/query.py) in the query tests for an example usage
+

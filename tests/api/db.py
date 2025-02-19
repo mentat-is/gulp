@@ -118,16 +118,20 @@ class GulpAPIDb:
         )
 
     @staticmethod
-    async def reset_as_admin(req_id: str = None) -> None:
-        MutyLogger.get_instance().info("Resetting gULP ...")
+    async def reset_all_as_admin(req_id: str = None) -> None:
+        MutyLogger.get_instance().info("Resetting gULP (both collab and opensearch, creating default data) ...")
         token = await GulpAPIUser.login_admin()
         await GulpAPIDb.gulp_reset(token, req_id=req_id)
 
     @staticmethod
-    async def reset_collab_as_admin(full_reset: bool=False, req_id: str = None) -> None:
+    async def reset_collab_as_admin(
+        full_reset: bool = False, req_id: str = None
+    ) -> None:
         """
         NOTE: using full_reset=True means also the test operation must be recreated
         """
-        MutyLogger.get_instance().info("Resetting gULP collab database ...")
+        MutyLogger.get_instance().info("Resetting gULP collab database, full_reset=%r ..." % (full_reset))
         token = await GulpAPIUser.login_admin(req_id=req_id)
-        await GulpAPIDb.postgres_reset_collab(token, full_reset=full_reset, restart_process=False, req_id=req_id)
+        await GulpAPIDb.postgres_reset_collab(
+            token, full_reset=full_reset, restart_process=False, req_id=req_id
+        )

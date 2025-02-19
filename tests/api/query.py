@@ -4,6 +4,7 @@ from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.structs import GulpPluginParameters
 from tests.api.common import GulpAPICommon
 
 
@@ -45,6 +46,7 @@ class GulpAPIQuery:
         plugin: str,
         sigmas: list[str],
         q_options: GulpQueryParameters = None,
+        plugin_params: GulpPluginParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
         req_id: str = None,
@@ -61,6 +63,13 @@ class GulpAPIQuery:
             "flt": (
                 flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
                 if flt
+                else None
+            ),
+            "plugin_params": (
+                plugin_params.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if plugin_params
                 else None
             ),
             "q_options": (
@@ -81,6 +90,42 @@ class GulpAPIQuery:
             expected_status=expected_status,
         )
         return res
+
+    @staticmethod
+    async def sigma_convert(
+        token: str,
+        sigma: str,
+        plugin: str,
+        plugin_params: GulpPluginParameters = None,
+        expected_status: int = 200,
+        req_id: str = None,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "plugin": plugin,
+            "req_id": req_id or api_common.req_id,
+        }
+        body = {
+            "sigma": sigma,
+            "plugin_params": (
+                plugin_params.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if plugin_params
+                else None
+            ),
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "sigma_convert",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
 
     @staticmethod
     async def query_single_id(

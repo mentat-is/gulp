@@ -1,12 +1,12 @@
-import random
-import string
-from datetime import datetime, timedelta
 import asyncio
 import json
 import multiprocessing
 import os
 import platform
+import random
+import string
 import token
+from datetime import datetime, timedelta
 
 import muty.file
 import pytest
@@ -129,8 +129,7 @@ async def _ws_loop(
 
     async with websockets.connect(ws_url) as ws:
         # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(
-            token="monitor", ws_id=TEST_WS_ID)
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token="monitor", ws_id=TEST_WS_ID)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -141,15 +140,12 @@ async def _ws_loop(
                 if data["type"] == "stats_update":
                     # stats update
                     stats_packet = data["data"]["data"]
-                    MutyLogger.get_instance().info(
-                        f"ingestion stats: {stats_packet}")
+                    MutyLogger.get_instance().info(f"ingestion stats: {stats_packet}")
 
                     if stats_packet["status"] == "done":
                         # done
-                        records_ingested = stats_packet.get(
-                            "records_ingested", 0)
-                        records_processed = stats_packet.get(
-                            "records_processed", 0)
+                        records_ingested = stats_packet.get("records_ingested", 0)
+                        records_processed = stats_packet.get("records_processed", 0)
                         found_ingested = records_ingested
                         found_processed = records_processed
                         if records_ingested == ingested:
@@ -160,8 +156,7 @@ async def _ws_loop(
                                 # also check processed
                                 if records_processed == processed:
                                     MutyLogger.get_instance().info(
-                                        "all %d records processed!" % (
-                                            processed)
+                                        "all %d records processed!" % (processed)
                                     )
                                     test_completed = True
                             else:
@@ -211,7 +206,7 @@ async def _test_generic(
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
-    await GulpAPIDb.reset_as_admin()
+    await GulpAPIDb.reset_all_as_admin()
 
     # for each file, spawn a process using multiprocessing
     for file in files:
@@ -255,8 +250,7 @@ async def test_apache_error_clf():
 @pytest.mark.asyncio
 async def test_systemd_journal():
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    files = [os.path.join(
-        current_dir, "../samples/systemd_journal/system.journal")]
+    files = [os.path.join(current_dir, "../samples/systemd_journal/system.journal")]
     await _test_generic(files, "systemd_journal", 9243)
 
 
@@ -284,8 +278,7 @@ async def test_mbox():
 @pytest.mark.asyncio
 async def test_pcap():
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    files = [os.path.join(
-        current_dir, "../samples/pcap/220614_ip_flags_google.pcapng")]
+    files = [os.path.join(current_dir, "../samples/pcap/220614_ip_flags_google.pcapng")]
     await _test_generic(files, "pcap", 58)
 
 
@@ -293,8 +286,7 @@ async def test_pcap():
 async def test_teamviewer_regex_stacked():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [
-        os.path.join(
-            current_dir, "../samples/teamviewer/connections_incoming.txt")
+        os.path.join(current_dir, "../samples/teamviewer/connections_incoming.txt")
     ]
     await _test_generic(files, "teamviewer_regex_stacked", 2)
 
@@ -324,8 +316,7 @@ async def test_pfsense():
 async def test_win_evtx():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
-    files = muty.file.list_directory(
-        samples_dir, recursive=True, files_only=True)
+    files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
     await _test_generic(files, "win_evtx", 98632)
 
 
@@ -396,7 +387,7 @@ async def test_raw():
     buf = await muty.file.read_file_async(raw_chunk_path)
     raw_chunk = json.loads(buf)
 
-    await GulpAPIDb.reset_as_admin()
+    await GulpAPIDb.reset_all_as_admin()
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -420,7 +411,7 @@ async def test_ingest_zip():
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
 
-    await GulpAPIDb.reset_as_admin()
+    await GulpAPIDb.reset_all_as_admin()
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -455,15 +446,21 @@ async def test_ingest_ws_raw():
                     if key == "@timestamp":
                         # Sequential timestamps
                         new_doc[key] = (
-                            base_timestamp + timedelta(minutes=i)).isoformat() + ".000Z"
+                            base_timestamp + timedelta(minutes=i)
+                        ).isoformat() + ".000Z"
                     elif isinstance(value, str):
                         if key == "event.code":
-                            new_doc[key] = f"event_code_{
+                            new_doc[key] = (
+                                f"event_code_{
                                 random.randint(1, 1000)}"
+                            )
                         else:
                             # Random string of similar length
-                            new_doc[key] = ''.join(random.choices(
-                                string.ascii_letters + string.digits, k=len(value)))
+                            new_doc[key] = "".join(
+                                random.choices(
+                                    string.ascii_letters + string.digits, k=len(value)
+                                )
+                            )
                     elif isinstance(value, int):
                         # Random integer between 0 and 1000
                         new_doc[key] = random.randint(0, 1000)
@@ -479,7 +476,7 @@ async def test_ingest_ws_raw():
     buf = await muty.file.read_file_async(raw_chunk_path)
     raw_chunk = json.loads(buf)
 
-    await GulpAPIDb.reset_as_admin()
+    await GulpAPIDb.reset_all_as_admin()
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -491,7 +488,8 @@ async def test_ingest_ws_raw():
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(
-            token=ingest_token, ws_id=TEST_WS_ID+"_ingest_raw")
+            token=ingest_token, ws_id=TEST_WS_ID + "_ingest_raw"
+        )
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -510,7 +508,8 @@ async def test_ingest_ws_raw():
                             source="test_source",
                             flt=GulpIngestionFilter(),
                             req_id=TEST_REQ_ID,
-                            ws_id=TEST_WS_ID)
+                            ws_id=TEST_WS_ID,
+                        )
                         await ws.send(p.model_dump_json(exclude_none=True))
                         await asyncio.sleep(0.1)
 
@@ -534,8 +533,7 @@ async def test_paid_plugins():
     import sys
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    file_path = os.path.join(
-        current_dir, "../../gulp-paid-plugins/tests/ingest.py")
+    file_path = os.path.join(current_dir, "../../gulp-paid-plugins/tests/ingest.py")
 
     module_name = "paidplugins"
     spec = importlib.util.spec_from_file_location(module_name, file_path)

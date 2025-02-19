@@ -274,6 +274,7 @@ class Plugin(GulpPluginBase):
     def sigma_convert(
         self,
         sigma: str,
+        plugin_params: GulpPluginParameters = None,
     ) -> list[GulpQuery]:
 
         backend = OpensearchLuceneBackend(processing_pipeline=ecs_windows())
