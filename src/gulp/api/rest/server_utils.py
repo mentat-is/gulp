@@ -192,7 +192,7 @@ class ServerUtils:
         # Check if file is already complete
         current_size = await muty.file.get_size(cache_file_path)
         MutyLogger.get_instance().debug(
-            "cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s"
+            "cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s, payload_dict=%s"
             % (
                 cache_file_path,
                 continue_offset,
@@ -200,6 +200,7 @@ class ServerUtils:
                 total_file_size,
                 filename,
                 cache_file_path,
+                payload_dict,
             )
         )
 

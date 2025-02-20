@@ -249,11 +249,10 @@ async def _ingest_file_internal(
                     index=index,
                     operation_id=operation_id,
                     context_id=context_id,
-                    source_id=source_id)
-            except Exception as ex:
-                MutyLogger.get_instance().exception(
-                    ex
+                    source_id=source_id,
                 )
+            except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
 
             # delete file
             await muty.file.delete_file_or_dir_async(file_path)
@@ -400,7 +399,7 @@ async def ingest_file_handler(
     file_total: Annotated[
         int,
         Query(
-            description="set to the total number of files if this call is part of a multi-file upload, default=1.",
+            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
             example=1,
         ),
     ] = 1,
@@ -431,7 +430,9 @@ async def ingest_file_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=operation, permission=GulpUserPermission.INGEST)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=operation, permission=GulpUserPermission.INGEST
+            )
             index = operation.index
             user_id = s.user_id
 
@@ -591,8 +592,7 @@ async def ingest_raw_handler(
         Body(description="a chunk of raw `GulpDocument`s to be ingested."),
     ],
     flt: Annotated[
-        GulpIngestionFilter, Depends(
-            APIDependencies.param_ingestion_flt_optional)
+        GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional)
     ] = None,
     plugin: Annotated[
         str,
@@ -616,7 +616,9 @@ async def ingest_raw_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=operation, permission=GulpUserPermission.INGEST)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=operation, permission=GulpUserPermission.INGEST
+            )
             index = operation.index
             user_id = s.user_id
 
@@ -624,8 +626,7 @@ async def ingest_raw_handler(
             ctx: GulpContext
             src: GulpSource
             ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=context_name,
-                ws_id=ws_id, req_id=req_id
+                sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
             src, _ = await ctx.add_source(
                 sess,
@@ -697,8 +698,7 @@ async def _process_metadata_json(
                     flt=payload.flt,
                     plugin_params=e.plugin_params,
                     original_file_path=(
-                        os.path.join(e.original_path,
-                                     f) if e.original_path else f
+                        os.path.join(e.original_path, f) if e.original_path else f
                     ),
                     local_file_path=os.path.join(unzipped_path, f),
                     plugin=e.plugin,
@@ -816,7 +816,9 @@ async def ingest_zip_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=operation, permission=GulpUserPermission.INGEST)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=operation, permission=GulpUserPermission.INGEST
+            )
             index = operation.index
             user_id = s.user_id
 
@@ -856,8 +858,11 @@ async def ingest_zip_handler(
             async with GulpCollab.get_instance().session() as sess:
                 src: GulpSource
                 src, _ = await ctx.add_source(
-                    sess, user_id=user_id, name=f.original_file_path,
-                    ws_id=ws_id, req_id=req_id
+                    sess,
+                    user_id=user_id,
+                    name=f.original_file_path,
+                    ws_id=ws_id,
+                    req_id=req_id,
                 )
 
             kwds = dict(
@@ -890,5 +895,7 @@ async def ingest_zip_handler(
     finally:
         # cleanup
         if result and result.done:
-            MutyLogger.get_instance().debug("deleting uploaded file %s ..." % (file_path))
+            MutyLogger.get_instance().debug(
+                "deleting uploaded file %s ..." % (file_path)
+            )
             await muty.file.delete_file_or_dir_async(file_path)

@@ -43,7 +43,10 @@ router: APIRouter = APIRouter()
                         "status": "success",
                         "timestamp_msec": 1701266243057,
                         "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {"index": "test_operation", "operation_id": "test_operation"},
+                        "data": {
+                            "index": "test_operation",
+                            "operation_id": "test_operation",
+                        },
                     }
                 }
             }
@@ -53,15 +56,20 @@ router: APIRouter = APIRouter()
     description="""
 deletes the datastream `index`, including the backing index/es and the index template.
 
-- **all the data will be erased and the corresponding `operation_id` on the collab database will be deleted**.
+- **WARNING**: all data in the `index` will be deleted!
+- if `delete_operation` is set, the corresponding operation on the collab database is deleted if it exists..
 - `token` needs `admin` permission.
 """,
 )
 async def opensearch_delete_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
-    delete_operation: Annotated[bool, Query(
-        description="if set, the corresponding operation (if any) on the collab database is deleted as well (default: true).")] = True,
+    delete_operation: Annotated[
+        bool,
+        Query(
+            description="if set, the corresponding operation (if any) on the collab database is deleted as well (default: true)."
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -69,24 +77,34 @@ async def opensearch_delete_index_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             # we must be admin
-            s: GulpUserSession = await GulpUserSession.check_token(sess, token, permission=GulpUserPermission.ADMIN)
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.ADMIN
+            )
 
             op: GulpOperation = None
             if delete_operation:
                 # get operation
-                op = await GulpOperation.get_first_by_filter(sess, GulpCollabFilter(index=[index]))
-                if not op:
-                    raise ObjectNotFound(
-                        f"operation with index {index} not found")
-
-                # delete the operation on collab
-                await op.delete(sess, ws_id=None, user_id=s.user_id, req_id=req_id)
+                op = await GulpOperation.get_first_by_filter(
+                    sess, GulpCollabFilter(index=[index]), throw_if_not_found=False
+                )
+                if op:
+                    # delete the operation on collab
+                    await op.delete(sess, ws_id=None, user_id=s.user_id, req_id=req_id)
+                else:
+                    MutyLogger.get_instance().warning(
+                        f"operation with index={index} not found, skipping deletion..."
+                    )
 
             # delete the datastream (deletes the corresponding index and template)
             await GulpOpenSearch.get_instance().datastream_delete(
                 ds=index, throw_on_error=True
             )
-            return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index, "operation_id": op.id if op else None}))
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={"index": index, "operation_id": op.id if op else None},
+                )
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
 
@@ -146,7 +164,9 @@ async def opensearch_list_index_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token, permission=GulpUserPermission.ADMIN)
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.ADMIN
+            )
 
         l = await GulpOpenSearch.get_instance().datastream_list()
         return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
@@ -199,9 +219,12 @@ async def _recreate_index_internal(
 async def opensearch_create_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
-    index_template: Annotated[Union[UploadFile, str], File(
-        description="optional custom index template, for advanced usage only: see [here](https://opensearch.org/docs/latest/im-plugin/index-templates/)",
-    )] = None,
+    index_template: Annotated[
+        Union[UploadFile, str],
+        File(
+            description="optional custom index template, for advanced usage only: see [here](https://opensearch.org/docs/latest/im-plugin/index-templates/)",
+        ),
+    ] = None,
     fail_if_exists: Annotated[
         bool,
         Query(
@@ -229,15 +252,16 @@ async def opensearch_create_index_handler(
             if fail_if_exists:
                 # check if index exists
                 if await GulpOpenSearch.get_instance().datastream_exists(index):
-                    raise ObjectAlreadyExists(
-                        f"index {index} already exists")
+                    raise ObjectAlreadyExists(f"index {index} already exists")
 
             if index_template and isinstance(index_template, UploadFile):
                 # get index template from file
                 f = await muty.uploadfile.to_path(index_template)
 
             await _recreate_index_internal(index, restart_processes, index_template=f)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data={"index": index}))
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data={"index": index})
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
     finally:
@@ -250,29 +274,35 @@ async def postgres_reset_collab_internal(reinit: bool = False) -> None:
     resets the collab database.
 
     Args:
-        reinit: if true, the whole collab database is dropped and recreated. 
+        reinit: if true, the whole collab database is dropped and recreated.
             either, the operation table is left untouched and the rest is just cleared.
 
     """
     MutyLogger.get_instance().warning("resetting collab!")
     if reinit:
-        MutyLogger.get_instance().warning(
-            "drop and recreate whole collab database..."
-        )
+        MutyLogger.get_instance().warning("drop and recreate whole collab database...")
         # reinit whole collab
         collab = GulpCollab.get_instance()
         await collab.init(main_process=True, force_recreate=True)
         await collab.create_default_users()
         await collab.create_default_data()
     else:
-        MutyLogger.get_instance().warning(
-            "collab: leaving operation table untouched!"
-        )
+        MutyLogger.get_instance().warning("collab: leaving operation table untouched!")
         collab = GulpCollab.get_instance()
         await collab.init(main_process=True)
 
         # do not touch these tables
-        await collab.clear_tables(exclude=["operation", "user", "user_associations", "user_group", "source", "source_fields", "context", ])
+        await collab.clear_tables(
+            exclude=[
+                "operation",
+                "user",
+                "user_associations",
+                "user_group",
+                "source",
+                "source_fields",
+                "context",
+            ]
+        )
         await collab.create_default_data()
 
 
@@ -333,7 +363,8 @@ async def postgres_reset_collab_handler(
                     for op in ops:
                         # delete index data
                         MutyLogger.get_instance().debug(
-                            f"operation=%s, deleting index=%s ..." % (op.id, op.index))
+                            f"operation=%s, deleting index=%s ..." % (op.id, op.index)
+                        )
                         await GulpOpenSearch.get_instance().datastream_delete(
                             ds=op.index, throw_on_error=False
                         )
@@ -387,10 +418,9 @@ async def gulp_reset_handler(
 
     try:
         # reset collab
-        await postgres_reset_collab_handler(token,
-                                            full_reset=True,
-                                            restart_processes=False,
-                                            req_id=req_id)
+        await postgres_reset_collab_handler(
+            token, full_reset=True, restart_processes=False, req_id=req_id
+        )
 
         # create default index and operation
         collab = GulpCollab.get_instance()
@@ -424,7 +454,9 @@ async def _rebase_internal(
         template = await GulpOpenSearch.get_instance().index_template_get(index)
 
         # create the destination datastream, applying the same template
-        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(dest_index, template)
+        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
+            dest_index, template
+        )
 
         # rebase
         res = await GulpOpenSearch.get_instance().rebase(
@@ -437,15 +469,19 @@ async def _rebase_internal(
 
         # the operation object must now point to the new index
         async with GulpCollab.get_instance().session() as sess:
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id, with_for_update=True)
+            op: GulpOperation = await GulpOperation.get_by_id(
+                sess, operation_id, with_for_update=True
+            )
             d = {
                 "index": dest_index,
             }
-        await op.update(sess,
-                        d,
-                        ws_id=None,  # do not propagate on the websocket
-                        req_id=req_id,
-                        user_id=user_id)
+        await op.update(
+            sess,
+            d,
+            ws_id=None,  # do not propagate on the websocket
+            req_id=req_id,
+            user_id=user_id,
+        )
 
     except Exception as ex:
         # signal failure on the websocket
@@ -535,8 +571,7 @@ async def opensearch_rebase_index_handler(
         ),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    flt: Annotated[str, Depends(
-        APIDependencies.param_query_flt_optional)] = None,
+    flt: Annotated[str, Depends(APIDependencies.param_query_flt_optional)] = None,
     rebase_script: Annotated[
         str,
         Body(
@@ -567,14 +602,19 @@ optional custom rebase script to run on the documents.
         async with GulpCollab.get_instance().session() as sess:
             # check permission and get user id and index
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=op, permission=GulpUserPermission.INGEST)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            )
             user_id = s.user_id
             index = op.index
 
         if index == dest_index:
             raise JSendException(
-                req_id=req_id, ex=Exception(
-                    "index and dest_index must be different! (index=%s, dest_index=%s)" % (index, dest_index))
+                req_id=req_id,
+                ex=Exception(
+                    "index and dest_index must be different! (index=%s, dest_index=%s)"
+                    % (index, dest_index)
+                ),
             )
 
         # spawn a task which runs the rebase in a worker process

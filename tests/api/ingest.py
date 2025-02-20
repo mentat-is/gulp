@@ -1,10 +1,13 @@
+import json
+import os
+from typing import Dict, Optional
+
+import muty.crypto
+
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.structs import GulpPluginParameters
 from tests.api.common import GulpAPICommon
-import os
-import json
-from typing import Dict, Optional
-
+from muty.log import MutyLogger
 
 class GulpAPIIngest:
     """Bindings to call gulp's ingest related API endpoints"""
@@ -22,11 +25,15 @@ class GulpAPIIngest:
         ws_id: str = None,
         req_id: str = None,
         restart_from: int = 0,
+        original_file_size: int = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         file_size = os.path.getsize(file_path)
-
+        if original_file_size is not None:
+            MutyLogger.get_instance().debug("--> simulating failed upload, setting original file size=%d, passed file size=%d" % (original_file_size, file_size))
+            file_size = original_file_size
+            
         params = {
             "operation_id": operation_id,
             "context_name": context_name,
@@ -36,9 +43,13 @@ class GulpAPIIngest:
             "file_total": file_total,
         }
 
+        sha1 = await muty.crypto.hash_sha1_file(file_path)
         payload = {
             "flt": flt.model_dump(exclude_none=True) if flt else {},
-            "plugin_params": plugin_params.model_dump(exclude_none=True) if plugin_params else {},
+            "file_sha1": sha1,
+            "plugin_params": (
+                plugin_params.model_dump(exclude_none=True) if plugin_params else {}
+            ),
             "original_file_path": file_path,
         }
 
@@ -138,7 +149,9 @@ class GulpAPIIngest:
         body = {
             "flt": flt.model_dump(exclude_none=True) if flt else {},
             "chunk": raw_data,
-            "plugin_params": plugin_params.model_dump(exclude_none=True) if plugin_params else {},
+            "plugin_params": (
+                plugin_params.model_dump(exclude_none=True) if plugin_params else {}
+            ),
         }
 
         return await api_common.make_request(
