@@ -4,17 +4,18 @@ import multiprocessing
 import os
 import platform
 import random
+import shutil
 import string
-import token
+import tempfile
 from datetime import datetime, timedelta
 
+import muty.crypto
 import muty.file
 import pytest
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.test_values import (
@@ -30,6 +31,7 @@ from gulp.structs import GulpPluginParameters
 from tests.api.common import GulpAPICommon
 from tests.api.db import GulpAPIDb
 from tests.api.ingest import GulpAPIIngest
+from tests.api.operation import GulpAPIOperation
 from tests.api.query import GulpAPIQuery
 from tests.api.user import GulpAPIUser
 
@@ -103,13 +105,17 @@ def _process_file_in_worker_process(
 
 
 async def _ws_loop(
-    ingested: int, check_on_source_done: bool = False, processed: int = None
+    ingested: int,
+    check_on_source_done: bool = False,
+    processed: int = None,
+    skipped: int = None,
 ):
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
-    found_ingested = 0
-    found_processed = 0
+    records_ingested = 0
+    records_processed = 0
+    records_skipped = 0
 
     async with websockets.connect(ws_url) as ws:
         # connect websocket
@@ -130,8 +136,7 @@ async def _ws_loop(
                         # done
                         records_ingested = stats_packet.get("records_ingested", 0)
                         records_processed = stats_packet.get("records_processed", 0)
-                        found_ingested = records_ingested
-                        found_processed = records_processed
+                        records_skipped = stats_packet.get("records_skipped", 0)
                         if records_ingested == ingested:
                             MutyLogger.get_instance().info(
                                 "all %d records ingested!" % (ingested)
@@ -146,7 +151,15 @@ async def _ws_loop(
                             else:
                                 # just check ingested
                                 test_completed = True
-                        break
+
+                            if records_skipped == skipped:
+                                MutyLogger.get_instance().info(
+                                    "all %d records skipped!" % (skipped)
+                                )
+                                test_completed = True
+
+                            if test_completed:
+                                break
                     elif (
                         stats_packet["status"] == "failed"
                         or stats_packet["status"] == "canceled"
@@ -172,8 +185,8 @@ async def _ws_loop(
             MutyLogger.get_instance().exception(ex)
 
     MutyLogger.get_instance().info(
-        f"found_ingested={found_ingested} (requested={ingested}), found_processed={
-            found_processed} (requested={processed})"
+        f"found_ingested={records_ingested} (requested={ingested}), found_processed={
+            records_processed} (requested={processed}), found_skipped={records_skipped} (requested={skipped})"
     )
     assert test_completed
     MutyLogger.get_instance().info("test succeeded!")
@@ -310,14 +323,17 @@ async def test_win_evtx():
 
 @pytest.mark.asyncio
 async def test_ingest_account():
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    samples_dir = os.path.join(current_dir, "../samples/win_evtx")
-    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
-
+    """
+    test ingest vs guest account (only ingest can ingest)
+    """
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
-    await GulpAPIDb.reset_all_as_admin()
+    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
@@ -345,41 +361,84 @@ async def test_ingest_account():
     )
 
     await _ws_loop(ingested=7, processed=7)
+    MutyLogger.get_instance().info(test_ingest_account.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
 async def test_failed_upload():
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    samples_dir = os.path.join(current_dir, "../samples/win_evtx")
-    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
-
+    """
+    simulate a failed upload and reupload with resume after
+    """
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
-    await GulpAPIDb.reset_all_as_admin()
+    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
     # get full file size
     file_size = os.path.getsize(file_path)
+    file_sha1 = await muty.crypto.hash_sha1_file(file_path)
 
     # copy to a temporary file, using a smaller size
-    temp_file_path = os.path.join(samples_dir, "Security_short_selected_temp.evtx")
+    tmp_dir = os.path.join(tempfile.gettempdir(), "gulp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    temp_file_path = os.path.join(tmp_dir, os.path.basename(file_path))
     with open(file_path, "rb") as f:
         with open(temp_file_path, "wb") as f2:
             f2.write(f.read(file_size - 100))
+    try:
+        # ingest the partial file, it will fail
+        await GulpAPIIngest.ingest_file(
+            token=ingest_token,
+            file_path=temp_file_path,
+            operation_id=TEST_OPERATION_ID,
+            context_name=TEST_CONTEXT_NAME,
+            plugin="win_evtx",
+            file_sha1=file_sha1,
+            total_file_size=file_size,
+            expected_status=206,
+        )
 
-    # ingest the partial file, it will fail
-    await GulpAPIIngest.ingest_file(
-        token=ingest_token,
-        file_path=temp_file_path,
-        operation_id=TEST_OPERATION_ID,
-        context_name=TEST_CONTEXT_NAME,
-        plugin="win_evtx",
-        original_file_size=file_size,
-        expected_status=206,
+        # ingest the real file, starting from file_size - 100
+        await GulpAPIIngest.ingest_file(
+            token=ingest_token,
+            file_path=file_path,
+            operation_id=TEST_OPERATION_ID,
+            context_name=TEST_CONTEXT_NAME,
+            plugin="win_evtx",
+            file_sha1=file_sha1,
+            total_file_size=file_size,
+            restart_from=file_size - 100,
+        )
+
+        await _ws_loop(ingested=7, processed=7)
+    finally:
+        shutil.rmtree(tmp_dir)
+    MutyLogger.get_instance().info(test_ingest_account.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_skipped_records():
+    """
+    simulate skipped records due to duplicate ingestion
+    """
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
+    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
 
     # ingest the real file, starting from file_size - 100
     await GulpAPIIngest.ingest_file(
@@ -388,11 +447,20 @@ async def test_failed_upload():
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
-        original_file_size=file_size,
-        expected_status=206,
     )
+    await _ws_loop(ingested=7, processed=7)
 
-    # await _ws_loop(ingested=7, processed=7)
+    # ingest same file again
+    await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+    )
+    await _ws_loop(ingested=0, processed=7, skipped=7)
+    MutyLogger.get_instance().info(test_ingest_account.__name__ + " succeeded!")
+
 
 @pytest.mark.asyncio
 async def test_csv_standalone_and_query_operations():
@@ -599,6 +667,17 @@ async def test_ingest_ws_raw():
 
     assert test_completed
     MutyLogger.get_instance().info("test succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_all():
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    await GulpAPIDb.reset_all_as_admin()
+    await test_ingest_account()
+    await test_failed_upload()
+    await test_skipped_records()
 
 
 @pytest.mark.asyncio

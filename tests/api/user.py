@@ -2,7 +2,9 @@ from typing import Optional
 
 from muty.log import MutyLogger
 
+from gulp.api.rest.test_values import TEST_OPERATION_ID
 from tests.api.common import GulpAPICommon
+from tests.api.operation import GulpAPIOperation
 
 
 class GulpAPIUser:
@@ -10,6 +12,16 @@ class GulpAPIUser:
     bindings to call gulp's user related API endpoints
     """
 
+    @staticmethod
+    async def login_admin_and_reset_operation(req_id: str, ws_id: str = None, operation_id: str = None) -> str:
+        admin_token = await GulpAPIUser.login_admin(req_id=req_id, ws_id=ws_id)
+        assert admin_token
+        op = operation_id or TEST_OPERATION_ID
+        res = await GulpAPIOperation.operation_reset(admin_token, op, req_id=req_id)
+        assert res['id'] == op
+        return admin_token
+
+        
     @staticmethod
     async def login_admin(req_id: str = None, ws_id: str = None) -> str:
         MutyLogger.get_instance().info("Logging in as admin...")

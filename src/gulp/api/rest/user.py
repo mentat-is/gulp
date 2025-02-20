@@ -68,8 +68,8 @@ class GulpLoginMethod(BaseModel):
                                 "type": "str",
                                 "description": "the request id.",
                                 "default_value": None,
-                            }
-                        ]
+                            },
+                        ],
                     },
                     "logout": {
                         "method": "POST",
@@ -91,9 +91,9 @@ class GulpLoginMethod(BaseModel):
                                 "type": "str",
                                 "description": "the request id.",
                                 "optional": True,
-                            }
-                        ]
-                    }
+                            },
+                        ],
+                    },
                 }
             ]
         },
@@ -101,10 +101,8 @@ class GulpLoginMethod(BaseModel):
 
     name: str = Field(..., description="the name of the login method.")
 
-    login: GulpAPIMethod = Field(
-        ..., description="the login method.")
-    logout: GulpAPIMethod = Field(
-        ..., description="the logout method.")
+    login: GulpAPIMethod = Field(..., description="the login method.")
+    logout: GulpAPIMethod = Field(..., description="the logout method.")
 
 
 router = APIRouter()
@@ -123,8 +121,7 @@ router = APIRouter()
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": [autogenerate_model_example_by_class(
-                            GulpLoginMethod)]
+                        "data": [autogenerate_model_example_by_class(GulpLoginMethod)],
                     }
                 }
             }
@@ -137,7 +134,7 @@ depending on the installed plugins, you may login to gulp using different method
 this api lists the available login methods and their corresponding API endpoints.
 
 NOTE: the `gulp` login method is always available, `extension` plugins may override `get_login_methods` to add more methods.
-"""
+""",
 )
 async def get_available_login_api_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -146,9 +143,7 @@ async def get_available_login_api_handler(
 
     return JSONResponse(
         JSendResponse.success(
-            req_id=req_id,
-            data=[autogenerate_model_example_by_class(
-                GulpLoginMethod)]
+            req_id=req_id, data=[autogenerate_model_example_by_class(GulpLoginMethod)]
         )
     )
 
@@ -201,10 +196,10 @@ refer to `gulp_cfg_template.json` for more information.
 async def login_handler(
     user_id: Annotated[
         str,
-        Body(description="user ID for authentication", example="admin"),
+        Body(description="user ID for authentication", examples=["admin"]),
     ],
     password: Annotated[
-        str, Body(description="password for authentication.", example="admin")
+        str, Body(description="password for authentication.", examples=["admin"])
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -329,8 +324,7 @@ the new user id.
         str,
         Depends(APIDependencies.param_email_optional),
     ] = None,
-    glyph_id: Annotated[str, Depends(
-        APIDependencies.param_glyph_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -470,8 +464,7 @@ async def user_update_handler(
             example=True,
         ),
     ] = True,
-    glyph_id: Annotated[str, Depends(
-        APIDependencies.param_glyph_id_optional)] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -522,8 +515,7 @@ async def user_update_handler(
             await u.update(sess, d, user_session=s)
 
             return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data=u.to_dict(exclude_none=True))
+                JSendResponse.success(req_id=req_id, data=u.to_dict(exclude_none=True))
             )
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
@@ -602,7 +594,9 @@ async def user_get_by_id(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpUser.get_by_id_wrapper(token, user_id, nested=True, enforce_owner=True)
+        d = await GulpUser.get_by_id_wrapper(
+            token, user_id, nested=True, enforce_owner=True
+        )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex

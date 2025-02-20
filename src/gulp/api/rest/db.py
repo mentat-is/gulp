@@ -274,8 +274,8 @@ async def postgres_reset_collab_internal(reinit: bool = False) -> None:
     resets the collab database.
 
     Args:
-        reinit: if true, the whole collab database is dropped and recreated.
-            either, the operation table is left untouched and the rest is just cleared.
+        reinit: if true, the whole collab database is dropped and recreated and initialized with default data (users, groups, etc. BUT not operation).
+                either, just collab objects and stats are reset.
 
     """
     MutyLogger.get_instance().warning("resetting collab!")

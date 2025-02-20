@@ -403,14 +403,8 @@ class GulpCollab:
             )
             await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
 
-            # add user grants
-            await operation.add_user_grant(sess, "ingest")
-            await operation.add_user_grant(sess, "editor")
-            await operation.add_user_grant(sess, "power")
-            await operation.add_user_grant(sess, "guest")
-
-            # add group grants
-            await operation.add_group_grant(sess, "administrators")
+            # add default grants (groups and users)
+            await operation.add_default_grants(sess)
 
             operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
             for op in operations:

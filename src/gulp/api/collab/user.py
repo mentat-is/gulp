@@ -308,8 +308,8 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         u.session = new_session
         u.time_last_login = muty.time.now_msec()
         MutyLogger.get_instance().info(
-            "user %s logged in, token=%s, expire=%d, admin=%r" % (
-                u.id, new_session.id, new_session.time_expire, u.is_admin())
+            "user %s logged in, token=%s, expire=%d, admin=%r"
+            % (u.id, new_session.id, new_session.time_expire, u.is_admin())
         )
         sess.add(u)
         await sess.commit()
@@ -409,21 +409,27 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
             return False
 
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
-            # public object, always granted
+            # public object (both granted_user_group_ids and granted_user_ids are empty)
             MutyLogger.get_instance().debug(
-                "allowing access to object without granted users or groups, user=%s" % (self.id))
+                "allowing access to object without granted users or groups, user=%s"
+                % (self.id)
+            )
             return True
 
         # check if the user is in the granted groups
         if obj.granted_user_group_ids:
             for group in self.groups:
                 if group.id in obj.granted_user_group_ids:
-                    MutyLogger.get_instance().debug("allowing access to granted group %s" % (group.id))
+                    MutyLogger.get_instance().debug(
+                        "allowing access to granted group %s" % (group.id)
+                    )
                     return True
 
         # check if the user is in the granted users
         if obj.granted_user_ids and self.id in obj.granted_user_ids:
-            MutyLogger.get_instance().debug("allowing access to granted user %s" % (self.id))
+            MutyLogger.get_instance().debug(
+                "allowing access to granted user %s" % (self.id)
+            )
             return True
 
         if throw_on_no_permission:

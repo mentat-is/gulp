@@ -55,6 +55,28 @@ falsepositives:
 level: informational
 """
 
+EXAMPLE_QUERY_RAW = {
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "query_string": {
+                        "query": "(gulp.operation_id: test_operation AND gulp.context_id: dbdcd5d70efd3e4242cedd1e4a0c9b2d186a5a8f AND gulp.source_id: 7344ed16e93ee2dcb2a1e019c01596e72249d4c3 AND gulp.timestamp: [1727734017000000000 TO 1730414835000000000])"
+                    }
+                },
+                {
+                    "wildcard": {
+                        "gulp.unmapped.Guid": {
+                            "value": "*8-4994-a5bA*",
+                            "case_insensitive": True,
+                        }
+                    }
+                },
+            ]
+        }
+    }
+}
+
 
 async def _query_internal(
     user_id: str,
@@ -345,9 +367,10 @@ async def query_raw_handler(
     q: Annotated[
         list[dict],
         Body(
-            description="""one or more queries according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+            description="""
+one or more queries according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 """,
-            examples=[[{"query": {"match_all": {}}}]],
+            examples=[EXAMPLE_QUERY_RAW, {"query": {"match_all": {}}}],
         ),
     ],
     q_options: Annotated[

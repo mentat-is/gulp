@@ -3,11 +3,12 @@ import os
 from typing import Dict, Optional
 
 import muty.crypto
+from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.structs import GulpPluginParameters
 from tests.api.common import GulpAPICommon
-from muty.log import MutyLogger
+
 
 class GulpAPIIngest:
     """Bindings to call gulp's ingest related API endpoints"""
@@ -25,14 +26,17 @@ class GulpAPIIngest:
         ws_id: str = None,
         req_id: str = None,
         restart_from: int = 0,
-        original_file_size: int = None,
+        file_sha1: str = None,
+        total_file_size: int = 0,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
-        file_size = os.path.getsize(file_path)
-        if original_file_size is not None:
-            MutyLogger.get_instance().debug("--> simulating failed upload, setting original file size=%d, passed file size=%d" % (original_file_size, file_size))
-            file_size = original_file_size
+
+        if not total_file_size:
+            total_file_size = os.path.getsize(file_path)
+
+        if not file_sha1:
+            file_sha1 = await muty.crypto.hash_sha1_file(file_path)
             
         params = {
             "operation_id": operation_id,
@@ -43,26 +47,30 @@ class GulpAPIIngest:
             "file_total": file_total,
         }
 
-        sha1 = await muty.crypto.hash_sha1_file(file_path)
         payload = {
             "flt": flt.model_dump(exclude_none=True) if flt else {},
-            "file_sha1": sha1,
+            "file_sha1": file_sha1,
             "plugin_params": (
                 plugin_params.model_dump(exclude_none=True) if plugin_params else {}
             ),
             "original_file_path": file_path,
         }
 
+        f = open(file_path, "rb")
+        if restart_from > 0:
+            # advance to the restart offset
+            f.seek(restart_from)
+
         files = {
             "payload": ("payload.json", json.dumps(payload), "application/json"),
             "f": (
                 os.path.basename(file_path),
-                open(file_path, "rb"),
+                f,
                 "application/octet-stream",
             ),
         }
 
-        headers = {"size": str(file_size), "continue_offset": str(restart_from)}
+        headers = {"size": str(total_file_size), "continue_offset": str(restart_from)}
 
         return await api_common.make_request(
             "POST",
@@ -84,12 +92,18 @@ class GulpAPIIngest:
         ws_id: str = None,
         req_id: str = None,
         restart_from: int = 0,
+        file_sha1: str = None,
+        total_file_size: int = 0,
         expected_status: int = 200,
     ) -> dict:
         """Ingest a ZIP archive containing files to process"""
         api_common = GulpAPICommon.get_instance()
-        file_size = os.path.getsize(file_path)
+        if not total_file_size:
+            total_file_size = os.path.getsize(file_path)
 
+        if not file_sha1:
+            file_sha1 = await muty.crypto.hash_sha1_file(file_path)
+            
         params = {
             "operation_id": operation_id,
             "context_name": context_name,
@@ -99,16 +113,22 @@ class GulpAPIIngest:
 
         payload = {"flt": flt.model_dump(exclude_none=True) if flt else {}}
 
+        f = open(file_path, "rb")
+        if restart_from > 0:
+            # advance to the restart offset
+            f.seek(restart_from)
+
         files = {
             "payload": ("payload.json", json.dumps(payload), "application/json"),
+            "file_sha1": file_sha1,
             "f": (
                 os.path.basename(file_path),
-                open(file_path, "rb"),
+                f,
                 "application/zip",
             ),
         }
 
-        headers = {"size": str(file_size), "continue_offset": str(restart_from)}
+        headers = {"size": str(total_file_size), "continue_offset": str(restart_from)}
 
         return await api_common.make_request(
             "POST",

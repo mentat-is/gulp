@@ -1,7 +1,7 @@
 import json
 import re
 from enum import StrEnum
-from typing import Any, List, Optional, TypeVar, override, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List, Optional, TypeVar, override
 
 import muty.string
 import muty.time
@@ -127,7 +127,7 @@ class GulpCollabType(StrEnum):
     SOURCE = "source"
     USER_GROUP = "user_group"
     SOURCE_FIELDS = "source_fields"
-    
+
     def __str__(self) -> str:
         return self.value
 
@@ -344,7 +344,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 if hasattr(type, k):
                     column = getattr(type, k)
                     # check if column type is ARRAY using SQLAlchemy's inspection
-                    is_array = isinstance(getattr(column, 'type', None), ARRAY)                    
+                    is_array = isinstance(getattr(column, "type", None), ARRAY)
                     if is_array:
                         q = q.filter(self._array_contains_any(column, v))
                     else:
@@ -655,7 +655,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 options.append(load_opt)
 
                 # Add nested relationships
-                target_class = rel.mapper.class_
+                _ = rel.mapper.class_
                 nested_opts = cls._build_relationship_loading_options(
                     recursive=True, seen=seen.copy()
                 )
@@ -697,23 +697,43 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         time_created = muty.time.now_msec()
 
         # remove None values
-        object_data = {k: v for k, v in object_data.items() if v is not None}
+        obj: dict = {k: v for k, v in object_data.items() if v is not None}
 
-        object_data["type"] = cls.__gulp_collab_type__
-        object_data["id"] = id
-        object_data["time_created"] = time_created
-        object_data["time_updated"] = time_created
-        object_data["owner_user_id"] = owner_id
-        object_data["granted_user_group_ids"] = []
-        if private:
-            object_data["granted_user_ids"] = [owner_id]
+        obj["type"] = cls.__gulp_collab_type__
+        obj["id"] = id
+        obj["time_created"] = time_created
+        obj["time_updated"] = time_created
+        obj["owner_user_id"] = owner_id
+
+        # check if user/groups are passed in object_data
+        granted_user_ids = object_data.get("granted_user_ids", [])
+        granted_user_group_ids = object_data.get("granted_user_group_ids", [])
+        if granted_user_ids:
+            # explicitly set user grants
+            obj["granted_user_ids"] = granted_user_ids
         else:
-            object_data["granted_user_ids"] = []
+            # empty
+            if private:
+                # private object, just the owner can access it
+                obj["granted_user_ids"] = [owner_id]
+            else:
+                obj["granted_user_ids"] = []
 
-        if not object_data.get("name", None):
+        if granted_user_group_ids:
+            # explicitly set group grants
+            obj["granted_user_group_ids"] = granted_user_group_ids
+        else:
+            # empty
+            if private:
+                # private object, just the owner can access it
+                obj["granted_user_group_ids"] = []
+            else:
+                obj["granted_user_group_ids"] = []
+
+        if not obj.get("name", None):
             # set the name to the id if not provided
-            object_data["name"] = id
-        return object_data
+            obj["name"] = id
+        return obj
 
     @classmethod
     async def _create(
@@ -754,6 +774,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         d = cls.build_base_object_dict(
             object_data, owner_id=owner_id, id=id, private=private
         )
+        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {d}")
+
         # create select statement with eager loading
         stmt = (
             select(cls)
@@ -795,6 +817,25 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             )
         MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
         return instance
+
+    async def add_default_grants(self, sess: AsyncSession):
+        """
+        shortcut to add default user and groups grants to the object
+
+        NOTE: should be used only when resetting the database.
+
+        Args:
+            sess (AsyncSession): The session to use.
+        """
+        # add user grants
+        await self.add_user_grant(sess, "ingest")
+        await self.add_user_grant(sess, "admin")
+        await self.add_user_grant(sess, "editor")
+        await self.add_user_grant(sess, "power")
+        await self.add_user_grant(sess, "guest")
+
+        # add group grants
+        await self.add_group_grant(sess, "administrators")
 
     async def add_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         """
@@ -985,6 +1026,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             self.granted_user_ids
             and len(self.granted_user_ids) == 1
             and self.granted_user_ids[0] == self.owner_user_id
+            and not self.granted_user_group_ids
         ):
             return True
         return False
@@ -1002,6 +1044,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # private object = only owner or admin can see it
         self.granted_user_ids = [self.owner_user_id]
+        self.granted_user_group_ids = []
         await sess.commit()
         await sess.refresh(self)
         MutyLogger.get_instance().info(
@@ -1257,7 +1300,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         enforce_owner: bool = False,
     ) -> dict:
         """
-        helper to get an object by ID, handling session and ACL check 
+        helper to get an object by ID, handling session and ACL check
 
         Args:
             token (str): The user token.
@@ -1274,8 +1317,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MissingPermissionError: If the user does not have permission to read the object.
             ObjectNotFound: If the object is not found.
         """
-        from gulp.api.collab_api import GulpCollab
         from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
 
         async with GulpCollab.get_instance().session() as sess:
             n: GulpCollabBase = await cls.get_by_id(
@@ -1309,8 +1352,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             list[dict]: The list of object dictionaries that match the filter criteria.
         """
-        from gulp.api.collab_api import GulpCollab
         from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
 
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
@@ -1319,7 +1362,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             is_admin = s.user.is_admin()
 
             objs = await cls.get_by_filter(
-                sess, flt, throw_if_not_found=throw_if_not_found, user_id=user_id, user_id_is_admin=is_admin
+                sess,
+                flt,
+                throw_if_not_found=throw_if_not_found,
+                user_id=user_id,
+                user_id_is_admin=is_admin,
             )
             if not objs:
                 return []
@@ -1365,7 +1412,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
     ) -> None:
         """
-        helper to delete an object by ID, handling session and ACL check 
+        helper to delete an object by ID, handling session and ACL check
 
         Args:
             token (str): The user token, pass None to skip token check.
@@ -1378,8 +1425,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MissingPermissionError: If the user does not have permission to delete the object.
             ObjectNotFoundError: If the object is not found.
         """
-        from gulp.api.collab_api import GulpCollab
         from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
 
         async with GulpCollab.get_instance().session() as sess:
             n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
@@ -1427,8 +1474,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ValueError: If both d and updated_instance are provided.
             MissingPermissionError: If the user does not have permission to update the object.
         """
-        from gulp.api.collab_api import GulpCollab
         from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
 
         async with GulpCollab.get_instance().session() as sess:
             if d and updated_instance:
@@ -1480,23 +1527,24 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Raises:
             MissingPermissionError: If the user does not have permission to create the object.
         """
-        from gulp.api.collab_api import GulpCollab
         from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
 
         async with GulpCollab.get_instance().session() as sess:
             # check permission for creation
             if operation_id:
                 # check permission on the operation
                 from gulp.api.collab.operation import GulpOperation
-                op: GulpOperation = await GulpOperation.get_by_id(
-                    sess, operation_id
-                )
+
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
                 s = await GulpUserSession.check_token(
                     sess, token, permission=permission, obj=op
                 )
             else:
                 # just check token permission
-                s = await GulpUserSession.check_token(sess, token, permission=permission)
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission
+                )
 
             n: GulpCollabBase = await cls._create(
                 sess,
