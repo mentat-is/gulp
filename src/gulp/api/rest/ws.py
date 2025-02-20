@@ -46,8 +46,7 @@ class InternalWsIngestPacket(BaseModel):
     """
 
     user_id: str = Field(..., description="the user id")
-    data: GulpWsIngestPacket = Field(...,
-                                     description="a GulpWsIngestPacket dictionary")
+    data: GulpWsIngestPacket = Field(..., description="a GulpWsIngestPacket dictionary")
 
 
 class WsIngestRawWorker:
@@ -118,27 +117,14 @@ class WsIngestRawWorker:
                         sess, packet.data.operation_id
                     )
 
-                    ctx: GulpContext
-                    src: GulpSource
-                    ctx, _ = await operation.add_context(
-                        sess, user_id=packet.user_id, name=packet.data.context_name,
-                        ws_id=packet.data.ws_id, req_id=packet.data.req_id
-                    )
-                    src, _ = await ctx.add_source(
-                        sess, user_id=packet.user_id, name=packet.data.source,
-                        ws_id=packet.data.ws_id, req_id=packet.data.req_id
-                    )
-
                     # Process documents using plugin
                     await mod.ingest_raw(
                         sess,
                         user_id=packet.user_id,
                         req_id=packet.data.req_id,
                         ws_id=packet.data.ws_id,
-                        index=packet.data.index,
+                        index=operation.index,
                         operation_id=packet.data.operation_id,
-                        context_id=ctx.id,
-                        source_id=src.id,
                         chunk=packet.data.docs,
                         flt=packet.data.flt,
                         plugin_params=packet.data.plugin_params,
@@ -197,8 +183,7 @@ class GulpAPIWebsocket:
                     )
                     user_id = s.user_id
 
-            MutyLogger.get_instance().debug(
-                f"ws accepted for ws_id={params.ws_id}")
+            MutyLogger.get_instance().debug(f"ws accepted for ws_id={params.ws_id}")
             ws = GulpConnectedSockets.get_instance().add(
                 websocket, params.ws_id, params.types, params.operation_ids
             )
@@ -209,9 +194,9 @@ class GulpAPIWebsocket:
                 type=GulpWsQueueDataType.WS_CONNECTED,
                 ws_id=params.ws_id,
                 user_id=user_id,
-                data=GulpWsAcknowledgedPacket(token=params.token, ws_id=params.ws_id).model_dump(
-                    exclude_none=True
-                ),
+                data=GulpWsAcknowledgedPacket(
+                    token=params.token, ws_id=params.ws_id
+                ).model_dump(exclude_none=True),
             )
             await websocket.send_json(p.model_dump(exclude_none=True))
 
@@ -250,8 +235,7 @@ class GulpAPIWebsocket:
                 try:
                     await GulpConnectedSockets.get_instance().remove(websocket)
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        f"error during ws cleanup: {ex}")
+                    MutyLogger.get_instance().error(f"error during ws cleanup: {ex}")
                 del ws
             try:
                 # close gracefully
@@ -304,9 +288,9 @@ class GulpAPIWebsocket:
                 type=GulpWsQueueDataType.WS_CONNECTED,
                 ws_id=params.ws_id,
                 user_id=user_id,
-                data=GulpWsAcknowledgedPacket(token=params.token, ws_id=params.ws_id).model_dump(
-                    exclude_none=True
-                ),
+                data=GulpWsAcknowledgedPacket(
+                    token=params.token, ws_id=params.ws_id
+                ).model_dump(exclude_none=True),
             )
             await websocket.send_json(p.model_dump(exclude_none=True))
 
@@ -373,8 +357,7 @@ class GulpAPIWebsocket:
                 ingest_packet = GulpWsIngestPacket.model_validate(js)
 
                 # package data for worker
-                packet = InternalWsIngestPacket(
-                    user_id=user_id, data=ingest_packet)
+                packet = InternalWsIngestPacket(user_id=user_id, data=ingest_packet)
                 # and put in the worker queue
                 worker_pool.put(packet)
 
@@ -424,9 +407,9 @@ class GulpAPIWebsocket:
                 type=GulpWsQueueDataType.WS_CONNECTED,
                 ws_id=params.ws_id,
                 user_id=user_id,
-                data=GulpWsAcknowledgedPacket(token=params.token, ws_id=params.ws_id).model_dump(
-                    exclude_none=True
-                ),
+                data=GulpWsAcknowledgedPacket(
+                    token=params.token, ws_id=params.ws_id
+                ).model_dump(exclude_none=True),
             )
             await websocket.send_json(p.model_dump(exclude_none=True))
 
@@ -542,8 +525,7 @@ class GulpAPIWebsocket:
                 )
                 raise
             except Exception as ex:
-                MutyLogger.get_instance().error(
-                    f"error in {task.get_name()}: {ex}")
+                MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
                 raise
 
         finally:

@@ -1,7 +1,8 @@
 from typing import Any, override
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     RequestCanceledError,
@@ -41,6 +42,12 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
+
+        # set context/source
+        self._context_id, self._source_id = await self._add_context_and_source_from_doc(
+            record
+        )
+
         # create a gulp document
         return GulpDocument(
             self,
@@ -61,8 +68,6 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         index: str,
         operation_id: str,
-        context_id: str,
-        source_id: str,
         chunk: list[dict],
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
@@ -79,12 +84,10 @@ class Plugin(GulpPluginBase):
                 ws_id=ws_id,
                 index=index,
                 operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
                 chunk=chunk,
                 stats=stats,
-                plugin_params=plugin_params,
                 flt=flt,
+                plugin_params=plugin_params,
             )
         except Exception as ex:
             await self._source_failed(ex)

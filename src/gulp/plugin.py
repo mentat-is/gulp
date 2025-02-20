@@ -559,7 +559,8 @@ class GulpPluginBase(ABC):
         """
         extract (and add to collab database) GulpContext and GulpSource from the document, or set bogus values if not found.
         a cache to avoid too many queries.
-        NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set.
+
+        NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set, otherwise context and source are attempted to be extracted from "gulp.context_id" and "gulp.source_id" fields.
 
         Args:
             doc (dict): the document to extract context and source from.
@@ -572,9 +573,10 @@ class GulpPluginBase(ABC):
         src_id: str = None
         ctx: GulpContext = None
 
-        # get context and field
-        record_context = self._plugin_params.custom_parameters.get("context_field")
-        record_source = self._plugin_params.custom_parameters.get("source_field")
+        # get context and field (either use default)
+        record_context = self._plugin_params.custom_parameters.get("context_field", "gulp.context_id")
+        record_source = self._plugin_params.custom_parameters.get("source_field", "gulp.source_id")
+
         # MutyLogger.get_instance().debug(f"record_context={record_context}, record_source={record_source}, ingest_index={self._ingest_index}")
 
         if not self._ingest_index:
@@ -708,16 +710,18 @@ class GulpPluginBase(ABC):
         ws_id: str,
         index: str,
         operation_id: str,
-        context_id: str,
-        source_id: str,
         chunk: list[dict],
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
         """
-        ingest a chunk of GulpDocument dictionaries.
+        ingest a chunk of arbitrary (GulpDocument ?) dictionaries.
 
+        NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
+
+        it is the responsibility of the plugin to create context and source, from the document.
+        
         Args:
             sess (AsyncSession): The database session.
             user_id (str): The user performing the ingestion (id on collab database)
@@ -725,8 +729,6 @@ class GulpPluginBase(ABC):
             ws_id (str): The websocket ID to stream on
             index (str): The name of the target opensearch/elasticsearch index or datastream.
             operation_id (str): id of the operation on collab database.
-            context_id (str): id of the context on collab database.
-            source_id (str): id of the source on collab database.
             chunk (list[dict]): The chunk of documents to ingest.
             stats (GulpRequestStats, optional): The ingestion stats.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
@@ -744,12 +746,10 @@ class GulpPluginBase(ABC):
         self._req_id = req_id
         self._user_id = user_id
         self._operation_id = operation_id
-        self._context_id = context_id
         self._ingest_index = index
-        self._source_id = source_id
         MutyLogger.get_instance().debug(
-            f"ingesting raw source_id={source_id}, num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={
-                operation_id}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={
+                operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
 
         # initialize
