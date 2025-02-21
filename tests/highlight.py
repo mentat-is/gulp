@@ -1,6 +1,12 @@
 import pytest
 from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.highlight import GulpAPIHighlight
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -10,11 +16,6 @@ from gulp.api.rest.test_values import (
     TEST_SOURCE_ID_2,
     TEST_WS_ID,
 )
-from tests.api.common import GulpAPICommon
-from tests.api.user import GulpAPIUser
-from tests.api.highlight import GulpAPIHighlight
-from tests.api.object_acl import GulpAPIObjectACL
-from tests.api.db import GulpAPIDb
 
 
 @pytest.mark.asyncio
@@ -134,7 +135,7 @@ async def test():
     )
     assert len(highlights) == 1
     assert highlights[0]["id"] == highlight2["id"]
-    
+
     # editor can delete the highlight
     d = await GulpAPIHighlight.highlight_delete(
         editor_token, highlight["id"], TEST_WS_ID

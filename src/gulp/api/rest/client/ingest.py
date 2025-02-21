@@ -6,8 +6,8 @@ import muty.crypto
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.api.rest.client.common import GulpAPICommon
 from gulp.structs import GulpPluginParameters
-from tests.api.common import GulpAPICommon
 
 
 class GulpAPIIngest:

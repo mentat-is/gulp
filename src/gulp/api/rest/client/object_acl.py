@@ -1,7 +1,7 @@
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabType
-from tests.api.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon
 
 
 class GulpAPIObjectACL:

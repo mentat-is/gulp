@@ -1,5 +1,5 @@
 from gulp.api.collab.structs import GulpCollabFilter
-from tests.api.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon
 
 
 class GulpAPIOperation:

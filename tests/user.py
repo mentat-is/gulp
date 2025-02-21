@@ -1,9 +1,10 @@
 import pytest
 from muty.log import MutyLogger
+
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
-from tests.api.common import GulpAPICommon
-from tests.api.user import GulpAPIUser
-from tests.api.db import GulpAPIDb
 
 
 @pytest.mark.asyncio

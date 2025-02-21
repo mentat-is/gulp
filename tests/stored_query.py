@@ -1,16 +1,18 @@
 import pprint
+
 import pytest
 from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.sigma import GulpQuerySigmaParameters
 from gulp.api.opensearch.structs import GulpBasicDocument
-from tests.api.common import GulpAPICommon
-from tests.api.object_acl import GulpAPIObjectACL
-from tests.api.stored_query import GulpAPIStoredQuery
-from tests.api.user_group import GulpAPIUserGroup
-from tests.api.user import GulpAPIUser
-from tests.api.link import GulpAPILink
-from tests.api.db import GulpAPIDb
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.link import GulpAPILink
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.stored_query import GulpAPIStoredQuery
+from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.client.user_group import GulpAPIUserGroup
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,

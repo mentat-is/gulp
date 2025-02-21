@@ -1,6 +1,6 @@
 from muty.log import MutyLogger
 
-from tests.api.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon
 
 
 class GulpAPIUserGroup:

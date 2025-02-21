@@ -1,5 +1,5 @@
 from gulp.api.collab.structs import GulpCollabFilter
-from tests.api.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon
 
 
 class GulpAPIStory:
@@ -17,7 +17,7 @@ class GulpAPIStory:
         glyph_id: str = None,
         color: str = None,
         req_id: str = None,
-        ws_id: str = None,        
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -56,7 +56,7 @@ class GulpAPIStory:
         glyph_id: str = None,
         color: str = None,
         req_id: str = None,
-        ws_id: str = None,        
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
@@ -89,7 +89,7 @@ class GulpAPIStory:
         token: str,
         object_id: str,
         req_id: str = None,
-        ws_id: str = None,        
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()

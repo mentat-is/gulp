@@ -1,13 +1,15 @@
 import os
+
 import pytest
 from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.glyph import GulpAPIGlyph
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
-from tests.api.common import GulpAPICommon
-from tests.api.user import GulpAPIUser
-from tests.api.glyph import GulpAPIGlyph
-from tests.api.db import GulpAPIDb
-from tests.api.object_acl import GulpAPIObjectACL
 
 
 @pytest.mark.asyncio
@@ -96,9 +98,7 @@ async def test():
     await GulpAPIGlyph.glyph_delete(power_token, updated["id"], expected_status=401)
 
     # editor can delete glyph
-    d = await GulpAPIGlyph.glyph_delete(
-        editor_token, updated["id"]
-    )
+    d = await GulpAPIGlyph.glyph_delete(editor_token, updated["id"])
     assert d["id"] == updated["id"]
 
     MutyLogger.get_instance().info("all USER tests succeeded!")

@@ -1,7 +1,7 @@
 import io
 import os
 
-from tests.api.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon
 
 
 class GulpAPIUtility:

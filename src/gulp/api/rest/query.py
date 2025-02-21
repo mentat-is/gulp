@@ -167,8 +167,8 @@ async def _worker_coro(kwds: dict):
     plugin_params: GulpPluginParameters = kwds.get("plugin_params")
 
     try:
+        # build tasks to run queries and gather
         for gq in queries:
-
             q_opt = deepcopy(q_options)
 
             # set name, i.e. for sigma rules we want the sigma rule name to be used (which has been set in the GulpQuery struct)
@@ -207,8 +207,9 @@ async def _worker_coro(kwds: dict):
         query_matched = 0
         total_doc_matches = 0
         errors: list[str] = []
+        query_names: list[str] = []
         for r in res:
-            # res is a tuple (hits, exception)
+            # res is a tuple (hits, exception, query_name)
             hits: int = 0
             ex: Exception = None
             q_name: str = None
@@ -220,6 +221,7 @@ async def _worker_coro(kwds: dict):
             if hits > 0:
                 # we have a match
                 query_matched += 1
+                query_names.append(q_name)
                 total_doc_matches += hits
             if ex:
                 # we have an error
@@ -255,7 +257,7 @@ async def _worker_coro(kwds: dict):
                     # look for tags = query name and update them with the group name
                     await GulpNote.bulk_update_tags(
                         sess,
-                        [q_opt.name],
+                        query_names,
                         [q_options.group],
                         operation_id=operation_id,
                         user_id=user_id,
@@ -489,6 +491,7 @@ async def query_gulp_handler(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
+            operation_id=operation_id,
             index=index,
             queries=[gq],
             q_options=q_options,
@@ -696,7 +699,7 @@ async def query_sigma_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(s, plugin, plugin_params)
+            q: list[GulpQuery] = mod.sigma_convert(s, plugin_params)
             queries.extend(q)
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them

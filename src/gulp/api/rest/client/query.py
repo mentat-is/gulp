@@ -4,8 +4,8 @@ from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.rest.client.common import GulpAPICommon
 from gulp.structs import GulpPluginParameters
-from tests.api.common import GulpAPICommon
 
 
 class GulpAPIQuery:

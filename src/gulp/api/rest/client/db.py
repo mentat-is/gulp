@@ -3,8 +3,8 @@ import os
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-from tests.api.common import GulpAPICommon
-from tests.api.user import GulpAPIUser
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.user import GulpAPIUser
 
 
 class GulpAPIDb:

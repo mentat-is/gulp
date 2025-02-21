@@ -1,47 +1,46 @@
 from gulp.api.collab.structs import GulpCollabFilter
-from tests.api.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon
 
 
-class GulpAPIStoredQuery:
+class GulpAPIHighlight:
     """
-    Bindings to call gulp's stored query related API endpoints
+    bindings to call gulp's highlight related API endpoints
     """
 
     @staticmethod
-    async def stored_query_create(
+    async def highlight_create(
         token: str,
-        name: str,
-        q: str,
-        q_groups: list[str] = None,
-        plugin: str = None,
+        operation_id: str,
+        ws_id: str,
+        source_id: str,
+        time_range: tuple[int, int],
+        name: str = None,
         tags: list[str] = None,
-        description: str = None,
         glyph_id: str = None,
-        private: bool = False,
+        color: str = None,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
-        """Create a new stored query"""
         api_common = GulpAPICommon.get_instance()
 
         params = {
+            "operation_id": operation_id,
+            "ws_id": ws_id,
+            "source_id": source_id,
             "name": name,
-            "req_id": req_id or api_common.req_id,
-            "plugin": plugin,
             "glyph_id": glyph_id,
-            "private": private,
+            "color": color,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
-            "q": q,
-            "q_groups": q_groups,
+            "time_range": time_range,
             "tags": tags,
-            "description": description,
         }
 
         res = await api_common.make_request(
             "POST",
-            "stored_query_create",
+            "highlight_create",
             params=params,
             body=body,
             token=token,
@@ -50,39 +49,39 @@ class GulpAPIStoredQuery:
         return res
 
     @staticmethod
-    async def stored_query_update(
+    async def highlight_update(
         token: str,
         object_id: str,
+        ws_id: str,
+        time_range: tuple[int, int] = None,
         name: str = None,
-        q: list[str] = None,
-        q_groups: list[str] = None,
-        plugin: str = None,
         tags: list[str] = None,
-        description: str = None,
         glyph_id: str = None,
+        color: str = None,
+        private: bool = False,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
-        """Update an existing stored query"""
         api_common = GulpAPICommon.get_instance()
+
         params = {
             "object_id": object_id,
+            "ws_id": ws_id,
             "name": name,
-            "plugin": plugin,
-            "req_id": req_id or api_common.req_id,
+            "private": private,
             "glyph_id": glyph_id,
+            "color": color,
+            "req_id": req_id or api_common.req_id,
         }
 
         body = {
-            "q": q,
-            "q_groups": q_groups,
+            "time_range": time_range,
             "tags": tags,
-            "description": description,
         }
 
         res = await api_common.make_request(
             "PATCH",
-            "stored_query_update",
+            "highlight_update",
             params=params,
             body=body,
             token=token,
@@ -91,51 +90,54 @@ class GulpAPIStoredQuery:
         return res
 
     @staticmethod
-    async def stored_query_delete(
+    async def highlight_delete(
         token: str,
         object_id: str,
+        ws_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
-        """Delete a stored query"""
         api_common = GulpAPICommon.get_instance()
-        return await api_common.object_delete(
+        params = {
+            "object_id": object_id,
+            "ws_id": ws_id,
+            "req_id": req_id or api_common.req_id,
+        }
+        return await api_common.make_request(
+            "DELETE",
+            "highlight_delete",
+            params=params,
             token=token,
-            object_id=object_id,
-            api="stored_query_delete",
-            req_id=req_id,
             expected_status=expected_status,
         )
 
     @staticmethod
-    async def stored_query_get_by_id(
+    async def highlight_get_by_id(
         token: str,
         object_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
-        """Get stored query by ID"""
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
             object_id=object_id,
             req_id=req_id,
-            api="stored_query_get_by_id",
+            api="highlight_get_by_id",
             expected_status=expected_status,
         )
 
     @staticmethod
-    async def stored_query_list(
+    async def highlight_list(
         token: str,
         flt: GulpCollabFilter = None,
         req_id: str = None,
         expected_status: int = 200,
     ) -> list[dict]:
-        """List stored queries"""
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_list(
             token=token,
-            api="stored_query_list",
+            api="highlight_list",
             flt=flt,
             req_id=req_id,
             expected_status=expected_status,

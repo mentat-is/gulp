@@ -1,14 +1,16 @@
 import pprint
+
 import pytest
 from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.structs import GulpBasicDocument
-from tests.api.common import GulpAPICommon
-from tests.api.object_acl import GulpAPIObjectACL
-from tests.api.user_group import GulpAPIUserGroup
-from tests.api.user import GulpAPIUser
-from tests.api.note import GulpAPINote
-from tests.api.db import GulpAPIDb
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.note import GulpAPINote
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.client.user_group import GulpAPIUserGroup
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
@@ -86,9 +88,7 @@ async def test():
     )
 
     # editor2 cannot o the note
-    await GulpAPINote.note_delete(
-        editor2_token, pinned_note["id"], expected_status=401
-    )
+    await GulpAPINote.note_delete(editor2_token, pinned_note["id"], expected_status=401)
 
     # editor can edit the note
     updated = await GulpAPINote.note_update(
@@ -119,9 +119,7 @@ async def test():
     assert updated["last_editor_id"] == "admin"
 
     # editor can delete the note
-    d = await GulpAPINote.note_delete(
-        editor_token, pinned_note["id"]
-    )
+    d = await GulpAPINote.note_delete(editor_token, pinned_note["id"])
     assert d["id"] == pinned_note["id"]
 
     # create couple of notes

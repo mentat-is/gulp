@@ -1,9 +1,10 @@
 import pytest
-from tests.api.common import GulpAPICommon
-from tests.api.db import GulpAPIDb
-from tests.api.user_group import GulpAPIUserGroup
-from tests.api.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_REQ_ID, TEST_WS_ID, TEST_INDEX, TEST_HOST
+
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.client.user_group import GulpAPIUserGroup
+from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
 
 
 @pytest.mark.asyncio

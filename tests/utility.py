@@ -1,19 +1,20 @@
-import pytest
-import shutil
 import os
 import pathlib
+import shutil
 import tempfile
-from muty.log import MutyLogger
+
 import muty.file
+import pytest
+from muty.log import MutyLogger
+
 from gulp.api.collab.structs import MissingPermission
-from gulp.config import GulpConfig
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.client.utility import GulpAPIUtility
 from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from tests.api.common import GulpAPICommon
-from tests.api.db import GulpAPIDb
-from tests.api.user import GulpAPIUser
-from tests.api.utility import GulpAPIUtility
-import os
 
 # NOTE:
 # this needs to be run with PATH_PLUGINS_EXTRA and PATH_MAPPING_FILES_EXTRA set, since it must be able to update/delete mapping files and plugins

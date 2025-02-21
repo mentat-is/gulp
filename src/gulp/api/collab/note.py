@@ -273,6 +273,9 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             operation_id (str): the operation id
             user_id (str): the user id making the request
         """
+        MutyLogger.get_instance().debug(
+            f"updating notes tags from {tags} to {new_tags} ..."
+        )
         offset = 0
         chunk_size = 1000
 

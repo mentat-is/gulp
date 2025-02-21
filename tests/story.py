@@ -1,17 +1,18 @@
 import pytest
 from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.structs import GulpBasicDocument
-from tests.api.common import GulpAPICommon
-from tests.api.object_acl import GulpAPIObjectACL
-from tests.api.user_group import GulpAPIUserGroup
-from tests.api.user import GulpAPIUser
-from tests.api.story import GulpAPIStory
-from tests.api.db import GulpAPIDb
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.story import GulpAPIStory
+from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.client.user_group import GulpAPIUserGroup
 from gulp.api.rest.test_values import (
-    TEST_OPERATION_ID,
     TEST_HOST,
     TEST_INDEX,
+    TEST_OPERATION_ID,
     TEST_REQ_ID,
     TEST_WS_ID,
 )

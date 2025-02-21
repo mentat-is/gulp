@@ -2,25 +2,21 @@
 """
 script to restart gulp by calling /restart_server endpoint with an admin token
 """
-# add the project root directory to Python path
-from gulp.api.rest.test_values import (
-    TEST_HOST,
-    TEST_REQ_ID,
-    TEST_WS_ID,
-)
+import argparse
 import asyncio
 import logging
-import argparse
-import sys
 import os
+import sys
+
+# add the project root directory to Python path
+from gulp.api.rest.test_values import TEST_HOST, TEST_REQ_ID, TEST_WS_ID
 
 
 def _parse_args():
     parser = argparse.ArgumentParser(
         description="Restart gulp by calling /restart_server."
     )
-    parser.add_argument(
-        "--host", default="http://localhost:8080", help="Gulp host")
+    parser.add_argument("--host", default="http://localhost:8080", help="Gulp host")
     return parser.parse_args()
 
 
@@ -29,10 +25,11 @@ async def main():
     project_root = os.path.dirname(script_dir)  # Go up one level to /gulp
     sys.path.append(project_root)
 
-    from tests.api.common import GulpAPICommon
-    from tests.api.user import GulpAPIUser
-    from tests.api.utility import GulpAPIUtility
     from muty.log import MutyLogger
+
+    from gulp.api.rest.client.common import GulpAPICommon
+    from gulp.api.rest.client.user import GulpAPIUser
+    from gulp.api.rest.client.utility import GulpAPIUtility
 
     MutyLogger.get_instance("restart_gulp", level=logging.DEBUG)
     args = _parse_args()

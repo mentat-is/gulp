@@ -1,10 +1,17 @@
 import asyncio
 import json
+
 import pytest
-from muty.log import MutyLogger
 import websockets
+from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.operation import GulpAPIOperation
+from gulp.api.rest.client.query import GulpAPIQuery
+from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -13,11 +20,6 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
-from tests.api.common import GulpAPICommon
-from tests.api.query import GulpAPIQuery
-from tests.api.user import GulpAPIUser
-from tests.api.operation import GulpAPIOperation
-from tests.api.db import GulpAPIDb
 
 
 async def _ws_loop(total: int = None):
@@ -75,7 +77,7 @@ async def test():
     )
 
     # ingest some data
-    from tests.ingest import test_csv_file_mapping
+    from tests.ingest.test_ingest import test_csv_file_mapping
 
     await test_csv_file_mapping()
 

@@ -1,97 +1,120 @@
-import os
 from gulp.api.collab.structs import GulpCollabFilter
-from tests.api.common import GulpAPICommon
-import muty.file
-from io import BytesIO
+from gulp.api.rest.client.common import GulpAPICommon
 
 
-class GulpAPIGlyph:
+class GulpAPINote:
     """
-    bindings to call gulp's glyph related API endpoints
+    bindings to call gulp's note related API endpoints
     """
 
     @staticmethod
-    async def glyph_create(
+    async def note_create(
         token: str,
-        img: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        text: str,
+        time_pin: int = None,
+        docs: list = None,
         name: str = None,
-        private: bool=False,
+        tags: list[str] = None,
+        color: str = None,
+        private: bool = False,
         req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
 
-        buffer = await muty.file.read_file_async(img)
-        files = {"img": (os.path.basename(img), BytesIO(buffer))}
         params = {
+            "operation_id": operation_id,
+            "context_id": context_id,
+            "source_id": source_id,
+            "time_pin": time_pin,
             "name": name,
+            "color": color,
             "private": private,
+            "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
+        }
+
+        body = {
+            "docs": docs,
+            "text": text,
+            "tags": tags,
         }
 
         res = await api_common.make_request(
             "POST",
-            "glyph_create",
+            "note_create",
             params=params,
-            files=files,
+            body=body,
             token=token,
             expected_status=expected_status,
         )
         return res
 
     @staticmethod
-    async def glyph_update(
+    async def note_update(
         token: str,
         object_id: str,
-        img: str = None,
+        text: str = None,
+        time_pin: int = None,
+        docs: list = None,
         name: str = None,
+        tags: list[str] = None,
+        color: str = None,
         req_id: str = None,
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
+
         api_common = GulpAPICommon.get_instance()
-
-        if img:
-            buffer = await muty.file.read_file_async(img)
-            files = {"img": (os.path.basename(img), BytesIO(buffer))}
-        else:
-            files = None
-
         params = {
-            "name": name,
             "object_id": object_id,
+            "time_pin": time_pin,
+            "color": color,
+            "name": name,
+            "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
+        }
+
+        body = {
+            "docs": docs,
+            "tags": tags,
+            "text": text,
         }
 
         res = await api_common.make_request(
             "PATCH",
-            "glyph_update",
+            "note_update",
             params=params,
-            files=files,
+            body=body,
             token=token,
             expected_status=expected_status,
         )
         return res
 
     @staticmethod
-    async def glyph_delete(
+    async def note_delete(
         token: str,
         object_id: str,
         req_id: str = None,
-        ws_id: str = None, 
+        ws_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_delete(
             token=token,
             object_id=object_id,
-            api="glyph_delete",
             req_id=req_id,
             ws_id=ws_id,
+            api="note_delete",
             expected_status=expected_status,
         )
 
     @staticmethod
-    async def glyph_get_by_id(
+    async def note_get_by_id(
         token: str,
         object_id: str,
         req_id: str = None,
@@ -101,13 +124,13 @@ class GulpAPIGlyph:
         return await api_common.object_get_by_id(
             token=token,
             object_id=object_id,
-            api="glyph_get_by_id",
             req_id=req_id,
+            api="note_get_by_id",
             expected_status=expected_status,
         )
 
     @staticmethod
-    async def glyph_list(
+    async def note_list(
         token: str,
         flt: GulpCollabFilter = None,
         req_id: str = None,
@@ -116,7 +139,7 @@ class GulpAPIGlyph:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_list(
             token=token,
-            api="glyph_list",
+            api="note_list",
             flt=flt,
             req_id=req_id,
             expected_status=expected_status,

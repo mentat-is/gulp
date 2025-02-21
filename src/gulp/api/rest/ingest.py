@@ -412,6 +412,7 @@ async def ingest_file_handler(
     params = locals()
     params.pop("r")
     ServerUtils.dump_params(params)
+    file_path: str = None
 
     try:
         # handle multipart request manually
@@ -481,6 +482,9 @@ async def ingest_file_handler(
         return JSONResponse(JSendResponse.pending(req_id=req_id))
 
     except Exception as ex:
+        # cleanup
+        if file_path:
+            await muty.file.delete_file_or_dir_async(file_path)
         raise JSendException(ex=ex, req_id=req_id)
 
 
@@ -872,8 +876,4 @@ async def ingest_zip_handler(
         raise JSendException(ex=ex, req_id=req_id)
     finally:
         # cleanup
-        if result and result.done:
-            MutyLogger.get_instance().debug(
-                "deleting uploaded file %s ..." % (file_path)
-            )
-            await muty.file.delete_file_or_dir_async(file_path)
+        await muty.file.delete_file_or_dir_async(file_path)
