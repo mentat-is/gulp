@@ -304,6 +304,8 @@ class GulpPluginBase(ABC):
         self._source_id: str = None
         # opensearch index to ingest into
         self._ingest_index: str = None
+        self._raw_ingestion: bool = False
+
         # this is retrieved from the index to check types during ingestion
         self._index_type_mapping: dict = {}
         # if the plugin is processing an external query
@@ -445,14 +447,16 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int, int]: the number of ingested documents and the number of skipped documents
         """
-        # MutyLogger.get_instance().debug(f"processing chunk of {len(data)} documents with plugin {self.name}")
+        MutyLogger.get_instance().debug(
+            f"processing chunk of {len(data)} documents with plugin {self.name}"
+        )
         if not data:
             return 0, 0
 
         el = GulpOpenSearch.get_instance()
         skipped: int = 0
         ingested_docs: list[dict] = []
-
+        # MutyLogger.get_instance().debug(json.dumps(data, indent=2))
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
         if self._ingestion_enabled:
             # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
@@ -560,9 +564,9 @@ class GulpPluginBase(ABC):
 
     async def _add_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
         """
-        extract (and add to collab database) GulpContext and GulpSource from the document, or set bogus values if not found.
+        this function extracts context ID and source ID from the document, and creates the corresponding GulpContext and/or GulpSource if they do not exists.
 
-        a cache is used to avoid too many queries.
+        a cache is used to limit the queries.
 
         NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set, otherwise context and source are attempted to be extracted from "gulp.context_id" and "gulp.source_id" fields.
 
@@ -752,6 +756,9 @@ class GulpPluginBase(ABC):
         self._user_id = user_id
         self._operation_id = operation_id
         self._ingest_index = index
+        self._raw_ingestion = True
+        self._stats = stats
+
         MutyLogger.get_instance().debug(
             f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={
                 operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
@@ -1078,7 +1085,11 @@ class GulpPluginBase(ABC):
         return lower
 
     async def setup_stacked_plugin(
-        self, plugin: str, cache_mode: GulpPluginCacheMode.DEFAULT, *args, **kwargs
+        self,
+        plugin: str,
+        cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
+        *args,
+        **kwargs,
     ) -> "GulpPluginBase":
         """
         setup the caller plugin as the "lower" plugin in a stack.
@@ -1797,12 +1808,13 @@ class GulpPluginBase(ABC):
             **kwargs: Additional keyword arguments.
         """
         MutyLogger.get_instance().debug(
-            "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r"
+            "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r, self._stats=%s"
             % (
                 self._file_path or self._source_id,
                 len(self._docs_buffer),
                 self._stats.status if self._stats else GulpRequestStatus.DONE,
                 self._ingestion_enabled,
+                self._stats,
             )
         )
 
@@ -1822,7 +1834,7 @@ class GulpPluginBase(ABC):
             self._sess = None
             return
 
-        if self._ws_id:
+        if self._ws_id and not self._raw_ingestion:
             # send ingest_source_done packet on ws
             if self._is_source_failed:
                 status = GulpRequestStatus.FAILED
@@ -1849,8 +1861,10 @@ class GulpPluginBase(ABC):
 
         if self._stats:
             d = dict(
-                source_failed=1 if self._is_source_failed else 0,
-                source_processed=1,
+                source_failed=(
+                    1 if (self._is_source_failed and not self._raw_ingestion) else 0
+                ),
+                source_processed=1 if not self._raw_ingestion else 0,
                 source_id=self._source_id,
                 records_ingested=ingested,
                 records_skipped=skipped,
@@ -1858,6 +1872,10 @@ class GulpPluginBase(ABC):
                 records_processed=self._records_processed_per_chunk,
                 error=self._source_error,
             )
+            if self._raw_ingestion and not self._req_canceled:
+                # keep status as ongoing
+                d["status"] = GulpRequestStatus.ONGOING
+
             try:
                 await self._stats.update(
                     self._sess,

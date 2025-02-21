@@ -14,6 +14,7 @@ from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -72,10 +73,24 @@ class WsIngestRawWorker:
         )
 
         async with GulpCollab.get_instance().session() as sess:
+            stats: GulpRequestStats = None
+
             while True:
                 packet: InternalWsIngestPacket = input_queue.get()
                 if packet is None:
                     break
+
+                if not stats:
+                    # create a stats that never expire
+                    stats: GulpRequestStats = await GulpRequestStats.create(
+                        sess,
+                        user_id=packet.user_id,
+                        req_id=packet.data.req_id,
+                        ws_id=packet.data.ws_id,
+                        operation_id=packet.data.operation_id,
+                        context_id=None,
+                        never_expire=True,
+                    )
 
                 try:
                     mod: GulpPluginBase = None
@@ -93,6 +108,7 @@ class WsIngestRawWorker:
                         req_id=packet.data.req_id,
                         ws_id=packet.data.ws_id,
                         index=packet.index,
+                        stats=stats,
                         operation_id=packet.data.operation_id,
                         chunk=packet.data.docs,
                         flt=packet.data.flt,
@@ -101,6 +117,13 @@ class WsIngestRawWorker:
 
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)
+                    # just append error
+                    d = dict(
+                        error=ex,
+                    )
+                    await stats.update(
+                        sess, d, ws_id=packet.data.ws_id, user_id=packet.user_id
+                    )
 
                 finally:
                     if mod:
@@ -293,7 +316,7 @@ class GulpAPIWebsocket:
             )
             await websocket.send_json(p.model_dump(exclude_none=True))
 
-            # blocks until exception/disconnect
+            # the ingestion loop, blocks until exception/disconnect
             await GulpAPIWebsocket.ws_ingest_run_loop(ws, user_id)
         except ObjectNotFound as ex:
             # user not found
@@ -351,19 +374,25 @@ class GulpAPIWebsocket:
         """
         worker_pool = WsIngestRawWorker(ws)
         await worker_pool.start()
+
         try:
             async with GulpCollab.get_instance().session() as sess:
+                operation: GulpOperation = None
+
                 while True:
                     if ws.ws.client_state != WebSocketState.CONNECTED:
                         raise WebSocketDisconnect("client disconnected")
 
+                    # get packet from ws
                     js = await ws.ws.receive_json()
                     ingest_packet = GulpWsIngestPacket.model_validate(js)
 
                     # check operation
-                    operation: GulpOperation = await GulpOperation.get_by_id(
-                        sess, ingest_packet.operation_id, throw_if_not_found=False
-                    )
+                    if not operation or operation.id != ingest_packet.operation_id:
+                        # this may be not necessary, since the operation should never change in the same ws connection....
+                        operation = await GulpOperation.get_by_id(
+                            sess, ingest_packet.operation_id, throw_if_not_found=False
+                        )
                     if not operation:
                         # missing operation, abort
                         MutyLogger.get_instance().error(

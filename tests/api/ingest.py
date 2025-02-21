@@ -37,7 +37,7 @@ class GulpAPIIngest:
 
         if not file_sha1:
             file_sha1 = await muty.crypto.hash_sha1_file(file_path)
-            
+
         params = {
             "operation_id": operation_id,
             "context_name": context_name,
@@ -88,7 +88,7 @@ class GulpAPIIngest:
         file_path: str,
         operation_id: str,
         context_name: str,
-        flt: Optional[GulpIngestionFilter] = None,
+        flt: GulpIngestionFilter = None,
         ws_id: str = None,
         req_id: str = None,
         restart_from: int = 0,
@@ -103,7 +103,7 @@ class GulpAPIIngest:
 
         if not file_sha1:
             file_sha1 = await muty.crypto.hash_sha1_file(file_path)
-            
+
         params = {
             "operation_id": operation_id,
             "context_name": context_name,
@@ -111,7 +111,11 @@ class GulpAPIIngest:
             "req_id": req_id or api_common.req_id,
         }
 
-        payload = {"flt": flt.model_dump(exclude_none=True) if flt else {}}
+        payload = {
+            "flt": flt.model_dump(exclude_none=True) if flt else {},
+            "file_sha1": file_sha1,
+            "original_file_path": file_path,
+        }
 
         f = open(file_path, "rb")
         if restart_from > 0:
@@ -120,7 +124,6 @@ class GulpAPIIngest:
 
         files = {
             "payload": ("payload.json", json.dumps(payload), "application/json"),
-            "file_sha1": file_sha1,
             "f": (
                 os.path.basename(file_path),
                 f,
@@ -145,11 +148,9 @@ class GulpAPIIngest:
         token: str,
         raw_data: Dict,
         operation_id: str,
-        context_name: str,
         plugin: str = None,
         plugin_params: Optional[GulpPluginParameters] = None,
         flt: Optional[GulpIngestionFilter] = None,
-        source: str = None,
         ws_id: str = None,
         req_id: str = None,
         expected_status: int = 200,
@@ -159,8 +160,6 @@ class GulpAPIIngest:
 
         params = {
             "operation_id": operation_id,
-            "context_name": context_name,
-            "source": source or "raw",
             "plugin": plugin or "raw",
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,

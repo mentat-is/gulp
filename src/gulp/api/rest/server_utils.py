@@ -11,10 +11,10 @@ import aiosmtplib
 import muty.crypto
 import muty.file
 import muty.string
-import muty.crypto
 from fastapi import Request
 from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
+
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.rest.structs import GulpUploadResponse
@@ -121,7 +121,7 @@ class ServerUtils:
 
         Returns:
             Tuple[str, dict, GulpUploadResponse]: A tuple containing:
-                - the file path
+                - the downloaded file path
                 - the parsed JSON payload, if any
                 - the upload response object to be returned to the client.
         """
@@ -146,11 +146,9 @@ class ServerUtils:
             content_disposition = content_disposition.lower().strip()
 
             # find filename parameter
-            filename_match = re.search(
-                r"filename\s*=\s*([^;\s]+)", content_disposition)
+            filename_match = re.search(r"filename\s*=\s*([^;\s]+)", content_disposition)
             if not filename_match:
-                raise ValueError(
-                    'No "filename" found in Content-Disposition header')
+                raise ValueError('No "filename" found in Content-Disposition header')
 
             # Extract and clean filename
             filename = filename_match.group(1)
@@ -158,8 +156,7 @@ class ServerUtils:
             filename = filename.strip()  # remove any remaining whitespace
 
             if not filename:
-                raise ValueError(
-                    "Empty filename in Content-Disposition header")
+                raise ValueError("Empty filename in Content-Disposition header")
 
             return filename
 
@@ -177,6 +174,7 @@ class ServerUtils:
         payload_dict = await _parse_payload(json_part.content) or {}
 
         # extract filename and prepare path
+        MutyLogger.get_instance().debug("file_part.headers=%s" % (file_part.headers))
         filename = _extract_filename(
             file_part.headers[b"Content-Disposition"].decode("utf-8")
         )
@@ -210,8 +208,7 @@ class ServerUtils:
                 return (
                     cache_file_path,
                     payload_dict,
-                    GulpUploadResponse(
-                        done=False, continue_offset=current_size),
+                    GulpUploadResponse(done=False, continue_offset=current_size),
                 )
 
             # write file chunk at the specified offset

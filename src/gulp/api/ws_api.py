@@ -400,9 +400,9 @@ class GulpWsIngestPacket(BaseModel):
         },
     )
 
-    docs: list[dict] = Field(
+    docs: list[Any] = Field(
         ...,
-        description="the GulpDocument dictionaries to be ingested.",
+        description="a list of documents to be ingested.",
     )
     index: str = Field(
         ...,
@@ -414,7 +414,7 @@ class GulpWsIngestPacket(BaseModel):
     )
     ws_id: str = Field(
         ...,
-        description="id of the websocket to stream ingest data to.",
+        description="id of the websocket to stream ingested data to.",
     )
     req_id: str = (Field(..., description="id of the request"),)
     flt: Optional[GulpIngestionFilter] = Field(

@@ -421,6 +421,86 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
 
 
 @router.post(
+    "/query_gulp",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="simple Gulp query.",
+    description="""
+use this API just for simple query using the pre-made filters in `GulpQueryFilter`.
+
+for anything else, it is advised to use the more powerful `query_raw` API.
+
+- this API returns `pending` and results are streamed to the `ws_id` websocket.
+""",
+)
+async def query_gulp_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
+    q_options: Annotated[
+        GulpQueryParameters,
+        Depends(APIDependencies.param_q_options),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["q_options"] = q_options.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        if not flt or not flt.operation_ids:
+            raise ValueError(
+                "at least one operation_id is mandatory in the query filter."
+            )
+
+        async with GulpCollab.get_instance().session() as sess:
+            permission = GulpUserPermission.READ
+
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=op
+            )
+            user_id = s.user_id
+            index = op.index
+
+        # convert gulp query to raw query
+        dsl = flt.to_opensearch_dsl()
+
+        # spawn worker
+        gq = GulpQuery(name=q_options.name, q=dsl)
+        await _spawn_query_group_workers(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            queries=[gq],
+            q_options=q_options,
+        )
+
+        # and return pending
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(ex=ex, req_id=req_id)
+
+
+@router.post(
     "/query_external",
     response_model=JSendResponse,
     tags=["query"],

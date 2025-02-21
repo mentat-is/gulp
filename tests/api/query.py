@@ -42,6 +42,47 @@ class GulpAPIQuery:
         return res
 
     @staticmethod
+    async def query_gulp(
+        token: str,
+        operation_id: str,
+        flt: GulpQueryFilter = None,
+        q_options: GulpQueryParameters = None,
+        expected_status: int = 200,
+        req_id: str = None,
+        ws_id: str = None,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "req_id": req_id or api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+        }
+        body = {
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "query_gulp",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
     async def query_sigma(
         token: str,
         operation_id: str,

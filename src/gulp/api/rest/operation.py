@@ -269,11 +269,16 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
             MutyLogger.get_instance().warning(
                 "operation=%s exists: %s" % (operation_id, op)
             )
+            # delete data by operation
+            await GulpOpenSearch.get_instance().delete_data_by_operation(
+                index, operation_id
+            )
+
             # delete operation (cascading delete of all related data)
             await op.delete(sess)
             await sess.commit()
         else:
-            # create new
+            # operation must be created anew
             index = operation_id
             description = None
             glyph_id = None
@@ -284,11 +289,11 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
                 "operation_reset, creating new operation=%s!" % (operation_id)
             )
 
-        # recreate the index
-        MutyLogger.get_instance().info(
-            "operation_reset, re/creating index=%s ..." % (index)
-        )
-        await GulpOpenSearch.get_instance().datastream_create(index)
+            # recreate the index
+            MutyLogger.get_instance().info(
+                "operation_reset, re/creating index=%s ..." % (index)
+            )
+            await GulpOpenSearch.get_instance().datastream_create(index)
 
         # recreate operation
         MutyLogger.get_instance().info(

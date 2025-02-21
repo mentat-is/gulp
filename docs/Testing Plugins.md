@@ -39,10 +39,10 @@ single tests in the [test suite](../tests) may also be run manually
 ~~~bash
 # run single api test manually, i.e.
 # run windows ingest/query test (including sigma and stored queries)
-python3 -m pytest query.py::test_win_evtx
+python3 -m pytest -v -s query.py::test_win_evtx
 
 # run collab notes test (including user ACL)
-python3 -m pytest note.py
+python3 -m pytest -v -s note.py
 ~~~
 
 ## ingestion tool

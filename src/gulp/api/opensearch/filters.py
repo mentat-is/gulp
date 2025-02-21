@@ -122,13 +122,25 @@ default is False (both OpenSearch and websocket receives the filtered results).
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
+        if not flt.time_range:
+            # no time range, accept all
+            return GulpDocumentFilterResult.ACCEPT
 
-        if flt.time_range:
-            ts = doc["gulp.timestamp"]
-            if ts <= flt.time_range[0] or ts >= flt.time_range[1]:
-                return GulpDocumentFilterResult.SKIP
+        # filter based on time range
+        # check if ts is within the range. either start or end can be None
+        # if both are None, the filter is empty and all events are accepted
+        ts = doc["gulp.timestamp"]
+        if flt.time_range[0] and flt.time_range[1]:
+            if ts >= flt.time_range[0] and ts <= flt.time_range[1]:
+                return GulpDocumentFilterResult.ACCEPT
+        if flt.time_range[0]:
+            if ts >= flt.time_range[0]:
+                return GulpDocumentFilterResult.ACCEPT
+        if flt.time_range[1]:
+            if ts <= flt.time_range[1]:
+                return GulpDocumentFilterResult.ACCEPT
 
-        return GulpDocumentFilterResult.ACCEPT
+        return GulpDocumentFilterResult.SKIP
 
 
 class GulpQueryFilter(GulpBaseDocumentFilter):
@@ -258,8 +270,7 @@ include documents matching the given `gulp.source_id`/s.
 
             if self.agent_types:
                 clauses.append(
-                    self._query_string_build_or_clauses(
-                        "agent.type", self.agent_types)
+                    self._query_string_build_or_clauses("agent.type", self.agent_types)
                 )
             if self.operation_ids:
                 clauses.append(
@@ -280,26 +291,22 @@ include documents matching the given `gulp.source_id`/s.
                     )
                 )
             if self.doc_ids:
-                clauses.append(
-                    self._query_string_build_or_clauses("_id", self.doc_ids))
+                clauses.append(self._query_string_build_or_clauses("_id", self.doc_ids))
 
             if self.event_codes:
                 clauses.append(
-                    self._query_string_build_or_clauses(
-                        "event.code", self.event_codes)
+                    self._query_string_build_or_clauses("event.code", self.event_codes)
                 )
             if self.time_range:
                 # simple >=, <= clauses
                 field = "gulp.timestamp"
                 if self.time_range[0]:
                     clauses.append(
-                        self._query_string_build_gte_clause(
-                            field, self.time_range[0])
+                        self._query_string_build_gte_clause(field, self.time_range[0])
                     )
                 if self.time_range[1]:
                     clauses.append(
-                        self._query_string_build_lte_clause(
-                            field, self.time_range[1])
+                        self._query_string_build_lte_clause(field, self.time_range[1])
                     )
             if self.model_extra:
                 # extra fields
@@ -380,6 +387,6 @@ include documents matching the given `gulp.source_id`/s.
                 self.context_ids,
                 self.source_ids,
                 self.event_codes,
-                self.doc_ids,                
+                self.doc_ids,
             ]
         )

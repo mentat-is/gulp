@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import muty.crypto
 import muty.file
@@ -67,6 +67,7 @@ class GulpIngestPayload(GulpBaseIngestPayload):
                     "plugin_params": autogenerate_model_example_by_class(
                         GulpPluginParameters
                     ),
+                    "file_sha1": "a1b2c3d4e5f6",
                     "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx",
                 }
             ]
@@ -488,8 +489,6 @@ async def _ingest_raw_internal(
     ws_id: str,
     user_id: str,
     operation_id: str,
-    context_id: str,
-    source_id: str,
     index: str,
     chunk: list[dict],
     flt: GulpIngestionFilter,
@@ -502,16 +501,16 @@ async def _ingest_raw_internal(
     # MutyLogger.get_instance().debug("---> ingest_raw_internal")
 
     async with GulpCollab.get_instance().session() as sess:
-        # leave out stats in raw ingestion for now ...
-        """stats: GulpRequestStats = await GulpRequestStatsreate(
+        # create a stats that never expire
+        stats: GulpRequestStats = await GulpRequestStats.create(
             sess,
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            context_id=context_id,
-            source_total=1,
-        )"""
+            context_id=None,
+            never_expire=True,
+        )
 
         mod: GulpPluginBase = None
 
@@ -526,19 +525,17 @@ async def _ingest_raw_internal(
                 ws_id=ws_id,
                 index=index,
                 operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
                 chunk=chunk,
+                stats=stats,
                 flt=flt,
                 plugin_params=plugin_params,
             )
         except Exception as ex:
-            # leave out stats in raw ingestion for now ...
-            """d = dict(
-                source_failed=1,
+            # just append error
+            d = dict(
                 error=ex,
             )
-            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)"""
+            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
             # done
             if mod:
@@ -555,11 +552,11 @@ async def _ingest_raw_internal(
         200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
-ingests a chunk of raw `GulpDocument`s, i.e. coming from a gulp SIEM agent or similar.
+ingests a chunk of raw documents, i.e. coming from a gulp SIEM agent or similar.
 
 ### plugin
 
-by default, the `raw` plugin is used (**must be available**), but a different plugin can be specified using the `plugin` parameter.
+by default, the `raw` plugin is used (expects a chunk of `GulpDocument` dictionaries).
 """,
     summary="ingest raw documents.",
 )
@@ -572,32 +569,25 @@ async def ingest_raw_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    context_name: Annotated[
-        str,
-        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
-    ],
-    source: Annotated[
-        str,
-        Query(
-            description="name of the source to associate the data with, a source on the collab db will be generated if it doesn't exist.",
-            example="raw source",
-        ),
-    ],
     ws_id: Annotated[
         str,
         Depends(APIDependencies.param_ws_id),
     ],
     chunk: Annotated[
-        list[dict],
-        Body(description="a chunk of raw `GulpDocument`s to be ingested."),
+        list[Any],
+        Body(description="a chunk of raw documents to be ingested."),
     ],
     flt: Annotated[
         GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional)
     ] = None,
     plugin: Annotated[
         str,
-        Depends(APIDependencies.param_plugin),
-    ] = "raw",
+        Query(
+            description=""""
+the plugin to be used, must be able to process the raw documents in `chunk`. """,
+            example="raw",
+        ),
+    ] = None,
     plugin_params: Annotated[
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params_optional),
@@ -611,6 +601,10 @@ async def ingest_raw_handler(
     params["flt"] = flt.model_dump(exclude_none=True)
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
 
+    if not plugin:
+        plugin = "raw"
+        MutyLogger.get_instance().debug("using default raw plugin: %s" % (plugin))
+
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -622,20 +616,6 @@ async def ingest_raw_handler(
             index = operation.index
             user_id = s.user_id
 
-            # create (and associate) context and source on the collab db, if they do not exist
-            ctx: GulpContext
-            src: GulpSource
-            ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
-            )
-            src, _ = await ctx.add_source(
-                sess,
-                user_id=user_id,
-                name=source,
-                ws_id=ws_id,
-                req_id=req_id,
-            )
-
         # run ingestion in a coroutine in one of the workers
         MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
         kwds = dict(
@@ -643,8 +623,6 @@ async def ingest_raw_handler(
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,
-            context_id=ctx.id,
-            source_id=src.id,
             index=index,
             chunk=chunk,
             flt=flt,

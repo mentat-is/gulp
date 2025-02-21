@@ -6,17 +6,12 @@ import muty.dict
 import muty.string
 import muty.time
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from muty.pydantic import (
-    autogenerate_model_example_by_class,
-)
+
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
-from gulp.api.rest.test_values import (
-    TEST_CONTEXT_ID,
-    TEST_OPERATION_ID,
-    TEST_SOURCE_ID,
-)
+from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
 
 T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
@@ -277,7 +272,7 @@ class GulpDocument(GulpBasicDocument):
 
         # id is a hash of the document
         data["id"] = muty.crypto.hash_xxh128(
-            f"{data['event_original']}{data['operation_id']}{data['context_id']}{data['source_id']}{data['event_sequence']}"
+            f"{data['event_original']}{data['event_code']}{data['operation_id']}{data['context_id']}{data['source_id']}{data['event_sequence']}"
         )
 
         # initialize with complete data (and validate)

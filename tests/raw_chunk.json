@@ -6,6 +6,7 @@
         "gulp.context_id": "new_context_id",
         "gulp.source_id": "new_source_id",
         "gulp.operation_id": "test_operation",
+        "event.sequence": 1,
         "field1": "value1",
         "field2": "value2",
         "field3": 123
@@ -17,6 +18,7 @@
         "gulp.context_id": "new_context_id",
         "gulp.source_id": "new_source_id",
         "gulp.operation_id": "test_operation",
+        "event.sequence": 2,
         "field4": "value3",
         "field5": "value4",
         "field6": 456
@@ -24,6 +26,7 @@
     {
         "@timestamp": "2019-07-01T00:02:00.000Z",
         "event.code": "test_event_code_3",
+        "event.sequence": 3,
         "event.original": "some original event 3",
         "gulp.context_id": "new_context_id",
         "gulp.source_id": "new_source_id",

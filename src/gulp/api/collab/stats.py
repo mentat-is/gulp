@@ -132,6 +132,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         context_id: str,
         source_id: str = None,
         source_total: int = 1,
+        never_expire: bool = False,
     ) -> T:
         """
         Create new (or get an existing) GulpRequestStats object on the collab database.
@@ -145,7 +146,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             source_id (str, optional): The source associated with the stats. Defaults to None.
             context_id (str): The context associated with the stats
             source_total (int, optional): The total number of sources to be processed by the request to which this stats belong. Defaults to 1.
-
+            never_expire (bool, optional): Whether the stats should never expire, ignoring the configuration. Defaults to False.
         Returns:
             T: The created stats.
         """
@@ -162,12 +163,14 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         lock_id = muty.crypto.hash_xxh64_int(req_id)
         await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
 
-        # configure expiration
-        time_expire = GulpConfig.get_instance().stats_ttl() * 1000
+        time_expire: int = 0
         time_updated = muty.time.now_msec()
-        if time_expire > 0:
-            time_expire = time_updated + time_expire
-            # MutyLogger.get_instance().debug("now=%s, setting stats %s time_expire to %s", time_updated, req_id, time_expire)
+        if not never_expire:
+            # configure expiration
+            time_expire = GulpConfig.get_instance().stats_ttl() * 1000
+            if time_expire > 0:
+                time_expire = time_updated + time_expire
+                # MutyLogger.get_instance().debug("now=%s, setting stats %s time_expire to %s", time_updated, req_id, time_expire)
 
         # check if the stats already exist
         s: GulpRequestStats = await cls.get_by_id(
@@ -361,7 +364,8 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                     if e not in self.errors:
                         self.errors.append(e)
 
-        status = d.get("status", None)
+        status: GulpRequestStatus = d.get("status", None)
+        forced_status: GulpRequestStatus = status
         if status:
             self.status = status
 
@@ -410,7 +414,11 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                 )
             )
             self.completed = "1"
+
         # update the instance (will update websocket too)
+        if forced_status:
+            # use the forced status
+            self.status = forced_status
         await super().update(
             sess,
             d=None,

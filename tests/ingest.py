@@ -11,7 +11,9 @@ from datetime import datetime, timedelta
 
 import muty.crypto
 import muty.file
+import muty.string
 import pytest
+import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
@@ -35,32 +37,26 @@ from tests.api.operation import GulpAPIOperation
 from tests.api.query import GulpAPIQuery
 from tests.api.user import GulpAPIUser
 
-RAW_DOCUMENTS_CHUNK = [
-    {
-        "@timestamp": "2019-07-01T00:00:00.000Z",
-        "event.code": "test_event_code_1",
-        "event.original": "some original event",
-        "field1": "value1",
-        "field2": "value2",
-        "field3": 123,
-    },
-    {
-        "@timestamp": "2019-07-01T00:01:00.000Z",
-        "event.code": "test_event_code_2",
-        "event.original": "some original event 3",
-        "field4": "value3",
-        "field5": "value4",
-        "field6": 456,
-    },
-    {
-        "@timestamp": "2019-07-01T00:02:00.000Z",
-        "event.code": "test_event_code_3",
-        "event.original": "some original event 3",
-        "field7": "value5",
-        "field8": "value6",
-        "field9": 789,
-    },
-]
+
+async def _init(login_admin_and_reset_operation: bool = True) -> None:
+    """
+    initialize the environment, automatically called before each test by the _setup() fixture
+
+    :param login_admin_and_reset_operation: if True, login as admin and reset the operation
+    """
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    if login_admin_and_reset_operation:
+        await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    """
+    this is called before any test, to initialize the environment
+    """
+    await _init()
 
 
 def _process_file_in_worker_process(
@@ -107,8 +103,15 @@ async def _ws_loop(
     check_processed: int = None,
     check_skipped: int = None,
     success: bool = None,
-    check_on_source_done: bool = False,
 ):
+    """
+    open a websocket and wait for the ingestion to complete, optionally enforcing check of the number of ingested/processed records
+
+    :param check_ingested: if not None, check the number of ingested records
+    :param check_processed: if not None, check the number of processed records
+    :param check_skipped: if not None, check the number of skipped records
+    :param success: if not None, check if the ingestion was successful
+    """
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
@@ -126,6 +129,8 @@ async def _ws_loop(
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
+
+                # wait for the stats update
                 if data["type"] == "stats_update":
                     # stats update
                     stats_packet = data["data"]["data"]
@@ -134,8 +139,7 @@ async def _ws_loop(
                     records_processed = stats_packet.get("records_processed", 0)
                     records_skipped = stats_packet.get("records_skipped", 0)
 
-                    # if stats_packet["status"] == "done":
-                    # done
+                    # perform checks
                     skipped_test_succeeded = True
                     processed_test_succeeded = True
                     ingested_test_succeeded = True
@@ -191,18 +195,6 @@ async def _ws_loop(
                     ):
                         break
 
-                elif data["type"] == "ingest_source_done":
-                    # source done
-                    if check_on_source_done:
-                        source_done_packet = data["data"]
-                        check_ingested = source_done_packet.get("docs_ingested", 0)
-                        if check_ingested == check_ingested:
-                            MutyLogger.get_instance().info(
-                                "all %d records ingested!" % (check_ingested)
-                            )
-                            test_completed = True
-                        break
-
                 # ws delay
                 await asyncio.sleep(0.1)
 
@@ -224,11 +216,18 @@ async def _test_generic(
     check_processed: int = None,
     plugin_params: GulpPluginParameters = None,
     flt: GulpIngestionFilter = None,
-):
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIDb.reset_all_as_admin()
+) -> str:
+    """
+    for each file, spawn a process using multiprocessing and perform ingestion with the selected plugin
+
+    :param files: list of files to ingest
+    :param plugin: plugin to use
+    :param check_ingested: number of ingested records to check
+    :param check_processed: number of processed records to check
+    :param plugin_params: plugin parameters
+    :param flt: ingestion filter
+    """
+    await _init(False)
 
     # for each file, spawn a process using multiprocessing
     for file in files:
@@ -250,100 +249,6 @@ async def _test_generic(
 
     # wait for all processes to finish
     await _ws_loop(check_ingested=check_ingested, check_processed=check_processed)
-
-
-# @pytest.mark.asyncio
-# async def test_apache_access_clf():
-#     return
-#     # TODO: currently broken
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/apache_clf/access.log")]
-#     await _test_generic(files, "apache_access_clf", 1311)
-
-
-# @pytest.mark.asyncio
-# async def test_apache_error_clf():
-#     return
-#     # TODO: currently broken
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/apache_clf/error.log")]
-#     await _test_generic(files, "apache_error_clf", 1178)
-
-
-# @pytest.mark.skipif(
-#     platform.system() == "Darwin", reason="systemd journal tests not supported on macOS"
-# )
-# @pytest.mark.asyncio
-# async def test_systemd_journal():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/systemd_journal/system.journal")]
-#     await _test_generic(files, "systemd_journal", 9243)
-
-
-# @pytest.mark.asyncio
-# async def test_win_reg():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/win_reg/NTUSER.DAT")]
-#     await _test_generic(files, "win_reg", 1206)
-
-
-# @pytest.mark.asyncio
-# async def test_eml():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/eml/sample.eml")]
-#     await _test_generic(files, "eml", 1)
-
-
-# @pytest.mark.asyncio
-# async def test_mbox():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/mbox/sample.mbox")]
-#     await _test_generic(files, "mbox", 16)
-
-
-# @pytest.mark.asyncio
-# async def test_pcap():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/pcap/220614_ip_flags_google.pcapng")]
-#     await _test_generic(files, "pcap", 58)
-
-
-# @pytest.mark.asyncio
-# async def test_teamviewer_regex_stacked():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [
-#         os.path.join(current_dir, "../samples/teamviewer/connections_incoming.txt")
-#     ]
-#     await _test_generic(files, "teamviewer_regex_stacked", 2)
-
-
-# @pytest.mark.asyncio
-# async def test_chrome_history():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/sqlite/chrome_history")]
-#     await _test_generic(files, "chrome_history_sqlite_stacked", 19)
-
-
-# @pytest.mark.asyncio
-# async def test_chrome_webdata():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/sqlite/chrome_webdata")]
-#     await _test_generic(files, "chrome_webdata_sqlite_stacked", 2, check_processed=1)
-
-
-# @pytest.mark.asyncio
-# async def test_pfsense():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/pfsense/filter.log")]
-#     await _test_generic(files, "pfsense", 61)
-
-
-# @pytest.mark.asyncio
-# async def test_win_evtx():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
-#     files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
-#     await _test_generic(files, "win_evtx", 98632)
 
 
 # @pytest.mark.asyncio
@@ -375,87 +280,8 @@ async def _test_generic(
 #     assert data["buckets"][0]["*"]["min_gulp.timestamp"] == 1258480498794248960
 
 
-# @pytest.mark.asyncio
-# async def test_csv_file_mapping():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
-#     plugin_params = GulpPluginParameters(
-#         mapping_file="mftecmd_csv.json", mapping_id="record"
-#     )
-#     await _test_generic(
-#         files, "csv", 44, check_processed=10, plugin_params=plugin_params
-#     )
-
-
-# @pytest.mark.asyncio
-# async def test_csv_stacked():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
-#     plugin_params = GulpPluginParameters(
-#         mappings={
-#             "test_mapping": GulpMapping(
-#                 fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
-#             )
-#         }
-#     )
-#     await _test_generic(files, "stacked_example", 10, plugin_params=plugin_params)
-
 #     # TODO: check documents (all documents duration set to 9999 and enriched=True set)
 
-
-# @pytest.mark.asyncio
-# async def test_raw():
-#     GulpAPICommon.get_instance().init(
-#         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-#     )
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
-#     buf = await muty.file.read_file_async(raw_chunk_path)
-#     raw_chunk = json.loads(buf)
-
-#     await GulpAPIDb.reset_all_as_admin()
-
-#     ingest_token = await GulpAPIUser.login("ingest", "ingest")
-#     assert ingest_token
-
-#     # ingest raw chunk
-#     await GulpAPIIngest.ingest_raw(
-#         ingest_token,
-#         raw_chunk,
-#         TEST_OPERATION_ID,
-#         TEST_CONTEXT_NAME,
-#         TEST_INDEX,
-#     )
-
-#     # wait ws
-#     await _ws_loop(3, check_on_source_done=True)
-
-
-# @pytest.mark.asyncio
-# async def test_ingest_zip():
-#     GulpAPICommon.get_instance().init(
-#         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-#     )
-
-#     await GulpAPIDb.reset_all_as_admin()
-
-#     ingest_token = await GulpAPIUser.login("ingest", "ingest")
-#     assert ingest_token
-
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     test_zip = os.path.join(current_dir, "test_ingest_zip.zip")
-
-#     # ingest raw chunk
-#     await GulpAPIIngest.ingest_zip(
-#         ingest_token,
-#         test_zip,
-#         TEST_OPERATION_ID,
-#         TEST_CONTEXT_NAME,
-#         TEST_INDEX,
-#     )
-
-#     # wait ws
-#     await _ws_loop(13778, processed=13745)
 
 # @pytest.mark.asyncio
 # async def test_all():
@@ -468,34 +294,12 @@ async def _test_generic(
 #     await test_skipped_records()
 
 
-# @pytest.mark.asyncio
-# async def test_paid_plugins():
-#     import importlib
-#     import sys
-
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     file_path = os.path.join(current_dir, "../../gulp-paid-plugins/tests/ingest.py")
-
-#     module_name = "paidplugins"
-#     spec = importlib.util.spec_from_file_location(module_name, file_path)
-#     module = importlib.util.module_from_spec(spec)
-#     sys.modules[module_name] = module
-#     spec.loader.exec_module(module)
-
-#     await module.test_all()
-
-
 @pytest.mark.asyncio
 @pytest.mark.run(order=1)
 async def test_ingest_account():
     """
     test ingest vs guest account (only ingest can ingest)
     """
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
@@ -535,11 +339,6 @@ async def test_failed_upload():
     """
     simulate a failed upload and reupload with resume after
     """
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
@@ -595,11 +394,6 @@ async def test_skipped_records():
     """
     simulate skipped records due to duplicate ingestion
     """
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
-
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
@@ -631,12 +425,7 @@ async def test_skipped_records():
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=4)
 async def test_win_evtx_multiple():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../samples/win_evtx")
     files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
@@ -645,7 +434,6 @@ async def test_win_evtx_multiple():
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=5)
 async def test_ingest_ws_raw():
     def _generate_random_chunk(template_chunk: dict, size=1000):
         """
@@ -696,11 +484,6 @@ async def test_ingest_ws_raw():
                 new_docs.append(new_doc)
             result.extend(new_docs)
         return result
-
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
     raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
@@ -758,3 +541,252 @@ async def test_ingest_ws_raw():
     )
     assert op["doc_count"] == 6000
     MutyLogger.get_instance().info(test_ingest_ws_raw.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+@pytest.mark.run(order=4)
+async def test_ingest_filter():
+    """
+    test ingestion filter
+    """
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest the file
+    flt = GulpIngestionFilter(time_range=[0, 1467213874345999999])
+    await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+        flt=flt,
+    )
+
+    await _ws_loop(check_ingested=1, check_processed=7)
+
+    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+
+    flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
+    await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+        flt=flt,
+    )
+
+    await _ws_loop(check_ingested=6, check_processed=7)
+    MutyLogger.get_instance().info(test_ingest_filter.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_csv_standalone():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
+    plugin_params = GulpPluginParameters(
+        mappings={
+            "test_mapping": GulpMapping(
+                fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+            )
+        }
+    )
+    await _test_generic(files, "csv", check_ingested=10, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(test_csv_standalone.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_csv_file_mapping():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
+    plugin_params = GulpPluginParameters(
+        mapping_file="mftecmd_csv.json", mapping_id="record"
+    )
+    await _test_generic(
+        files, "csv", check_ingested=44, check_processed=10, plugin_params=plugin_params
+    )
+    MutyLogger.get_instance().info(test_csv_file_mapping.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_csv_stacked():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/mftecmd/sample_record.csv")]
+    plugin_params = GulpPluginParameters(
+        mappings={
+            "test_mapping": GulpMapping(
+                fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+            )
+        }
+    )
+    await _test_generic(
+        files, "stacked_example", check_ingested=10, plugin_params=plugin_params
+    )
+
+    # check at least one document ...
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    doc = await GulpAPIQuery.query_single_id(
+        guest_token, TEST_OPERATION_ID, "d3bd618f59c8b001d77c6c8edc729b0a"
+    )
+    assert doc["event.duration"] == 9999
+    assert doc["enriched"] == True
+    MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_zip():
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    test_zip = os.path.join(current_dir, "test_ingest_zip.zip")
+
+    # ingest raw chunk
+    await GulpAPIIngest.ingest_zip(
+        token=ingest_token,
+        file_path=test_zip,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+    )
+
+    # wait ws
+    await _ws_loop(check_ingested=13779, check_processed=13745)
+    MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_raw():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
+    buf = await muty.file.read_file_async(raw_chunk_path)
+    raw_chunk = json.loads(buf)
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest raw chunk with "raw" plugin
+    await GulpAPIIngest.ingest_raw(
+        token=ingest_token,
+        raw_data=raw_chunk,
+        operation_id=TEST_OPERATION_ID,
+    )
+    # wait ws
+    await _ws_loop(check_ingested=3)  # , check_on_source_done=True)
+
+    # ingest another
+    for r in raw_chunk:
+        # randomize event original
+        r["event.original"] = muty.string.generate_unique()
+    await GulpAPIIngest.ingest_raw(
+        token=ingest_token,
+        raw_data=raw_chunk,
+        operation_id=TEST_OPERATION_ID,
+    )
+
+    MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
+
+
+@pytest.mark.skipif(
+    platform.system() == "Darwin", reason="systemd journal tests not supported on macOS"
+)
+@pytest.mark.asyncio
+async def test_systemd_journal():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/systemd_journal/system.journal")]
+    await _test_generic(files, "systemd_journal", 9243)
+    MutyLogger.get_instance().info(test_systemd_journal.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_win_reg():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/win_reg/NTUSER.DAT")]
+    await _test_generic(files, "win_reg", 1206)
+
+
+@pytest.mark.asyncio
+async def test_eml():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/eml/sample.eml")]
+    await _test_generic(files, "eml", 1)
+
+
+@pytest.mark.asyncio
+async def test_mbox():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/mbox/sample.mbox")]
+    await _test_generic(files, "mbox", 16)
+
+
+@pytest.mark.asyncio
+async def test_chrome_history():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/sqlite/chrome_history")]
+    await _test_generic(files, "chrome_history_sqlite_stacked", 19)
+
+
+@pytest.mark.asyncio
+async def test_chrome_webdata():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/sqlite/chrome_webdata")]
+    await _test_generic(files, "chrome_webdata_sqlite_stacked", 2, check_processed=1)
+
+
+@pytest.mark.asyncio
+async def test_pfsense():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/pfsense/filter.log")]
+    await _test_generic(files, "pfsense", 61)
+
+
+@pytest.mark.asyncio
+async def test_pcap():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/pcap/220614_ip_flags_google.pcapng")]
+    await _test_generic(files, "pcap", 58)
+
+
+@pytest.mark.asyncio
+async def test_teamviewer_regex_stacked():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [
+        os.path.join(current_dir, "../samples/teamviewer/connections_incoming.txt")
+    ]
+    await _test_generic(files, "teamviewer_regex_stacked", 2)
+
+
+@pytest.mark.asyncio
+async def test_apache_access_clf():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/apache_clf/access.log")]
+    await _test_generic(files, "apache_access_clf", 1311)
+
+
+@pytest.mark.asyncio
+async def test_apache_error_clf():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../samples/apache_clf/error.log")]
+    await _test_generic(files, "apache_error_clf", 1178)
+
+
+@pytest.mark.asyncio
+@pytest.mark.run("last")
+async def test_paid_plugins():
+    import importlib
+    import sys
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    file_path = os.path.join(current_dir, "../../gulp-paid-plugins/tests/ingest.py")
+
+    module_name = "paidplugins"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    await module.test_all()
