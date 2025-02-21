@@ -28,7 +28,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
-from gulp.api.ws_api import GulpConnectedSockets, GulpSharedWsQueue
+from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -292,8 +292,7 @@ class GulpRestServer:
         self._app: FastAPI = FastAPI(
             title="gULP",
             description="(gui)Universal Log Processor",
-            swagger_ui_parameters={
-                "operationsSorter": "alpha", "tagsSorter": "alpha"},
+            swagger_ui_parameters={"operationsSorter": "alpha", "tagsSorter": "alpha"},
             version=self.version_string(),
             lifespan=self._lifespan_handler,
         )
@@ -337,8 +336,7 @@ class GulpRestServer:
             gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp-ca.pem")
             if not os.path.exists(gulp_ca_certs):
                 # use server cert as CA cert
-                gulp_ca_certs = muty.file.safe_path_join(
-                    path_certs, "gulp.pem")
+                gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp.pem")
 
             ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
             if cfg.enforce_https_client_certs():
@@ -437,6 +435,7 @@ class GulpRestServer:
         fastapi lifespan handler
         """
         from gulp.api.opensearch_api import GulpOpenSearch
+
         MutyLogger.get_instance().info("gULP main server process is starting!")
         asyncio_atexit.register(self._cleanup)
 
@@ -473,13 +472,16 @@ class GulpRestServer:
                     reinit: bool = first_run
 
                 # either it's _reset_collab = 2 (full reset) or first run (full reset as well)
-                MutyLogger.get_instance().warning("resetting collab, reset_collab=%d, first_run=%r, reinit=%r !" %
-                                                  (self._reset_collab, first_run, reinit))
+                MutyLogger.get_instance().warning(
+                    "resetting collab, reset_collab=%d, first_run=%r, reinit=%r !"
+                    % (self._reset_collab, first_run, reinit)
+                )
                 await postgres_reset_collab_internal(reinit=reinit)
 
             if self._reset_operation:
                 # delete and recreate operation and index
                 from gulp.api.rest.operation import operation_reset_internal
+
                 await operation_reset_internal(self._reset_operation)
         except Exception as ex:
             if first_run:
@@ -514,7 +516,7 @@ class GulpRestServer:
         # close shared ws and process pool
         try:
             await GulpConnectedSockets.get_instance().cancel_all()
-            wsq = GulpSharedWsQueue.get_instance()
+            wsq = GulpWsSharedQueue.get_instance()
             await wsq.close()
 
             # close clients in the main process
@@ -540,8 +542,7 @@ class GulpRestServer:
         deletes the ".first_run_done" file in the config directory.
         """
         config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(
-            config_directory, ".first_run_done")
+        check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
             MutyLogger.get_instance().warning("deleted: %s" % (check_first_run_file))
@@ -555,19 +556,16 @@ class GulpRestServer:
         """
         # check if this is the first run
         config_directory = GulpConfig.get_instance().config_dir()
-        check_first_run_file = os.path.join(
-            config_directory, ".first_run_done")
+        check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(
-                "NOT FIRST RUN, first run file exists: %s" % (
-                    check_first_run_file)
+                "NOT FIRST RUN, first run file exists: %s" % (check_first_run_file)
             )
             return False
 
         # create firstrun file
         MutyLogger.get_instance().warning(
-            "FIRST RUN! first run file does not exist: %s" % (
-                check_first_run_file)
+            "FIRST RUN! first run file does not exist: %s" % (check_first_run_file)
         )
         with open(check_first_run_file, "w") as f:
             f.write("gulp!")

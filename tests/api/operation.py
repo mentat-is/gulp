@@ -103,6 +103,7 @@ class GulpAPIOperation:
     async def operation_get_by_id(
         token: str,
         operation_id: str,
+        get_count: bool = True,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -113,6 +114,8 @@ class GulpAPIOperation:
             api="operation_get_by_id",
             req_id=req_id,
             expected_status=expected_status,
+            operation_id=operation_id,
+            get_count=get_count,
         )
 
     @staticmethod

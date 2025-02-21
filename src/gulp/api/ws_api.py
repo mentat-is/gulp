@@ -418,7 +418,7 @@ class GulpWsIngestPacket(BaseModel):
     )
     req_id: str = (Field(..., description="id of the request"),)
     flt: Optional[GulpIngestionFilter] = Field(
-        0,
+        GulpIngestionFilter(),
         description="optional filter to apply for ingestion.",
     )
     plugin: Optional[str] = Field(
@@ -1074,7 +1074,7 @@ class GulpConnectedSockets:
                 continue
 
 
-class GulpSharedWsQueue:
+class GulpWsSharedQueue:
     """
     singleton class to manage adding data to the shared websocket queue
     """
@@ -1083,12 +1083,12 @@ class GulpSharedWsQueue:
         raise RuntimeError("call get_instance() instead")
 
     @classmethod
-    def get_instance(cls) -> "GulpSharedWsQueue":
+    def get_instance(cls) -> "GulpWsSharedQueue":
         """
         Returns the singleton instance.
 
         Returns:
-            GulpSharedWsDataQueue: The singleton instance.
+            GulpWsSharedQueue: The singleton instance.
         """
         if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)

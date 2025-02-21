@@ -791,8 +791,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if ws_id:
             from gulp.api.ws_api import (
                 GulpCollabCreateUpdatePacket,
-                GulpSharedWsQueue,
                 GulpWsQueueDataType,
+                GulpWsSharedQueue,
             )
 
             if not ws_queue_datatype:
@@ -806,7 +806,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             # FIXME: data=p.model.dump() creates data.data, which is ugly!
             p = GulpCollabCreateUpdatePacket(data=data, created=True)
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 ws_queue_datatype,
                 ws_id=ws_id,
                 user_id=owner_id,
@@ -959,8 +959,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if ws_id:
             from gulp.api.ws_api import (
                 GulpCollabDeletePacket,
-                GulpSharedWsQueue,
                 GulpWsQueueDataType,
+                GulpWsSharedQueue,
             )
 
             if not ws_queue_datatype:
@@ -972,7 +972,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             else:
                 p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=self.id)
                 data = p.model_dump()
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=ws_queue_datatype,
                 ws_id=ws_id,
                 user_id=user_id,
@@ -1147,8 +1147,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if ws_id:
             from gulp.api.ws_api import (
                 GulpCollabCreateUpdatePacket,
-                GulpSharedWsQueue,
                 GulpWsQueueDataType,
+                GulpWsSharedQueue,
             )
 
             if not ws_queue_datatype:
@@ -1160,7 +1160,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             else:
                 data = updated_dict
                 p = GulpCollabCreateUpdatePacket(data=data)
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=ws_queue_datatype,
                 ws_id=ws_id,
                 user_id=user_id,

@@ -1,8 +1,9 @@
+import json
 import os
 from typing import Any
-from muty.log import MutyLogger
-import json
+
 import requests
+from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabFilter
 
@@ -93,8 +94,7 @@ class GulpAPICommon:
                 method, url, headers=headers, params=params, files=files, data=data
             )
         elif method in ["POST", "PATCH", "PUT"] and body:
-            r = requests.request(
-                method, url, headers=headers, params=params, json=body)
+            r = requests.request(method, url, headers=headers, params=params, json=body)
         else:
             r = requests.request(method, url, headers=headers, params=params)
 
@@ -115,29 +115,31 @@ class GulpAPICommon:
         """
         common object deletion
         """
-        MutyLogger.get_instance().info(
-            f"Deleting object {object_id}, api={api}...")
-        params = {"object_id": object_id,
-                  "ws_id": req_id or self.ws_id, "req_id": req_id or self.req_id}
+        MutyLogger.get_instance().info(f"Deleting object {object_id}, api={api}...")
+        params = {
+            "object_id": object_id,
+            "ws_id": req_id or self.ws_id,
+            "req_id": req_id or self.req_id,
+        }
         res = await self.make_request(
             "DELETE", api, params=params, token=token, expected_status=expected_status
         )
         return res
 
     async def object_get_by_id(
-        self, 
-        token: str, 
-        object_id: str, 
-        api: str, 
+        self,
+        token: str,
+        object_id: str,
+        api: str,
         req_id: str = None,
-        expected_status: int = 200
+        expected_status: int = 200,
+        **kwargs,
     ) -> dict:
         """
         common object get
         """
-        MutyLogger.get_instance().info(
-            f"Getting object {object_id}, api={api}...")
-        params = {"object_id": object_id, "req_id": req_id or self.req_id}
+        MutyLogger.get_instance().info(f"Getting object {object_id}, api={api}...")
+        params = {"object_id": object_id, "req_id": req_id or self.req_id, **kwargs}
         res = await self.make_request(
             "GET",
             api,
@@ -164,8 +166,7 @@ class GulpAPICommon:
             api,
             params={"req_id": req_id or self.req_id},
             body=(
-                flt.model_dump(by_alias=True, exclude_none=True,
-                               exclude_defaults=True)
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
                 if flt
                 else None
             ),

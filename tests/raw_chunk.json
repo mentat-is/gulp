@@ -5,6 +5,7 @@
         "event.original": "some original event",
         "gulp.context_id": "new_context_id",
         "gulp.source_id": "new_source_id",
+        "gulp.operation_id": "test_operation",
         "field1": "value1",
         "field2": "value2",
         "field3": 123
@@ -15,6 +16,7 @@
         "event.original": "some original event 3",
         "gulp.context_id": "new_context_id",
         "gulp.source_id": "new_source_id",
+        "gulp.operation_id": "test_operation",
         "field4": "value3",
         "field5": "value4",
         "field6": 456
@@ -25,6 +27,7 @@
         "event.original": "some original event 3",
         "gulp.context_id": "new_context_id",
         "gulp.source_id": "new_source_id",
+        "gulp.operation_id": "test_operation",
         "field7": "value5",
         "field8": "value6",
         "field9": 789

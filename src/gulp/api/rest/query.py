@@ -30,8 +30,8 @@ from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
-    GulpSharedWsQueue,
     GulpWsQueueDataType,
+    GulpWsSharedQueue,
 )
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -233,7 +233,7 @@ async def _worker_coro(kwds: dict):
                 total_hits=hits,
                 name=q_name,
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.QUERY_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
@@ -264,7 +264,7 @@ async def _worker_coro(kwds: dict):
             p = GulpQueryGroupMatchPacket(
                 name=q_options.group, total_hits=total_doc_matches
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
                 ws_id=ws_id,
                 user_id=user_id,

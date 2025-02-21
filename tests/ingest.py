@@ -647,9 +647,14 @@ async def test_win_evtx_multiple():
 @pytest.mark.asyncio
 @pytest.mark.run(order=5)
 async def test_ingest_ws_raw():
-    def _generate_random_chunk(template_chunk, size=1000):
+    def _generate_random_chunk(template_chunk: dict, size=1000):
+        """
+        randomize the given template chunk
+        """
         base_timestamp = datetime(2019, 7, 1)
         result = []
+        contexts = ["context1", "context2", "context3"]
+        sources = ["source1", "source2", "source3"]
 
         for i in range(size):
             new_docs = []
@@ -657,7 +662,7 @@ async def test_ingest_ws_raw():
                 new_doc = {}
                 for key, value in doc.items():
                     if key == "@timestamp":
-                        # Sequential timestamps
+                        # sequential timestamps
                         new_doc[key] = (
                             base_timestamp + timedelta(minutes=i)
                         ).isoformat() + ".000Z"
@@ -668,12 +673,23 @@ async def test_ingest_ws_raw():
                                 random.randint(1, 1000)}"
                             )
                         else:
-                            # Random string of similar length
-                            new_doc[key] = "".join(
-                                random.choices(
-                                    string.ascii_letters + string.digits, k=len(value)
+                            # leave gulp.operation_id as is
+                            if key == "gulp.operation_id":
+                                new_doc[key] = value
+                            elif key == "gulp.context_id":
+                                # use one of the contexts
+                                new_doc[key] = contexts[random.randint(0, 2)]
+                            elif key == "gulp.source_id":
+                                # use one of the sources
+                                new_doc[key] = sources[random.randint(0, 2)]
+                            else:
+                                # random string of similar length
+                                new_doc[key] = "".join(
+                                    random.choices(
+                                        string.ascii_letters + string.digits,
+                                        k=len(value),
+                                    )
                                 )
-                            )
                     elif isinstance(value, int):
                         # Random integer between 0 and 1000
                         new_doc[key] = random.randint(0, 1000)
@@ -711,7 +727,7 @@ async def test_ingest_ws_raw():
                 response = await ws.recv()
                 data = json.loads(response)
                 if data["type"] == "ws_connected":
-                    for i in range(10):
+                    for i in range(2):
                         # send chunk
                         p: GulpWsIngestPacket = GulpWsIngestPacket(
                             docs=_generate_random_chunk(raw_chunk, size=1000),
@@ -719,7 +735,6 @@ async def test_ingest_ws_raw():
                             operation_id=TEST_OPERATION_ID,
                             context_name=TEST_CONTEXT_NAME,
                             source="test_source",
-                            flt=GulpIngestionFilter(),
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
                         )
@@ -737,4 +752,9 @@ async def test_ingest_ws_raw():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
-    MutyLogger.get_instance().info("test succeeded!")
+    await asyncio.sleep(10)
+    op = await GulpAPIOperation.operation_get_by_id(
+        token=ingest_token, operation_id=TEST_OPERATION_ID
+    )
+    assert op["doc_count"] == 6000
+    MutyLogger.get_instance().info(test_ingest_ws_raw.__name__ + " succeeded!")

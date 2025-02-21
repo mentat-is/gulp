@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, GulpRequestStatus, T
-from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import GulpQueryDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.config import GulpConfig
 
 
@@ -478,7 +478,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                 total_hits=hits,
                 name=q_name,
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=ws_queue_datatype,
                 ws_id=ws_id,
                 user_id=user_id,

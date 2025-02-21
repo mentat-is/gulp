@@ -19,7 +19,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpQueryDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import GulpQueryDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -71,7 +71,7 @@ async def _tag_documents_internal(
                 status=GulpRequestStatus.DONE,
                 total_hits=kwargs.get("total_hits", 0),
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,

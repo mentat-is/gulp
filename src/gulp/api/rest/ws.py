@@ -13,9 +13,7 @@ from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 
-from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -31,9 +29,10 @@ from gulp.api.ws_api import (
     GulpWsErrorPacket,
     GulpWsIngestPacket,
     GulpWsQueueDataType,
+    GulpWsSharedQueue,
     GulpWsType,
 )
-from gulp.plugin import GulpPluginBase
+from gulp.plugin import GulpPluginBase, GulpPluginCacheMode
 from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
 
@@ -46,6 +45,7 @@ class InternalWsIngestPacket(BaseModel):
     """
 
     user_id: str = Field(..., description="the user id")
+    index: str = Field(..., description="the index to ingest into")
     data: GulpWsIngestPacket = Field(..., description="a GulpWsIngestPacket dictionary")
 
 
@@ -54,9 +54,59 @@ class WsIngestRawWorker:
     a gulp worker to handle websocket raw ingestion
     """
 
-    def __init__(self):
+    def __init__(self, ws: GulpConnectedSocket):
         # use gulp's multiprocessing manager to create a process-shareable queue
         self._input_queue = GulpProcess.get_instance().mp_manager.Queue()
+        self._cws = ws
+
+    @staticmethod
+    async def _process_loop(input_queue: Queue):
+        """
+        loop for the ingest worker, processes packets from the queue
+
+        Args:
+            input_queue (Queue): the input queue
+        """
+        MutyLogger.get_instance().debug(
+            "ws ingest _process_loop started, input_queue=%s" % (input_queue)
+        )
+
+        async with GulpCollab.get_instance().session() as sess:
+            while True:
+                packet: InternalWsIngestPacket = input_queue.get()
+                if packet is None:
+                    break
+
+                try:
+                    mod: GulpPluginBase = None
+                    MutyLogger.get_instance().debug("_ws_ingest_process_internal")
+
+                    # load plugin, force caching so it will be loaded first time only
+                    mod: GulpPluginBase = await GulpPluginBase.load(
+                        packet.data.plugin, cache_mode=GulpPluginCacheMode.FORCE
+                    )
+
+                    # process docs using plugin
+                    await mod.ingest_raw(
+                        sess,
+                        user_id=packet.user_id,
+                        req_id=packet.data.req_id,
+                        ws_id=packet.data.ws_id,
+                        index=packet.index,
+                        operation_id=packet.data.operation_id,
+                        chunk=packet.data.docs,
+                        flt=packet.data.flt,
+                        plugin_params=packet.data.plugin_params,
+                    )
+
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(ex)
+
+                finally:
+                    if mod:
+                        await mod.unload()
+
+            MutyLogger.get_instance().debug("ws ingest _process_loop done")
 
     async def start(self) -> None:
         """
@@ -68,7 +118,8 @@ class WsIngestRawWorker:
                 WsIngestRawWorker._process_loop, args=(self._input_queue,)
             )
 
-        MutyLogger.get_instance().debug("starting ws ingest worker pool ...")
+        # run _process_loop in a separate process
+        MutyLogger.get_instance().debug("starting ws ingest worker ...")
         await GulpRestServer.get_instance().spawn_bg_task(worker_coro())
 
     async def stop(self):
@@ -86,58 +137,6 @@ class WsIngestRawWorker:
         """
         # MutyLogger.get_instance().debug("putting packet in ws ingest worker")
         self._input_queue.put(packet)
-
-    @staticmethod
-    async def _process_loop(input_queue: Queue):
-        """
-        loop for the ingest worker, processes packets from the queue
-
-        Args:
-            input_queue (Queue): the input queue
-        """
-        MutyLogger.get_instance().debug(
-            "ws ingest _process_loop started, input_queue=%s!" % (input_queue)
-        )
-
-        async with GulpCollab.get_instance().session() as sess:
-            while True:
-                packet: InternalWsIngestPacket = input_queue.get()
-                if packet is None:
-                    break
-
-                try:
-                    mod: GulpPluginBase = None
-                    MutyLogger.get_instance().debug("_ws_ingest_process_internal")
-
-                    # load plugin
-                    mod: GulpPluginBase = await GulpPluginBase.load(packet.data.plugin)
-
-                    # create context and source
-                    operation: GulpOperation = await GulpOperation.get_by_id(
-                        sess, packet.data.operation_id
-                    )
-
-                    # Process documents using plugin
-                    await mod.ingest_raw(
-                        sess,
-                        user_id=packet.user_id,
-                        req_id=packet.data.req_id,
-                        ws_id=packet.data.ws_id,
-                        index=operation.index,
-                        operation_id=packet.data.operation_id,
-                        chunk=packet.data.docs,
-                        flt=packet.data.flt,
-                        plugin_params=packet.data.plugin_params,
-                    )
-
-                except Exception as ex:
-                    MutyLogger.get_instance().exception(ex)
-
-                finally:
-                    if mod:
-                        await mod.unload()
-
-            MutyLogger.get_instance().debug("ws ingest _process_loop done")
 
 
 class GulpAPIWebsocket:
@@ -340,26 +339,56 @@ class GulpAPIWebsocket:
     @staticmethod
     async def ws_ingest_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """
-        main loop for the ingest websocket connection
+        main loop for the ingest websocket connection:
+
+        1. a worker is started in a worker process's task
+        2. the main loop receives data from the websocket and puts it in the worker (shared) queue
+        3. the worker queue is processed using the plugin indicated in the GulpWsIngestPacket
 
         Args:
             ws (GulpConnectedSocket): the websocket connection
             user_id (str): the user id
         """
-        worker_pool = WsIngestRawWorker()
+        worker_pool = WsIngestRawWorker(ws)
         await worker_pool.start()
         try:
-            while True:
-                if ws.ws.client_state != WebSocketState.CONNECTED:
-                    raise WebSocketDisconnect("client disconnected")
+            async with GulpCollab.get_instance().session() as sess:
+                while True:
+                    if ws.ws.client_state != WebSocketState.CONNECTED:
+                        raise WebSocketDisconnect("client disconnected")
 
-                js = await ws.ws.receive_json()
-                ingest_packet = GulpWsIngestPacket.model_validate(js)
+                    js = await ws.ws.receive_json()
+                    ingest_packet = GulpWsIngestPacket.model_validate(js)
 
-                # package data for worker
-                packet = InternalWsIngestPacket(user_id=user_id, data=ingest_packet)
-                # and put in the worker queue
-                worker_pool.put(packet)
+                    # check operation
+                    operation: GulpOperation = await GulpOperation.get_by_id(
+                        sess, ingest_packet.operation_id, throw_if_not_found=False
+                    )
+                    if not operation:
+                        # missing operation, abort
+                        MutyLogger.get_instance().error(
+                            "operation %s not found!" % (ingest_packet.operation_id)
+                        )
+                        p = GulpWsErrorPacket(
+                            error="operation %s not found!"
+                            % (ingest_packet.operation_id),
+                            error_code=GulpWsError.OBJECT_NOT_FOUND.name,
+                        )
+                        await GulpWsSharedQueue.get_instance().put(
+                            type=GulpWsQueueDataType.WS_ERROR,
+                            ws_id=ingest_packet.ws_id,
+                            user_id=user_id,
+                            data=p.model_dump(exclude_none=True),
+                        )
+                        break
+
+                    # package data for worker
+                    packet = InternalWsIngestPacket(
+                        user_id=user_id, index=operation.index, data=ingest_packet
+                    )
+
+                    # and put in the worker queue
+                    worker_pool.put(packet)
 
         finally:
             await worker_pool.stop()

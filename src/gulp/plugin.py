@@ -53,8 +53,8 @@ from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
     GulpIngestSourceDonePacket,
     GulpQueryDonePacket,
-    GulpSharedWsQueue,
     GulpWsQueueDataType,
+    GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
@@ -73,6 +73,16 @@ class GulpPluginType(StrEnum):
     EXTENSION = "extension"
     EXTERNAL = "external"
     ENRICHMENT = "enrichment"
+
+
+class GulpPluginCacheMode(StrEnum):
+    """
+    specifies the plugin cache mode
+    """
+
+    FORCE = "force"  # force load into cache if not already loaded
+    IGNORE = "ignore"  # always load from disk
+    DEFAULT = "default"  # use configuration value
 
 
 class GulpPluginEntry(BaseModel):
@@ -188,8 +198,6 @@ class GulpPluginCache:
             plugin (PluginBase): The plugin to add to the cache.
             name (str): The name of the plugin.
         """
-        if not GulpConfig.get_instance().plugin_cache_enabled():
-            return
         if name not in self._cache:
             MutyLogger.get_instance().debug("adding plugin %s to cache" % (name))
             self._cache[name] = plugin
@@ -203,9 +211,6 @@ class GulpPluginCache:
         Returns:
             PluginBase: The plugin if found in the cache, otherwise None.
         """
-        if not GulpConfig.get_instance().plugin_cache_enabled():
-            return None
-
         p = self._cache.get(name, None)
         if p:
             MutyLogger.get_instance().debug("found plugin %s in cache !" % (name))
@@ -218,8 +223,6 @@ class GulpPluginCache:
         Args:
             name (str): The name of the plugin to remove from the cache.
         """
-        if not GulpConfig.get_instance().plugin_cache_enabled():
-            return
         if name in self._cache:
             MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
@@ -241,7 +244,7 @@ class GulpPluginBase(ABC):
         extension = GulpPluginType.EXTENSION in self.type()
         return (
             GulpPluginBase.load_sync,
-            (self.path, extension, True, True),
+            (self.path, extension, GulpPluginCacheMode.IGNORE, True),
             self.__dict__,
         )
 
@@ -513,7 +516,7 @@ class GulpPluginBase(ABC):
                 f"sending chunk of {len(ws_docs)} documents to ws {
                     self._ws_id}"
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -558,7 +561,8 @@ class GulpPluginBase(ABC):
     async def _add_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
         """
         extract (and add to collab database) GulpContext and GulpSource from the document, or set bogus values if not found.
-        a cache to avoid too many queries.
+
+        a cache is used to avoid too many queries.
 
         NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set, otherwise context and source are attempted to be extracted from "gulp.context_id" and "gulp.source_id" fields.
 
@@ -574,62 +578,63 @@ class GulpPluginBase(ABC):
         ctx: GulpContext = None
 
         # get context and field (either use default)
-        record_context = self._plugin_params.custom_parameters.get("context_field", "gulp.context_id")
-        record_source = self._plugin_params.custom_parameters.get("source_field", "gulp.source_id")
+        record_context_field = self._plugin_params.custom_parameters.get(
+            "context_field", "gulp.context_id"
+        )
+        record_source_field = self._plugin_params.custom_parameters.get(
+            "source_field", "gulp.source_id"
+        )
 
         # MutyLogger.get_instance().debug(f"record_context={record_context}, record_source={record_source}, ingest_index={self._ingest_index}")
 
         if not self._ingest_index:
             # no ingestion, get context and source from the record, setting bogus if parameters are not set
-            self._context_id = doc.get(record_context, "default")
-            self._source_id = doc.get(record_source, "default")
+            self._context_id = doc.get(record_context_field, "default")
+            self._source_id = doc.get(record_source_field, "default")
             return self._context_id, self._source_id
 
         if not self._operation:
+            # get operation only once, then it's cached
             self._operation = await GulpOperation.get_by_id(
                 self._sess, self._operation_id
             )
 
-        if record_context is None:
-            # add bogus context
-            record_context = "default"
-        if record_source is None:
-            # add bogus source
-            record_source = "default"
-
-        src_cache_key = "%s-%s" % (record_context, record_source)
+        # check cache
+        src_cache_key = "%s-%s" % (record_context_field, record_source_field)
         if src_cache_key in self._ctx_cache:
             # we have them both
-            ctx_id = self._ctx_cache[record_context]
+            ctx_id = self._ctx_cache[record_context_field]
             src_id = self._src_cache[src_cache_key]
             # MutyLogger.get_instance().debug(f"cache hit ctx & src: {ctx_id}, {src_id}")
             return ctx_id, src_id
 
-        if record_context not in self._ctx_cache:
-            # context cache miss
+        if record_context_field not in self._ctx_cache:
+            # context cache miss, create context
+            context_name = doc.get(record_context_field, "default")
             ctx, _ = await self._operation.add_context(
-                self._sess, self._user_id, record_context, self._ws_id, self._req_id
+                self._sess, self._user_id, context_name, self._ws_id, self._req_id
             )
-            self._ctx_cache[record_context] = ctx.id
+            self._ctx_cache[record_context_field] = ctx.id
             ctx_id = ctx.id
             MutyLogger.get_instance().warning(
-                "cache miss, context=%s, ctx_id=%s" % (record_context, ctx_id)
+                "cache miss, context=%s, ctx_id=%s" % (record_context_field, ctx_id)
             )
         else:
             # hit
-            ctx_id = self._ctx_cache[record_context]
+            ctx_id = self._ctx_cache[record_context_field]
             # MutyLogger.get_instance().debug(f"cache hit ctx: {ctx_id}")
 
         if src_cache_key not in self._src_cache:
-            # source cache miss
+            # source cache miss, create source
+            source_name = doc.get(record_source_field, "default")
             src, _ = await ctx.add_source(
-                self._sess, self._user_id, record_source, self._ws_id, self._req_id
+                self._sess, self._user_id, source_name, self._ws_id, self._req_id
             )
             self._src_cache[src_cache_key] = src.id
             src_id = src.id
             MutyLogger.get_instance().warning(
                 "cache miss, context=%s, ctx_id=%s source=%s, src_id=%s"
-                % (record_context, src_id, record_source, src_id)
+                % (record_context_field, src_id, record_source_field, src_id)
             )
         else:
             # hit
@@ -718,10 +723,10 @@ class GulpPluginBase(ABC):
         """
         ingest a chunk of arbitrary (GulpDocument ?) dictionaries.
 
+        it is the responsibility of the plugin to create context and source, from the document.
+
         NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
 
-        it is the responsibility of the plugin to create context and source, from the document.
-        
         Args:
             sess (AsyncSession): The database session.
             user_id (str): The user performing the ingestion (id on collab database)
@@ -797,7 +802,7 @@ class GulpPluginBase(ABC):
                 last=last,
                 enriched=True,
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -812,7 +817,7 @@ class GulpPluginBase(ABC):
                 total_enriched=self._tot_enriched,
                 total_hits=kwargs.get("total_hits", 0),
             )
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -1029,6 +1034,7 @@ class GulpPluginBase(ABC):
         file_path: str = None,
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
+        cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
     ) -> "GulpPluginBase":
         """
         loads and initializes a plugin to use its methods directly from another plugin, bypassing the engine.
@@ -1047,14 +1053,14 @@ class GulpPluginBase(ABC):
             file_path (str, optional): path to the file being ingested. Defaults to None.
             original_file_path (str, optional): the original file path. Defaults to None.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
-
+            cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
         Returns:
             GulpPluginBase: the loaded plugin.
         """
         if not plugin_params:
             plugin_params = GulpPluginParameters()
 
-        lower = await GulpPluginBase.load(plugin)
+        lower = await GulpPluginBase.load(plugin, cache_mode=cache_mode)
 
         # initialize private fields
         lower._sess = sess
@@ -1072,7 +1078,7 @@ class GulpPluginBase(ABC):
         return lower
 
     async def setup_stacked_plugin(
-        self, plugin: str, ignore_cache: bool = False, *args, **kwargs
+        self, plugin: str, cache_mode: GulpPluginCacheMode.DEFAULT, *args, **kwargs
     ) -> "GulpPluginBase":
         """
         setup the caller plugin as the "lower" plugin in a stack.
@@ -1086,14 +1092,14 @@ class GulpPluginBase(ABC):
 
         Args:
             plugin (str): the plugin to load
-            ignore_cache (bool, optional): ignore cache. Defaults to False.
+            cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
             *args: additional arguments to pass to the plugin constructor.
             **kwargs: additional keyword arguments to pass to the plugin constructor.
         Returns:
             PluginBase: the loaded plugin
         """
         p = await GulpPluginBase.load(
-            plugin, extension=False, ignore_cache=ignore_cache, *args, **kwargs
+            plugin, extension=False, cache_mode=cache_mode, *args, **kwargs
         )
 
         # set the upper plugin as stacked, so it can call our (lower) functions
@@ -1793,7 +1799,7 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug(
             "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r"
             % (
-                self._file_path,
+                self._file_path or self._source_id,
                 len(self._docs_buffer),
                 self._stats.status if self._stats else GulpRequestStatus.DONE,
                 self._ingestion_enabled,
@@ -1825,7 +1831,7 @@ class GulpPluginBase(ABC):
             else:
                 status = GulpRequestStatus.DONE
 
-            GulpSharedWsQueue.get_instance().put(
+            GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -1868,7 +1874,7 @@ class GulpPluginBase(ABC):
     def load_sync(
         plugin: str,
         extension: bool = False,
-        ignore_cache: bool = False,
+        cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
         *args,
         **kwargs,
     ) -> "GulpPluginBase":
@@ -1878,7 +1884,7 @@ class GulpPluginBase(ABC):
         Args:
             plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
-            ignore_cache (bool, optional): Whether to ignore the cache. Defaults to False.
+            cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
             *args: Additional arguments (args[0]: pickled).
             **kwargs: Additional keyword arguments.
         """
@@ -1890,20 +1896,24 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs),
+                GulpPluginBase.load(
+                    plugin, extension=extension, cache_mode=cache_mode, *args, **kwargs
+                ),
             )
             return future.result()
 
         # either, create a new event loop to run the coroutine
         return loop.run_until_complete(
-            GulpPluginBase.load(plugin, extension, ignore_cache, *args, **kwargs)
+            GulpPluginBase.load(
+                plugin, extension=extension, cache_mode=cache_mode, *args, **kwargs
+            )
         )
 
     @staticmethod
     async def load(
         plugin: str,
         extension: bool = False,
-        ignore_cache: bool = False,
+        cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
         *args,
         **kwargs,
     ) -> "GulpPluginBase":
@@ -1913,7 +1923,7 @@ class GulpPluginBase(ABC):
         Args:
             plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
-            ignore_cache (bool, optional): Whether to ignore the cache. Defaults to False.
+            cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
             *args: Additional arguments (args[0]: pickled).
             **kwargs: Additional keyword arguments.
         """
@@ -1926,18 +1936,38 @@ class GulpPluginBase(ABC):
         path = GulpPluginBase.path_from_plugin(
             plugin, extension, raise_if_not_found=True
         )
+
+        # try to get plugin from cache
         bare_name = os.path.splitext(os.path.basename(path))[0]
-        m = GulpPluginCache.get_instance().get(bare_name)
-        if ignore_cache and m:
+        force_load_from_disk: bool = False
+        if cache_mode == GulpPluginCacheMode.IGNORE:
+            # ignore cache
             MutyLogger.get_instance().warning(
                 "ignoring cache for plugin %s" % (bare_name)
             )
-            m = None
-            GulpPluginCache.get_instance().remove(bare_name)
-        if m:
-            # return from cache
-            return m.Plugin(path, pickled=pickled, **kwargs)
+            force_load_from_disk = True
+        elif cache_mode == GulpPluginCacheMode.FORCE:
+            # force load from disk
+            MutyLogger.get_instance().warning("force cache for plugin %s" % (bare_name))
+            force_load_from_disk = False
+        else:
+            # cache mode DEFAULT
+            if cache_mode == GulpPluginCacheMode.DEFAULT:
+                if GulpConfig.get_instance().plugin_cache_enabled():
+                    # cache enabled
+                    force_load_from_disk = False
+                else:
+                    # cache disabled
+                    force_load_from_disk = True
 
+        if not force_load_from_disk:
+            # use cache
+            m: ModuleType = GulpPluginCache.get_instance().get(bare_name)
+            if m:
+                # return from cache
+                return m.Plugin(path, pickled=pickled, **kwargs)
+
+        # load from file
         if extension:
             module_name = f"gulp.plugins.extension.{bare_name}"
         else:
@@ -1945,12 +1975,12 @@ class GulpPluginBase(ABC):
 
         # load from file
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
-        MutyLogger.get_instance().debug(
-            f"loading plugin m={m}, pickled={pickled}, kwargs={kwargs}"
-        )
         p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
-        MutyLogger.get_instance().debug(f"LOADED plugin m={m}, p={p}, name()={p.name}")
-        if not ignore_cache:
+        MutyLogger.get_instance().debug(
+            f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}"
+        )
+        if cache_mode != GulpPluginCacheMode.IGNORE:
+            # add to cache
             GulpPluginCache.get_instance().add(m, bare_name)
         return p
 
@@ -2122,7 +2152,7 @@ class GulpPluginBase(ABC):
 
                 try:
                     p = await GulpPluginBase.load(
-                        f, extension=extension, ignore_cache=True
+                        f, extension=extension, cache_mode=GulpPluginCacheMode.IGNORE
                     )
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)

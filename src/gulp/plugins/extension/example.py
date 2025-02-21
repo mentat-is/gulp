@@ -8,7 +8,7 @@ import muty.log
 import muty.os
 import muty.string
 import muty.uploadfile
-from fastapi import Header, Query, Depends
+from fastapi import Depends, Header, Query
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
@@ -18,7 +18,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -77,7 +77,7 @@ class Plugin(GulpPluginBase):
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        GulpSharedWsQueue.get_instance().put(
+        GulpWsSharedQueue.get_instance().put(
             GulpWsQueueDataType.COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,

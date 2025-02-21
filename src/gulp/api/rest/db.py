@@ -23,7 +23,7 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_INDEX
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpRebaseDonePacket, GulpSharedWsQueue, GulpWsQueueDataType
+from gulp.api.ws_api import GulpRebaseDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
@@ -486,7 +486,7 @@ async def _rebase_internal(
     except Exception as ex:
         # signal failure on the websocket
         MutyLogger.get_instance().exception(ex)
-        GulpSharedWsQueue.get_instance().put(
+        GulpWsSharedQueue.get_instance().put(
             type=GulpWsQueueDataType.REBASE_DONE,
             ws_id=ws_id,
             user_id=user_id,
@@ -507,7 +507,7 @@ async def _rebase_internal(
         "rebase done, result=%s" % (json.dumps(res, indent=2))
     )
     # signal the websocket
-    GulpSharedWsQueue.get_instance().put(
+    GulpWsSharedQueue.get_instance().put(
         type=GulpWsQueueDataType.REBASE_DONE,
         ws_id=ws_id,
         user_id=user_id,

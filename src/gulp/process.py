@@ -10,7 +10,7 @@ from muty.log import MutyLogger
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpSharedWsQueue
+from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
 
 
@@ -34,7 +34,7 @@ class GulpProcess:
             - GulpProcess.get_instance().coro_pool: coroutine pool executor
             - GulpCollab.get_instance(): the collab client
             - GulpOpenSearch.get_instance(): the opensearch client
-            - GulpSharedWsQueue.get_instance(): the shared websocket queue
+            - GulpWsSharedQueue.get_instance(): the shared websocket queue
     """
 
     def __init__(self):
@@ -180,7 +180,7 @@ class GulpProcess:
 
         if self.process_pool:
             # close the worker process pool gracefully if it is already running
-            await GulpSharedWsQueue.get_instance().close()
+            await GulpWsSharedQueue.get_instance().close()
             await self.close_process_pool()
             self.mp_manager.shutdown()
             self.process_pool = None
@@ -192,7 +192,7 @@ class GulpProcess:
         lock = self.mp_manager.Lock()
 
         # re/create the shared websocket queue (closes it first if already running)
-        wsq = GulpSharedWsQueue.get_instance()
+        wsq = GulpWsSharedQueue.get_instance()
         q = await wsq.init_queue(self.mp_manager)
         self.shared_ws_list = self.mp_manager.list()
 
@@ -306,7 +306,7 @@ class GulpProcess:
         else:
             # worker process, set the queue
             MutyLogger.get_instance().info("worker process initialized!")
-            GulpSharedWsQueue.get_instance().set_queue(q)
+            GulpWsSharedQueue.get_instance().set_queue(q)
             # and shared list too
             self.shared_ws_list = shared_ws_list
 

@@ -29,9 +29,9 @@ from gulp.api.opensearch.filters import (
 from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
-    GulpSharedWsQueue,
     GulpSourceFieldsChunkPacket,
     GulpWsQueueDataType,
+    GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
@@ -432,7 +432,7 @@ class GulpOpenSearch:
                         fields=chunk,
                         last=last,
                     )
-                    GulpSharedWsQueue.get_instance().put(
+                    GulpWsSharedQueue.get_instance().put(
                         type=GulpWsQueueDataType.SOURCE_FIELDS_CHUNK,
                         ws_id=ws_id,
                         user_id=user_id,
@@ -774,6 +774,21 @@ class GulpOpenSearch:
             return True
         except NotFoundError:
             return False
+
+    async def datastream_get_count(self, ds: str) -> bool:
+        """
+        Get the count of documents in the datastream.
+
+        Args:
+            ds (str): The name of the datastream to check.
+
+        Raises:
+            NotFoundError: If the datastream does not exist.
+        Returns:
+            int: The count of documents in the datastream.
+        """
+        res = await self._opensearch.count(index=ds)
+        return res["count"]
 
     async def datastream_create(
         self, ds: str, index_template: str = None, delete_first: bool = True
@@ -1901,7 +1916,7 @@ class GulpOpenSearch:
                     search_after=search_after,
                     name=q_options.name,
                 )
-                GulpSharedWsQueue.get_instance().put(
+                GulpWsSharedQueue.get_instance().put(
                     type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
                     ws_id=ws_id,
                     user_id=user_id,

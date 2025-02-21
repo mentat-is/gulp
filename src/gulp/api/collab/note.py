@@ -14,8 +14,8 @@ from gulp.api.collab.structs import GulpCollabFilter, GulpCollabObject, GulpColl
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
     GulpCollabCreateUpdatePacket,
-    GulpSharedWsQueue,
     GulpWsQueueDataType,
+    GulpWsSharedQueue,
 )
 
 
@@ -241,7 +241,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             created=True,
             bulk_size=len(notes),
         )
-        GulpSharedWsQueue.get_instance().put(
+        GulpWsSharedQueue.get_instance().put(
             GulpWsQueueDataType.COLLAB_UPDATE,
             ws_id=ws_id,
             user_id=user_id,

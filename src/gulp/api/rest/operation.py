@@ -454,13 +454,17 @@ async def operation_reset_handler(
             }
         }
     },
-    summary="gets an operation.",
-    description="""
-""",
+    summary="get operation information.",
 )
 async def operation_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    get_count: Annotated[
+        Optional[bool],
+        Query(
+            description="if set, the operation's document count is also retrieved as `doc_count` (default=True)."
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -470,6 +474,12 @@ async def operation_get_by_id_handler(
             operation_id,
             nested=True,
         )
+        if get_count:
+            # also get count
+            d["doc_count"] = await GulpOpenSearch.get_instance().datastream_get_count(
+                d["index"]
+            )
+
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id, ex=ex) from ex
