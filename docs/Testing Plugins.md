@@ -5,16 +5,16 @@
 
 # testing gulp
 
-> `GULP_INTEGRATION_TEST` should always be set during tests, since it deactivates debug options even if they are activated in the configuration!
-
-to start tests, start gulp first!
-
-> for the devteam: if you are using the `devcontainer`, environment variablaes `PATH_MAPPING_FILES_EXTRA` and `PATH_PLUGINS_EXTRA` are preset with to the paid plugins paths in `$GULP_DIR/../gulp-paid-plugins`.
+start gulp first
 
 ~~~bash
 # run gulp on localhost:8080
-# (extra paths may be omitted)
-GULP_INTEGRATION_TEST=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins gulp
+# setting extra paths may be omitted if paid plugins are not needed. also, they are automatically set in the devcontainer to ../gulp-paid-plugins/...
+export PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files
+export PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins
+
+# settijg GULP_INTEGRATION_TEST is mandatory when running tests (disables debug features if forgotten activated)
+GULP_INTEGRATION_TEST=1 gulp
 ~~~
 
 ## running the test suite
@@ -24,12 +24,10 @@ the test suite tests all the gulp rest API and plugins, including ingestion and 
 ~~~bash
 # run test suite (covers the whole API, including ingestion and query)
 cd tests
-PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files ./test_suite.sh
+./test_suite.sh
 
 # also test paid plugins
-PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins ./test_suite.sh
-
-> setting `PATH_PLUGIN_EXTRA` and `PATH_MAPPING_FILES_EXTRA` is not necessary when using the devcontainer to test.
+PATH_PAID_PLUGINS=/home/valerino/repos/gulp-paid-plugins ./test_suite.sh
 ~~~
 
 ## running single tests manually
@@ -37,12 +35,8 @@ PAID_PLUGINS=1 PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/s
 single tests in the [test suite](../tests) may also be run manually
 
 ~~~bash
-# run single api test manually, i.e.
-# run windows ingest/query test (including sigma and stored queries)
-python3 -m pytest -v -s query.py::test_win_evtx
-
-# run collab notes test (including user ACL)
-python3 -m pytest -v -s note.py
+# run single test manually, i.e. run test_queries function inside test_query_api.py
+python3 -m pytest -v -s ./tests/query/test_query_api.py::test_queries
 ~~~
 
 ## ingestion tool

@@ -1,11 +1,33 @@
 #!/usr/bin/env bash
 if [ "$1" == "--help" ]; then
-    echo "Usage: [PAID_PLUGINS=1 to include paid plugins] test_suite.sh"
+    echo "Usage: [PATH_PAID_PLUGINS=/path/to/gulp-paid-plugins to include paid plugins] test_suite.sh"
     exit 1
 fi
-python3 -m pytest -v -s tests/ingest
-python3 -m pytest -v -s tests/query
-if [ "$PAID_PLUGINS" = "1" ]; then
-    python3 -m pytest -v -s ../gulp-paid-plugins/tests/ingest
-    python3 -m pytest -v -s ../gulp-paid-plugins/tests/query
+
+_TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+# default tests
+echo ". Running default tests from $_TESTS_DIR ..."
+python3 -m pytest -v -x -s $_TESTS_DIR/ingest
+if [ $? -ne 0 ]; then
+    exit 1
 fi
+python3 -m pytest -v -x -s $_TESTS_DIR/query
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+if [ ! -z $PATH_PAID_PLUGINS ]; then
+    # paid plugins tests
+    echo ". Running paid plugins tests from $PATH_PAID_PLUGINS ..."
+    python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/ingest
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+    python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/query
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+fi
+
+# all tests passed
+echo "TESTS PASSED!"
