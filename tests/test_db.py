@@ -2,21 +2,19 @@ import asyncio
 import json
 
 import pytest
+import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.db import GulpAPIDb
-from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_HOST,
     TEST_INDEX,
     TEST_OPERATION_ID,
-    TEST_REQ_ID,
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
@@ -70,16 +68,18 @@ async def _ws_loop(total: int = None):
     assert test_completed
 
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    """
+    this is called before any test, to initialize the environment
+    """
+    await _test_init(recreate=True)
+
+
 @pytest.mark.asyncio
-async def test():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-
+async def test_db_api():
     # ingest some data
-    from tests.ingest.test_ingest import test_csv_file_mapping
-
-    await test_csv_file_mapping()
+    from tests.ingest.test_ingest import test_win_evtx
 
     # login users
     guest_token = await GulpAPIUser.login("guest", "guest")
@@ -91,62 +91,62 @@ async def test():
     ingest_token = await GulpAPIUser.login("admin", "admin")
     assert ingest_token
 
-    # get doc by id
-    target_doc_id = "6d9398a9feedbf0ca661f0c41c3cc145"
+    # ingest some data
+    await test_win_evtx()
 
-    doc = await GulpAPIQuery.query_single_id(guest_token, target_doc_id, TEST_INDEX)
-    assert doc["_id"] == target_doc_id
-    assert doc["@timestamp"] == "2014-07-16T06:04:24.614482+00:00"
-    assert doc["gulp.timestamp"] == 1405490664614481920
+    # get doc by id
+    target_id = "dffc5755d3dca4bf11660a599898023b"
+    d = await GulpAPIQuery.query_single_id(guest_token, TEST_OPERATION_ID, target_id)
+    assert d["_id"] == target_id
+    assert d["@timestamp"] == "2016-06-29T15:24:34.346000+00:00"
+    assert d["gulp.timestamp"] == 1467213874345999872
 
     # rebase on another index (guest cannot rebase)
     one_day_msec = 1000 * 60 * 60 * 24
     new_index = "new_idx"
+    # onoy 1 document should be rebased
+    flt: GulpQueryFilter = GulpQueryFilter(
+        time_range=[1467213874345999870, 1467213874345999875]
+    )
     await GulpAPIDb.opensearch_rebase_index(
-        guest_token,
-        TEST_OPERATION_ID,
-        TEST_INDEX,
-        new_index,
-        one_day_msec,
-        flt=GulpQueryFilter(int_filter=(1290012898794248960, 1447779298794248960)),
+        token=guest_token,
+        operation_id=TEST_OPERATION_ID,
+        dest_index=new_index,
+        offset_msec=one_day_msec,
+        flt=flt,
         expected_status=401,
     )
 
     # ingest can do it
     await GulpAPIDb.opensearch_rebase_index(
-        ingest_token,
-        TEST_OPERATION_ID,
-        TEST_INDEX,
-        new_index,
-        one_day_msec,
-        flt=GulpQueryFilter(int_filter=(1290012898794248960, 1447779298794248960)),
+        token=ingest_token,
+        operation_id=TEST_OPERATION_ID,
+        dest_index=new_index,
+        offset_msec=one_day_msec,
+        flt=flt,
     )
 
     # wait rebase done
     await _ws_loop()
 
-    # check rebase (only 6 docs should have been rebased)
-    await GulpAPIQuery.query_gulp(
-        guest_token, new_index, flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID])
-    )
-    await _ws_loop(total=5)
+    # check rebase
+    await GulpAPIQuery.query_gulp(guest_token, operation_id=TEST_OPERATION_ID)
+    await _ws_loop(total=1)
 
     # check same document on new idx (should be 1 day ahead)
-    doc = await GulpAPIQuery.query_single_id(guest_token, target_doc_id, new_index)
-    assert doc["_id"] == target_doc_id
-    assert (
-        doc["@timestamp"] == "2014-07-17T06:04:24.614482Z"
-    )  # was "2014-07-16T06:04:24.614482+00:00"
-    assert doc["gulp.timestamp"] == 1405577064614481920  # was 1405490664614481920
+    doc = await GulpAPIQuery.query_single_id(guest_token, TEST_OPERATION_ID, target_id)
+    assert doc["_id"] == target_id
+    assert doc["@timestamp"] == "2016-06-30T15:24:34.346000000Z"
+    assert doc["gulp.timestamp"] == 1467300274345999872  # 1467213874345999872 + 1 day
 
     # list indexes (should be 2)
-    indexes = await GulpAPIDb.opensearch_list_index(guest_token)
+    indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     assert len(indexes) == 2
 
     # delete the new index
     await GulpAPIDb.opensearch_delete_index(ingest_token, new_index)
-    MutyLogger.get_instance().info("all tests succeeded!")
 
     # verify deleted
     indexes = await GulpAPIDb.opensearch_list_index(guest_token)
     assert len(indexes) == 1
+    MutyLogger.get_instance().info(test_db_api.__name__ + " passed")

@@ -363,7 +363,7 @@ async def postgres_reset_collab_handler(
                     for op in ops:
                         # delete index data
                         MutyLogger.get_instance().debug(
-                            f"operation=%s, deleting index=%s ..." % (op.id, op.index)
+                            "operation=%s, deleting index=%s ..." % (op.id, op.index)
                         )
                         await GulpOpenSearch.get_instance().datastream_delete(
                             ds=op.index, throw_on_error=False
@@ -577,7 +577,7 @@ async def opensearch_rebase_index_handler(
         Body(
             description="""
 optional custom rebase script to run on the documents.
-                                       
+
 - must be a [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html).
 - the script receives as input a single parameter `offset_nsec`, the offset in `nanoseconds from the unix epoch` to be applied to the fields during the rebase operation.
 - the example script is the one applied by default (rebases `@timestamp` and `gulp.timestamp`).

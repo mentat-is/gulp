@@ -22,11 +22,12 @@ from gulp.api.ws_api import GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
 
 
-async def _test_init(login_admin_and_reset_operation: bool = True) -> None:
+async def _test_init(login_admin_and_reset_operation: bool = True, recreate: bool=False) -> None:
     """
     initialize the environment, automatically called before each test by the _setup() fixture
 
     :param login_admin_and_reset_operation: if True, login as admin and reset the operation
+    :param recreate: if True, recreate the operation
     """
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
@@ -34,7 +35,7 @@ async def _test_init(login_admin_and_reset_operation: bool = True) -> None:
     from gulp.api.rest.client.user import GulpAPIUser
 
     if login_admin_and_reset_operation:
-        await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+        await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID, recreate=recreate)
 
 
 def _process_file_in_worker_process(

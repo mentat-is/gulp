@@ -14,11 +14,20 @@ class GulpAPIUser:
 
     @staticmethod
     async def login_admin_and_reset_operation(
-        req_id: str, ws_id: str = None, operation_id: str = None
+        req_id: str, ws_id: str = None, operation_id: str = None, recreate: bool = False
     ) -> str:
         admin_token = await GulpAPIUser.login_admin(req_id=req_id, ws_id=ws_id)
         assert admin_token
         op = operation_id or TEST_OPERATION_ID
+        if recreate:
+            # delete first
+            try:
+                await GulpAPIOperation.operation_delete(admin_token, op, req_id=req_id)
+            except Exception as e:
+                MutyLogger.get_instance().warning(
+                    f"failed to delete operation {op}: {e}"
+                )
+
         res = await GulpAPIOperation.operation_reset(admin_token, op, req_id=req_id)
         assert res["id"] == op
         return admin_token

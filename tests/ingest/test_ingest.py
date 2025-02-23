@@ -197,9 +197,6 @@ async def test_skipped_records():
 
 @pytest.mark.asyncio
 async def test_win_evtx():
-    """
-    test ingest vs guest account (only ingest can ingest)
-    """
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
@@ -256,10 +253,7 @@ async def test_ingest_ws_raw():
                         ).isoformat() + ".000Z"
                     elif isinstance(value, str):
                         if key == "event.code":
-                            new_doc[key] = (
-                                f"event_code_{
-                                random.randint(1, 1000)}"
-                            )
+                            new_doc[key] = f"event_code_{random.randint(1, 1000)}"
                         else:
                             # leave gulp.operation_id as is
                             if key == "gulp.operation_id":
@@ -437,7 +431,7 @@ async def test_csv_stacked():
         guest_token, TEST_OPERATION_ID, "d3bd618f59c8b001d77c6c8edc729b0a"
     )
     assert doc["event.duration"] == 9999
-    assert doc["enriched"] == True
+    assert doc["enriched"]
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
 

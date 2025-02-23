@@ -177,7 +177,7 @@ async def _worker_coro(kwds: dict):
             # note name set to query name
             q_opt.note_parameters.note_name = gq.name
 
-            if not gq.name in q_opt.note_parameters.note_tags:
+            if gq.name not in q_opt.note_parameters.note_tags:
                 # query name in note tags (this will allow to identify the results in the end)
                 q_opt.note_parameters.note_tags.append(gq.name)
 
@@ -446,6 +446,7 @@ use this API just for simple query using the pre-made filters in `GulpQueryFilte
 
 for anything else, it is advised to use the more powerful `query_raw` API.
 
+- flt.operation_ids is enforced to the provided `operation_id`.
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 """,
 )
@@ -466,10 +467,10 @@ async def query_gulp_handler(
     ServerUtils.dump_params(params)
 
     try:
-        if not flt or not flt.operation_ids:
-            raise ValueError(
-                "at least one operation_id is mandatory in the query filter."
-            )
+        # setup flt if not provided, must include operation_id
+        if not flt:
+            flt = GulpQueryFilter()
+        flt.operation_ids = [operation_id]
 
         async with GulpCollab.get_instance().session() as sess:
             permission = GulpUserPermission.READ
@@ -629,7 +630,7 @@ async def query_external_handler(
 query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
-- `flt` may be used to restrict the query.
+- `flt` may be used to restrict the query (flt.operation_ids is enforced to the provided `operation_id`).
 
 ### q_options
 
@@ -676,6 +677,11 @@ async def query_sigma_handler(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
+
+    # setup flt if not provided, must include operation_id
+    if not flt:
+        flt = GulpQueryFilter()
+    flt.operation_ids = [operation_id]
 
     mod = None
     try:
@@ -898,7 +904,7 @@ async def query_single_id_handler(
     },
     summary="gets max/min `@timestamp` and `event.code` in the given `index`",
     description="""
-- use `flt` to restrict the query.
+- use `flt` to restrict the query (flt.operation_ids is enforced to the provided `operation_id`).
 """,
 )
 async def query_max_min_per_field(
@@ -916,6 +922,11 @@ async def query_max_min_per_field(
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
+
+    # setup flt if not provided, must include operation_id
+    if not flt:
+        flt = GulpQueryFilter()
+    flt.operation_ids = [operation_id]
 
     try:
         async with GulpCollab.get_instance().session() as sess:

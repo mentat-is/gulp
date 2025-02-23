@@ -65,7 +65,7 @@ async def operation_create_handler(
         Query(
             description="""
 if set, the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
-              
+
 `index` is **created** if it doesn't exist, and **recreated** if it exists.""",
             example=TEST_INDEX,
         ),
@@ -427,12 +427,21 @@ async def operation_reset_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            op: GulpOperation = await GulpOperation.get_by_id(
+                sess, operation_id, throw_if_not_found=False
             )
-            owner_id: str = op.owner_user_id
-
+            if op:
+                # existing operation
+                await GulpUserSession.check_token(
+                    sess, token, obj=op, permission=GulpUserPermission.INGEST
+                )
+                owner_id: str = op.owner_user_id
+            else:
+                # create anew
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=GulpUserPermission.INGEST
+                )
+                owner_id = s.user_id
         await operation_reset_internal(operation_id, owner_id=owner_id)
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
 
