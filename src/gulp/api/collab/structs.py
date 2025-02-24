@@ -370,7 +370,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 conditions.append(
                     text(
                         """EXISTS (
-                        SELECT 1 FROM unnest(docs) AS doc 
+                        SELECT 1 FROM unnest(docs) AS doc
                         WHERE doc->>'_id'::text = :doc_id
                     )"""
                     ).bindparams(doc_id=doc_id.lower())
@@ -383,7 +383,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 conditions.append(
                     text(
                         """EXISTS (
-                        SELECT 1 FROM unnest(docs) AS doc 
+                        SELECT 1 FROM unnest(docs) AS doc
                         WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) >= :start_time
                     )"""
                     ).bindparams(start_time=self.doc_time_range[0])
@@ -392,7 +392,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 conditions.append(
                     text(
                         """EXISTS (
-                        SELECT 1 FROM unnest(docs) AS doc 
+                        SELECT 1 FROM unnest(docs) AS doc
                         WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) <= :end_time
                     )"""
                     ).bindparams(end_time=self.doc_time_range[1])
@@ -1214,6 +1214,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         with_for_update: bool = False,
         user_id: str = None,
         user_id_is_admin: bool = False,
+        group_ids: list[str] = None,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -1224,6 +1225,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
+            group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -1232,15 +1234,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # filter or empty filter
         flt = flt or GulpCollabFilter()
-        if user_id and not user_id_is_admin:
-            # add to filter, so that the user can only see objects he has access to
-            if not flt.owner_user_ids:
-                flt.owner_user_ids = [user_id]
+        if not group_ids:
+            group_ids = []
 
         # build and run query (ensure eager loading)
         q = flt.to_select_query(cls, with_for_update=with_for_update)
         q = q.options(*cls._build_relationship_loading_options())
-        # MutyLogger.get_instance().debug(f"get_by_filter query:\n{q}")
+        # MutyLogger.get_instance().debug("get_by_filter, flt=%s, query:\n%s" % (flt, q))
         res = await sess.execute(q)
         objects = res.scalars().all()
         if not objects:
@@ -1250,6 +1250,19 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
             else:
                 return []
+
+        # filter out objects that the user does not have access to
+        # FIXME: this may be improved by querying only the objects the user or group has access to
+        # MutyLogger.get_instance().debug("user_id=%s, pre-filtered objects: %s" % (user_id, objects))
+        if not user_id_is_admin:
+            objects = [
+                o
+                for o in objects
+                if o.is_owner(user_id)
+                or o.is_granted_user(user_id)
+                or any([o.is_granted_group(g) for g in group_ids])
+            ]
+        # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s" % (user_id, objects))
         return objects
 
     @classmethod
@@ -1261,6 +1274,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         with_for_update: bool = False,
         user_id: str = None,
         user_id_is_admin: bool = False,
+        group_ids: list[str] = None,
     ) -> T:
         """
         Asynchronously retrieves the first object based on the provided filter.
@@ -1272,6 +1286,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update (bool, optional): If True, the query will be executed
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
+            group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
 
         Returns:
             T: The first object that matches the filter criteria or None if not found.
@@ -1283,6 +1298,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update=with_for_update,
             user_id=user_id,
             user_id_is_admin=user_id_is_admin,
+            group_ids=group_ids,
         )
 
         if obj:
@@ -1358,7 +1374,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
+            MutyLogger.get_instance().debug(
+                "get_by_filter, user_id=%s" % (s.user_id if s else None)
+            )
             user_id = s.user_id
+            group_ids = [] if not s.user.groups else [g.id for g in s.user.groups]
             is_admin = s.user.is_admin()
 
             objs = await cls.get_by_filter(
@@ -1367,6 +1387,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 throw_if_not_found=throw_if_not_found,
                 user_id=user_id,
                 user_id_is_admin=is_admin,
+                group_ids=group_ids,
             )
             if not objs:
                 return []
@@ -1375,7 +1396,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             for o in objs:
                 data.append(o.to_dict(exclude_none=True, nested=nested))
 
-            """ the code below should not be needed anymore, due to the filtering in the query            
+            """ the code below should not be needed anymore, due to the filtering in the query
             for o in objs:
                 o: GulpCollabBase
                 # perform access checks on the object

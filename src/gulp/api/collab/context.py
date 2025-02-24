@@ -109,6 +109,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         src: GulpSource = await GulpSource.get_first_by_filter(
             sess,
             flt=flt,
+            user_id=user_id,
             throw_if_not_found=False,
         )
         # MutyLogger.get_instance().debug("flt=%s, res=%s" % (flt, src))

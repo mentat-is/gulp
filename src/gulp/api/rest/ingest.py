@@ -748,7 +748,7 @@ async def _process_metadata_json(
     },
     description="""
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
- 
+
 ### zip format
 
 the uploaded zip file **must include** a `metadata.json` with an array of `GulpZipMetadataEntry` to describe the zip content.

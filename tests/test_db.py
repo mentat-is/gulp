@@ -9,6 +9,7 @@ from muty.log import MutyLogger
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
@@ -147,6 +148,11 @@ async def test_db_api():
     await GulpAPIDb.opensearch_delete_index(ingest_token, new_index)
 
     # verify deleted
-    indexes = await GulpAPIDb.opensearch_list_index(guest_token)
+    indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     assert len(indexes) == 1
+
+    # delete the default operation
+    res = await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+    assert res["id"] == TEST_OPERATION_ID
+
     MutyLogger.get_instance().info(test_db_api.__name__ + " passed")

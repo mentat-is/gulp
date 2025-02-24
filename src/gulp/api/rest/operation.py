@@ -93,8 +93,13 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
         if not index:
             index = operation_id
 
-        # fail if the operation already exists
         async with GulpCollab.get_instance().session() as sess:
+            # check token
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.INGEST
+            )
+
+            # fail if the operation already exists
             op: GulpOperation = await GulpOperation.get_by_id(
                 sess, operation_id, throw_if_not_found=False
             )

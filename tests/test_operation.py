@@ -2,12 +2,13 @@ import asyncio
 import json
 
 import pytest
+import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon, _test_init
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.operation import GulpAPIOperation
@@ -64,20 +65,16 @@ async def _ws_loop():
     assert test_completed
 
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    """
+    this is called before any test, to initialize the environment
+    """
+    await _test_init()
+
+
 @pytest.mark.asyncio
-async def test():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-
-    # reset first
-    await GulpAPIDb.reset_all_as_admin()
-
-    # ingest some data
-    from tests.ingest.test_ingest import test_csv_file_mapping
-
-    await test_csv_file_mapping()
-
+async def test_operation_api():
     # login users
     editor_token = await GulpAPIUser.login("editor", "editor")
     assert editor_token
@@ -91,26 +88,27 @@ async def test():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
-    # guest user cannot create operation
-    await GulpAPIOperation.operation_create(
-        guest_token, "test_op", TEST_INDEX, expected_status=401
-    )
+    # delete new_operation if exists, so we start clean
+    new_operation_id = "new_operation"
+    try:
+        await GulpAPIOperation.operation_delete(admin_token, new_operation_id)
+    except Exception as e:
+        pass
 
-    # ingest can create operation
+    # ingest some data
+    from tests.ingest.test_ingest import test_csv_file_mapping
+
+    await test_csv_file_mapping()
+
+    # guest user cannot create operation
     operation = await GulpAPIOperation.operation_create(
-        ingest_token,
-        "test_op",
-        TEST_INDEX,
-        description="Test operation",
+        guest_token, TEST_OPERATION_ID, set_default_grants=True, expected_status=401
     )
-    assert operation.get("name") == "test_op"
-    assert operation.get("index") == TEST_INDEX
-    assert operation.get("description") == "Test operation"
 
     # editor cannot update operation
     await GulpAPIOperation.operation_update(
         editor_token,
-        operation["id"],
+        TEST_OPERATION_ID,
         description="Updated description",
         expected_status=401,
     )
@@ -118,7 +116,7 @@ async def test():
     # ingest can update operation
     updated = await GulpAPIOperation.operation_update(
         ingest_token,
-        operation["id"],
+        TEST_OPERATION_ID,
         description="Updated description",
         operation_data={"hello": "world"},
     )
@@ -126,7 +124,7 @@ async def test():
     assert updated.get("operation_data")["hello"] == "world"
 
     updated = await GulpAPIOperation.operation_update(
-        ingest_token, operation["id"], operation_data={"hello": "1234", "abc": "def"}
+        ingest_token, TEST_OPERATION_ID, operation_data={"hello": "1234", "abc": "def"}
     )
     assert updated.get("description") == "Updated description"
     assert updated.get("operation_data")["hello"] == "1234"
@@ -134,67 +132,59 @@ async def test():
 
     # guest cannot delete operation
     await GulpAPIOperation.operation_delete(
-        guest_token, updated["id"], index=TEST_INDEX, expected_status=401
+        guest_token, updated["id"], expected_status=401
     )
 
-    # list operations (the one created and the default one)
+    # create new operation with just owner's grants
+    new_operation_id = "new_operation"
+    new_operation = await GulpAPIOperation.operation_create(
+        admin_token, "new_operation"
+    )
+    assert new_operation.get("name") == new_operation_id
+    assert new_operation.get("index") == new_operation_id
+    assert new_operation.get("id") == new_operation_id
+
+    # list operations (ingest can see only one operation)
     operations = await GulpAPIOperation.operation_list(ingest_token)
-    assert operations and len(operations) == 2
+    assert operations and len(operations) == 1
+
+    # admin can also see the new operation
     operations = await GulpAPIOperation.operation_list(admin_token)
     assert operations and len(operations) == 2
 
-    # for now, guest can see only the default operation
-    operations = await GulpAPIOperation.operation_list(guest_token)
-    assert len(operations) == 1
-
-    # allow user to see operations
+    # allow ingest to see the new operation (ingest cannot do it)
     await GulpAPIObjectACL.object_add_granted_user(
         token=ingest_token,
-        object_id=updated["id"],
+        object_id=new_operation_id,
         object_type=GulpCollabType.OPERATION,
-        user_id="guest",
+        user_id="ingest",
+        expected_status=401,
+    )
+
+    # allow ingest to see the new operation (admin can)
+    await GulpAPIObjectACL.object_add_granted_user(
+        token=admin_token,
+        object_id=new_operation_id,
+        object_type=GulpCollabType.OPERATION,
+        user_id="ingest",
     )
 
     # operation filter by name
     operations = await GulpAPIOperation.operation_list(
-        guest_token, GulpCollabFilter(names=["test_op"])
+        guest_token, GulpCollabFilter(names=["test_operation"])
     )
     assert operations and len(operations) == 1 and operations[0]["id"] == updated["id"]
 
-    # editor cannot delete operation
-    await GulpAPIOperation.operation_delete(
-        editor_token, updated["id"], index=TEST_INDEX, expected_status=401
-    )
-
-    # ingest can delete operation
-    d = await GulpAPIOperation.operation_delete(
-        ingest_token, updated["id"], index=TEST_INDEX
-    )
-    assert d["id"] == updated["id"]
-
-    # back to test operation only
-    operations = await GulpAPIOperation.operation_list(guest_token)
-    assert len(operations) == 1
-    await GulpAPIObjectACL.object_add_granted_user(
-        token=ingest_token,
-        object_id=TEST_OPERATION_ID,
-        object_type=GulpCollabType.OPERATION,
-        user_id="guest",
-    )
-    operations = await GulpAPIOperation.operation_list(guest_token)
-    assert (
-        operations and len(operations) == 1 and operations[0]["id"] == TEST_OPERATION_ID
-    )
-
+    # list contexts
     contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
     assert contexts and len(contexts) == 1
     context_id = contexts[0]["id"]
 
-    # list sources (test source + 1 ingested source)
+    # list sources
     sources = await GulpAPIOperation.source_list(
         guest_token, TEST_OPERATION_ID, context_id=context_id
     )
-    assert sources and len(sources) == 2
+    assert sources and len(sources) == 1
 
     for s in sources:
         n: str = s["name"]
@@ -208,12 +198,9 @@ async def test():
         TEST_OPERATION_ID,
         context_id,
         source_id,
-        index=TEST_INDEX,
     )
     # check data on opensearch (should be empty)
-    res = await GulpAPIQuery.query_gulp(
-        guest_token, TEST_INDEX, flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID])
-    )
+    res = await GulpAPIQuery.query_gulp(guest_token, TEST_OPERATION_ID)
     assert not res
     await _ws_loop()
 
@@ -221,27 +208,28 @@ async def test():
     sources = await GulpAPIOperation.source_list(
         guest_token, TEST_OPERATION_ID, context_id=context_id
     )
-    assert len(sources) == 1
-    assert sources[0]["id"] != source_id
+    assert len(sources) == 0
 
-    # also delete operation (should delete the context and the remaining source, data is already deleted)
-    await GulpAPIOperation.operation_delete(
-        ingest_token, TEST_OPERATION_ID, index=TEST_INDEX
-    )
-
-    # check data on opensearch (should be empty)
-    # res = await GulpAPIQuery.query_operations(ingest_token, TEST_INDEX)
-    # assert not res
+    # also delete operation (should delete the context)
+    await GulpAPIOperation.operation_delete(ingest_token, TEST_OPERATION_ID)
 
     # verify that the operation is deleted
     operations = await GulpAPIOperation.operation_list(guest_token)
     assert len(operations) == 0
 
-    contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
+    operations = await GulpAPIOperation.operation_list(ingest_token)
+    # ingest can still see new operation
+    assert len(operations) == 1
+
+    await GulpAPIOperation.operation_delete(ingest_token, new_operation_id)
+    operations = await GulpAPIOperation.operation_list(ingest_token)
+    assert len(operations) == 0
+
+    contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
     assert len(contexts) == 0
 
     sources = await GulpAPIOperation.source_list(
-        guest_token, TEST_OPERATION_ID, context_id=context_id
+        ingest_token, TEST_OPERATION_ID, context_id=context_id
     )
     assert len(sources) == 0
     MutyLogger.get_instance().info("all OPERATION tests succeeded!")

@@ -297,7 +297,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         while True:
             # get all notes matching "tags"
             notes: list[GulpNote] = await GulpNote.get_by_filter(
-                sess, flt, throw_if_not_found=False, with_for_update=True
+                sess, flt, user_id=user_id, throw_if_not_found=False, with_for_update=True
             )
             if not notes:
                 break

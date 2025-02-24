@@ -151,7 +151,7 @@ async def _make_public_or_private(
             }
         }
     },
-    summary="adds an user to the object's grants, allowing object access.",
+    summary="adds `user_id` to the object's grants, allowing object access.",
     description="""
 - `token` needs to be the owner of `object_id` or have `admin` permission.
 """,
@@ -200,7 +200,7 @@ async def object_add_granted_user_handler(
             }
         }
     },
-    summary="remove user from the object's grant.",
+    summary="remove `user_id` from the object's grant.",
     description="""
 - `token` needs to be the owner of `object_id` or have `admin` permission.
 """,
@@ -249,7 +249,7 @@ async def object_remove_granted_user_handler(
             }
         }
     },
-    summary="adds an user to the object's grants, allowing object access.",
+    summary="adds `group_id` to the object's grants, allowing object access.",
     description="""
 - `token` needs to be the owner of `object_id` or have `admin` permission.
 """,
@@ -298,7 +298,7 @@ async def object_add_granted_group_handler(
             }
         }
     },
-    summary="remove group from the object's grant.",
+    summary="remove `group_id` from the object's grant.",
     description="""
 - `token` needs to be the owner of `object_id` or have `admin` permission.
 """,
@@ -354,7 +354,7 @@ a private object is only accessible by the owner or by administrators.
 - `token` needs to be the owner of `object_id` or have `admin` permission.
 """,
 )
-async def object_make_private(
+async def object_make_private_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     type: Annotated[
@@ -405,7 +405,7 @@ a public object is accessible by anyone.
 - `token` needs to be the owner of `object_id` or have `admin` permission.
 """,
 )
-async def object_make_private(
+async def object_make_public_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     type: Annotated[

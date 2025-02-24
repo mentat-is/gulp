@@ -104,7 +104,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         )
 
         # add same grants to the context as the operation
-        for u in self.granted_user_ids:            
+        for u in self.granted_user_ids:
             await ctx.add_user_grant(sess, u)
         for g in self.granted_user_group_ids:
             await ctx.add_group_grant(sess, g)
@@ -171,4 +171,3 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             if ctx.sources:
                 for src in ctx.sources:
                     await src.remove_group_grant(sess, group_id)
-
