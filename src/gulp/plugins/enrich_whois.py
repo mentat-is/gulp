@@ -348,7 +348,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> int:
         # parse custom parameters
-        self._initialize(plugin_params)
+        await self._initialize(plugin_params)
 
         # build queries for each host field that match non-private IP addresses (both v4 and v6)
         host_fields = self._plugin_params.custom_parameters.get(

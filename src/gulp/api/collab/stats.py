@@ -475,14 +475,17 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                     stats.errors.extend(errors)
             status = stats.status
             stats.total_hits = hits
-            MutyLogger.get_instance().debug(f"update_query_stats: %s" % (stats))
+            MutyLogger.get_instance().debug("update_query_stats: %s" % (stats))
             await sess.commit()
 
         if send_query_done:
             # inform the websocket
+            MutyLogger.get_instance().debug(
+                "sending query done packet, errors=%s" % (errors)
+            )
             p = GulpQueryDonePacket(
                 status=status,
-                errors=errors,
+                errors=errors or [],
                 total_hits=hits,
                 name=q_name,
             )

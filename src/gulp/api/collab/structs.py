@@ -8,44 +8,18 @@ import muty.time
 from muty.log import MutyLogger
 from psycopg import OperationalError
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import (
-    ARRAY,
-    BIGINT,
-    VARCHAR,
-    Boolean,
-    ColumnElement,
-    ForeignKey,
-    Select,
-    String,
-    Tuple,
-    and_,
-    column,
-    exists,
-    func,
-    insert,
-    inspect,
-    literal,
-    or_,
-    select,
-    text,
-)
+from sqlalchemy import (ARRAY, BIGINT, VARCHAR, Boolean, ColumnElement,
+                        ForeignKey, Select, String, Tuple, and_, column,
+                        exists, func, insert, inspect, literal, or_, select,
+                        text)
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.ext.mutable import MutableList
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    MappedAsDataclass,
-    mapped_column,
-    selectinload,
-)
+from sqlalchemy.orm import (DeclarativeBase, Mapped, MappedAsDataclass,
+                            mapped_column, selectinload)
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy_mixins.serialize import SerializeMixin
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
+                      wait_exponential)
 
 if TYPE_CHECKING:
     from gulp.api.ws_api import GulpWsQueueDataType
@@ -149,6 +123,7 @@ class GulpCollabFilter(BaseModel):
     - use % for wildcard instead of * (SQL LIKE operator).
     - custom fields are supported via `model_extra` as k: [v,v,v,...] pairs where v are strings to match against the column (case insensitive/OR match).
         i.e. `{"custom_field": ["val1", "val2"]}` will match all objects where `custom_field` is either "val1" or "val2".
+        if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined (or empty, public) grants will be returned.
     """
 
     # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
@@ -339,7 +314,33 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q.filter(self._case_insensitive_or_ilike(type.text, self.texts))
 
         if self.model_extra:
-            # any extra fields to filter on (case-insensitive, OR, expects v to be an array of strings)
+            # Handle granted_user_ids and granted_group_ids as special case first
+            granted_user_ids = self.model_extra.pop("granted_user_ids", None)
+            granted_group_ids = self.model_extra.pop("granted_user_group_ids", None)
+
+            if granted_user_ids or granted_group_ids:
+                # match only objects with the defined granted_user_ids or granted_group_ids
+                conditions = []
+                if granted_user_ids:
+                    conditions.append(type.granted_user_ids.op("&&")(granted_user_ids))
+
+                    # append condition that the column is empty or an empty array, as OR
+                    conditions.append(type.granted_user_ids is None)
+                    conditions.append(type.granted_user_ids == [])
+                if granted_group_ids:
+                    conditions.append(
+                        type.granted_user_group_ids.op("&&")(granted_group_ids)
+                    )
+
+                    # append condition that the column is empty or an empty array, as OR
+                    conditions.append(type.granted_user_group_ids is None)
+                    conditions.append(type.granted_user_group_ids == [])
+
+                # Combine with OR
+                if conditions:
+                    q = q.filter(or_(*conditions))
+
+            # Process remaining model_extra fields
             for k, v in self.model_extra.items():
                 if hasattr(type, k):
                     column = getattr(type, k)
@@ -789,11 +790,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         await sess.commit()
 
         if ws_id:
-            from gulp.api.ws_api import (
-                GulpCollabCreateUpdatePacket,
-                GulpWsQueueDataType,
-                GulpWsSharedQueue,
-            )
+            from gulp.api.ws_api import (GulpCollabCreateUpdatePacket,
+                                         GulpWsQueueDataType,
+                                         GulpWsSharedQueue)
 
             if not ws_queue_datatype:
                 ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
@@ -957,11 +956,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         await sess.commit()
 
         if ws_id:
-            from gulp.api.ws_api import (
-                GulpCollabDeletePacket,
-                GulpWsQueueDataType,
-                GulpWsSharedQueue,
-            )
+            from gulp.api.ws_api import (GulpCollabDeletePacket,
+                                         GulpWsQueueDataType,
+                                         GulpWsSharedQueue)
 
             if not ws_queue_datatype:
                 ws_queue_datatype = GulpWsQueueDataType.COLLAB_DELETE
@@ -1145,11 +1142,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
 
         if ws_id:
-            from gulp.api.ws_api import (
-                GulpCollabCreateUpdatePacket,
-                GulpWsQueueDataType,
-                GulpWsSharedQueue,
-            )
+            from gulp.api.ws_api import (GulpCollabCreateUpdatePacket,
+                                         GulpWsQueueDataType,
+                                         GulpWsSharedQueue)
 
             if not ws_queue_datatype:
                 ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
@@ -1234,13 +1229,21 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # filter or empty filter
         flt = flt or GulpCollabFilter()
-        if not group_ids:
-            group_ids = []
 
         # build and run query (ensure eager loading)
+        if user_id_is_admin:
+            # admin must see all
+            flt.granted_user_ids = None
+            flt.granted_user_group_ids = None
+            flt.owner_user_ids = None
+        else:
+            # user can see only objects he has access to
+            flt.granted_user_ids = [user_id]
+            flt.granted_user_group_ids = group_ids or []
+
         q = flt.to_select_query(cls, with_for_update=with_for_update)
         q = q.options(*cls._build_relationship_loading_options())
-        # MutyLogger.get_instance().debug("get_by_filter, flt=%s, query:\n%s" % (flt, q))
+        MutyLogger.get_instance().debug("get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q))
         res = await sess.execute(q)
         objects = res.scalars().all()
         if not objects:
@@ -1251,17 +1254,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             else:
                 return []
 
-        # filter out objects that the user does not have access to
-        # FIXME: this may be improved by querying only the objects the user or group has access to
-        # MutyLogger.get_instance().debug("user_id=%s, pre-filtered objects: %s" % (user_id, objects))
-        if not user_id_is_admin:
-            objects = [
-                o
-                for o in objects
-                if o.is_owner(user_id)
-                or o.is_granted_user(user_id)
-                or any([o.is_granted_group(g) for g in group_ids])
-            ]
         # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s" % (user_id, objects))
         return objects
 
@@ -1374,12 +1366,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
-            MutyLogger.get_instance().debug(
-                "get_by_filter, user_id=%s" % (s.user_id if s else None)
-            )
             user_id = s.user_id
             group_ids = [] if not s.user.groups else [g.id for g in s.user.groups]
             is_admin = s.user.is_admin()
+            MutyLogger.get_instance().debug(
+                "get_by_filter, user_id=%s, group_ids for the user=%s, is_admin=%r"
+                % (s.user_id if s else None, group_ids, is_admin)
+            )
 
             objs = await cls.get_by_filter(
                 sess,
@@ -1396,23 +1389,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             for o in objs:
                 data.append(o.to_dict(exclude_none=True, nested=nested))
 
-            """ the code below should not be needed anymore, due to the filtering in the query
-            for o in objs:
-                o: GulpCollabBase
-                # perform access checks on the object
-                if s.user.check_object_access(o):
-                    data.append(o.to_dict(exclude_none=True, nested=nested))
-                else:
-                    MutyLogger.get_instance().warning(
-                        "User %s does not have permission to access object: %s"
-                        % (
-                            s.user.id,
-                            json.dumps(
-                                o.to_dict(exclude_none=True, nested=nested), indent=2
-                            ),
-                        )
-                    )
-            """
             MutyLogger.get_instance().debug(
                 "User %s get_by_filter_result: %s"
                 % (

@@ -1013,6 +1013,10 @@ async def query_operations(
     ServerUtils.dump_params(params)
 
     try:
+        async with GulpCollab.get_instance().session() as sess:
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+            user_id = s.user_id
+
         # check token and get its accessible operations
         ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
             token, GulpCollabFilter()
@@ -1020,7 +1024,7 @@ async def query_operations(
         operations: list[dict] = []
         for o in ops:
             # get each op details by querying the associated index
-            d = await GulpOpenSearch.get_instance().query_operations(o["index"])
+            d = await GulpOpenSearch.get_instance().query_operations(o["index"], user_id)
             operations.extend(d)
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))

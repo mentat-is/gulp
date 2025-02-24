@@ -9,11 +9,14 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import _test_init
+from gulp.api.rest.client.common import _test_ingest_ws_loop, _test_init
+from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.note import GulpAPINote
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
@@ -363,6 +366,55 @@ async def test_queries():
         assert d["_id"] == target_id
         MutyLogger.get_instance().info(_test_query_single_id.__name__ + " succeeded!")
 
+    async def _test_query_operations():
+        guest_token = await GulpAPIUser.login("guest", "guest")
+        assert guest_token
+        operations = await GulpAPIQuery.query_operations(guest_token)
+        assert operations and len(operations) == 1
+
+        # create another operation (with no guest grants), with the guest user cannot see it
+        admin_token = await GulpAPIUser.login("admin", "admin")
+        assert admin_token
+        try:
+            await GulpAPIOperation.operation_delete(admin_token, "new_operation")
+        except:
+            pass
+        op = await GulpAPIOperation.operation_create(admin_token, "new_operation")
+        assert op and op["id"] == "new_operation"
+
+        # ingest some data in this operation
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+        file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+        await GulpAPIIngest.ingest_file(
+            token=admin_token,
+            file_path=file_path,
+            operation_id="new_operation",
+            context_name="new_context",
+            plugin="win_evtx",
+            req_id="new_req_id",
+        )
+        await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+
+        # check that the guest user cannot see the new operation
+        operations = await GulpAPIQuery.query_operations(guest_token)
+        assert operations and len(operations) == 1
+
+        # grant guest user
+        await GulpAPIObjectACL.object_add_granted_user(
+            token=admin_token,
+            object_id="new_operation",
+            object_type=GulpCollabType.OPERATION,
+            user_id="guest",
+        )
+
+        # guest token can now see the operation
+        operations = await GulpAPIQuery.query_operations(guest_token)
+        assert operations and len(operations) == 2
+
+        # delete the new operation
+        await GulpAPIOperation.operation_delete(admin_token, "new_operation")
+
     # login
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
@@ -371,6 +423,7 @@ async def test_queries():
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
+
     await test_win_evtx()
 
     # test different queries
@@ -379,3 +432,4 @@ async def test_queries():
     await _test_query_gulp(guest_token)
     await _test_query_raw(guest_token)
     await _test_query_single_id(guest_token)
+    await _test_query_operations()

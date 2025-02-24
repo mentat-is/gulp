@@ -78,7 +78,7 @@ class GulpCollab:
         """
         url = GulpConfig.get_instance().postgres_url()
 
-        """            
+        """
         self._engine = await self._create_engine()
         self._collab_sessionmaker = async_sessionmaker(
             bind=self._engine, expire_on_commit=expire_on_commit
@@ -406,7 +406,7 @@ class GulpCollab:
             # add default grants (groups and users)
             await operation.add_default_grants(sess)
 
-            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess)
+            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess, user_id="admin")
             for op in operations:
                 MutyLogger.get_instance().debug(
                     json.dumps(op.to_dict(nested=True), indent=4)

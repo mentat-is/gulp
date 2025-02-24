@@ -125,6 +125,7 @@ async def opensearch_delete_index_handler(
                         "data": [
                             {
                                 "name": "new_index",
+                                "count": 7,
                                 "indexes": [
                                     {
                                         "index_name": ".ds-new_index-000001",
@@ -135,6 +136,7 @@ async def opensearch_delete_index_handler(
                             },
                             {
                                 "name": "test_operation",
+                                "count": 7,
                                 "indexes": [
                                     {
                                         "index_name": ".ds-test_operation-000001",

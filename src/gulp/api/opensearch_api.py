@@ -21,18 +21,11 @@ from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
 from gulp.api.collab_api import GulpCollab
-from gulp.api.opensearch.filters import (
-    GulpDocumentFilterResult,
-    GulpIngestionFilter,
-    GulpQueryFilter,
-)
-from gulp.api.ws_api import (
-    GulpDocumentsChunkPacket,
-    GulpQueryDonePacket,
-    GulpSourceFieldsChunkPacket,
-    GulpWsQueueDataType,
-    GulpWsSharedQueue,
-)
+from gulp.api.opensearch.filters import (GulpDocumentFilterResult,
+                                         GulpIngestionFilter, GulpQueryFilter)
+from gulp.api.ws_api import (GulpDocumentsChunkPacket, GulpQueryDonePacket,
+                             GulpSourceFieldsChunkPacket, GulpWsQueueDataType,
+                             GulpWsSharedQueue)
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -283,6 +276,7 @@ class GulpOpenSearch:
     async def datastream_update_mapping_by_operation(
         self,
         index: str,
+        user_id: str,
         operation_ids: list[str],
         context_ids: list[str] = None,
         source_ids: list[str] = None,
@@ -292,6 +286,7 @@ class GulpOpenSearch:
 
         Args:
             index (str): The index/datastream name.
+            user_id (str): The user ID.
             operation_ids (list[str]): The operation IDs to update mappings for.
             context_ids (list[str], optional): The context IDs to update mappings for. Defaults to None.
             source_ids (list[str], optional): The source IDs to update mappings for. Defaults to None.
@@ -301,7 +296,7 @@ class GulpOpenSearch:
             "updating mappings for index=%s, operation_ids=%s" % (index, operation_ids)
         )
 
-        l = await self.query_operations(index)
+        l = await self.query_operations(index, user_id)
         ids = self._extract_ids_from_query_operations_result(l)
         for op, ctx, src in ids:
             if (
@@ -722,8 +717,11 @@ class GulpOpenSearch:
         ll = []
         ds = l.get("data_streams", [])
         for c in ds:
+            # get count
+            count = await self.datastream_get_count(c["name"])
             cc = {
                 "name": c["name"],
+                "doc_count": count,
                 "indexes": c["indices"],
                 "template": c.get("template", None),
             }
@@ -748,8 +746,8 @@ class GulpOpenSearch:
             if not exists and throw_on_error:
                 raise ObjectNotFound("datastream %s does not exist" % (ds))
 
-            MutyLogger.get_instance().debug('deleting datastream "%s" ...' % (ds))
-            await self._opensearch.indices.delete_data_stream(ds, headers=headers)
+            res = await self._opensearch.indices.delete_data_stream(ds, headers=headers)
+            MutyLogger.get_instance().debug('deleting datastream "%s", res=%s' % (ds, res))
         finally:
             # also (try to) delete the corresponding template
             try:
@@ -1448,19 +1446,22 @@ class GulpOpenSearch:
         }
         return self._parse_query_max_min(d)
 
-    async def _parse_operation_aggregation(self, aggregations: dict) -> list[dict]:
+    async def _parse_operation_aggregation(
+        self, aggregations: dict, user_id: str
+    ) -> list[dict]:
         """
         parse OpenSearch operations aggregations and match with collab database operations.
 
         Args:
             aggregations (dict): Raw OpenSearch aggregations results
-
+            user_id (str): The user ID to filter operations
         Returns:
             list[dict]: Parsed operations with context and source details
         """
-        # girst get all operations from collab db
+        # get all operations from collab db
+        # MutyLogger.get_instance().debug(f"parsing operations aggregations: {json.dumps(aggregations, indent=2)}")
         async with GulpCollab.get_instance().session() as sess:
-            all_operations = await GulpOperation.get_by_filter(sess)
+            all_operations = await GulpOperation.get_by_filter(sess, user_id=user_id)
 
         # create operation lookup map
         operation_map = {op.id: op for op in all_operations}
@@ -1553,12 +1554,13 @@ class GulpOpenSearch:
 
         return result
 
-    async def query_operations(self, index: str) -> list[dict]:
+    async def query_operations(self, index: str, user_id: str) -> list[dict]:
         """
-        queries the OpenSearch index for operations and returns the aggregations.
+        queries the OpenSearch index for each "operation_id" value found and returns the aggregations.
 
         Args:
             index (str): Name of the index (or datastream) to query
+            user_id (str): The user ID to filter operations
 
         Returns:
             liist[dict]: The aggregations result (WARNING: will return at most "aggregation_max_buckets" hits, which should cover 99,99% of the usage ....).
@@ -1607,7 +1609,7 @@ class GulpOpenSearch:
 
         d = {"total": hits, "aggregations": res["aggregations"]}
         # MutyLogger.get_instance().debug(json.dumps(d, indent=2))
-        return await self._parse_operation_aggregation(d["aggregations"])
+        return await self._parse_operation_aggregation(d["aggregations"], user_id)
 
     async def query_single_document(
         self,

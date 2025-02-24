@@ -68,6 +68,7 @@ async def _modify_grants(
         sess,
         token,
         obj=obj,
+        enforce_owner=True
     )
 
     if add:

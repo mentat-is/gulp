@@ -214,9 +214,7 @@ class GulpQueryDonePacket(BaseModel):
     status: GulpRequestStatus = Field(
         ..., description="The status of the query operation (done/failed)."
     )
-    errors: Optional[list[str]] = Field(
-        None, description="The error message/s, if any."
-    )
+    errors: Optional[list[str]] = Field([], description="The error message/s, if any.")
     total_hits: Optional[int] = Field(
         None, description="The total number of hits for the query."
     )

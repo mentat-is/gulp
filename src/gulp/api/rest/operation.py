@@ -224,7 +224,10 @@ async def operation_update_handler(
             if operation_data:
                 if merge_operation_data:
                     # merge with existing
-                    d["operation_data"] = {**op.operation_data, **operation_data}
+                    if op.operation_data:
+                        d["operation_data"] = {**op.operation_data, **operation_data}
+                    else:
+                        d["operation_data"] = operation_data
                 else:
                     # replace
                     d["operation_data"] = operation_data

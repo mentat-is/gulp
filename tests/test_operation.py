@@ -14,6 +14,7 @@ from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.client.user_group import GulpAPIUserGroup
 from gulp.api.rest.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -70,11 +71,31 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _test_init()
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
 
 
 @pytest.mark.asyncio
 async def test_operation_api():
+    """
+    this tests operation, acl, user groups
+    """
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
+    # clear indexes
+    indexes = await GulpAPIDb.opensearch_list_index(admin_token)
+    for l in indexes:
+        await GulpAPIDb.opensearch_delete_index(
+            admin_token, l["name"], delete_operation=False
+        )
+    indexes = await GulpAPIDb.opensearch_list_index(admin_token)
+    assert not indexes
+
+    # reset whole admin and collab
+    await GulpAPIDb.reset_all_as_admin()
+
     # login users
     editor_token = await GulpAPIUser.login("editor", "editor")
     assert editor_token
@@ -88,20 +109,17 @@ async def test_operation_api():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
-    # delete new_operation if exists, so we start clean
-    new_operation_id = "new_operation"
-    try:
-        await GulpAPIOperation.operation_delete(admin_token, new_operation_id)
-    except Exception as e:
-        pass
-
+    # recreate test operation
+    await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+    await GulpAPIOperation.operation_create(admin_token, TEST_OPERATION_ID, set_default_grants=True)
+    
     # ingest some data
     from tests.ingest.test_ingest import test_csv_file_mapping
 
     await test_csv_file_mapping()
 
     # guest user cannot create operation
-    operation = await GulpAPIOperation.operation_create(
+    await GulpAPIOperation.operation_create(
         guest_token, TEST_OPERATION_ID, set_default_grants=True, expected_status=401
     )
 
@@ -147,9 +165,12 @@ async def test_operation_api():
     # list operations (ingest can see only one operation)
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert operations and len(operations) == 1
+    assert operations[0]["id"] == TEST_OPERATION_ID
 
     # admin can also see the new operation
     operations = await GulpAPIOperation.operation_list(admin_token)
+    for o in operations:
+        assert o["id"] in [TEST_OPERATION_ID, new_operation_id]
     assert operations and len(operations) == 2
 
     # allow ingest to see the new operation (ingest cannot do it)
@@ -169,11 +190,42 @@ async def test_operation_api():
         user_id="ingest",
     )
 
-    # operation filter by name
+    # guest can still see the test operation
     operations = await GulpAPIOperation.operation_list(
-        guest_token, GulpCollabFilter(names=["test_operation"])
+        guest_token, GulpCollabFilter(names=[TEST_OPERATION_ID])
     )
     assert operations and len(operations) == 1 and operations[0]["id"] == updated["id"]
+
+    # ingest can also see the new operation
+    operations = await GulpAPIOperation.operation_list(ingest_token)
+    for o in operations:
+        assert o["id"] in [TEST_OPERATION_ID, new_operation_id]
+    assert operations and len(operations) == 2
+
+    # now no more
+    await GulpAPIObjectACL.object_remove_granted_user(
+        token=ingest_token,
+        object_id=new_operation_id,
+        object_type=GulpCollabType.OPERATION,
+        user_id="ingest",
+        expected_status=401,
+    )
+    await GulpAPIObjectACL.object_remove_granted_user(
+        token=admin_token,
+        object_id=new_operation_id,
+        object_type=GulpCollabType.OPERATION,
+        user_id="ingest",
+    )
+    operations = await GulpAPIOperation.operation_list(ingest_token)
+    assert operations and len(operations) == 1
+
+    # add ingest to administrators group
+    await GulpAPIUserGroup.usergroup_add_user(admin_token, "ingest", "administrators")
+
+    # now ingest can see the new operation again
+
+    operations = await GulpAPIOperation.operation_list(ingest_token)
+    assert operations and len(operations) == 2
 
     # list contexts
     contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
@@ -221,6 +273,7 @@ async def test_operation_api():
     # ingest can still see new operation
     assert len(operations) == 1
 
+    # also delete the new operation
     await GulpAPIOperation.operation_delete(ingest_token, new_operation_id)
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert len(operations) == 0

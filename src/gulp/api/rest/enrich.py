@@ -48,13 +48,14 @@ async def _tag_documents_internal(
         """
 
         # build documents list
+        tags = kwargs["tags"]
+        last = kwargs.get("last", False)
+        flt = kwargs["flt"]
+
         MutyLogger.get_instance().debug(
             "---> _tagging chunk of %d documents with tags=%s, kwargs=%s ..."
             % (len(docs), tags, kwargs)
         )
-        tags = kwargs["tags"]
-        last = kwargs.get("last", False)
-        flt = kwargs["flt"]
 
         # add tags to documents
         [d.update({"gulp.tags": tags}) for d in docs]
@@ -83,6 +84,7 @@ async def _tag_documents_internal(
                 # update source -> fields mappings on the collab db
                 await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
                     index,
+                    user_id,
                     operation_ids=flt.operation_ids,
                     context_ids=flt.context_ids,
                     source_ids=flt.source_ids,
@@ -142,6 +144,7 @@ async def _enrich_documents_internal(
     req_id: str,
     ws_id: str,
     flt: GulpQueryFilter,
+    operation_id: str,
     index: str,
     plugin: str,
     plugin_params: GulpPluginParameters,
@@ -165,6 +168,7 @@ async def _enrich_documents_internal(
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=ws_id,
+                operation_id=operation_id,
                 index=index,
                 flt=flt,
                 plugin_params=plugin_params,
@@ -181,7 +185,7 @@ async def _enrich_documents_internal(
                 user_id=user_id,
                 hits=total,
                 ws_queue_datatype=GulpWsQueueDataType.ENRICH_DONE,
-                errors=[error],
+                errors=[error] if error else [],
             )
 
             # done
@@ -192,6 +196,7 @@ async def _enrich_documents_internal(
                 # update source -> fields mappings on the collab db
                 await GulpOpenSearch.get_instance().datastream_update_mapping_by_operation(
                     index,
+                    user_id,
                     operation_ids=flt.operation_ids,
                     context_ids=flt.context_ids,
                     source_ids=flt.source_ids,
@@ -276,6 +281,7 @@ async def enrich_documents_handler(
             req_id=req_id,
             ws_id=ws_id,
             flt=flt,
+            operation_id=operation_id,
             index=index,
             plugin=plugin,
             plugin_params=plugin_params,
@@ -356,7 +362,9 @@ async def enrich_single_id_handler(
             mod = await GulpPluginBase.load(plugin)
 
             # query document
-            doc = await mod.enrich_single_document(sess, doc_id, index, plugin_params)
+            doc = await mod.enrich_single_document(
+                sess, doc_id, operation_id, index, plugin_params
+            )
 
             # rebuild mapping
             await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(

@@ -92,6 +92,15 @@ async def test_db_api():
     ingest_token = await GulpAPIUser.login("admin", "admin")
     assert ingest_token
 
+    # clear indexes
+    indexes = await GulpAPIDb.opensearch_list_index(admin_token)
+    for l in indexes:
+        await GulpAPIDb.opensearch_delete_index(admin_token, l["name"])
+
+    # recreate operation
+    await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+    await GulpAPIOperation.operation_create(admin_token, TEST_OPERATION_ID, set_default_grants=True)
+
     # ingest some data
     await test_win_evtx()
 
@@ -143,16 +152,22 @@ async def test_db_api():
     # list indexes (should be 2)
     indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     assert len(indexes) == 2
+    for i in indexes:
+        # there should be an indexes with doc_count=1 (the new index)
+        assert i["name"] in [TEST_OPERATION_ID, new_index]
+        if i["name"] == new_index:
+            assert i["doc_count"] == 1
 
-    # delete the new index
+    # delete the new index (this will also delete the operation test_operation)
     await GulpAPIDb.opensearch_delete_index(ingest_token, new_index)
 
-    # verify deleted
+    # only the original stale index should be left
     indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     assert len(indexes) == 1
+    assert indexes[0]["name"] == TEST_OPERATION_ID
+    assert indexes[0]["doc_count"] == 7
 
-    # delete the default operation
-    res = await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
-    assert res["id"] == TEST_OPERATION_ID
+    # delete the old stale index (test_operation)
+    await GulpAPIDb.opensearch_delete_index(admin_token, TEST_OPERATION_ID)
 
     MutyLogger.get_instance().info(test_db_api.__name__ + " passed")

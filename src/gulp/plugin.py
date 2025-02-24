@@ -1459,7 +1459,7 @@ class GulpPluginBase(ABC):
                         % (k)
                     )
                 v = self._plugin_params.custom_parameters.get(k)
-                if v == None and p.default_value != None:
+                if v is None and p.default_value is not None:
                     # use default value if any
                     v = p.default_value
                     self._plugin_params.custom_parameters[k] = v
