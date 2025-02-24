@@ -47,38 +47,6 @@ async def _setup():
     await _test_init()
 
 
-# @pytest.mark.asyncio
-# async def test_csv_standalone_and_query_operations():
-#     current_dir = os.path.dirname(os.path.realpath(__file__))
-#     files = [os.path.join(current_dir, "../../samples/mftecmd/sample_record.csv")]
-#     plugin_params = GulpPluginParameters(
-#         mappings={
-#             "test_mapping": GulpMapping(
-#                 fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
-#             )
-#         }
-#     )
-#     await _test_ingest_generic(files, "csv", 10, plugin_params=plugin_params)
-
-#     # test query operations
-#     guest_token = await GulpAPIUser.login("guest", "guest")
-#     assert guest_token
-#     ops = await GulpAPIQuery.query_operations(guest_token, TEST_INDEX)
-#     assert ops[0]["contexts"][0]["plugins"][0]["name"] == "csv"
-#     assert (
-#         ops[0]["contexts"][0]["plugins"][0]["sources"][0]["min_gulp.timestamp"]
-#         == 1258480498794248960
-#     )
-
-#     # test query max-min timestamp
-#     data = await GulpAPIQuery.query_max_min_per_field(guest_token, TEST_INDEX)
-#     assert data["buckets"][0]["*"]["doc_count"] == 10
-#     assert data["buckets"][0]["*"]["min_gulp.timestamp"] == 1258480498794248960
-
-
-#     # TODO: check documents (all documents duration set to 9999 and enriched=True set)
-
-
 @pytest.mark.asyncio
 @pytest.mark.run(order=1)
 async def test_ingest_account():

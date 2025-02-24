@@ -24,6 +24,12 @@ python3 -m pytest -v -x -s $_TESTS_DIR/test_operation.py
 if [ $? -ne 0 ]; then
     exit 1
 fi
+
+python3 -m pytest -v -x -s $_TESTS_DIR/test_note.py
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+
 if [ ! -z $PATH_PAID_PLUGINS ]; then
     # paid plugins tests
     echo ". Running paid plugins tests from $PATH_PAID_PLUGINS ..."
