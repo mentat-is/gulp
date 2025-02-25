@@ -73,7 +73,7 @@ def main():
     )
     parser.add_argument(
         "--reset-collab-full",
-        help="same as --reset-collab but also delete operations data on OpenSearch.",
+        help="same as --reset-collab, but perform a full database reset and also delete operations data on OpenSearch.",
         action="store_const",
         const=True,
         default=False,

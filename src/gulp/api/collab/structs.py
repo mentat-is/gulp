@@ -199,6 +199,7 @@ filter by the given document ID/s in a `CollabObject.docs` list of `GulpBasicDoc
 if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObject.docs`, inclusive, in nanoseconds from unix epoch.
 
 - cannot be used with `time_pin_range` or `doc_ids`.
+- works with Notes, does not work with Links
 """,
     )
     limit: Optional[int] = Field(

@@ -12,7 +12,7 @@ class GulpAPILink:
         token: str,
         operation_id: str,
         doc_id_from: str,
-        doc_ids: list,
+        doc_ids: list[str],
         name: str = None,
         tags: list[str] = None,
         glyph_id: str = None,
