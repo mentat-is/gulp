@@ -12,6 +12,7 @@ from gulp.api.collab.stored_query import GulpStoredQuery
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
 
@@ -61,6 +62,10 @@ async def stored_query_create_handler(
     ] = None,
     plugin: Annotated[str, Query(
         description="If `q` is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion.")] = None,
+    plugin_params: Annotated[
+        Optional[GulpPluginParameters],
+        Body(description="if set, a dictionary of parameters to be passed to the plugin."),
+    ] = None,
     tags: Annotated[list[str], Depends(
         APIDependencies.param_tags_optional)] = None,
     description: Annotated[
@@ -73,6 +78,7 @@ async def stored_query_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True) if plugin_params else None
     ServerUtils.dump_params(params)
     try:
         object_data = {
@@ -80,6 +86,7 @@ async def stored_query_create_handler(
             "q": q,
             "q_groups": q_groups,
             "plugin": plugin,
+            "plugin_params": plugin_params.model_dump(exclude_none=True) if plugin_params else None,
             "tags": tags,
             "description": description,
             "glyph_id": glyph_id,
@@ -136,6 +143,10 @@ async def stored_query_update_handler(
     ] = None,
     plugin: Annotated[str, Query(
         description="If `q` is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion.")] = None,
+    plugin_params: Annotated[
+        Optional[GulpPluginParameters],
+        Body(description="if set, a dictionary of parameters to be passed to the plugin."),
+    ] = None,
     tags: Annotated[list[str], Depends(
         APIDependencies.param_tags_optional)] = None,
     description: Annotated[
@@ -146,6 +157,7 @@ async def stored_query_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True) if plugin_params else None
     ServerUtils.dump_params(params)
     try:
         if not any([q, q_groups, tags, description, glyph_id, plugin]):
@@ -167,6 +179,9 @@ async def stored_query_update_handler(
             d["glyph_id"] = glyph_id
         if plugin:
             d["plugin"] = plugin
+        if plugin_params:
+            d["plugin_params"] = plugin_params.model_dump(
+                exclude_none=True)
         d = await GulpStoredQuery.update_by_id(
             token,
             object_id,

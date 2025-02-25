@@ -14,6 +14,7 @@ class GulpAPIStoredQuery:
         q: str,
         q_groups: list[str] = None,
         plugin: str = None,
+        plugin_params: dict = None,
         tags: list[str] = None,
         description: str = None,
         glyph_id: str = None,
@@ -37,6 +38,7 @@ class GulpAPIStoredQuery:
             "q_groups": q_groups,
             "tags": tags,
             "description": description,
+            "plugin_params": plugin_params,
         }
 
         res = await api_common.make_request(
@@ -54,9 +56,10 @@ class GulpAPIStoredQuery:
         token: str,
         object_id: str,
         name: str = None,
-        q: list[str] = None,
+        q: str = None,
         q_groups: list[str] = None,
         plugin: str = None,
+        plugin_params: dict = None,
         tags: list[str] = None,
         description: str = None,
         glyph_id: str = None,
@@ -77,6 +80,7 @@ class GulpAPIStoredQuery:
             "q": q,
             "q_groups": q_groups,
             "tags": tags,
+            "plugin_params": plugin_params,
             "description": description,
         }
 

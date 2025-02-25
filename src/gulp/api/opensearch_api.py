@@ -21,11 +21,18 @@ from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
 from gulp.api.collab_api import GulpCollab
-from gulp.api.opensearch.filters import (GulpDocumentFilterResult,
-                                         GulpIngestionFilter, GulpQueryFilter)
-from gulp.api.ws_api import (GulpDocumentsChunkPacket, GulpQueryDonePacket,
-                             GulpSourceFieldsChunkPacket, GulpWsQueueDataType,
-                             GulpWsSharedQueue)
+from gulp.api.opensearch.filters import (
+    GulpDocumentFilterResult,
+    GulpIngestionFilter,
+    GulpQueryFilter,
+)
+from gulp.api.ws_api import (
+    GulpDocumentsChunkPacket,
+    GulpQueryDonePacket,
+    GulpSourceFieldsChunkPacket,
+    GulpWsQueueDataType,
+    GulpWsSharedQueue,
+)
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
@@ -747,7 +754,9 @@ class GulpOpenSearch:
                 raise ObjectNotFound("datastream %s does not exist" % (ds))
 
             res = await self._opensearch.indices.delete_data_stream(ds, headers=headers)
-            MutyLogger.get_instance().debug('deleting datastream "%s", res=%s' % (ds, res))
+            MutyLogger.get_instance().debug(
+                'deleting datastream "%s", res=%s' % (ds, res)
+            )
         finally:
             # also (try to) delete the corresponding template
             try:
@@ -1861,6 +1870,8 @@ class GulpOpenSearch:
                 if processed >= total_hits or not q_options.loop:
                     # this is the last chunk
                     last = True
+
+                # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d" % (len(docs), total_hits))
 
                 check_canceled_count += 1
                 if check_canceled_count >= 10:
