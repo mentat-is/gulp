@@ -13,6 +13,7 @@ from typing_extensions import Match
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -177,6 +178,9 @@ class Plugin(GulpPluginBase):
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
                             await self._source_failed(ex)
+                        except PreviewDone:
+                            # preview done, stop processing
+                            pass
                     else:
                         # no match
                         MutyLogger.get_instance().warning(

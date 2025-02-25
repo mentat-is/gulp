@@ -1,21 +1,18 @@
-from typing import Any, override
+import datetime
+import re
+from typing import override
+
+import dateutil
 import muty.os
 import muty.string
-import muty.xml
 import muty.time
-import re
-import json
-import dateutil, datetime
-
-from gulp.config import GulpConfig
-from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping
-from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
+import muty.xml
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.opensearch.filters import GulpIngestionFilter
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
@@ -38,18 +35,18 @@ class Plugin(GulpPluginBase):
     def depends_on(self) -> list[str]:
         return ["regex"]
 
-    def _extra_parse(self, record:dict) -> dict:
+    def _extra_parse(self, record: dict) -> dict:
         process = record.get("gulp.unmapped.process", "").lower()
-        #sshd logs should be treated differently as we can attempt to extract ip information
+        # sshd logs should be treated differently as we can attempt to extract ip information
         if process == "sshd":
             info = record.get("gulp.unmapped.info", "")
 
-            #TODO: something like this? 
+            # TODO: something like this?
             # r"^Connection from (?<ip_src>([0-9]+.)+) port (?<src_port>([0-9]+)) on (?<ip_dst>([0-9]+.)+) port (?<dst_port>([0-9]+)).*$"
             # need to verify the format is always the same no matter the version of ssh (also case and separators)
-            #TODO: also detect failed logins and mark them as such?
+            # TODO: also detect failed logins and mark them as such?
             sshd_regex = r"^Connection from (?P<ip_src>([0-9]+.)+) port (?P<src_port>([0-9]+)) on (?P<ip_dst>([0-9]+.)+) port (?P<dst_port>([0-9]+)).*$"
-            
+
             matches = re.match(sshd_regex, info)
             if matches:
                 groups = matches.groupdict()
@@ -57,27 +54,29 @@ class Plugin(GulpPluginBase):
                 record["source.port"] = groups.get("port_src")
                 record["destination.ip"] = groups.get("ip_dst")
                 record["destination.port"] = groups.get("port_dst")
-        
+
         return record
 
     @override
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> dict:
-        #ts = muty.time.string_to_nanos_from_unix_epoch(record["gulp.unmapped.timestamp"])
+        # ts = muty.time.string_to_nanos_from_unix_epoch(record["gulp.unmapped.timestamp"])
         timestamp = dateutil.parser.parse(record.get("gulp.unmapped.timestamp"))
-        record["agent.type"] = self.display_name() #override agent.type
-        record["@timestamp"] = timestamp.astimezone(tz=datetime.timezone.utc).isoformat()
+        record["agent.type"] = self.display_name()  # override agent.type
+        record["@timestamp"] = timestamp.astimezone(
+            tz=datetime.timezone.utc
+        ).isoformat()
 
         ts = muty.time.datetime_to_nanos_from_unix_epoch(timestamp)
         record["gulp.timestamp"] = ts
-        
+
         del record["gulp.unmapped.timestamp"]
-        #record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
+        # record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
 
         # parse known message types (e.g. sshd)
         record = self._extra_parse(record)
-        
+
         return record
 
     async def ingest_file(
@@ -104,15 +103,17 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
             return GulpRequestStatus.FAILED
 
-        regex = r"".join([r"^(?P<timestamp>.+?)\s",
-                r"(?P<hostname>\S+)\s"
+        regex = r"".join(
+            [
+                r"^(?P<timestamp>.+?)\s",
+                r"(?P<hostname>\S+)\s",
                 r"(?P<process>.+?(?=\[)|.+?(?=))[^a-zA-Z0-9]",
-                r"(?P<pid>\d{1,7}|)[^a-zA-Z0-9]{1,3}(?P<info>.*)$"
+                r"(?P<pid>\d{1,7}|)[^a-zA-Z0-9]{1,3}(?P<info>.*)$",
             ]
         )
 
         plugin_params.model_extra["regex"] = regex
-    
+
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         res = await lower.ingest_file(
             sess=sess,
@@ -131,5 +132,3 @@ class Plugin(GulpPluginBase):
         )
         await lower.unload()
         return res
-
-

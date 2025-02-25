@@ -1,17 +1,20 @@
-import datetime, dateutil
+import datetime
 import os
 import re
 from typing import Any, override
 from urllib.parse import parse_qs, urlparse
 
 import aiofiles
+import dateutil
 import muty.string
 import muty.time
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -20,6 +23,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+
 
 class Plugin(GulpPluginBase):
     """
@@ -46,11 +50,13 @@ class Plugin(GulpPluginBase):
         regex = kwargs.get("regex")
         event: dict = regex.match(record).groupdict()
 
-        d={}
+        d = {}
         # map timestamp manually
         time_str = " ".join([event.get("date"), event.get("time")])
-        d["@timestamp"] = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").isoformat()
-        
+        d["@timestamp"] = datetime.datetime.strptime(
+            time_str, "%Y-%m-%d %H:%M:%S"
+        ).isoformat()
+
         # map
         for k, v in event.items():
             mapped = self._process_key(k, v)
@@ -109,8 +115,12 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        lookahead_regex = re.compile(r"^(?P<date>[^ ]+)\s(?P<time>[^ ]+)\s(?P<thread>[^ ]+)\s\[(?P<log_level>[^\]]+)\]\s(?P<message>.*)$")
-        regex = re.compile(r"^(?P<date>[^ ]+)\s(?P<time>[^ ]+)\s(?P<thread>[^ ]+)\s\[(?P<log_level>[^\]]+)\]\s(?P<message>(.|\n)+)")
+        lookahead_regex = re.compile(
+            r"^(?P<date>[^ ]+)\s(?P<time>[^ ]+)\s(?P<thread>[^ ]+)\s\[(?P<log_level>[^\]]+)\]\s(?P<message>.*)$"
+        )
+        regex = re.compile(
+            r"^(?P<date>[^ ]+)\s(?P<time>[^ ]+)\s(?P<thread>[^ ]+)\s\[(?P<log_level>[^\]]+)\]\s(?P<message>(.|\n)+)"
+        )
         doc_idx = 0
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
@@ -120,23 +130,35 @@ class Plugin(GulpPluginBase):
                     if match:
                         if current_rec:
                             try:
-                                await self.process_record(current_rec, doc_idx, flt=flt, regex=regex)
+                                await self.process_record(
+                                    current_rec, doc_idx, flt=flt, regex=regex
+                                )
                                 doc_idx += 1
                             except (RequestCanceledError, SourceCanceledError) as ex:
                                 MutyLogger.get_instance().exception(ex)
                                 await self._source_failed(ex)
                                 break
+                            except PreviewDone:
+                                # preview done, stop processing
+                                pass
+
                         current_rec = line
                     elif current_rec:
                         current_rec += line
-                    
+
                 if current_rec:
                     try:
-                        doc_idx+=1
-                        await self.process_record(current_rec, doc_idx, flt=flt, regex=regex)
+                        doc_idx += 1
+                        await self.process_record(
+                            current_rec, doc_idx, flt=flt, regex=regex
+                        )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
+                    except PreviewDone:
+                        # preview done, stop processing
+                        pass
+
         except Exception as ex:
             await self._source_failed(ex)
         finally:

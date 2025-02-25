@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -185,7 +186,6 @@ class Plugin(GulpPluginBase):
 
         doc_idx = 0
         try:
-            d = {}
             with pefile.PE(file_path) as pe:
                 try:
                     await self.process_record(
@@ -194,11 +194,11 @@ class Plugin(GulpPluginBase):
                         include_relocations=relos,
                         entropy_checks=entropy_check
                     )
-                except (RequestCanceledError, SourceCanceledError) as expand_lists:
+                except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)
-
-                doc_idx += 1
+                except PreviewDone:
+                    pass
         except Exception as ex:
             await self._source_failed(ex)
         finally:

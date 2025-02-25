@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -207,6 +208,8 @@ class Plugin(GulpPluginBase):
                     except (RequestCanceledError, SourceCanceledError) as expand_lists:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
+                    except PreviewDone:
+                        pass
 
                     doc_idx += 1
         except Exception as ex:

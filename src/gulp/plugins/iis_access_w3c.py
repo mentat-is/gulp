@@ -1,17 +1,15 @@
-import datetime, dateutil
+import datetime
 import os
-import re
 from typing import Any, override
-from urllib.parse import parse_qs, urlparse
 
 import aiofiles
-import muty.string
 import muty.time
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -47,7 +45,7 @@ class Plugin(GulpPluginBase):
         fields = metadata.get("fields", [])
 
         event: dict = {}
-        
+
         record_split = record.split()
         i=0
         for r in record_split:
@@ -137,8 +135,8 @@ class Plugin(GulpPluginBase):
                         elif k == "date":
                             metadata[k] = "".join(l[1:]).lstrip()
                         elif k == "fields":
-                            metadata[k] = "".join(l[1:]).lstrip().split()                    
-                        continue 
+                            metadata[k] = "".join(l[1:]).lstrip().split()
+                        continue
 
                     try:
                         await self.process_record(l, doc_idx, flt=flt, metadata=metadata)
@@ -146,6 +144,9 @@ class Plugin(GulpPluginBase):
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
                         break
+                    except PreviewDone:
+                        # preview done, stop processing
+                        pass
                     doc_idx += 1
 
         except Exception as ex:

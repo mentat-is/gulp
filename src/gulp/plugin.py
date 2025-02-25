@@ -30,6 +30,7 @@ from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -1440,6 +1441,10 @@ class GulpPluginBase(ABC):
                 self._records_processed_per_chunk = 0
                 self._records_failed_per_chunk = 0
 
+        if self._preview_mode and self._records_processed_per_chunk > 10:
+            # preview mode, stop after 10 records
+            raise PreviewDone("preview, stopping after 10 records")
+
     async def _initialize(self, plugin_params: GulpPluginParameters = None) -> None:
         """
         initialize mapping and plugin custom parameters
@@ -1841,7 +1846,7 @@ class GulpPluginBase(ABC):
             ingested = 0
             skipped = 0
 
-        if not self._stats and not self._ingestion_enabled:
+        if not self._stats and not self._ingestion_enabled and not self._preview_mode:
             # this also happens on query external
             self._sess = None
             return
@@ -1868,6 +1873,7 @@ class GulpPluginBase(ABC):
                     docs_skipped=self._tot_skipped_in_source,
                     docs_failed=self._tot_failed_in_source,
                     status=status,
+                    preview=self._preview_mode,
                 ),
             )
 

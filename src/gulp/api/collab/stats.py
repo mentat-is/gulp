@@ -30,7 +30,11 @@ class SourceCanceledError(Exception):
 
     pass
 
-
+class PreviewDone(Exception):
+    """
+    Raised when a preview is done on ingestion
+    """
+    
 class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
     """
     Represents the statistics for an ingestion operation.

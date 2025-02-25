@@ -1,18 +1,16 @@
 from typing import Any, override
+
 import muty.os
 import muty.string
-import muty.xml
 import muty.time
-
+import muty.xml
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
@@ -47,7 +45,7 @@ class Plugin(GulpPluginBase):
             record["connection.end_time"] = end_time
             record["event.duration"] = end_time - start_time
 
-        record["agent.type"] = self.display_name() #override agent.type
+        record["agent.type"] = self.display_name()  # override agent.type
         record["event.code"] = "teamviewer_connection"
         return record
 

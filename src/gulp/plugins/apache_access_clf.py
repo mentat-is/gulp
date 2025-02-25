@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -94,7 +95,7 @@ class Plugin(GulpPluginBase):
             if not pk:
                 null_param_key+=1
             pk = muty.elastic.normalize_elastic_fieldname(pk, null_field_prefix=f"null_param_key{null_param_key}")
-           
+
             k = "gulp.http.query.params.%s" % (pk)
             mapped = self._process_key(k, pv)
             d.update(mapped)
@@ -183,6 +184,10 @@ class Plugin(GulpPluginBase):
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
                         break
+                    except PreviewDone:
+                        # preview done, stop processing
+                        break
+
                     doc_idx += 1
 
         except Exception as ex:
