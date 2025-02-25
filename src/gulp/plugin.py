@@ -361,6 +361,9 @@ class GulpPluginBase(ABC):
         self._src_cache = {}
         self._operation: GulpOperation = None
 
+        # in preview mode, ingestion and stats are disabled
+        self._preview_mode = False
+
     @abstractmethod
     def display_name(self) -> str:
         """
@@ -1016,10 +1019,14 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
+        if context_id == "preview" and source_id == "preview" and not stats:
+            # preview mode
+            self._preview_mode = True
+            self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
             f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
-                plugin_params={plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+                plugin_params={plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}, preview_mode={self._preview_mode}"
         )
 
         # initialize
@@ -1357,6 +1364,9 @@ class GulpPluginBase(ABC):
         if self._plugin_params.override_chunk_size:
             # using the provided chunk size instead
             ingestion_buffer_size = self._plugin_params.override_chunk_size
+        if self._preview_mode:
+            # preview mode, use a smaller chunk size
+            ingestion_buffer_size = 200
 
         self._extra_docs = []
 
@@ -1730,14 +1740,16 @@ class GulpPluginBase(ABC):
                         self._docs_buffer, **kwargs
                     )
             except Exception as ex:
+                # MutyLogger.get_instance().exception(ex)
                 pass
 
-        # then finally ingest the chunk
+        # then finally ingest the chunk, use all_fields_on_ws if external query or preview mode
+        all_fields_on_ws = self._external_query or self._preview_mode
         ingested, skipped = await self._ingest_chunk_and_or_send_to_ws(
             self._docs_buffer,
             flt,
             wait_for_refresh,
-            all_fields_on_ws=self._external_query,
+            all_fields_on_ws=all_fields_on_ws,
         )
 
         self._tot_failed_in_source += self._records_failed_per_chunk

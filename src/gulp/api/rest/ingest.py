@@ -196,6 +196,7 @@ async def _ingest_file_internal(
     file_path: str,
     file_total: int,
     payload: GulpIngestPayload,
+    preview_mode: bool = False,
 ) -> None:
     """
     runs in a worker process to ingest a single file
@@ -206,16 +207,22 @@ async def _ingest_file_internal(
         mod: GulpPluginBase = None
         status = GulpRequestStatus.DONE
 
-        stats: GulpRequestStats = await GulpRequestStats.create(
-            sess,
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            source_total=file_total,
-        )
+        if preview_mode:
+            stats: GulpRequestStats = None
+            MutyLogger.get_instance().warning(
+                "PREVIEW MODE, no stats is created on the collab database."
+            )
+        else:
+            stats: GulpRequestStats = await GulpRequestStats.create(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                source_total=file_total,
+            )
 
         try:
             # run plugin
@@ -237,23 +244,25 @@ async def _ingest_file_internal(
             )
         except Exception as ex:
             status = GulpRequestStatus.FAILED
-            d = dict(
-                source_failed=1,
-                status=status,
-                error=ex,
-            )
-            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
-        finally:
-            # create/update mappings on the collab db
-            try:
-                await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
-                    index=index,
-                    operation_id=operation_id,
-                    context_id=context_id,
-                    source_id=source_id,
+            if not preview_mode:
+                d = dict(
+                    source_failed=1,
+                    status=status,
+                    error=ex,
                 )
-            except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
+                await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
+        finally:
+            if not preview_mode:
+                # create/update mappings on the collab db
+                try:
+                    await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
+                        index=index,
+                        operation_id=operation_id,
+                        context_id=context_id,
+                        source_id=source_id,
+                    )
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(ex)
 
             # delete file
             await muty.file.delete_file_or_dir_async(file_path)
@@ -404,6 +413,13 @@ async def ingest_file_handler(
             example=1,
         ),
     ] = 1,
+    preview_mode: Annotated[
+        bool,
+        Query(
+            description="""in preview mode, generated documents with **full fields set** are streamed on the websocket BUT not saved to the index nor counted in the stats,
+and `context` is ignored. WARNING: in preview mode, websocket socket stats are not sent so the websocket connection must be closed manually with CTRL-C.""",
+        ),
+    ] = False,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id),
@@ -429,6 +445,8 @@ async def ingest_file_handler(
         # ensure payload is valid
         payload = GulpIngestPayload.model_validate(payload)
 
+        ctx_id: str = None
+        src_id: str = None
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
@@ -438,20 +456,29 @@ async def ingest_file_handler(
             index = operation.index
             user_id = s.user_id
 
-            # create (and associate) context and source on the collab db, if they do not exist
-            ctx: GulpContext
-            src: GulpSource
-            ctx, _ = await operation.add_context(
-                sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
-            )
+            if preview_mode:
+                MutyLogger.get_instance().warning(
+                    "PREVIEW MODE, no context and source are created on the collab database."
+                )
+                ctx_id = "preview"
+                src_id = "preview"
+            else:
+                ctx: GulpContext
+                src: GulpSource
+                # create (and associate) context and source on the collab db, if they do not exist
+                ctx, _ = await operation.add_context(
+                    sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
+                )
 
-            src, _ = await ctx.add_source(
-                sess,
-                user_id=user_id,
-                name=payload.original_file_path or os.path.basename(file_path),
-                ws_id=ws_id,
-                req_id=req_id,
-            )
+                src, _ = await ctx.add_source(
+                    sess,
+                    user_id=user_id,
+                    name=payload.original_file_path or os.path.basename(file_path),
+                    ws_id=ws_id,
+                    req_id=req_id,
+                )
+                ctx_id = ctx.id
+                src_id = src.id
 
         # run ingestion in a coroutine in one of the workers
         MutyLogger.get_instance().debug("spawning ingestion task ...")
@@ -460,13 +487,14 @@ async def ingest_file_handler(
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            context_id=ctx.id,
-            source_id=src.id,
+            context_id=ctx_id,
+            source_id=src_id,
             index=index,
             plugin=plugin,
             file_path=file_path,
             file_total=file_total,
             payload=payload,
+            preview_mode=preview_mode,
         )
         # print(json.dumps(kwds, indent=2))
 
