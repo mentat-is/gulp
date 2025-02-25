@@ -20,22 +20,12 @@ async def _setup():
 
 @pytest.mark.asyncio
 async def test_link():
-    """
-    test links and ACL
-    """
-
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
-
-    await test_win_evtx()
-    source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
     doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
     target_doc_ids = [
         "9d6f4d014b7dd9f5f65ce43f3c142749",
         "7090d29202d7cd8b57c30fa14202ac37",
     ]
 
-    # create note
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
     edit_token = await GulpAPIUser.login("editor", "editor")
