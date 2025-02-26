@@ -235,6 +235,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             ColumnElement[bool]: The OR query.
         """
         # print("column=%s, values=%s" % (column, values))
+        # check if values in values contains wildcards as *, if so, replace with % for SQL LIKE operator
+        values = [val.replace("*", "%") for val in values]
         conditions = [column.ilike(value) for value in values]
         return or_(*conditions)
 

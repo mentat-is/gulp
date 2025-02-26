@@ -15,7 +15,7 @@ class GulpAPIGlyph:
     @staticmethod
     async def glyph_create(
         token: str,
-        img: str,
+        img_path: str,
         name: str = None,
         private: bool = False,
         req_id: str = None,
@@ -23,8 +23,8 @@ class GulpAPIGlyph:
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
 
-        buffer = await muty.file.read_file_async(img)
-        files = {"img": (os.path.basename(img), BytesIO(buffer))}
+        buffer = await muty.file.read_file_async(img_path)
+        files = {"img": (os.path.basename(img_path), BytesIO(buffer))}
         params = {
             "name": name,
             "private": private,
@@ -45,16 +45,16 @@ class GulpAPIGlyph:
     async def glyph_update(
         token: str,
         object_id: str,
-        img: str = None,
+        img_path: str = None,
         name: str = None,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
 
-        if img:
-            buffer = await muty.file.read_file_async(img)
-            files = {"img": (os.path.basename(img), BytesIO(buffer))}
+        if img_path:
+            buffer = await muty.file.read_file_async(img_path)
+            files = {"img": (os.path.basename(img_path), BytesIO(buffer))}
         else:
             files = None
 

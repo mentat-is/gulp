@@ -1,0 +1,116 @@
+import pytest
+import pytest_asyncio
+from muty.log import MutyLogger
+
+from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.rest.client.common import _test_init
+from gulp.api.rest.client.glyph import GulpAPIGlyph
+from gulp.api.rest.client.object_acl import GulpAPIObjectACL
+from gulp.api.rest.client.user import GulpAPIUser
+from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    """
+    this is called before any test, to initialize the environment
+    """
+    await _test_init(recreate=True)
+
+
+@pytest.mark.asyncio
+async def test_glyph():
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+    edit_token = await GulpAPIUser.login("editor", "editor")
+    assert edit_token
+    # power user can delete glyphs, editor not
+    power_token = await GulpAPIUser.login("power", "power")
+    assert power_token
+
+    # delete all exysting glyph first
+    l = await GulpAPIGlyph.glyph_list(edit_token)
+    for glyph in l:
+        try:
+            await GulpAPIGlyph.glyph_delete(edit_token, glyph["id"], expected_status=401)
+            await GulpAPIGlyph.glyph_delete(power_token, glyph["id"])
+        except:
+            pass
+    l = await GulpAPIGlyph.glyph_list(edit_token)
+    assert not l
+
+    # guest cannot create
+    st = await GulpAPIGlyph.glyph_create(
+        guest_token,
+        img_path="./user.png",
+        name="user_test_glyph",
+        expected_status=401,
+    )
+
+    st = await GulpAPIGlyph.glyph_create(
+        edit_token,
+        img_path="./user.png",
+        name="user_test_glyph",
+    )
+    assert st
+    assert st["name"] == "user_test_glyph"
+
+    # name filter
+    l = await GulpAPIGlyph.glyph_list(
+        guest_token,
+        GulpCollabFilter(
+            names=["*ser_test_gly*"],
+        ),
+    )
+    assert len(l) == 1
+    assert l[0]["id"] == st["id"]
+
+    l = await GulpAPIGlyph.glyph_list(
+        guest_token,
+        GulpCollabFilter(names=["aaaaa*"]),
+    )
+    assert not l  # 0 len
+
+    # update
+    await GulpAPIGlyph.glyph_update(
+        edit_token, st["id"], img_path="./user.png", name="glyph"
+    )
+    st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st["id"])
+    assert st["name"] == "glyph"
+
+    # make glyph private
+    st_id = st["id"]
+    await GulpAPIObjectACL.object_make_private(
+        edit_token, st["id"], GulpCollabType.GLYPH
+    )
+    st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st["id"], expected_status=401)
+    l = await GulpAPIGlyph.glyph_list(
+        guest_token,
+        GulpCollabFilter(
+            names=["glyph"],
+        ),
+    )
+    assert not l
+
+    await GulpAPIObjectACL.object_make_public(edit_token, st_id, GulpCollabType.GLYPH)
+    st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st_id)
+    assert st
+    l = await GulpAPIGlyph.glyph_list(
+        guest_token,
+        GulpCollabFilter(
+            names=["glyph"],
+        ),
+    )
+    assert len(l) == 1
+
+    # delete
+    await GulpAPIGlyph.glyph_delete(power_token, st["id"])
+    l = await GulpAPIGlyph.glyph_list(
+        guest_token,
+        GulpCollabFilter(
+            operation_ids=[TEST_OPERATION_ID],
+        ),
+    )
+    assert not l
+
+    MutyLogger.get_instance().info(test_glyph.__name__ + " passed")
