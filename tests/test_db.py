@@ -105,7 +105,7 @@ async def test_db_api():
     await test_win_evtx()
 
     # get doc by id
-    target_id = "dffc5755d3dca4bf11660a599898023b"
+    target_id = "50edff98db7773ef04378ec20a47f622"
     d = await GulpAPIQuery.query_single_id(guest_token, TEST_OPERATION_ID, target_id)
     assert d["_id"] == target_id
     assert d["@timestamp"] == "2016-06-29T15:24:34.346000+00:00"

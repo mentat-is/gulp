@@ -1019,7 +1019,7 @@ class GulpOpenSearch:
         docs: list[dict],
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> tuple[int, int, list[dict]]:
+    ) -> tuple[int, int, list[dict], bool]:
         """
         ingests a list of GulpDocument into OpenSearch.
 
@@ -1035,6 +1035,7 @@ class GulpOpenSearch:
             - number of skipped (because already existing=duplicated) events
             - number of failed events
             - list of ingested documents
+            - wether the ingestion was successful after retrying
         """
 
         # filter documents first
@@ -1053,7 +1054,7 @@ class GulpOpenSearch:
         # MutyLogger.get_instance().error('ingesting %d documents (was %d before filtering)' % (len(docs) / 2, len_first))
         if len(bulk_docs) == 0:
             MutyLogger.get_instance().warning("no document to ingest (flt=%s)" % (flt))
-            return 0, 0, []
+            return 0, 0, [], False
 
         # MutyLogger.get_instance().info("ingesting %d docs: %s\n" % (len(bulk_docs) / 2, json.dumps(bulk_docs, indent=2)))
 
@@ -1073,6 +1074,7 @@ class GulpOpenSearch:
         # ingest using retry-logic
         max_retries = GulpConfig.get_instance().ingestion_retry_max()
         attempt: int = 0
+        success_after_retry: bool=False
         while attempt < max_retries:
             try:
                 res = await self._opensearch.bulk(
@@ -1084,8 +1086,12 @@ class GulpOpenSearch:
                     for item in res["items"]:
                         if item["create"]["status"] >= 500:
                             raise Exception(
-                                f"bulk ingestion failed with status {item['create']['status']}"
+                                f"bulk ingestion failed with status {item['create']['status']}: {item['create']['error']}"
                             )
+                else:
+                    if attempt > 0:
+                        # succeeded after retry, we will not count skipped/failed
+                        success_after_retry = True
                 break
             except Exception as ex:
                 if attempt < max_retries:
@@ -1113,6 +1119,7 @@ class GulpOpenSearch:
             failed = sum(
                 1 for r in res["items"] if r["create"]["status"] not in [201, 200, 409]
             )
+
             if failed > 0:
                 failed_items = [
                     item
@@ -1141,7 +1148,7 @@ class GulpOpenSearch:
             MutyLogger.get_instance().critical(
                 "failed is set, ingestion format needs to be fixed!"
             )
-        return skipped, failed, ingested
+        return skipped, failed, ingested, success_after_retry
 
     async def rebase(
         self,

@@ -464,11 +464,13 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
         if self._ingestion_enabled:
             # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
-            skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
-                self._ingest_index,
-                data,
-                flt=flt,
-                wait_for_refresh=wait_for_refresh,
+            skipped, ingestion_errors, ingested_docs, success_after_retry = (
+                await el.bulk_ingest(
+                    self._ingest_index,
+                    data,
+                    flt=flt,
+                    wait_for_refresh=wait_for_refresh,
+                )
             )
             # print(json.dumps(ingested_docs, indent=2))
             if ingestion_errors > 0:
@@ -542,6 +544,10 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().warning(
                 "_process_docs_chunk: request %s cancelled" % (self._req_id)
             )
+
+        if success_after_retry:
+            # do not count skipped
+            return len(ingested_docs) + skipped, 0
 
         return len(ingested_docs), skipped
 

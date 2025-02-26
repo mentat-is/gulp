@@ -1,14 +1,10 @@
 import os
-import pathlib
-import shutil
-import tempfile
 
 import muty.file
 import pytest
+import pytest_asyncio
 from muty.log import MutyLogger
-
-from gulp.api.collab.structs import MissingPermission
-from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.common import _test_init, GulpAPICommon
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.client.utility import GulpAPIUtility
@@ -16,17 +12,22 @@ from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_W
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 
-# NOTE:
-# this needs to be run with PATH_PLUGINS_EXTRA and PATH_MAPPING_FILES_EXTRA set, since it must be able to update/delete mapping files and plugins
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    """
+    this is called before any test, to initialize the environment
+    """
+    await _test_init()
 
 
 @pytest.mark.asyncio
-async def test():
+async def test_utility():
     async def _test_plugins():
         # reset first
         await GulpAPIDb.reset_collab_as_admin()
         if not os.environ.get("PATH_PLUGINS_EXTRA"):
             raise ValueError("PATH_PLUGINS_EXTRA not set")
+        MutyLogger.get_instance().info("PATH_PLUGINS_EXTRA: " + os.environ.get("PATH_PLUGINS_EXTRA"))
 
         # ensure clean
         test_plugin = "csv.py"
@@ -57,7 +58,7 @@ async def test():
         assert found
 
         # get and upload plugin to extra path
-        # (guest cannot download a plugin)
+        # (guest cannot upload a plugin)
         await GulpAPIUtility.plugin_get(guest_token, test_plugin, expected_status=401)
         p = await GulpAPIUtility.plugin_get(admin_token, test_plugin)
         assert p["path"] == os.path.join(
@@ -109,10 +110,9 @@ async def test():
         assert found
 
     async def _test_mapping_files():
-        # reset first
-        await GulpAPIDb.reset_collab_as_admin()
         if not os.environ.get("PATH_MAPPING_FILES_EXTRA"):
             raise ValueError("PATH_MAPPING_FILES_EXTRA not set")
+        MutyLogger.get_instance().info("PATH_MAPPING_FILES_EXTRA: " + os.environ.get("PATH_MAPPING_FILES_EXTRA"))
 
         # ensure clean
         test_mapping_file = "chrome_history.json"
@@ -202,9 +202,6 @@ async def test():
                 found = True
         assert found
 
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
@@ -212,10 +209,16 @@ async def test():
     v = await GulpAPIUtility.version(guest_token)
     assert v
 
+    # check env
+    os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.abspath("../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files")
+    os.environ["PATH_PLUGINS_EXTRA"] = os.path.abspath("../../gulp-paid-plugins/src/gulp-paid-plugins/plugins")
+    assert os.path.exists(os.environ["PATH_MAPPING_FILES_EXTRA"])
+    assert os.path.exists(os.environ["PATH_PLUGINS_EXTRA"])
+
     # test mapping files api
     await _test_mapping_files()
 
     # test plugin api
     await _test_plugins()
 
-    MutyLogger.get_instance().info("all tests succeeded!")
+    MutyLogger.get_instance().info(test_utility.__name__ + " passed")

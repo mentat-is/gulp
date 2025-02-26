@@ -5,8 +5,8 @@ import os
 from typing import Any
 
 import requests
-from muty.log import MutyLogger
 import websockets
+from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.opensearch.filters import GulpIngestionFilter
@@ -22,20 +22,34 @@ from gulp.api.ws_api import GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
 
 
-async def _test_init(login_admin_and_reset_operation: bool = True, recreate: bool=False) -> None:
+async def _test_init(
+    login_admin_and_reset_operation: bool = True,
+    recreate: bool = False,
+    reset_collab: bool = False,
+) -> None:
     """
     initialize the environment, automatically called before each test by the _setup() fixture
 
     :param login_admin_and_reset_operation: if True, login as admin and reset the operation
     :param recreate: if True, recreate the operation
+    :param reset_collab: if True, reset the collab db
     """
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
     from gulp.api.rest.client.user import GulpAPIUser
+    from gulp.api.rest.client.db import GulpAPIDb
+
+    if reset_collab:
+        # reset the collab
+        admin_token = await GulpAPIUser.login("admin", "admin")
+        assert admin_token
+        await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=True)
 
     if login_admin_and_reset_operation:
-        await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID, recreate=recreate)
+        await GulpAPIUser.login_admin_and_reset_operation(
+            TEST_OPERATION_ID, recreate=recreate
+        )
 
 
 def _process_file_in_worker_process(
@@ -59,11 +73,13 @@ def _process_file_in_worker_process(
         )
         MutyLogger.get_instance().info(f"processing file: {file_path}")
         from gulp.api.rest.client.user import GulpAPIUser
+
         ingest_token = await GulpAPIUser.login("ingest", "ingest")
         assert ingest_token
 
         # ingest the file
         from gulp.api.rest.client.ingest import GulpAPIIngest
+
         await GulpAPIIngest.ingest_file(
             ingest_token,
             file_path=file_path,

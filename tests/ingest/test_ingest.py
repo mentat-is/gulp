@@ -44,7 +44,7 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _test_init()
+    await _test_init(recreate=True)
 
 
 @pytest.mark.asyncio

@@ -320,48 +320,35 @@ async def test_queries():
     async def _test_query_single_id(token: str):
         """
         {
-            "@timestamp": "2016-06-29T15:24:36.717200+00:00",
-            "gulp.timestamp": 1467213876717200128,
+            "@timestamp": "2016-06-29T15:24:36.686000+00:00",
+            "gulp.timestamp": 1467213876686000128,
             "gulp.operation_id": "test_operation",
             "gulp.context_id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
             "gulp.source_id": "64e7c3a4013ae243aa13151b5449aac884e36081",
             "log.file.path": "/Users/valerino/repos/gulp/tests/ingest/../../samples/win_evtx/Security_short_selected.evtx",
             "agent.type": "win_evtx",
-            "event.original": "{\n  \"Event\": {\n    \"#attributes\": {\n      \"xmlns\": \"http://schemas.microsoft.com/win/2004/08/events/event\"\n    },\n    \"System\": {\n      \"Provider\": {\n        \"#attributes\": {\n          \"Name\": \"Microsoft-Windows-Security-Auditing\",\n          \"Guid\": \"54849625-5478-4994-A5BA-3E3B0328C30D\"\n        }\n      },\n      \"EventID\": 4625,\n      \"Version\": 0,\n      \"Level\": 0,\n      \"Task\": 12544,\n      \"Opcode\": 0,\n      \"Keywords\": \"0x8010000000000000\",\n      \"TimeCreated\": {\n        \"#attributes\": {\n          \"SystemTime\": \"2016-06-29T15:24:36.686000Z\"\n        }\n      },\n      \"EventRecordID\": 319457832,\n      \"Correlation\": null,\n      \"Execution\": {\n        \"#attributes\": {\n          \"ProcessID\": 768,\n          \"ThreadID\": 2764\n        }\n      },\n      \"Channel\": \"Security\",\n      \"Computer\": \"temporal\",\n      \"Security\": null\n    },\n    \"EventData\": {\n      \"SubjectUserSid\": \"S-1-5-18\",\n      \"SubjectUserName\": \"TEMPORAL$\",\n      \"SubjectDomainName\": \"WORKGROUP\",\n      \"SubjectLogonId\": \"0x3e7\",\n      \"TargetUserSid\": \"S-1-0-0\",\n      \"TargetUserName\": \"Administrator\",\n      \"TargetDomainName\": \"TEMPORAL\",\n      \"Status\": \"0xc000006d\",\n      \"FailureReason\": \"%%2313\",\n      \"SubStatus\": \"0xc000006a\",\n      \"LogonType\": 10,\n      \"LogonProcessName\": \"User32 \",\n      \"AuthenticationPackageName\": \"Negotiate\",\n      \"WorkstationName\": \"TEMPORAL\",\n      \"TransmittedServices\": \"-\",\n      \"LmPackageName\": \"-\",\n      \"KeyLength\": 0,\n      \"ProcessId\": \"0xc38\",\n      \"ProcessName\": \"C:\\\\Windows\\\\System32\\\\winlogon.exe\",\n      \"IpAddress\": \"23.94.153.202\",\n      \"IpPort\": \"60167\"\n    }\n  }\n}",
-            "event.sequence": 4,
-            "event.code": "4625",
-            "gulp.event_code": 4625,
+            "event.original": "{\n  \"Event\": {\n    \"#attributes\": {\n      \"xmlns\": \"http://schemas.microsoft.com/win/2004/08/events/event\"\n    },\n    \"System\": {\n      \"Provider\": {\n        \"#attributes\": {\n          \"Name\": \"Microsoft-Windows-Security-Auditing\",\n          \"Guid\": \"54849625-5478-4994-A5BA-3E3B0328C30D\"\n        }\n      },\n      \"EventID\": 4611,\n      \"Version\": 0,\n      \"Level\": 0,\n      \"Task\": 12289,\n      \"Opcode\": 0,\n      \"Keywords\": \"0x8020000000000000\",\n      \"TimeCreated\": {\n        \"#attributes\": {\n          \"SystemTime\": \"2016-06-29T15:24:36.686000Z\"\n        }\n      },\n      \"EventRecordID\": 319457830,\n      \"Correlation\": null,\n      \"Execution\": {\n        \"#attributes\": {\n          \"ProcessID\": 768,\n          \"ThreadID\": 2764\n        }\n      },\n      \"Channel\": \"Security\",\n      \"Computer\": \"temporal\",\n      \"Security\": null\n    },\n    \"EventData\": {\n      \"SubjectUserSid\": \"S-1-5-18\",\n      \"SubjectUserName\": \"TEMPORAL$\",\n      \"SubjectDomainName\": \"WORKGROUP\",\n      \"SubjectLogonId\": \"0x3e7\",\n      \"LogonProcessName\": \"Winlogon\"\n    }\n  }\n}",
+            "event.sequence": 1,
+            "event.code": "4611",
+            "gulp.event_code": 4611,
             "event.duration": 1,
             "gulp.unmapped.Guid": "54849625-5478-4994-A5BA-3E3B0328C30D",
-            "gulp.unmapped.Task": 12544,
-            "gulp.unmapped.Keywords": "0x8010000000000000",
+            "gulp.unmapped.Task": 12289,
+            "gulp.unmapped.Keywords": "0x8020000000000000",
             "gulp.unmapped.SystemTime": "2016-06-29T15:24:36.686000Z",
-            "winlog.record_id": "319457832",
-            "process.pid": 3128,
+            "winlog.record_id": "319457830",
+            "process.pid": 768,
             "process.thread.id": 2764,
             "winlog.channel": "Security",
             "winlog.computer_name": "temporal",
             "user.id": "S-1-5-18",
             "user.name": "TEMPORAL$",
-            "user.domain": "TEMPORAL",
+            "user.domain": "WORKGROUP",
             "winlog.logon.id": "0x3e7",
-            "gulp.unmapped.TargetUserSid": "S-1-0-0",
-            "gulp.unmapped.TargetUserName": "Administrator",
-            "gulp.unmapped.Status": "0xc000006d",
-            "gulp.unmapped.FailureReason": "%%2313",
-            "gulp.unmapped.SubStatus": "0xc000006a",
-            "gulp.unmapped.LogonType": 10,
-            "gulp.unmapped.LogonProcessName": "User32 ",
-            "gulp.unmapped.AuthenticationPackageName": "Negotiate",
-            "source.domain": "TEMPORAL",
-            "gulp.unmapped.TransmittedServices": "-",
-            "gulp.unmapped.LmPackageName": "-",
-            "process.executable": "C:\\Windows\\System32\\winlogon.exe",
-            "source.ip": "23.94.153.202",
-            "source.port": 60167
+            "gulp.unmapped.LogonProcessName": "Winlogon"
         }
         """
-        target_id = "7f85775e0dfb388104693e3b938f0ef3"
+        target_id = "172511ceb3c6c0ef9f6cbf1a10fcffc3"
         d = await GulpAPIQuery.query_single_id(token, TEST_OPERATION_ID, target_id)
         assert d["_id"] == target_id
         MutyLogger.get_instance().info(_test_query_single_id.__name__ + " succeeded!")
@@ -382,7 +369,7 @@ async def test_queries():
         op = await GulpAPIOperation.operation_create(admin_token, "new_operation")
         assert op and op["id"] == "new_operation"
 
-        # ingest some data in this operation
+        # ingest some data in this operation
         current_dir = os.path.dirname(os.path.realpath(__file__))
         samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
         file_path = os.path.join(samples_dir, "Security_short_selected.evtx")

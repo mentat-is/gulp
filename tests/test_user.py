@@ -1,21 +1,20 @@
 import pytest
+import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import GulpAPICommon
-from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
+from gulp.api.rest.client.common import _test_init
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    """
+    this is called before any test, to initialize the environment
+    """
+    await _test_init(recreate=True)
 
 
 @pytest.mark.asyncio
-async def test():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-
-    # reset first
-    await GulpAPIDb.reset_collab_as_admin()
-
+async def test_user():
     # login admin, guest
     admin_token = await GulpAPIUser.login("admin", "admin")
     assert admin_token
@@ -96,4 +95,4 @@ async def test():
     )
     assert updated["email"] == "mynewemail@email.com"
 
-    MutyLogger.get_instance().info("all USER tests succeeded!")
+    MutyLogger.get_instance().info(test_user.__name__ + " passed")
