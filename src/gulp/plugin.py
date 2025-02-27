@@ -28,37 +28,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    PreviewDone,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
+                                   RequestCanceledError, SourceCanceledError)
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
-from gulp.api.opensearch.filters import (
-    QUERY_DEFAULT_FIELDS,
-    GulpDocumentFilterResult,
-    GulpIngestionFilter,
-    GulpQueryFilter,
-)
-from gulp.api.opensearch.query import (
-    GulpQuery,
-    GulpQueryHelpers,
-    GulpQueryNoteParameters,
-    GulpQueryParameters,
-)
+from gulp.api.mapping.models import (GulpMapping, GulpMappingField,
+                                     GulpMappingFile)
+from gulp.api.opensearch.filters import (QUERY_DEFAULT_FIELDS,
+                                         GulpDocumentFilterResult,
+                                         GulpIngestionFilter, GulpQueryFilter)
+from gulp.api.opensearch.query import (GulpQuery, GulpQueryHelpers,
+                                       GulpQueryNoteParameters,
+                                       GulpQueryParameters)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import (
-    GulpDocumentsChunkPacket,
-    GulpIngestSourceDonePacket,
-    GulpQueryDonePacket,
-    GulpWsQueueDataType,
-    GulpWsSharedQueue,
-)
+from gulp.api.ws_api import (GulpDocumentsChunkPacket,
+                             GulpIngestSourceDonePacket, GulpQueryDonePacket,
+                             GulpWsQueueDataType, GulpWsSharedQueue)
 from gulp.config import GulpConfig
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
+from gulp.structs import (GulpPluginCustomParameter, GulpPluginParameters,
+                          ObjectNotFound)
 
 
 class GulpPluginType(StrEnum):
@@ -545,11 +533,13 @@ class GulpPluginBase(ABC):
                 "_process_docs_chunk: request %s cancelled" % (self._req_id)
             )
 
+        l: int=len(ingested_docs)
         if success_after_retry:
             # do not count skipped
-            return len(ingested_docs) + skipped, 0
+            return l + skipped, 0
 
-        return len(ingested_docs), skipped
+        # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
+        return l, skipped
 
     def sigma_convert(
         self, sigma: str, plugin_params: GulpPluginParameters = None
@@ -1831,13 +1821,12 @@ class GulpPluginBase(ABC):
             **kwargs: Additional keyword arguments.
         """
         MutyLogger.get_instance().debug(
-            "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r, self._stats=%s"
+            "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r"
             % (
                 self._file_path or self._source_id,
                 len(self._docs_buffer),
                 self._stats.status if self._stats else GulpRequestStatus.DONE,
                 self._ingestion_enabled,
-                self._stats,
             )
         )
 
