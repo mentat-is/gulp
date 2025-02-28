@@ -166,7 +166,11 @@ async def test_skipped_records():
 
 
 @pytest.mark.asyncio
-async def test_win_evtx():
+@pytest.mark.run(order=4)
+async def test_ingest_filter():
+    """
+    test ingestion filter
+    """
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
@@ -175,28 +179,70 @@ async def test_win_evtx():
     assert ingest_token
 
     # ingest the file
+    flt = GulpIngestionFilter(time_range=[0, 1467213874345999999])
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
         file_path=file_path,
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
+        flt=flt,
     )
 
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
-    MutyLogger.get_instance().info(test_win_evtx.__name__ + " succeeded!")
+    await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
+
+    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
+
+    # ingest another part
+    flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
+    await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+        flt=flt,
+    )
+
+    await _test_ingest_ws_loop(check_ingested=6, check_processed=7)
+    MutyLogger.get_instance().info(test_ingest_filter.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
-async def test_win_evtx_multiple():
+@pytest.mark.run(order=5)
+async def test_raw():
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
-    files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
-    await _test_ingest_generic(files, plugin="win_evtx", check_ingested=98633)
-    MutyLogger.get_instance().info(test_win_evtx_multiple.__name__ + " succeeded!")
+    raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
+    buf = await muty.file.read_file_async(raw_chunk_path)
+    raw_chunk = json.loads(buf)
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest raw chunk with "raw" plugin
+    await GulpAPIIngest.ingest_raw(
+        token=ingest_token,
+        raw_data=raw_chunk,
+        operation_id=TEST_OPERATION_ID,
+    )
+    # wait ws
+    await _test_ingest_ws_loop(check_ingested=3)  # , check_on_source_done=True)
+
+    # ingest another
+    for r in raw_chunk:
+        # randomize event original
+        r["event.original"] = muty.string.generate_unique()
+    await GulpAPIIngest.ingest_raw(
+        token=ingest_token,
+        raw_data=raw_chunk,
+        operation_id=TEST_OPERATION_ID,
+    )
+
+    MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
+@pytest.mark.run(order=6)
 async def test_ingest_ws_raw():
     """
     tests websocket ingestion of raw data
@@ -308,11 +354,7 @@ async def test_ingest_ws_raw():
 
 
 @pytest.mark.asyncio
-@pytest.mark.run(order=4)
-async def test_ingest_filter():
-    """
-    test ingestion filter
-    """
+async def test_win_evtx():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
@@ -321,33 +363,25 @@ async def test_ingest_filter():
     assert ingest_token
 
     # ingest the file
-    flt = GulpIngestionFilter(time_range=[0, 1467213874345999999])
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
         file_path=file_path,
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
-        flt=flt,
     )
 
-    await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
+    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    MutyLogger.get_instance().info(test_win_evtx.__name__ + " succeeded!")
 
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
 
-    # ingest another part
-    flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
-    await GulpAPIIngest.ingest_file(
-        token=ingest_token,
-        file_path=file_path,
-        operation_id=TEST_OPERATION_ID,
-        context_name=TEST_CONTEXT_NAME,
-        plugin="win_evtx",
-        flt=flt,
-    )
-
-    await _test_ingest_ws_loop(check_ingested=6, check_processed=7)
-    MutyLogger.get_instance().info(test_ingest_filter.__name__ + " succeeded!")
+@pytest.mark.asyncio
+async def test_win_evtx_multiple():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+    files = muty.file.list_directory(samples_dir, recursive=True, files_only=True)
+    await _test_ingest_generic(files, plugin="win_evtx", check_ingested=98633)
+    MutyLogger.get_instance().info(test_win_evtx_multiple.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
@@ -424,38 +458,6 @@ async def test_ingest_zip():
     # wait ws
     await _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
     MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
-
-
-@pytest.mark.asyncio
-async def test_raw():
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
-    buf = await muty.file.read_file_async(raw_chunk_path)
-    raw_chunk = json.loads(buf)
-
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
-
-    # ingest raw chunk with "raw" plugin
-    await GulpAPIIngest.ingest_raw(
-        token=ingest_token,
-        raw_data=raw_chunk,
-        operation_id=TEST_OPERATION_ID,
-    )
-    # wait ws
-    await _test_ingest_ws_loop(check_ingested=3)  # , check_on_source_done=True)
-
-    # ingest another
-    for r in raw_chunk:
-        # randomize event original
-        r["event.original"] = muty.string.generate_unique()
-    await GulpAPIIngest.ingest_raw(
-        token=ingest_token,
-        raw_data=raw_chunk,
-        operation_id=TEST_OPERATION_ID,
-    )
-
-    MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
 
 @pytest.mark.skipif(

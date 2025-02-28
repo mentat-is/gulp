@@ -112,7 +112,7 @@ async def test_operation_api():
     # recreate test operation
     await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
     await GulpAPIOperation.operation_create(admin_token, TEST_OPERATION_ID, set_default_grants=True)
-    
+
     # ingest some data
     from tests.ingest.test_ingest import test_csv_file_mapping
 

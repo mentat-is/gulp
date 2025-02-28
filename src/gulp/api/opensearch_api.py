@@ -481,9 +481,11 @@ class GulpOpenSearch:
             MutyLogger.get_instance().debug(
                 "deleting index template: %s ..." % (template_name)
             )
-            await self._opensearch.indices.delete_index_template(name=template_name)
+            res = await self._opensearch.indices.delete_index_template(
+                name=template_name
+            )
             MutyLogger.get_instance().debug(
-                "index template deleted: %s" % (template_name)
+                "index template deleted: %s, res=%s" % (template_name, res)
             )
         except Exception as e:
             MutyLogger.get_instance().warning("index template does not exist: %s" % (e))
@@ -554,9 +556,13 @@ class GulpOpenSearch:
             "putting index template: %s ..." % (template_name)
         )
         headers = {"accept": "application/json", "content-type": "application/json"}
-        return await self._opensearch.indices.put_index_template(
+        res = await self._opensearch.indices.put_index_template(
             name=template_name, body=d, headers=headers
         )
+        MutyLogger.get_instance().debug(
+            "index template set for index: %s, res=%s" % (index, res)
+        )
+        return res
 
     async def index_template_set_from_file(
         self, index: str, path: str, apply_patches: bool = True
@@ -707,7 +713,6 @@ class GulpOpenSearch:
 
         # write template
         await self.index_template_put(index, d)
-        MutyLogger.get_instance().debug("index template set for index: %s" % (index))
         return d
 
     async def datastream_list(self) -> list[dict]:
@@ -761,6 +766,14 @@ class GulpOpenSearch:
             MutyLogger.get_instance().debug(
                 'deleted datastream "%s", res=%s' % (ds, res)
             )
+            try:
+                # delete index too
+                res = await self._opensearch.indices.delete(ds)
+                MutyLogger.get_instance().debug(
+                    'deleted index "%s", res=%s' % (ds, res)
+                )
+            except:
+                pass
         finally:
             # also (try to) delete the corresponding template
             try:
@@ -819,7 +832,7 @@ class GulpOpenSearch:
         if delete_first:
             # attempt to delete the datastream first, if it exists
             MutyLogger.get_instance().debug(
-                "datastream_create, re/creating datastream: %s ..." % (ds)
+                "datastream_create, deleting datastream before creation: %s ..." % (ds)
             )
             await self.datastream_delete(ds)
 

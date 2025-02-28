@@ -436,16 +436,19 @@ async def operation_reset_handler(
             )
             if op:
                 # existing operation
+                MutyLogger.get_instance().debug("operation %s exists!" % operation_id)
                 await GulpUserSession.check_token(
                     sess, token, obj=op, permission=GulpUserPermission.INGEST
                 )
                 owner_id: str = op.owner_user_id
             else:
                 # create anew
+                MutyLogger.get_instance().debug("operation %s NOT exists!" % operation_id)
                 s = await GulpUserSession.check_token(
                     sess, token, permission=GulpUserPermission.INGEST
                 )
                 owner_id = s.user_id
+
         await operation_reset_internal(operation_id, owner_id=owner_id)
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
 
