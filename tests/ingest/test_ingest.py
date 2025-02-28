@@ -19,10 +19,12 @@ from muty.log import MutyLogger
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.client.common import (
+    GulpAPICommon,
     _test_ingest_generic,
     _test_ingest_ws_loop,
     _test_init,
 )
+from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery

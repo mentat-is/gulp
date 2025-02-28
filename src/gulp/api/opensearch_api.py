@@ -482,6 +482,9 @@ class GulpOpenSearch:
                 "deleting index template: %s ..." % (template_name)
             )
             await self._opensearch.indices.delete_index_template(name=template_name)
+            MutyLogger.get_instance().debug(
+                "index template deleted: %s" % (template_name)
+            )
         except Exception as e:
             MutyLogger.get_instance().warning("index template does not exist: %s" % (e))
 
@@ -704,6 +707,7 @@ class GulpOpenSearch:
 
         # write template
         await self.index_template_put(index, d)
+        MutyLogger.get_instance().debug("index template set for index: %s" % (index))
         return d
 
     async def datastream_list(self) -> list[dict]:
@@ -755,7 +759,7 @@ class GulpOpenSearch:
 
             res = await self._opensearch.indices.delete_data_stream(ds, headers=headers)
             MutyLogger.get_instance().debug(
-                'deleting datastream "%s", res=%s' % (ds, res)
+                'deleted datastream "%s", res=%s' % (ds, res)
             )
         finally:
             # also (try to) delete the corresponding template
@@ -844,7 +848,10 @@ class GulpOpenSearch:
             )
             return r
         except Exception as e:
-            # delete the index template
+            # also delete the index template
+            MutyLogger.get_instance().error(
+                "error creating datastream %s, deleting template" % (ds)
+            )
             await self.index_template_delete(ds)
             raise e
 

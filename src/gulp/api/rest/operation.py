@@ -294,18 +294,14 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
             group_grants = ["administrators"]
             operation_data = {}
             MutyLogger.get_instance().debug(
-                "operation_reset, creating new operation=%s!" % (operation_id)
+                "operation_reset, creating new operation=%s, index=%s!" % (operation_id, index)
             )
-
-            # recreate the index
-            MutyLogger.get_instance().info(
-                "operation_reset, re/creating index=%s ..." % (index)
-            )
+            # create index
             await GulpOpenSearch.get_instance().datastream_create(index)
 
         # recreate operation
         MutyLogger.get_instance().info(
-            "operation_reset, re/creating operation=%s, index=%s"
+            "operation_reset, re/creating collab operation=%s, index=%s"
             % (operation_id, index)
         )
 
