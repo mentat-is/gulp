@@ -448,6 +448,8 @@ class GulpPluginBase(ABC):
         el = GulpOpenSearch.get_instance()
         skipped: int = 0
         ingested_docs: list[dict] = []
+        success_after_retry: bool = False
+        
         # MutyLogger.get_instance().debug(json.dumps(data, indent=2))
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
         if self._ingestion_enabled:
