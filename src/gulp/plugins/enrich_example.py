@@ -51,36 +51,15 @@ class Plugin(GulpPluginBase):
         user_id: str,
         req_id: str,
         ws_id: str,
+        operation_id: str,
         index: str,
-        q: dict = None,
-        q_options: GulpQueryParameters = None,
+        flt: GulpQueryFilter =None,
         plugin_params: GulpPluginParameters = None,
+        **kwargs
     ) -> int:
-        """
-        example query:
-        {
-            "q": {
-                "query": {
-                    "bool": {
-                        "must": [
-                            {
-                                "wildcard": {
-                                    "gulp.enriched.nested.field3.field4": "a0ddcac7-862d-4071-86d5-246fbc096af1"
-                                }
-                            },
-                            {
-                                "wildcard": {
-                                    "gulp.enriched.nested.field2": "d8d7b20f-8d98-4a79-87f5-b999d870791b"
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
-        }
-        """
+        await self._initialize(plugin_params)
         return await super().enrich_documents(
-            sess, user_id, req_id, ws_id, index, q, q_options, plugin_params
+            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params
         )
 
     @override
@@ -88,7 +67,8 @@ class Plugin(GulpPluginBase):
         self,
         sess: AsyncSession,
         doc_id: str,
+        operation_id: str,
         index: str,
         plugin_params: GulpPluginParameters,
     ) -> dict:
-        return await super().enrich_single_document(sess, doc_id, index, plugin_params)
+        return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)
