@@ -837,7 +837,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         await self.add_user_grant(sess, "guest")
 
         # add group grants
-        await self.add_group_grant(sess, "administrators")
+        from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+        await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID)
 
     async def add_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         """

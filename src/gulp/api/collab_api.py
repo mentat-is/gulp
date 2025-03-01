@@ -26,7 +26,6 @@ from gulp.api.rest.test_values import (
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
-
 class GulpCollab:
     """
     singleton class, represents the collab database connection.
@@ -463,9 +462,10 @@ class GulpCollab:
             )
 
             # create user groups
+            from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
             group: GulpUserGroup = await GulpUserGroup._create(
                 sess,
-                id="administrators",
+                id=ADMINISTRATORS_GROUP_ID,
                 object_data={
                     "name": "example group",
                     "permission": [GulpUserPermission.ADMIN],

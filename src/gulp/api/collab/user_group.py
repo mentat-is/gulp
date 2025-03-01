@@ -14,6 +14,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
+ADMINISTRATORS_GROUP_ID = "administrators"
 
 class GulpUserAssociations:
     # multiple users can be associated with a group

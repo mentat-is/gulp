@@ -20,6 +20,7 @@ from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
+from gulp.api.collab.user import GulpUser
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
     GulpDocumentFilterResult,
@@ -1508,7 +1509,10 @@ class GulpOpenSearch:
         # get all operations from collab db
         # MutyLogger.get_instance().debug(f"parsing operations aggregations: {json.dumps(aggregations, indent=2)}")
         async with GulpCollab.get_instance().session() as sess:
-            all_operations = await GulpOperation.get_by_filter(sess, user_id=user_id)
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            all_operations = await GulpOperation.get_by_filter(
+                sess, user_id=user_id, user_id_is_admin=u.is_admin()
+            )
 
         # create operation lookup map
         operation_map = {op.id: op for op in all_operations}
@@ -1653,6 +1657,7 @@ class GulpOpenSearch:
             )
             # raise ObjectNotFound()
             return []
+        MutyLogger.get_instance().debug(json.dumps(res, indent=2))
 
         d = {"total": hits, "aggregations": res["aggregations"]}
         # MutyLogger.get_instance().debug(json.dumps(d, indent=2))

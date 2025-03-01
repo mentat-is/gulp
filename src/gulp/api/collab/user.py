@@ -87,6 +87,36 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         )
         return d
 
+    async def add_to_default_administrators_group(self, sess: AsyncSession) -> bool:
+        """
+        if the default administrators group exists, and the user is administrator, add
+        the user to the default administrators group
+
+        Args:
+            sess (AsyncSession): The database session.
+
+        Returns:
+            bool: True if the user was added to the administrators group, False otherwise
+        """
+        from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID, GulpUserGroup
+
+        g: GulpUserGroup = await GulpUserGroup.get_by_id(
+            sess, ADMINISTRATORS_GROUP_ID, throw_if_not_found=False
+        )
+        if g:
+            MutyLogger.get_instance().debug(
+                "adding newly created user %s to the administrators default group"
+                % (self.id)
+            )
+            try:
+                await g.add_user(sess, self.id)
+                return True
+            except Exception as e:
+                MutyLogger.get_instance().error(
+                    "error adding user %s to administrators group: %s" % (self.id, e)
+                )
+        return False
+
     @classmethod
     async def create(
         cls,
@@ -124,9 +154,15 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
         }
 
         # set user_id to username (user owns itself)
-        return await super()._create(
+        u: GulpUser = await super()._create(
             sess, id=user_id, object_data=object_data, owner_id=user_id
         )
+
+        # if the default administrators group exists, and the user is administrator, add
+        # the user to the default administrators group
+        if u.is_admin():
+            await u.add_to_default_administrators_group(sess)
+        return u
 
     @override
     async def update(
@@ -179,6 +215,11 @@ class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
 
         # update
         await super().update(sess, d)
+
+        # if the default administrators group exists, and the user is administrator, add
+        # the user to the default administrators group
+        if self.is_admin():
+            self.add_to_default_administrators_group(sess)
 
         if user_session:
             # invalidate session for the user

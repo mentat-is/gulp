@@ -23,6 +23,7 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
 
 async def _ws_loop():
@@ -220,7 +221,7 @@ async def test_operation_api():
     assert operations and len(operations) == 1
 
     # add ingest to administrators group
-    await GulpAPIUserGroup.usergroup_add_user(admin_token, "ingest", "administrators")
+    await GulpAPIUserGroup.usergroup_add_user(admin_token, "ingest", ADMINISTRATORS_GROUP_ID)
 
     # now ingest can see the new operation again
 

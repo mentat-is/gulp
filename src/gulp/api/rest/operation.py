@@ -21,6 +21,7 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
 from gulp.structs import ObjectAlreadyExists
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
 router: APIRouter = APIRouter()
 
@@ -124,7 +125,8 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 "setting default grants for operation=%s" % (name)
             )
             d["granted_user_ids"] = ["admin", "guest", "ingest", "power", "editor"]
-            d["granted_user_group_ids"] = ["administrators"]
+            from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+            d["granted_user_group_ids"] = [ADMINISTRATORS_GROUP_ID]
         try:
             dd = await GulpOperation.create(
                 token,
@@ -291,7 +293,7 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
             description = None
             glyph_id = None
             user_grants = ["admin", "guest", "ingest", "power", "editor"]
-            group_grants = ["administrators"]
+            group_grants = [ADMINISTRATORS_GROUP_ID]
             operation_data = {}
             MutyLogger.get_instance().debug(
                 "operation_reset, creating new operation=%s, index=%s!" % (operation_id, index)

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated, Optional
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
-from gulp.api.collab.user_group import GulpUserGroup
+from gulp.api.collab.user_group import GulpUserGroup, ADMINISTRATORS_GROUP_ID
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
@@ -230,7 +230,7 @@ async def user_group_delete_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if group_id.lower() == "administrators":
+        if group_id.lower() == ADMINISTRATORS_GROUP_ID:
             raise ValueError("cannot delete the administrators group.")
 
         await GulpUserGroup.delete_by_id(

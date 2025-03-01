@@ -7,6 +7,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.rest.test_values import (
@@ -52,8 +53,7 @@ class GulpUploadResponse(BaseModel):
             ]
         },
     )
-    done: bool = Field(...,
-                       description="Indicates whether the upload is complete.")
+    done: bool = Field(..., description="Indicates whether the upload is complete.")
     continue_offset: Optional[int] = Field(
         0, description="The offset of the next chunk to be uploaded, to resume."
     )
@@ -258,7 +258,7 @@ class APIDependencies:
 
     _DESC_PASSWORD = """
 the user password.
-                  
+
 - 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
 """
     _EXAMPLE_PASSWORD = "Password1!"
@@ -371,14 +371,14 @@ one or more user permission.
             Header(
                 description="""
 an authentication token obtained through `login`.
-                   
+
 if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresponding user is logged in:
-                   
+
 - `token_admin`: a token with admin permissions.
 - `token_editor`: a token with read/edit permissions.
 - `token_guest`: a token with just read permission
 - `token_ingest`: a token with read/edit/ingest permission.
-- `token_power`: a token with read/edit/delete permission.                   
+- `token_power`: a token with read/edit/delete permission.
 """,
                 example="token_admin",
             ),
@@ -440,7 +440,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
     def param_group_id(
         group_id: Annotated[
             str,
-            Query(description="the usergroup ID", example="administrators"),
+            Query(description="the usergroup ID", example=ADMINISTRATORS_GROUP_ID),
         ]
     ) -> str:
         """
@@ -580,7 +580,7 @@ id of a `context` object on the collab database.
             str,
             Query(
                 description="""
-id of a `source` object on the collab database.                
+id of a `source` object on the collab database.
 """,
                 example=TEST_SOURCE_ID,
             ),
