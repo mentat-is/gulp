@@ -220,6 +220,8 @@ class GulpOpenSearch:
         operation_id: str,
         context_id: str,
         source_id: str,
+        user_id: str,
+        user_id_is_admin: bool,
     ) -> dict:
         """
         get source->fields mappings from the collab database
@@ -229,6 +231,8 @@ class GulpOpenSearch:
             operation_id (str): The operation ID.
             context_id (str): The context ID.
             source_id (str): The source ID.
+            user_id (str): The user ID.
+            user_id_is_admin (bool): Whether the user is an admin.
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
 
@@ -240,7 +244,7 @@ class GulpOpenSearch:
             source_ids=[source_id],
         )
         fields: list[GulpSourceFields] = await GulpSourceFields.get_by_filter(
-            sess, flt, throw_if_not_found=False
+            sess, flt, throw_if_not_found=False, user_id=user_id, user_id_is_admin=user_id_is_admin
         )
         if fields:
             # cache hit!

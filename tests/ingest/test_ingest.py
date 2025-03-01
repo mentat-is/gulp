@@ -229,6 +229,7 @@ async def test_raw():
     await _test_ingest_ws_loop(check_ingested=3)  # , check_on_source_done=True)
 
     # ingest another
+    MutyLogger.get_instance().debug("ingesting another chunk ...")
     for r in raw_chunk:
         # randomize event original
         r["event.original"] = muty.string.generate_unique()
@@ -237,6 +238,7 @@ async def test_raw():
         raw_data=raw_chunk,
         operation_id=TEST_OPERATION_ID,
     )
+    await _test_ingest_ws_loop(check_ingested=6) # plus the 3 above, we're using the same req_id
 
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 

@@ -226,6 +226,9 @@ async def _test_ingest_ws_loop(
                         and skipped_test_succeeded
                         and success_test_succeeded
                     ):
+                        MutyLogger.get_instance().info(
+                            "all tests succeeded, breaking the loop!"
+                        )
                         test_completed = True
                         break
 
@@ -247,7 +250,7 @@ async def _test_ingest_ws_loop(
             records_processed} (requested={check_processed}), found_skipped={records_skipped} (requested={check_skipped})"
     )
     assert test_completed
-    MutyLogger.get_instance().info("test succeeded!")
+    MutyLogger.get_instance().info("_test_ingest_ws_loop succeeded!")
 
 
 class GulpAPICommon:

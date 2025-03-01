@@ -92,10 +92,10 @@ async def test_db_api():
     ingest_token = await GulpAPIUser.login("admin", "admin")
     assert ingest_token
 
-    # clear indexes
+    # clear indexes to start clean
     indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     for l in indexes:
-        await GulpAPIDb.opensearch_delete_index(admin_token, l["name"])
+        await GulpAPIDb.opensearch_delete_index(admin_token, l["name"], delete_operation=False)
 
     # recreate operation
     await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)

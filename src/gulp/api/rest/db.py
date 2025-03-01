@@ -80,12 +80,12 @@ async def opensearch_delete_index_handler(
             s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.ADMIN
             )
-
+            user_id: str = s.user_id
             op: GulpOperation = None
             if delete_operation:
                 # get operation
                 op = await GulpOperation.get_first_by_filter(
-                    sess, GulpCollabFilter(index=[index]), throw_if_not_found=False
+                    sess, GulpCollabFilter(index=[index]), throw_if_not_found=False, user_id=user_id, user_id_is_admin=True
                 )
                 if op:
                     # delete the operation on collab
@@ -354,12 +354,18 @@ async def postgres_reset_collab_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(
+            s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.ADMIN
             )
+            user_id = s.user_id
             if full_reset:
                 # check if we have operations
-                ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
+                ops = await GulpOperation.get_by_filter(
+                    sess,
+                    throw_if_not_found=False,
+                    user_id=user_id,
+                    user_id_is_admin=True,  # user can't be other than admin here
+                )
                 if ops:
                     # delete all indexes
                     for op in ops:

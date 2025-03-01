@@ -379,7 +379,8 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_first_by_filter(sess, GulpCollabFilter(names=["test_operation_icon"]), throw_if_not_found=False)
+            operation_glyph: GulpGlyph = await GulpGlyph.get_first_by_filter(sess, GulpCollabFilter(names=["test_operation_icon"]),
+                                                                             user_id="admin", user_id_is_admin=True, throw_if_not_found=False)
 
             # create default operation
             operation: GulpOperation = await GulpOperation._create(
@@ -405,7 +406,7 @@ class GulpCollab:
             # add default grants (groups and users)
             await operation.add_default_grants(sess)
 
-            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess, user_id="admin")
+            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess, user_id="admin", user_id_is_admin=True)
             for op in operations:
                 MutyLogger.get_instance().debug(
                     json.dumps(op.to_dict(nested=True), indent=4)
@@ -414,6 +415,9 @@ class GulpCollab:
     async def create_default_users(self) -> None:
         """
         create default users and user groups
+
+        Args:
+            user_id (str): The (admin) user ID to use (will be set as the owner of the created objects).
         """
         from gulp.api.collab.structs import (
             PERMISSION_MASK_DELETE,
@@ -478,7 +482,7 @@ class GulpCollab:
             await group.add_user(sess, admin_user.id)
 
             # dump groups
-            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(sess)
+            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(sess, user_id="admin", user_id_is_admin=True)
             for group in groups:
                 MutyLogger.get_instance().debug(
                     json.dumps(group.to_dict(nested=True), indent=4)
