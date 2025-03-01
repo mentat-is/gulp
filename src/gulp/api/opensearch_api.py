@@ -221,7 +221,8 @@ class GulpOpenSearch:
         context_id: str,
         source_id: str,
         user_id: str,
-        user_id_is_admin: bool,
+        user_id_is_admin: bool = False,
+        user_group_ids: list[str] = None,
     ) -> dict:
         """
         get source->fields mappings from the collab database
@@ -232,7 +233,8 @@ class GulpOpenSearch:
             context_id (str): The context ID.
             source_id (str): The source ID.
             user_id (str): The user ID.
-            user_id_is_admin (bool): Whether the user is an admin.
+            user_id_is_admin (bool, optional): Whether the user is an admin. Defaults to False.
+            user_group_ids (list[str], optional): The user group IDs. Defaults to None.
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
 
@@ -244,7 +246,7 @@ class GulpOpenSearch:
             source_ids=[source_id],
         )
         fields: list[GulpSourceFields] = await GulpSourceFields.get_by_filter(
-            sess, flt, throw_if_not_found=False, user_id=user_id, user_id_is_admin=user_id_is_admin
+            sess, flt, throw_if_not_found=False, user_id=user_id, user_id_is_admin=user_id_is_admin, user_group_ids=user_group_ids
         )
         if fields:
             # cache hit!
@@ -1514,8 +1516,9 @@ class GulpOpenSearch:
         # MutyLogger.get_instance().debug(f"parsing operations aggregations: {json.dumps(aggregations, indent=2)}")
         async with GulpCollab.get_instance().session() as sess:
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
             all_operations = await GulpOperation.get_by_filter(
-                sess, user_id=user_id, user_id_is_admin=u.is_admin()
+                sess, user_id=user_id, user_id_is_admin=u.is_admin(), user_group_ids=user_group_ids
             )
 
         # create operation lookup map

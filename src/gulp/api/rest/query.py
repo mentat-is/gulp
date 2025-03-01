@@ -18,6 +18,7 @@ from gulp.api.collab.structs import (
     GulpRequestStatus,
     GulpUserPermission,
 )
+from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
@@ -80,7 +81,6 @@ EXAMPLE_QUERY_RAW = {
 
 async def _query_internal(
     user_id: str,
-    user_id_is_admin: bool,
     req_id: str,
     ws_id: str,
     operation_id: str,
@@ -160,7 +160,6 @@ async def _worker_coro(kwds: dict):
     operation_id: str = kwds["operation_id"]
     q_options: GulpQueryParameters = kwds["q_options"]
     user_id: str = kwds["user_id"]
-    user_id_is_admin: bool = kwds["user_id_is_admin"]
     req_id: str = kwds["req_id"]
     ws_id: str = kwds["ws_id"]
     index: str = kwds["index"]
@@ -186,7 +185,6 @@ async def _worker_coro(kwds: dict):
             # add task
             d = dict(
                 user_id=user_id,
-                user_id_is_admin=user_id_is_admin,
                 req_id=req_id,
                 ws_id=ws_id,
                 operation_id=operation_id,
@@ -205,6 +203,12 @@ async def _worker_coro(kwds: dict):
         # run all and wait
         num_queries = len(queries)
         res = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # get user info (is admin, groups)
+        async with GulpCollab.get_instance().session() as sess:
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            user_is_admin = u.is_admin()
+            user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
 
         # check if all queries matched
         query_matched = 0
@@ -264,7 +268,8 @@ async def _worker_coro(kwds: dict):
                         [q_options.group],
                         operation_id=operation_id,
                         user_id=user_id,
-                        user_id_is_admin=user_id_is_admin,
+                        user_id_is_admin=user_is_admin,
+                        user_group_ids=user_group_ids,
                     )
             # and signal websocket
             p = GulpQueryGroupMatchPacket(
@@ -306,7 +311,6 @@ async def _spawn_query_group_workers(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     flt: GulpQueryFilter = None,
-    user_id_is_admin: bool = False,
 ) -> None:
     """
     spawns worker tasks for each query and wait them all
@@ -314,7 +318,6 @@ async def _spawn_query_group_workers(
     MutyLogger.get_instance().debug("spawning %d queries ..." % (len(queries)))
     kwds = dict(
         user_id=user_id,
-        user_id_is_admin=user_id_is_admin,
         req_id=req_id,
         ws_id=ws_id,
         operation_id=operation_id,
@@ -406,7 +409,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 sess, token, permission=permission, obj=op
             )
             user_id = s.user_id
-            user_id_is_admin = s.user.is_admin()
 
         queries: list[GulpQuery] = []
         for qq in q:
@@ -421,7 +423,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             index=op.index,
             queries=queries,
             q_options=q_options,
-            user_id_is_admin=user_id_is_admin,
         )
 
         # and return pending
@@ -490,7 +491,6 @@ async def query_gulp_handler(
             )
             user_id = s.user_id
             index = op.index
-            user_id_is_admin = s.user.is_admin()
 
         # convert gulp query to raw query
         dsl = flt.to_opensearch_dsl()
@@ -505,7 +505,6 @@ async def query_gulp_handler(
             index=index,
             queries=[gq],
             q_options=q_options,
-            user_id_is_admin=user_id_is_admin,
         )
 
         # and return pending
@@ -593,7 +592,6 @@ async def query_external_handler(
             )
             user_id = s.user_id
             index = op.index
-            user_id_is_admin = s.user.is_admin()
 
         queries: list[GulpQuery] = []
         for qq in q:
@@ -610,7 +608,6 @@ async def query_external_handler(
             q_options=q_options,
             plugin=plugin,
             plugin_params=plugin_params,
-            user_id_is_admin=user_id_is_admin,
         )
 
         # and return pending
@@ -711,7 +708,6 @@ async def query_sigma_handler(
             s = await GulpUserSession.check_token(sess, token, obj=op)
             user_id = s.user_id
             index = op.index
-            user_id_is_admin = s.user.is_admin()
 
         # convert sigma rule/s using pysigma
         mod = await GulpPluginBase.load(plugin)
@@ -731,7 +727,6 @@ async def query_sigma_handler(
             queries=queries,
             q_options=q_options,
             flt=flt,
-            user_id_is_admin=user_id_is_admin,
         )
 
         # and return pending
@@ -1038,7 +1033,9 @@ async def query_operations(
         operations: list[dict] = []
         for o in ops:
             # get each op details by querying the associated index
-            d = await GulpOpenSearch.get_instance().query_operations(o["index"], user_id)
+            d = await GulpOpenSearch.get_instance().query_operations(
+                o["index"], user_id
+            )
             operations.extend(d)
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
@@ -1138,7 +1135,10 @@ async def query_fields_by_source_handler(
             s: GulpUserSession = await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
             user_id = s.user_id
-            is_admin = s.user.is_admin()
+            user_id_is_admin = s.user.is_admin()
+            user_group_ids: list[str] = (
+                [g.id for g in s.user.groups] if s.user.groups else []
+            )
 
             # check if there is at least one document with operation_id, context_id and source_id
             await GulpOpenSearch.get_instance().search_dsl_sync(
@@ -1163,7 +1163,8 @@ async def query_fields_by_source_handler(
                 context_id=context_id,
                 source_id=source_id,
                 user_id=user_id,
-                user_id_is_admin = is_admin
+                user_id_is_admin=user_id_is_admin,
+                user_group_ids=user_group_ids,
             )
             if m:
                 # return immediately

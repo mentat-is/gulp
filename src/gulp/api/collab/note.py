@@ -262,7 +262,8 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         new_tags: list[str],
         operation_id: str,
         user_id: str,
-        user_id_is_admin: bool=False
+        user_id_is_admin: bool = False,
+        user_group_ids: list[str] = None,
     ) -> None:
         """
         get tags from notes and update them with new tags
@@ -274,6 +275,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             operation_id (str): the operation id
             user_id (str): the user id making the request
             user_id_is_admin (bool): whether the user is an admin
+            user_group_ids (list[str], optional): the user groups ids. Defaults to None.
         """
         MutyLogger.get_instance().debug(
             f"updating notes tags from {tags} to {new_tags}, user_id_is_admin={user_id_is_admin} ..."
@@ -291,15 +293,21 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         # restrict to operation_id and user_id
         if operation_id:
             flt.operation_ids = [operation_id]
-        if user_id:
-            flt.owner_user_ids = [user_id]
+        # if user_id:
+        #   flt.owner_user_ids = [user_id]
 
         updated = 0
 
         while True:
             # get all notes matching "tags"
             notes: list[GulpNote] = await GulpNote.get_by_filter(
-                sess, flt, user_id=user_id, user_id_is_admin=user_id_is_admin, throw_if_not_found=False, with_for_update=True
+                sess,
+                flt,
+                user_id=user_id,
+                user_id_is_admin=user_id_is_admin,
+                user_group_ids=user_group_ids,
+                throw_if_not_found=False,
+                with_for_update=True,
             )
             if not notes:
                 break

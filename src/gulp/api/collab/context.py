@@ -110,6 +110,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             sess,
             flt=flt,
             user_id=user_id,
+            user_id_is_admin=True, # we want to check if the source exists, not if the user has access to it
             throw_if_not_found=False,
         )
         # MutyLogger.get_instance().debug("flt=%s, res=%s" % (flt, src))

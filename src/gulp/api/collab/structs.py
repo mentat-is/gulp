@@ -1213,7 +1213,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         with_for_update: bool = False,
         user_id: str = None,
         user_id_is_admin: bool = False,
-        group_ids: list[str] = None,
+        user_group_ids: list[str] = None,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -1224,7 +1224,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
-            group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
+            user_group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -1243,7 +1243,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         else:
             # user can see only objects he has access to
             flt.granted_user_ids = [user_id]
-            flt.granted_user_group_ids = group_ids or []
+            flt.granted_user_group_ids = user_group_ids or []
 
         q = flt.to_select_query(cls, with_for_update=with_for_update)
         q = q.options(*cls._build_relationship_loading_options())
@@ -1270,7 +1270,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         with_for_update: bool = False,
         user_id: str = None,
         user_id_is_admin: bool = False,
-        group_ids: list[str] = None,
+        user_group_ids: list[str] = None,
     ) -> T:
         """
         Asynchronously retrieves the first object based on the provided filter.
@@ -1282,7 +1282,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update (bool, optional): If True, the query will be executed
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
-            group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
+            user_group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
 
         Returns:
             T: The first object that matches the filter criteria or None if not found.
@@ -1294,7 +1294,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             with_for_update=with_for_update,
             user_id=user_id,
             user_id_is_admin=user_id_is_admin,
-            group_ids=group_ids,
+            user_group_ids=user_group_ids,
         )
 
         if obj:
@@ -1371,11 +1371,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
-            group_ids = [] if not s.user.groups else [g.id for g in s.user.groups]
+            user_group_ids = [] if not s.user.groups else [g.id for g in s.user.groups]
             is_admin = s.user.is_admin()
             MutyLogger.get_instance().debug(
                 "get_by_filter, user_id=%s, group_ids for the user=%s, is_admin=%r"
-                % (s.user_id if s else None, group_ids, is_admin)
+                % (s.user_id if s else None, user_group_ids, is_admin)
             )
 
             objs = await cls.get_by_filter(
@@ -1384,7 +1384,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 throw_if_not_found=throw_if_not_found,
                 user_id=user_id,
                 user_id_is_admin=is_admin,
-                group_ids=group_ids,
+                user_group_ids=user_group_ids,
             )
             if not objs:
                 return []
