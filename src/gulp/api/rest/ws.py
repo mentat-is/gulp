@@ -1,5 +1,6 @@
 import asyncio
 from multiprocessing import Queue
+import time
 
 import muty.jsend
 import muty.list
@@ -168,6 +169,9 @@ class GulpAPIWebsocket:
 
     we subclass starlette's WebSocketEndpoint to have better control on websocket termination, etc...
     """
+    MAX_MESSAGES_PER_SECOND = 10
+    RATE_LIMIT_WINDOW_SECONDS = 1.0
+    BACKPRESSURE_DELAY = 0.5  # seconds to wait when rate limit is hit
 
     @router.websocket("/ws")
     @staticmethod
@@ -525,32 +529,73 @@ class GulpAPIWebsocket:
             ws (GulpConnectedSocket): the websocket connection
             user_id (str): the user id
         """
+        # Rate limiting state
+        message_count = 0
+        last_window_start = time.time()
+
         while True:
             if ws.ws.client_state != WebSocketState.CONNECTED:
                 raise WebSocketDisconnect("client disconnected")
 
-            # this will raise WebSocketDisconnect when client disconnects
-            js: dict = await ws.ws.receive_json()
-            client_ui_data = GulpClientDataPacket.model_validate(js)
+            #aApply rate limiting
+            current_time = time.time()
+            time_diff = current_time - last_window_start
 
-            data = GulpWsData(
-                timestamp=muty.time.now_msec(),
-                type=GulpWsQueueDataType.CLIENT_DATA,
-                ws_id=ws.ws_id,
-                user_id=user_id,
-                data=client_ui_data.model_dump(exclude_none=True),
-            )
+            # Reset counter for new time window
+            if time_diff >= GulpAPIWebsocket.RATE_LIMIT_WINDOW_SECONDS:
+                message_count = 0
+                last_window_start = current_time
 
-            # route to all connected client_data websockets
-            s = GulpConnectedSockets.get_instance()
-            for _, cws in s._sockets.items():
-                if (
-                    ws.ws_id == cws.ws_id
-                    or cws.socket_type != GulpWsType.WS_CLIENT_DATA
-                ):
-                    # skip this ws
-                    continue
-                await cws.ws.send_json(data.model_dump(exclude_none=True))
+            # check if we're exceeding the rate limit
+            if message_count >= GulpAPIWebsocket.MAX_MESSAGES_PER_SECOND:
+                MutyLogger.get_instance().warning(
+                    f"Rate limit hit for ws_id={ws.ws_id}. Applying backpressure."
+                )
+
+                # apply backpressure through delay
+                await asyncio.sleep(GulpAPIWebsocket.BACKPRESSURE_DELAY)
+
+                # reset the counter and window after applying backpressure
+                message_count = 0
+                last_window_start = time.time()
+                continue
+
+            # Increment message counter for this time window
+            message_count += 1
+
+            # Normal message processing
+            try:
+                # this will raise WebSocketDisconnect when client disconnects
+                js: dict = await ws.ws.receive_json()
+                client_ui_data = GulpClientDataPacket.model_validate(js)
+
+                data = GulpWsData(
+                    timestamp=muty.time.now_msec(),
+                    type=GulpWsQueueDataType.CLIENT_DATA,
+                    ws_id=ws.ws_id,
+                    user_id=user_id,
+                    data=client_ui_data.model_dump(exclude_none=True),
+                )
+
+                # route to all connected client_data websockets
+                s = GulpConnectedSockets.get_instance()
+                for _, cws in s._sockets.items():
+                    if (
+                        ws.ws_id == cws.ws_id
+                        or cws.socket_type != GulpWsType.WS_CLIENT_DATA
+                    ):
+                        # skip this ws
+                        continue
+                    try:
+                        await cws.ws.send_json(data.model_dump(exclude_none=True))
+                    except Exception as ex:
+                        MutyLogger.get_instance().error(
+                            f"error sending data to ws_id={cws.ws_id}: {ex}"
+                        )
+            except Exception as ex:
+                # Don't count errors against rate limit
+                message_count -= 1
+                MutyLogger.get_instance().error(f"error in receive loop: {ex}")
 
     @staticmethod
     async def ws_client_data_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
