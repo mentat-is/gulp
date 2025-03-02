@@ -87,13 +87,16 @@ class GulpConfig:
         """
         Returns whether the integration test mode is enabled.
         """
-        n = os.getenv("GULP_INTEGRATION_TEST", None)
-        if n:
+        n: str = os.getenv("GULP_INTEGRATION_TEST", None)
+        if not n:
+            n = "0"
+
+        if int(n) > 0:
             MutyLogger.get_instance().warning(
                 "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug features disabled!"
             )
 
-        return n is not None
+        return int(n) > 0
 
     def dump_config(self):
         """
@@ -121,8 +124,7 @@ class GulpConfig:
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
             MutyLogger.get_instance().warning(
-                "no configuration file found, applying defaults from %s ..." % (
-                    src)
+                "no configuration file found, applying defaults from %s ..." % (src)
             )
 
         cfg_perms = oct(os.stat(config_file_path).st_mode & 0o777)
@@ -420,8 +422,7 @@ class GulpConfig:
         """
         n = True
         if __debug__:
-            n = self._config.get(
-                "debug_abort_on_opensearch_ingestion_error", True)
+            n = self._config.get("debug_abort_on_opensearch_ingestion_error", True)
 
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n

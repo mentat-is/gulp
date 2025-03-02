@@ -1,6 +1,6 @@
 import asyncio
-from multiprocessing import Queue
 import time
+from multiprocessing import Queue
 
 import muty.jsend
 import muty.list
@@ -169,6 +169,7 @@ class GulpAPIWebsocket:
 
     we subclass starlette's WebSocketEndpoint to have better control on websocket termination, etc...
     """
+
     MAX_MESSAGES_PER_SECOND = 10
     RATE_LIMIT_WINDOW_SECONDS = 1.0
     BACKPRESSURE_DELAY = 0.5  # seconds to wait when rate limit is hit
@@ -379,6 +380,15 @@ class GulpAPIWebsocket:
         worker_pool = WsIngestRawWorker(ws)
         await worker_pool.start()
 
+        # rate limiting state
+        message_count = 0
+        last_window_start = time.time()
+        # higher limits for ingestion endpoint
+        max_messages = (
+            GulpAPIWebsocket.MAX_MESSAGES_PER_SECOND * 2
+        )  # higher than ws_client_data
+        window_seconds = GulpAPIWebsocket.RATE_LIMIT_WINDOW_SECONDS
+
         try:
             async with GulpCollab.get_instance().session() as sess:
                 operation: GulpOperation = None
@@ -387,41 +397,69 @@ class GulpAPIWebsocket:
                     if ws.ws.client_state != WebSocketState.CONNECTED:
                         raise WebSocketDisconnect("client disconnected")
 
-                    # get packet from ws
-                    js = await ws.ws.receive_json()
-                    ingest_packet = GulpWsIngestPacket.model_validate(js)
-
-                    # check operation
-                    if not operation or operation.id != ingest_packet.operation_id:
-                        # this may be not necessary, since the operation should never change in the same ws connection....
-                        operation = await GulpOperation.get_by_id(
-                            sess, ingest_packet.operation_id, throw_if_not_found=False
+                    # check rate limit
+                    current_time = time.time()
+                    time_diff = current_time - last_window_start
+                    if time_diff >= window_seconds:
+                        message_count = 0
+                        last_window_start = current_time
+                    if message_count >= max_messages:
+                        # apply rate limiting
+                        MutyLogger.get_instance().warning(
+                            f"ingest rate limit hit for ws_id={ws.ws_id}. Applying backpressure."
                         )
-                    if not operation:
-                        # missing operation, abort
+                        # backpressure delay
+                        await asyncio.sleep(GulpAPIWebsocket.BACKPRESSURE_DELAY)
+                        message_count = 0
+                        last_window_start = time.time()
+                        continue
+
+                    message_count += 1
+
+                    # Regular message processing
+                    try:
+                        # get packet from ws
+                        js = await ws.ws.receive_json()
+                        ingest_packet = GulpWsIngestPacket.model_validate(js)
+
+                        # check operation, if not the same, get it (sort of cache)
+                        if not operation or operation.id != ingest_packet.operation_id:
+                            # this may be not necessary, since the operation should never change in the same ws connection....
+                            operation = await GulpOperation.get_by_id(
+                                sess,
+                                ingest_packet.operation_id,
+                                throw_if_not_found=False,
+                            )
+                        if not operation:
+                            # missing operation, abort
+                            MutyLogger.get_instance().error(
+                                "operation %s not found!" % (ingest_packet.operation_id)
+                            )
+                            p = GulpWsErrorPacket(
+                                error="operation %s not found!"
+                                % (ingest_packet.operation_id),
+                                error_code=GulpWsError.OBJECT_NOT_FOUND.name,
+                            )
+                            await GulpWsSharedQueue.get_instance().put(
+                                type=GulpWsQueueDataType.WS_ERROR,
+                                ws_id=ingest_packet.ws_id,
+                                user_id=user_id,
+                                data=p.model_dump(exclude_none=True),
+                            )
+                            break
+
+                        # package data for worker
+                        packet = InternalWsIngestPacket(
+                            user_id=user_id, index=operation.index, data=ingest_packet
+                        )
+
+                        # and put in the worker queue
+                        worker_pool.put(packet)
+                    except Exception as ex:
+                        message_count -= 1  # Don't count errors against rate limit
                         MutyLogger.get_instance().error(
-                            "operation %s not found!" % (ingest_packet.operation_id)
+                            f"Error processing ingest message: {ex}"
                         )
-                        p = GulpWsErrorPacket(
-                            error="operation %s not found!"
-                            % (ingest_packet.operation_id),
-                            error_code=GulpWsError.OBJECT_NOT_FOUND.name,
-                        )
-                        await GulpWsSharedQueue.get_instance().put(
-                            type=GulpWsQueueDataType.WS_ERROR,
-                            ws_id=ingest_packet.ws_id,
-                            user_id=user_id,
-                            data=p.model_dump(exclude_none=True),
-                        )
-                        break
-
-                    # package data for worker
-                    packet = InternalWsIngestPacket(
-                        user_id=user_id, index=operation.index, data=ingest_packet
-                    )
-
-                    # and put in the worker queue
-                    worker_pool.put(packet)
 
         finally:
             await worker_pool.stop()
@@ -537,7 +575,7 @@ class GulpAPIWebsocket:
             if ws.ws.client_state != WebSocketState.CONNECTED:
                 raise WebSocketDisconnect("client disconnected")
 
-            #aApply rate limiting
+            # aApply rate limiting
             current_time = time.time()
             time_diff = current_time - last_window_start
 

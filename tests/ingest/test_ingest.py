@@ -312,7 +312,7 @@ async def test_ingest_ws_raw():
     async with websockets.connect(ws_url) as ws:
         # connect websocket
         p: GulpWsAuthPacket = GulpWsAuthPacket(
-            token=ingest_token, ws_id=TEST_WS_ID + "_ingest_raw"
+            token=ingest_token, ws_id=TEST_WS_ID
         )
         await ws.send(p.model_dump_json(exclude_none=True))
 

@@ -14,7 +14,7 @@ export PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-
 export PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins
 
 # settijg GULP_INTEGRATION_TEST is mandatory when running tests (disables debug features if forgotten activated)
-GULP_INTEGRATION_TEST=1 gulp
+GULP_INTEGRATION_TEST=1 gulp --reset-collab-full
 ~~~
 
 ## running the test suite
