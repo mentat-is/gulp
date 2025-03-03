@@ -4,13 +4,15 @@ import muty.file
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
-from gulp.api.rest.client.common import _test_init, GulpAPICommon
+
+from gulp.api.rest.client.common import GulpAPICommon, _test_init
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.client.utility import GulpAPIUtility
 from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
+
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
@@ -27,7 +29,9 @@ async def test_utility():
         await GulpAPIDb.reset_collab_as_admin()
         if not os.environ.get("PATH_PLUGINS_EXTRA"):
             raise ValueError("PATH_PLUGINS_EXTRA not set")
-        MutyLogger.get_instance().info("PATH_PLUGINS_EXTRA: " + os.environ.get("PATH_PLUGINS_EXTRA"))
+        MutyLogger.get_instance().info(
+            "PATH_PLUGINS_EXTRA: " + os.environ.get("PATH_PLUGINS_EXTRA")
+        )
 
         # ensure clean
         test_plugin = "csv.py"
@@ -70,22 +74,24 @@ async def test_utility():
             guest_token, to_be_uploaded, expected_status=401
         )
         p = await GulpAPIUtility.plugin_upload(admin_token, to_be_uploaded)
-        assert p["path"] == os.path.join(
-            GulpConfig.get_instance().path_plugins_extra(), test_plugin
+        assert os.path.realpath(p["path"]) == os.path.realpath(
+            os.path.join(GulpConfig.get_instance().path_plugins_extra(), test_plugin)
         )
 
         # list plugin again
         # csv plugin should be in the list, but its path should be the extra path now (precedence)
         l = await GulpAPIUtility.plugin_list(guest_token)
         p = await GulpAPIUtility.plugin_get(admin_token, test_plugin)
-        assert p["path"] == os.path.join(
-            GulpConfig.get_instance().path_plugins_extra(), test_plugin
+        assert os.path.realpath(p["path"]) == os.path.realpath(
+            os.path.join(GulpConfig.get_instance().path_plugins_extra(), test_plugin)
         )
         found = False
         for plugin in l:
             if plugin["filename"] == test_plugin:
-                assert plugin["path"] == os.path.join(
-                    GulpConfig.get_instance().path_plugins_extra(), test_plugin
+                assert os.path.realpath(plugin["path"]) == os.path.realpath(
+                    os.path.join(
+                        GulpConfig.get_instance().path_plugins_extra(), test_plugin
+                    )
                 )
                 found = True
         assert found
@@ -96,15 +102,17 @@ async def test_utility():
             guest_token, plugin=test_plugin, expected_status=401
         )
         d = await GulpAPIUtility.plugin_delete(admin_token, plugin=test_plugin)
-        assert d["path"] == os.path.join(
-            GulpConfig.get_instance().path_plugins_extra(), test_plugin
+        assert os.path.realpath(d["path"]) == os.path.realpath(
+            os.path.join(GulpConfig.get_instance().path_plugins_extra(), test_plugin)
         )
         l = await GulpAPIUtility.plugin_list(guest_token)
         found = False
         for plugin in l:
             if plugin["filename"] == test_plugin:
-                assert plugin["path"] == os.path.join(
-                    GulpConfig.get_instance().path_plugins_default(), test_plugin
+                assert os.path.realpath(plugin["path"]) == os.path.realpath(
+                    os.path.join(
+                        GulpConfig.get_instance().path_plugins_default(), test_plugin
+                    )
                 )
                 found = True
         assert found
@@ -112,7 +120,9 @@ async def test_utility():
     async def _test_mapping_files():
         if not os.environ.get("PATH_MAPPING_FILES_EXTRA"):
             raise ValueError("PATH_MAPPING_FILES_EXTRA not set")
-        MutyLogger.get_instance().info("PATH_MAPPING_FILES_EXTRA: " + os.environ.get("PATH_MAPPING_FILES_EXTRA"))
+        MutyLogger.get_instance().info(
+            "PATH_MAPPING_FILES_EXTRA: " + os.environ.get("PATH_MAPPING_FILES_EXTRA")
+        )
 
         # ensure clean
         test_mapping_file = "chrome_history.json"
@@ -159,23 +169,29 @@ async def test_utility():
             guest_token, to_be_uploaded, expected_status=401
         )
         p = await GulpAPIUtility.mapping_file_upload(admin_token, to_be_uploaded)
-        assert p["path"] == os.path.join(
-            GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
+        assert os.path.realpath(p["path"]) == os.path.realpath(
+            os.path.join(
+                GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
+            )
         )
 
         # list mapping files again
         # mapping file should be in the list, but its path should be the extra path now (precedence)
         l = await GulpAPIUtility.mapping_file_list(guest_token)
         p = await GulpAPIUtility.mapping_file_get(admin_token, test_mapping_file)
-        assert p["path"] == os.path.join(
-            GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
+        assert os.path.realpath(p["path"]) == os.path.realpath(
+            os.path.join(
+                GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
+            )
         )
         found = False
         for mf in l:
             if mf["filename"] == test_mapping_file:
-                assert mf["path"] == os.path.join(
-                    GulpConfig.get_instance().path_mapping_files_extra(),
-                    test_mapping_file,
+                assert os.path.realpath(mf["path"]) == os.path.realpath(
+                    os.path.join(
+                        GulpConfig.get_instance().path_mapping_files_extra(),
+                        test_mapping_file,
+                    )
                 )
                 found = True
         assert found
@@ -188,16 +204,20 @@ async def test_utility():
         d = await GulpAPIUtility.mapping_file_delete(
             admin_token, mapping_file=test_mapping_file
         )
-        assert d["path"] == os.path.join(
-            GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
+        assert os.path.realpath(d["path"]) == os.path.realpath(
+            os.path.join(
+                GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
+            )
         )
         l = await GulpAPIUtility.mapping_file_list(guest_token)
         found = False
         for mf in l:
             if mf["filename"] == test_mapping_file:
-                assert mf["path"] == os.path.join(
-                    GulpConfig.get_instance().path_mapping_files_default(),
-                    test_mapping_file,
+                assert os.path.realpath(mf["path"]) == os.path.realpath(
+                    os.path.join(
+                        GulpConfig.get_instance().path_mapping_files_default(),
+                        test_mapping_file,
+                    )
                 )
                 found = True
         assert found
@@ -209,9 +229,13 @@ async def test_utility():
     v = await GulpAPIUtility.version(guest_token)
     assert v
 
-    # check env
-    os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.abspath("../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files")
-    os.environ["PATH_PLUGINS_EXTRA"] = os.path.abspath("../../gulp-paid-plugins/src/gulp-paid-plugins/plugins")
+    # check env
+    os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.abspath(
+        "../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
+    )
+    os.environ["PATH_PLUGINS_EXTRA"] = os.path.abspath(
+        "../../gulp-paid-plugins/src/gulp-paid-plugins/plugins"
+    )
     assert os.path.exists(os.environ["PATH_MAPPING_FILES_EXTRA"])
     assert os.path.exists(os.environ["PATH_PLUGINS_EXTRA"])
 
