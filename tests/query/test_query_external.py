@@ -59,7 +59,7 @@ async def test_elasticsearch():
                             False  # we are querying gulp's opensearch
                         )
 
-                        # 450 entries
+                        # 1 hits
                         from tests.query.test_query_api import TEST_QUERY_RAW
 
                         await GulpAPIQuery.query_external(

@@ -81,7 +81,6 @@ services:
     image: adminer
     depends_on:
       - postgres
-    restart: always
     ports:
       - 8081:8080
     networks:

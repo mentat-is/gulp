@@ -28,25 +28,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    PreviewDone,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import (GulpMapping, GulpMappingField,
-                                     GulpMappingFile)
-from gulp.api.opensearch.filters import (QUERY_DEFAULT_FIELDS,
-                                         GulpDocumentFilterResult,
-                                         GulpIngestionFilter, GulpQueryFilter)
-from gulp.api.opensearch.query import (GulpQuery, GulpQueryHelpers,
-                                       GulpQueryNoteParameters,
-                                       GulpQueryParameters)
+from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
+from gulp.api.opensearch.filters import (
+    QUERY_DEFAULT_FIELDS,
+    GulpDocumentFilterResult,
+    GulpIngestionFilter,
+    GulpQueryFilter,
+)
+from gulp.api.opensearch.query import (
+    GulpQuery,
+    GulpQueryHelpers,
+    GulpQueryNoteParameters,
+    GulpQueryParameters,
+)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import (GulpDocumentsChunkPacket,
-                             GulpIngestSourceDonePacket, GulpQueryDonePacket,
-                             GulpWsQueueDataType, GulpWsSharedQueue)
+from gulp.api.ws_api import (
+    GulpDocumentsChunkPacket,
+    GulpIngestSourceDonePacket,
+    GulpQueryDonePacket,
+    GulpWsQueueDataType,
+    GulpWsSharedQueue,
+)
 from gulp.config import GulpConfig
-from gulp.structs import (GulpPluginCustomParameter, GulpPluginParameters,
-                          ObjectNotFound)
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
 
 
 class GulpPluginType(StrEnum):
@@ -535,7 +547,7 @@ class GulpPluginBase(ABC):
                 "_process_docs_chunk: request %s cancelled" % (self._req_id)
             )
 
-        l: int=len(ingested_docs)
+        l: int = len(ingested_docs)
         if success_after_retry:
             # do not count skipped
             return l + skipped, 0
@@ -622,9 +634,7 @@ class GulpPluginBase(ABC):
             )
             self._ctx_cache[record_context_field] = ctx.id
             ctx_id = ctx.id
-            MutyLogger.get_instance().warning(
-                "cache miss, context=%s, ctx_id=%s" % (record_context_field, ctx_id)
-            )
+            # MutyLogger.get_instance().warning("(local)cache miss, context=%s, ctx_id=%s" % (context_name, ctx_id))
         else:
             # hit
             ctx_id = self._ctx_cache[record_context_field]
@@ -638,10 +648,7 @@ class GulpPluginBase(ABC):
             )
             self._src_cache[src_cache_key] = src.id
             src_id = src.id
-            MutyLogger.get_instance().warning(
-                "cache miss, context=%s, ctx_id=%s source=%s, src_id=%s"
-                % (record_context_field, src_id, record_source_field, src_id)
-            )
+            # MutyLogger.get_instance().warning("(local)cache miss, context=%s, ctx_id=%s source=%s, src_id=%s"% (record_context_field, src_id, source_name, src_id))
         else:
             # hit
             src_id = self._src_cache[src_cache_key]
@@ -1863,8 +1870,8 @@ class GulpPluginBase(ABC):
                 user_id=self._user_id,
                 operation_id=self._operation_id,
                 data=GulpIngestSourceDonePacket(
-                    source_id=self._source_id,
-                    context_id=self._context_id,
+                    source_id=self._source_id or "default",
+                    context_id=self._context_id or "default",
                     req_id=self._req_id,
                     docs_ingested=self._tot_ingested_in_source,
                     docs_skipped=self._tot_skipped_in_source,

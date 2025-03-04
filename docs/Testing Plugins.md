@@ -2,6 +2,7 @@
   - [running the test suite](#running-the-test-suite)
   - [running single tests manually](#running-single-tests-manually)
   - [ingestion tool](#ingestion-tool)
+  - [query external tool](#query-external-tool)
 
 # testing gulp
 
@@ -63,4 +64,22 @@ to quickly test ingestion with a particular plugin manually i.e. during plugin d
       }
     }
   }'
+~~~
+
+## query external tool
+
+a similar tool is available to manually test `external queries`: [query_external.py](../test_scripts/query_external.py):
+
+~~~bash
+# example for the splunk paid plugin, --ingest also ingest data
+./test_scripts/query_external.py --reset --plugin splunk --operation_id test_operation --ingest --plugin_params '{
+    "custom_parameters":  {
+        "uri": "http://localhost:8089",
+        "username": "admin",
+        "password": "Valerino74!",
+        "index": "incidente_183651"
+    },
+    "override_chunk_size": 200,
+    "additional_mapping_files": [[ "windows.json", "windows" ]]
+}'
 ~~~
