@@ -1937,7 +1937,7 @@ class GulpPluginBase(ABC):
             future = executor.submit(
                 asyncio.run,
                 GulpPluginBase.load(
-                    plugin, extension=extension, cache_mode=cache_mode, *args, **kwargs
+                    plugin, extension, cache_mode, *args, **kwargs
                 ),
             )
             return future.result()

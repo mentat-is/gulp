@@ -26,17 +26,19 @@ from gulp.structs import GulpPluginParameters
 """
 example usage:
 
-./test_scripts/query_external.py --reset --plugin splunk --operation_id test_operation --ingest --plugin_params '{
-    "custom_parameters":  {
-        "uri": "http://localhost:8089",
-        "username": "admin",
-        "password": "Valerino74!",
-        "index": "incidente_183651"
-    },
-    "override_chunk_size": 200,
-    "additional_mapping_files": [[ "windows.json", "windows" ]]
+./test_scripts/query_external.py \
+    --q 'sourcetype="WinEventLog:Security" Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe"' \
+    --plugin splunk --operation_id test_operation --reset --ingest \
+    --plugin_params '{
+        "custom_parameters":  {
+            "uri": "http://localhost:8089",
+            "username": "admin",
+            "password": "Valerino74!",
+            "index": "incidente_183651"
+        },
+        "override_chunk_size": 200,
+        "additional_mapping_files": [[ "windows.json", "windows" ]]
 }'
-
 """
 
 
