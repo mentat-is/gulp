@@ -635,6 +635,16 @@ class GulpConfig:
         MutyLogger.get_instance().debug("path_index_template: %s" % (pp))
         return p
 
+    def preview_mode_num_docs(self) -> int:
+        """
+        Returns the number of documents to show in preview mode.
+        """
+        n = self._config.get("preview_mode_num_docs", None)
+        if not n:
+            n = 100
+            # MutyLogger.get_instance().debug("using default number of documents for preview mode=%d" % (n))
+        return n
+
     def path_certs(self) -> str:
         """
         Returns the directory where the certificates are stored.

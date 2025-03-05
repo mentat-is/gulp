@@ -216,7 +216,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-    ) -> GulpRequestStatus:
+        **kwargs
+  ) -> GulpRequestStatus:
         try:
             if not plugin_params or plugin_params.is_empty():
                 plugin_params = GulpPluginParameters(mapping_file="windows.json")
@@ -234,6 +235,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
 
             # init parser

@@ -259,9 +259,6 @@ class GulpIngestSourceDonePacket(BaseModel):
         ..., description="The number of documents failed in this source."
     )
     req_id: str = Field(..., description="The request ID.")
-    preview: bool = Field(
-        False, description="If the ingestion has been run with preview_mode set."
-    )
     status: GulpRequestStatus = Field(..., description="The request status.")
 
 

@@ -156,6 +156,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        **kwargs
     ) -> GulpRequestStatus:
         try:
 
@@ -173,6 +174,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
         except Exception as ex:
             await self._source_failed(ex)

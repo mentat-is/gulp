@@ -102,6 +102,7 @@ class GulpPluginEntry(BaseModel):
                     "path": "/path/to/win_evtx.py",
                     "filename": "win_evtx.py",
                     "sigma_support": True,
+                    "regex": r"^\[.*\]",
                     "custom_parameters": [
                         muty.pydantic.autogenerate_model_example_by_class(
                             GulpPluginCustomParameter
@@ -156,6 +157,10 @@ class GulpPluginEntry(BaseModel):
     version: Optional[str] = Field(
         None,
         description="The plugin version.",
+    )
+    regex: Optional[str] = Field(
+        None,
+        description="A regex to identify the data type (i.e. to identify the file header), for ingestion plugin only.",
     )
 
 
@@ -364,6 +369,7 @@ class GulpPluginBase(ABC):
 
         # in preview mode, ingestion and stats are disabled
         self._preview_mode = False
+        self._preview_chunk: list[dict] = []
 
     @abstractmethod
     def display_name(self) -> str:
@@ -418,6 +424,12 @@ class GulpPluginBase(ABC):
         """
         return []
 
+    def regex(self) -> str:
+        """
+        A regex to identify the data type (i.e. to identify the file header), for ingestion plugin only
+        """
+        return None
+
     def tags(self) -> list[str]:
         """
         returns a list of tags for the plugin. Tags are used to aid filtering of plugins/query filters in the UI.
@@ -430,6 +442,12 @@ class GulpPluginBase(ABC):
         - ...
         """
         return []
+
+    def preview_chunk(self) -> list[dict]:
+        """
+        returns the accumulated preview chunk
+        """
+        return self._preview_chunk
 
     async def _ingest_chunk_and_or_send_to_ws(
         self,
@@ -667,6 +685,7 @@ class GulpPluginBase(ABC):
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
         index: str = None,
+        **kwargs,
     ) -> tuple[int, int, str]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
@@ -683,7 +702,7 @@ class GulpPluginBase(ABC):
             plugin_params (GulpPluginParameters): the plugin parameters, they are mandatory here (custom_parameters should usually be set with specific external source parameters, i.e. how to connect)
             q_options (GulpQueryParameters): additional query options.
             index (str, optional): the gulp's operation index to ingest into during query, may be None for no ingestion
-
+            kwargs: additional keyword arguments
         Notes:
             - implementers must call super().query_external first
             - this function *MUST NOT* raise exceptions.
@@ -988,6 +1007,7 @@ class GulpPluginBase(ABC):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> GulpRequestStatus:
         """
         ingests a file containing records in the plugin specific format.
@@ -1006,7 +1026,8 @@ class GulpPluginBase(ABC):
             original_file_path (str, optional): the original file path. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
-
+            kwargs: additional keyword arguments
+                - preview_mode (bool, optional): whether to ingest in preview mode. Defaults to False.
         Returns:
             GulpRequestStatus: The status of the ingestion.
 
@@ -1025,7 +1046,8 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
-        if context_id == "preview" and source_id == "preview" and not stats:
+        preview_mode = kwargs.get("preview_mode", False)
+        if preview_mode:
             # preview mode
             self._preview_mode = True
             self._ingestion_enabled = False
@@ -1359,8 +1381,6 @@ class GulpPluginBase(ABC):
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
             kwargs: additional keyword arguments.
-        Returns:
-            None
         """
         if self._external_query:
             # external query, documents have been already filtered by the query
@@ -1370,9 +1390,6 @@ class GulpPluginBase(ABC):
         if self._plugin_params.override_chunk_size:
             # using the provided chunk size instead
             ingestion_buffer_size = self._plugin_params.override_chunk_size
-        if self._preview_mode:
-            # preview mode, use a smaller chunk size
-            ingestion_buffer_size = 200
 
         self._extra_docs = []
 
@@ -1387,6 +1404,20 @@ class GulpPluginBase(ABC):
             return
 
         self._records_processed_per_chunk += 1
+
+        if self._preview_mode:
+            # preview, accumulate docs
+            self._preview_chunk.extend(docs)
+            # MutyLogger.get_instance().debug("accumulated %d docs" % (len(self._preview_chunk)))
+            if (
+                len(self._preview_chunk)
+                >= GulpConfig.get_instance().preview_mode_num_docs()
+            ):
+                # must stop
+                raise PreviewDone("preview done")
+
+            # and do nothing else
+            return
 
         # ingest record (may have generated multiple documents)
         for d in docs:
@@ -1445,10 +1476,6 @@ class GulpPluginBase(ABC):
                 self._docs_buffer = []
                 self._records_processed_per_chunk = 0
                 self._records_failed_per_chunk = 0
-
-        if self._preview_mode and self._records_processed_per_chunk > 10:
-            # preview mode, stop after 10 records
-            raise PreviewDone("preview, stopping after 10 records")
 
     async def _initialize(self, plugin_params: GulpPluginParameters = None) -> None:
         """
@@ -1754,7 +1781,7 @@ class GulpPluginBase(ABC):
                 pass
 
         # then finally ingest the chunk, use all_fields_on_ws if external query or preview mode
-        all_fields_on_ws = self._external_query or self._preview_mode
+        all_fields_on_ws = self._external_query
         ingested, skipped = await self._ingest_chunk_and_or_send_to_ws(
             self._docs_buffer,
             flt,
@@ -1850,7 +1877,7 @@ class GulpPluginBase(ABC):
             ingested = 0
             skipped = 0
 
-        if not self._stats and not self._ingestion_enabled and not self._preview_mode:
+        if not self._stats and (not self._ingestion_enabled or self._preview_mode):
             # this also happens on query external
             self._sess = None
             return
@@ -1877,7 +1904,6 @@ class GulpPluginBase(ABC):
                     docs_skipped=self._tot_skipped_in_source,
                     docs_failed=self._tot_failed_in_source,
                     status=status,
-                    preview=self._preview_mode,
                 ),
             )
 
@@ -1936,9 +1962,7 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(
-                    plugin, extension, cache_mode, *args, **kwargs
-                ),
+                GulpPluginBase.load(plugin, extension, cache_mode, *args, **kwargs),
             )
             return future.result()
 
@@ -2217,6 +2241,7 @@ class GulpPluginBase(ABC):
                     display_name=p.display_name(),
                     type=p.type(),
                     desc=p.desc(),
+                    regex=p.regex(),
                     filename=p.filename,
                     # check if plugin implements sigma_convert, if so it have sigma_support!
                     sigma_support=inspect.getmodule(p.sigma_convert)

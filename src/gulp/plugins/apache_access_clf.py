@@ -128,6 +128,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        **kwargs
     ) -> GulpRequestStatus:
         try:
             if not plugin_params or plugin_params.is_empty():
@@ -148,6 +149,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
         except Exception as ex:
             await self._source_failed(ex)
@@ -171,6 +173,7 @@ class Plugin(GulpPluginBase):
         pattern = re.compile(r"\s+".join(parts) + r".*\Z")
 
         doc_idx = 0
+        l:list[dict]=[]
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
                 async for l in log_src:

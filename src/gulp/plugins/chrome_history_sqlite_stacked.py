@@ -83,6 +83,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        **kwargs
     ) -> GulpRequestStatus:
 
         # set as stacked

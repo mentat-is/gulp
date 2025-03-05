@@ -103,6 +103,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        **kwargs
     ) -> GulpRequestStatus:
         try:
             if not plugin_params:
@@ -122,6 +123,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
             if not plugin_params.mappings:
                 plugin_params.mappings = {}

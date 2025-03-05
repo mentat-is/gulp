@@ -55,6 +55,8 @@
   "path_plugins_extra": null,
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
+  // how many documents to return in preview mode (default=100)
+  "preview_mode_num_docs": 100,
   // client certificate password (if any)
   "postgres_client_cert_password": null,
   // set to use SSL to connect to postgresql

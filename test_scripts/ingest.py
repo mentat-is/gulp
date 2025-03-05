@@ -90,7 +90,7 @@ def _parse_args():
     parser.add_argument(
         "--preview-mode",
         action="store_true",
-        help="preview mode (no ingestion and no stats, only streams documents to ws)",
+        help="preview mode: no ingestion, no stats, no ws, ignored with --raw",
         default=False,
     )
     return parser.parse_args()

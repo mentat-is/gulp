@@ -104,7 +104,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-    ) -> GulpRequestStatus:
+         **kwargs
+   ) -> GulpRequestStatus:
         try:
             # initialize plugin
             if not plugin_params or plugin_params.is_empty():
@@ -126,6 +127,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
         except Exception as ex:
             await self._source_failed(ex)

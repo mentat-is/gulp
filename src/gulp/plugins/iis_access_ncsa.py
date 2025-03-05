@@ -118,7 +118,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-    ) -> GulpRequestStatus:
+        **kwargs
+ ) -> GulpRequestStatus:
 
         date_format = self._plugin_params.custom_parameters.get(
             "date_format", "%d/%b/%Y:%H:%M:%S %z")
@@ -142,6 +143,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
         except Exception as ex:
             await self._source_failed(ex)

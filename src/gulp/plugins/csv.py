@@ -125,7 +125,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-    ) -> GulpRequestStatus:
+         **kwargs
+   ) -> GulpRequestStatus:
         if not plugin_params:
             plugin_params = GulpPluginParameters()
         try:
@@ -143,6 +144,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
 
             # stats must be created by the caller, get it

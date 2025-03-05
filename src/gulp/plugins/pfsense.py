@@ -227,6 +227,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        **kwargs
     ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
@@ -243,6 +244,7 @@ class Plugin(GulpPluginBase):
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
                 flt=flt,
+                **kwargs,
             )
             # taken from pfsense' parse_firewall_log_line function, these leve out some info (e.g. the pid of the filterlog process)
             rfc5424_pattern = r"<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)$"
