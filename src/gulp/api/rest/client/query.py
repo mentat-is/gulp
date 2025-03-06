@@ -1,7 +1,10 @@
+import json
+import os
 from typing import Any, Optional
 
 from muty.log import MutyLogger
-
+import muty.file
+import muty.crypto
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.rest.client.common import GulpAPICommon
@@ -81,6 +84,75 @@ class GulpAPIQuery:
             expected_status=expected_status,
         )
         return res
+
+    @staticmethod
+    async def query_sigma_zip(
+        token: str,
+        zip_file_path: str,
+        operation_id: str,
+        plugin: str,
+        q_options: Optional[GulpQueryParameters] = None,
+        plugin_params: Optional[GulpPluginParameters] = None,
+        flt: Optional[GulpQueryFilter] = None,
+        ws_id: str = None,
+        req_id: str = None,
+        restart_from: int = 0,
+        file_sha1: str = None,
+        total_file_size: int = 0,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        if not total_file_size:
+            total_file_size = os.path.getsize(zip_file_path)
+
+        if not file_sha1:
+            file_sha1 = await muty.crypto.hash_sha1_file(zip_file_path)
+
+        params = {
+            "operation_id": operation_id,
+            "plugin": plugin,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
+        }
+
+        payload = {
+            "flt": flt.model_dump(exclude_none=True) if flt else {},
+            "q_options": (
+                q_options.model_dump(exclude_none=True) if q_options else {}
+            ),
+            "file_sha1": file_sha1,
+            "plugin_params": (
+                plugin_params.model_dump(exclude_none=True) if plugin_params else {}
+            ),
+            "original_file_path": zip_file_path,
+        }
+
+        f = open(zip_file_path, "rb")
+        if restart_from > 0:
+            # advance to the restart offset
+            f.seek(restart_from)
+
+        files = {
+            "payload": ("payload.json", json.dumps(payload), "application/json"),
+            "f": (
+                os.path.basename(zip_file_path),
+                f,
+                "application/octet-stream",
+            ),
+        }
+
+        headers = {"size": str(total_file_size), "continue_offset": str(restart_from)}
+
+        return await api_common.make_request(
+            "POST",
+            "query_sigma_zip",
+            params=params,
+            token=token,
+            files=files,
+            headers=headers,
+            expected_status=expected_status,
+        )
 
     @staticmethod
     async def query_sigma(

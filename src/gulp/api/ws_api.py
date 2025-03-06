@@ -760,14 +760,27 @@ class GulpConnectedSocket:
         """
         continuously receives messages to detect disconnection
         """
+        # track time to periodically yield control
+        last_yield_time = time.monotonic()
+
         while True:
             if self.ws.client_state != WebSocketState.CONNECTED:
                 raise WebSocketDisconnect("client disconnected")
 
-            # this will raise WebSocketDisconnect when client disconnects
-            await self.ws.receive_json()
+            try:
+                # Use a shorter timeout to ensure we can yield control regularly
+                message = await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
 
-            # TODO: handle incoming messages from the client
+                # Yield control periodically even if receiving messages quickly
+                current_time = time.monotonic()
+                if current_time - last_yield_time > 0.1:
+                    await asyncio.sleep(0.01)  # Brief yield to handle control frames
+                    last_yield_time = current_time
+
+            except asyncio.TimeoutError:
+                # No message received, good time to yield control
+                await asyncio.sleep(0.01)
+                continue
 
     async def put_message(self, msg: dict) -> None:
         """
@@ -811,10 +824,26 @@ class GulpConnectedSocket:
             )
             ws_delay = GulpConfig.get_instance().ws_rate_limit_delay()
 
+            # adaptive delay
+            base_delay = ws_delay
+            message_count = 0
+            start_time = time.monotonic()
+
             while True:
+                # check queue size and adjust delay dynamically
+                queue_size = self.q.qsize()
+                if queue_size > 500:
+                    # Exponential backoff based on queue size
+                    current_delay = min(base_delay * (queue_size / 100), 0.5)
+                else:
+                    current_delay = base_delay
+
                 try:
+                    # use shorter timeout when queue is large to respond to pings faster
+                    timeout = 0.05 if queue_size > 200 else 0.1
+
                     # single message processing with timeout
-                    item = await asyncio.wait_for(self.q.get(), timeout=0.1)
+                    item = await asyncio.wait_for(self.q.get(), timeout=timeout)
 
                     # check state before sending
                     if asyncio.current_task().cancelled():
@@ -823,8 +852,25 @@ class GulpConnectedSocket:
                         raise WebSocketDisconnect("client disconnected")
 
                     # send
-                    await self.send_json(item, ws_delay)
+                    if self.ws.client_state == WebSocketState.CONNECTED:
+                        await self.send_json(item, current_delay)
                     self.q.task_done()
+
+                    message_count += 1
+                    if message_count % 1000 == 0:
+                        elapsed = time.monotonic() - start_time
+                        rate = message_count / elapsed if elapsed > 0 else 0
+                        MutyLogger.get_instance().info(
+                            f"WebSocket {self.ws_id} processing at {rate:.1f} msg/s, queue_size={self.q.qsize()}"
+                        )
+                    if message_count % 10000 == 0:
+                        # reset rate calculation
+                        start_time = time.monotonic()
+                        message_count = 0
+
+                    # yield control periodically to allow ping handling
+                    if message_count % 100 == 0:
+                        await asyncio.sleep(0.01)
 
                 except asyncio.TimeoutError:
                     if asyncio.current_task().cancelled():
@@ -1147,7 +1193,8 @@ class GulpWsSharedQueue:
         """
         from gulp.api.rest_api import GulpRestServer
 
-        BATCH_SIZE = 100
+        MIN_BATCH_SIZE = 10
+        MAX_BATCH_SIZE = 100
         BATCH_TIMEOUT = 0.1
         MAX_RETRIES = 3
         MAX_QUEUE_SIZE = 10000
@@ -1157,17 +1204,37 @@ class GulpWsSharedQueue:
 
         try:
             messages = []
+            current_batch_size = MAX_BATCH_SIZE
+            last_yield_time = time.monotonic()
+
             while not GulpRestServer.get_instance().is_shutdown():
-                # Backpressure check
-                if self._shared_q.qsize() > MAX_QUEUE_SIZE:
-                    await asyncio.sleep(0.1)
+                # force yield control every 100ms regardless of processing
+                current_time = time.monotonic()
+                if current_time - last_yield_time > 0.1:
+                    await asyncio.sleep(0.01)
+                    last_yield_time = current_time
+
+                shared_queue_size = self._shared_q.qsize()
+
+                # dynamic batch sizing based on load
+                if shared_queue_size > MAX_QUEUE_SIZE * 0.8:
+                    # under heavy load, process larger batches
+                    current_batch_size = MAX_BATCH_SIZE
+                elif shared_queue_size < MAX_QUEUE_SIZE * 0.2:
+                    # under light load, process smaller batches
+                    current_batch_size = MIN_BATCH_SIZE
+
+                # backpressure check with adaptive sleep
+                if shared_queue_size > MAX_QUEUE_SIZE:
+                    sleep_time = min(0.1 * (shared_queue_size / MAX_QUEUE_SIZE), 0.5)
+                    await asyncio.sleep(sleep_time)
                     continue
 
                 batch_start = time.monotonic()
 
-                # Collect messages
+                # collect messages
                 while (
-                    len(messages) < BATCH_SIZE
+                    len(messages) < current_batch_size
                     and (time.monotonic() - batch_start) < BATCH_TIMEOUT
                 ):
                     try:
@@ -1177,28 +1244,39 @@ class GulpWsSharedQueue:
                     except Empty:
                         break
 
-                # process collected messages
-                for msg in messages:
-                    retries = 0
-                    while retries < MAX_RETRIES:
-                        try:
-                            cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                            if cws:
-                                await GulpConnectedSockets.get_instance().broadcast_data(
-                                    msg
+                # process in smaller sub-batches to yield control
+                sub_batch_size = max(1, min(20, len(messages)))  # ensure minimum of 1
+                for i in range(0, len(messages), sub_batch_size):
+                    sub_batch = messages[i : i + sub_batch_size]
+                    for msg in sub_batch:
+                        retries = 0
+                        while retries < MAX_RETRIES:
+                            try:
+                                cws = GulpConnectedSockets.get_instance().find(
+                                    msg.ws_id
                                 )
-                            break
-                        except Exception as e:
-                            retries += 1
-                            if retries == MAX_RETRIES:
-                                logger.error(
-                                    f"Failed to process message after {
-                                        MAX_RETRIES} retries: {e}"
-                                )
-                            await asyncio.sleep(0.1 * retries)
+                                if cws:
+                                    await GulpConnectedSockets.get_instance().broadcast_data(
+                                        msg
+                                    )
+                                break
+                            except Exception as e:
+                                retries += 1
+                                if retries == MAX_RETRIES:
+                                    logger.error(
+                                        f"Failed to process message after {
+                                            MAX_RETRIES} retries: {e}"
+                                    )
+                                await asyncio.sleep(0.1 * retries)
+
+                    # yield control between sub-batches
+                    await asyncio.sleep(0.01)
 
                 messages.clear()
-                await asyncio.sleep(0.1)
+
+                # adaptive sleep based on queue size
+                sleep_time = 0.05 if shared_queue_size > MAX_QUEUE_SIZE * 0.5 else 0.1
+                await asyncio.sleep(sleep_time)
 
         except asyncio.CancelledError:
             logger.info("Queue processing cancelled")
@@ -1206,7 +1284,7 @@ class GulpWsSharedQueue:
             logger.error(f"Queue processing error: {e}")
             raise
         finally:
-            # Process remaining messages
+            # process remaining messages
             while messages:
                 try:
                     msg = messages.pop()

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import time
 
 import muty.file
 import pytest
@@ -12,7 +13,8 @@ from muty.log import MutyLogger
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import _test_ingest_ws_loop, _test_init
+from gulp.api.rest.client.common import GulpAPICommon, _test_ingest_ws_loop, _test_init
+from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.note import GulpAPINote
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
@@ -22,7 +24,9 @@ from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
+    TEST_INDEX,
     TEST_OPERATION_ID,
+    TEST_REQ_ID,
     TEST_WS_ID,
 )
 from gulp.api.ws_api import (
@@ -47,6 +51,12 @@ async def _setup():
     this is called before any test, to initialize the environment
     """
     await _test_init()
+    """GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+    await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=False)"""
 
 
 @pytest.mark.asyncio
@@ -56,6 +66,73 @@ async def test_queries():
 
     and the gulp server running on http://localhost:8080
     """
+
+    async def _test_sigma_zip(token: str):
+        # read sigmas
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
+
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+
+        async with websockets.connect(
+            ws_url,
+            ping_interval=30,  # less frequent pings (default is 20)
+            ping_timeout=30,  # longer timeout (default is 10)
+            close_timeout=15,  # give more time for close frame
+        ) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+            num_done: int = 0
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryParameters()
+                        q_options.group = "test group"
+                        q_options.note_parameters.create_notes = False
+                        await GulpAPIQuery.query_sigma_zip(
+                            token,
+                            sigma_zip_path,
+                            TEST_OPERATION_ID,
+                            "win_evtx",
+                            q_options,
+                        )
+                    elif data["type"] == "query_done":
+                        # query done
+                        num_done += 1
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s, matches=%d, num_done=%d"
+                            % (q_done_packet.name, q_done_packet.total_hits, num_done)
+                        )
+                        if num_done == 1209:
+                            test_completed = True
+                            break
+
+                    # ping the server
+                    if num_done % 100 == 0:
+                        await ws.ping()
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
+            except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
+
+        assert test_completed
+        MutyLogger.get_instance().info(_test_sigma_zip.__name__ + " succeeded!")
 
     async def _test_sigma_group(token: str):
         # read sigmas
@@ -409,7 +486,7 @@ async def test_queries():
     assert ingest_token
 
     # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+    from tests.ingest.test_ingest import test_win_evtx, test_win_evtx_multiple
 
     await test_win_evtx()
 
@@ -420,3 +497,125 @@ async def test_queries():
     await _test_query_raw(guest_token)
     await _test_query_single_id(guest_token)
     await _test_query_operations()
+
+
+@pytest.mark.asyncio
+async def test_sigma_zip():
+
+    async def _test_sigma_zip(token: str):
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
+
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+
+        # create a ping task to ensure regular pings regardless of message processing
+        async def _ping_loop(websocket):
+            try:
+                while True:
+                    await asyncio.sleep(10)  # Ping every 10 seconds consistently
+                    try:
+                        await websocket.ping()
+                    except Exception as e:
+                        MutyLogger.get_instance().error(f"Ping error: {e}")
+                        break
+            except asyncio.CancelledError:
+                pass
+
+        try:
+            async with websockets.connect(
+                ws_url,
+                ping_interval=30,
+                ping_timeout=30,
+                close_timeout=15,
+                max_size=10_000_000,  # Allow larger messages
+            ) as ws:
+                # Start a dedicated ping task
+                ping_task = asyncio.create_task(_ping_loop(ws))
+
+                # Connect websocket
+                p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+                await ws.send(p.model_dump_json(exclude_none=True))
+                num_done: int = 0
+                last_progress_time = time.time()
+
+                try:
+                    # Use separate task to run the query to not block message processing
+                    query_task = asyncio.create_task(
+                        GulpAPIQuery.query_sigma_zip(
+                            token,
+                            sigma_zip_path,
+                            TEST_OPERATION_ID,
+                            "win_evtx",
+                            GulpQueryParameters(
+                                group="test group",
+                                note_parameters={"create_notes": False},
+                            ),
+                        )
+                    )
+
+                    # Message processing loop
+                    while True:
+                        try:
+                            # Use a timeout to avoid blocking indefinitely
+                            response = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                            data = json.loads(response)
+
+                            # Process different message types
+                            if data["type"] == "query_done":
+                                num_done += 1
+                                q_done_packet = GulpQueryDonePacket.model_validate(
+                                    data["data"]
+                                )
+                                MutyLogger.get_instance().debug(
+                                    f"Query done: {q_done_packet.name}, matches: {q_done_packet.total_hits}, num_done: {num_done}"
+                                )
+
+                                if num_done == 1209:
+                                    test_completed = True
+                                    break
+
+                            # Add dynamic backpressure - slow down if processing lots of messages
+                            if num_done % 20 == 0:
+                                await asyncio.sleep(0.01)
+
+                        except asyncio.TimeoutError:
+                            # Check if query task failed
+                            if query_task.done() and not test_completed:
+                                if query_task.exception():
+                                    raise query_task.exception()
+                                MutyLogger.get_instance().warning(
+                                    "No messages received for 5 seconds"
+                                )
+                            continue
+
+                finally:
+                    # Clean up the ping task
+                    ping_task.cancel()
+                    await asyncio.gather(ping_task, return_exceptions=True)
+
+                    # Check query task status
+                    if not query_task.done():
+                        query_task.cancel()
+
+        except websockets.exceptions.ConnectionClosed as ex:
+            MutyLogger.get_instance().error(f"WebSocket closed: {ex}")
+        except Exception as ex:
+            MutyLogger.get_instance().error(f"Exception: {ex}")
+
+        assert test_completed, "Test did not complete successfully"
+        MutyLogger.get_instance().info(_test_sigma_zip.__name__ + " succeeded!")
+
+    # login
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest some data
+    from tests.ingest.test_ingest import test_win_evtx_multiple
+
+    # sigma zip test
+    await test_win_evtx_multiple()
+    await _test_sigma_zip(guest_token)

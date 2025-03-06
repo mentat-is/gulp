@@ -8,6 +8,8 @@ import muty.string
 import muty.time
 import muty.xml
 
+from gulp.api.collab.stats import PreviewDone
+
 try:
     from elasticsearch import AsyncElasticsearch
 except ImportError:
@@ -186,8 +188,8 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters,
         index: str = None,
-        **kwargs
-    ) -> tuple[int, int, str]:
+        **kwargs,
+    ) -> tuple[int, int, str] | tuple[int, list[dict]]:
         await super().query_external(
             sess,
             user_id,
@@ -198,6 +200,7 @@ class Plugin(GulpPluginBase):
             plugin_params,
             q_options,
             index,
+            **kwargs,
         )
 
         # connect
@@ -228,6 +231,10 @@ class Plugin(GulpPluginBase):
                 )
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
+            if self._preview_mode:
+                # in preview mode, we want to raise the exception
+                raise ex
+
             return 0, 0, q_options.name
 
         # query
@@ -247,18 +254,31 @@ class Plugin(GulpPluginBase):
             )
             if total_count == 0:
                 MutyLogger.get_instance().warning("no results!")
-                return 0, 0
+                if self._preview_mode:
+                    return 0, []
+
+                return 0, 0, q_options.name
 
             MutyLogger.get_instance().debug(
                 "elasticsearch/opensearch query done, total=%d, processed=%d!"
                 % (total_count, processed)
             )
+            if self._preview_mode:
+                return total_count, self.preview_chunk()
+
             return total_count, processed, q_options.name
+
+        except PreviewDone:
+            # preview done
+            return total_count, self.preview_chunk()
 
         except Exception as ex:
             # error during query
             MutyLogger.get_instance().exception(ex)
-            return 0, 0, q_options.name
+            if self._preview_mode:
+                raise ex
+
+            return total_count, processed, q_options.name
 
         finally:
             # last flush

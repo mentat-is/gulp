@@ -1,5 +1,4 @@
-"""Gulp plugin base class and plugin utilities.
-"""
+"""Gulp plugin base class and plugin utilities."""
 
 import asyncio
 import inspect
@@ -686,7 +685,7 @@ class GulpPluginBase(ABC):
         q_options: GulpQueryParameters = None,
         index: str = None,
         **kwargs,
-    ) -> tuple[int, int, str]:
+    ) -> tuple[int, int, str] | tuple[int, list[dict]]:
         """
         query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
 
@@ -707,8 +706,12 @@ class GulpPluginBase(ABC):
             - implementers must call super().query_external first
             - this function *MUST NOT* raise exceptions.
 
-        Returns:
+        Returns (q_options.preview_mode=False):
             tuple[int, int, str]: total documents found, total processed(ingested, usually=found unless errors), query_name
+
+        Returns (q_options.preview_mode=True):
+            q_options.preview_mode=True: tuple[int, list[dict]]: total_hits (if available), a preview(chunk) of the documents
+
         Raises:
             ObjectNotFound: if no document is found.
         """
@@ -734,9 +737,14 @@ class GulpPluginBase(ABC):
             # just query, no ingestion
             self._ingestion_enabled = False
 
+        if q_options.preview_mode:
+            self._preview_mode = True
+            self._ingest_index = None
+            self._ingestion_enabled = False
+            MutyLogger.get_instance().warning("external query preview mode enabled !")
+
         # initialize
         await self._initialize(plugin_params)
-
         return (0, 0, None)
 
     async def ingest_raw(

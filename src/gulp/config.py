@@ -635,6 +635,16 @@ class GulpConfig:
         MutyLogger.get_instance().debug("path_index_template: %s" % (pp))
         return p
 
+    def parallel_queries_max(self) -> int:
+        """
+        Returns the maximum number of parallel queries to run.
+        """
+        n = self._config.get("parallel_queries_max", 8)
+        if not n:
+            n = 8
+            # MutyLogger.get_instance().debug("using default number of parallel queries=%d" % (n))
+        return n
+    
     def preview_mode_num_docs(self) -> int:
         """
         Returns the number of documents to show in preview mode.

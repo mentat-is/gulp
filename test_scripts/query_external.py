@@ -84,6 +84,12 @@ def _parse_args():
     parser.add_argument(
         "--ingest", action="store_true", help="Ingest data", default=False
     )
+    parser.add_argument(
+        "--preview-mode",
+        action="store_true",
+        help="Preview mode (ignores --ingest)",
+        default=False,
+    )
     parser.add_argument("--q", default=SPLUNK_RAW_Q, help="Query to be used")
     parser.add_argument("--q_options", default=None, help="GulpQueryParameters as JSON")
     parser.add_argument(
@@ -132,7 +138,6 @@ async def query_external(args):
                 if data["type"] == "ws_connected":
                     # perform query
                     q_options = args.q_options or "{}"
-
                     # query
                     q_options: GulpQueryParameters = (
                         GulpQueryParameters.model_validate_json(args.q_options)
@@ -148,6 +153,10 @@ async def query_external(args):
                     q_options.name = "test_raw_query_splunk"
                     if not plugin_params.override_chunk_size:
                         plugin_params.override_chunk_size = 1000  # force if not set
+
+                    if args.preview_mode:
+                        args.ingest = False
+                        q_options.preview_mode = True
 
                     # dump structs before running the query
                     MutyLogger.get_instance().debug("q_options=%s", q_options)

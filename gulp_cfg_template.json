@@ -41,7 +41,9 @@
   "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
   // set to false to skip server certificate verification
   "opensearch_verify_certs": false,
-  // maximum number of processes to be used for ingestion (default=0=number of CPU cores)
+  // maximum parallel queries (default=8)
+  "parallel_queries_max": 8,
+  // maximum number of processes to be used for the pool (default=0=number of CPU cores)
   "parallel_processes_max": 0,
   // respawn a process after this number of tasks, may help against leaks (default=10)
   "parallel_processes_respawn_after_tasks": 10,

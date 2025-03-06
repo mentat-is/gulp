@@ -81,8 +81,8 @@ class GulpQueryNoteParameters(BaseModel):
         }
     )
     create_notes: bool = Field(
-        False,
-        description="if set, creates a note for every match (default for sigma queries and during external query ingestion)",
+        None,
+        description="if True, creates a note for every match (default for sigma queries and during external query ingestion, unless explicitly set to False)",
     )
     note_name: str = Field(
         None,
@@ -123,6 +123,7 @@ class GulpQueryParameters(BaseModel):
                     "limit": 1000,
                     "group": "test",
                     "name": "test",
+                    "preview_mode": False,
                     "search_after": None,
                     "loop": True,
                     "note_parameters": autogenerate_model_example_by_class(
@@ -195,6 +196,12 @@ if set, keep querying until all documents are returned (default=True, ignores `s
     note_parameters: Optional[GulpQueryNoteParameters] = Field(
         GulpQueryNoteParameters(),
         description="controls how notes are created during queries.",
+    )
+    preview_mode: Optional[bool] = Field(
+        False,
+        description="""
+if set, the query is **synchronous** and returns the preview chunk of documents, without streaming data on the websocket nor counting data in the stats.
+""",
     )
 
     def parse(self) -> dict:
