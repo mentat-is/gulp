@@ -593,6 +593,66 @@ class GulpPluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
+    async def _get_or_create_context(self, doc: dict, context_field: str) -> str:
+        """
+        get context from cache or create new one
+
+        Args:
+            doc (dict): document containing context info
+            context_field (str): field name for context id
+
+        Returns:
+            str: context id
+        """
+        # check cache first
+        if context_field in self._ctx_cache:
+            return self._ctx_cache[context_field]
+
+        # cache miss - create new context
+        context_name = doc.get(context_field, "default")
+        context: GulpContext
+        context, _ = await self._operation.add_context(
+            self._sess, self._user_id, context_name, self._ws_id, self._req_id
+        )
+
+        # update cache
+        self._ctx_cache[context_field] = context.id
+        return context.id
+
+    async def _get_or_create_source(
+        self, doc: dict, context_id: str, source_field: str, cache_key: str
+    ) -> str:
+        """
+        get source from cache or create new one
+
+        Args:
+            doc (dict): document containing source info
+            context_id (str): parent context id
+            source_field (str): field name for source id
+            cache_key (str): cache key for source
+
+        Returns:
+            str: source id
+        """
+        # check cache first
+        if cache_key in self._src_cache:
+            return self._src_cache[cache_key]
+
+        # cache miss - create new source
+        source_name = doc.get(source_field, "default")
+
+        # fetch context object
+        context: GulpContext = await GulpContext.get_by_id(self._sess, context_id)
+
+        # create source
+        source, _ = await context.add_source(
+            self._sess, self._user_id, source_name, self._ws_id, self._req_id
+        )
+
+        # update cache
+        self._src_cache[cache_key] = source.id
+        return source.id
+
     async def _add_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
         """
         this function extracts context ID and source ID from the document, and creates the corresponding GulpContext and/or GulpSource if they do not exists.
@@ -607,71 +667,44 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[str, str]: the context and source id.
         """
-
-        ctx_id: str = None
-        src_id: str = None
-        ctx: GulpContext = None
-
-        # get context and field (either use default)
-        record_context_field = self._plugin_params.custom_parameters.get(
+        # get field names from parameters or use defaults
+        context_field_name = self._plugin_params.custom_parameters.get(
             "context_field", "gulp.context_id"
         )
-        record_source_field = self._plugin_params.custom_parameters.get(
+        source_field_name = self._plugin_params.custom_parameters.get(
             "source_field", "gulp.source_id"
         )
 
-        # MutyLogger.get_instance().debug(f"record_context={record_context}, record_source={record_source}, ingest_index={self._ingest_index}")
-
+        # for no ingestion case, just get values from doc or use defaults
         if not self._ingest_index:
-            # no ingestion, get context and source from the record, setting bogus if parameters are not set
-            self._context_id = doc.get(record_context_field, "default")
-            self._source_id = doc.get(record_source_field, "default")
+            self._context_id = doc.get(context_field_name, "default")
+            self._source_id = doc.get(source_field_name, "default")
             return self._context_id, self._source_id
 
+        # lazy load operation object
         if not self._operation:
-            # get operation only once, then it's cached
             self._operation = await GulpOperation.get_by_id(
                 self._sess, self._operation_id
             )
 
-        # check cache
-        src_cache_key = "%s-%s" % (record_context_field, record_source_field)
-        if src_cache_key in self._ctx_cache:
-            # we have them both
-            ctx_id = self._ctx_cache[record_context_field]
-            src_id = self._src_cache[src_cache_key]
-            # MutyLogger.get_instance().debug(f"cache hit ctx & src: {ctx_id}, {src_id}")
-            return ctx_id, src_id
+        # create cache key for source lookup
+        source_cache_key = f"{context_field_name}-{source_field_name}"
 
-        if record_context_field not in self._ctx_cache:
-            # context cache miss, create context
-            context_name = doc.get(record_context_field, "default")
-            ctx, _ = await self._operation.add_context(
-                self._sess, self._user_id, context_name, self._ws_id, self._req_id
-            )
-            self._ctx_cache[record_context_field] = ctx.id
-            ctx_id = ctx.id
-            # MutyLogger.get_instance().warning("(local)cache miss, context=%s, ctx_id=%s" % (context_name, ctx_id))
-        else:
-            # hit
-            ctx_id = self._ctx_cache[record_context_field]
-            # MutyLogger.get_instance().debug(f"cache hit ctx: {ctx_id}")
+        # check if we have both context and source in cache
+        if source_cache_key in self._src_cache:
+            context_id = self._ctx_cache[context_field_name]
+            source_id = self._src_cache[source_cache_key]
+            return context_id, source_id
 
-        if src_cache_key not in self._src_cache:
-            # source cache miss, create source
-            source_name = doc.get(record_source_field, "default")
-            src, _ = await ctx.add_source(
-                self._sess, self._user_id, source_name, self._ws_id, self._req_id
-            )
-            self._src_cache[src_cache_key] = src.id
-            src_id = src.id
-            # MutyLogger.get_instance().warning("(local)cache miss, context=%s, ctx_id=%s source=%s, src_id=%s"% (record_context_field, src_id, source_name, src_id))
-        else:
-            # hit
-            src_id = self._src_cache[src_cache_key]
-            # MutyLogger.get_instance().debug(f"cache hit src: {src_id}")
+        # handle context creation/retrieval
+        context_id = await self._get_or_create_context(doc, context_field_name)
 
-        return ctx_id, src_id
+        # handle source creation/retrieval
+        source_id = await self._get_or_create_source(
+            doc, context_id, source_field_name, source_cache_key
+        )
+
+        return context_id, source_id
 
     async def query_external(
         self,
@@ -1231,6 +1264,26 @@ class GulpPluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
+    async def _process_with_stacked_plugin(
+        self, docs: list[dict], record_idx: int, **kwargs
+    ) -> list[dict]:
+        """
+        processes documents with stacked plugin.
+
+        Args:
+            docs (list[dict]): documents to process
+            record_idx (int): the index of the record
+            kwargs: additional keyword arguments
+
+        Returns:
+            list[dict]: processed documents
+        """
+        for i, doc in enumerate(docs):
+            docs[i] = await self._upper_record_to_gulp_document_fun(
+                doc, record_idx, **kwargs
+            )
+        return docs
+
     async def _record_to_gulp_documents_wrapper(
         self, record: Any, record_idx: int, **kwargs
     ) -> list[dict]:
@@ -1254,12 +1307,9 @@ class GulpPluginBase(ABC):
 
         docs = self._finalize_process_record(doc)
 
+        # apply upper plugin processing if stacked
         if self._upper_record_to_gulp_document_fun:
-            # postprocess documents with the stacked plugin
-            for i, doc in enumerate(docs):
-                docs[i] = await self._upper_record_to_gulp_document_fun(
-                    doc, record_idx, **kwargs
-                )
+            docs = await self._process_with_stacked_plugin(docs, record_idx, **kwargs)
 
         return docs
 
@@ -1370,6 +1420,79 @@ class GulpPluginBase(ABC):
 
         return _try_map_ecs(fields_mapping, d, source_value)
 
+    async def _update_ingestion_stats(self, ingested: int, skipped: int) -> None:
+        """
+        updates ingestion stats.
+
+        Args:
+            ingested (int): number of documents ingested
+            skipped (int): number of documents skipped
+        """
+        if self._stats and self._sess:
+            # update stats
+            MutyLogger.get_instance().debug(
+                "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d"
+                % (
+                    self._records_processed_per_chunk,
+                    ingested,
+                    skipped,
+                    self._tot_failed_in_source,
+                    self._tot_skipped_in_source,
+                )
+            )
+            d = dict(
+                source_id=self._source_id,
+                records_skipped=skipped,
+                records_ingested=ingested,
+                records_processed=self._records_processed_per_chunk,
+                records_failed=self._records_failed_per_chunk,
+            )
+            await self._stats.update(
+                self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
+            )
+
+    async def _flush_and_check_thresholds(
+        self,
+        flt: GulpIngestionFilter = None,
+        wait_for_refresh: bool = False,
+        **kwargs,
+    ) -> None:
+        """
+        flushes buffer and checks failure thresholds.
+
+        Args:
+            flt (GulpIngestionFilter, optional): filter to apply during ingestion
+            wait_for_refresh (bool, optional): whether to wait for refresh
+            kwargs: additional keyword arguments
+        """
+        # flush buffer and get stats
+        ingested, skipped = await self._flush_buffer(flt, wait_for_refresh, **kwargs)
+
+        # check if request was canceled
+        if self._req_canceled:
+            raise RequestCanceledError(f"request {self._req_id} canceled!")
+
+        # check failure thresholds
+        failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
+        if failure_threshold > 0 and (
+            self._tot_skipped_in_source >= failure_threshold
+            or self._tot_failed_in_source >= failure_threshold
+        ):
+            raise SourceCanceledError(
+                f"ingestion per-source failure threshold reached (tot_skipped={self._tot_skipped_in_source}, "
+                f"tot_failed={self._tot_failed_in_source}, threshold={failure_threshold}), "
+                f"canceling source..."
+            )
+
+        # update stats if available
+        if self._stats:
+            await self._update_ingestion_stats(ingested, skipped)
+
+        # reset buffers and counters
+        self._docs_buffer = []
+        self._records_processed_per_chunk = 0
+        self._records_failed_per_chunk = 0
+
     async def process_record(
         self,
         record: Any,
@@ -1394,10 +1517,11 @@ class GulpPluginBase(ABC):
             # external query, documents have been already filtered by the query
             flt = None
 
-        ingestion_buffer_size = GulpConfig.get_instance().documents_chunk_size()
-        if self._plugin_params.override_chunk_size:
-            # using the provided chunk size instead
-            ingestion_buffer_size = self._plugin_params.override_chunk_size
+        # get buffer size from config or override
+        ingestion_buffer_size = (
+            self._plugin_params.override_chunk_size
+            or GulpConfig.get_instance().documents_chunk_size()
+        )
 
         self._extra_docs = []
 
@@ -1427,63 +1551,176 @@ class GulpPluginBase(ABC):
             # and do nothing else
             return
 
-        # ingest record (may have generated multiple documents)
+        # add documents to buffer and check if we need to flush
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
+                await self._flush_and_check_thresholds(flt, wait_for_refresh, **kwargs)
 
-                # flush chunk to opensearch (ingest and stream to ws)
-                ingested, skipped = await self._flush_buffer(
-                    flt, wait_for_refresh, **kwargs
+    async def _parse_custom_parameters(self) -> None:
+        """
+        parse custom plugin parameters against defined ones and set default values if needed
+
+        Raises:
+            ValueError: if a required parameter is missing
+        """
+        defined_custom_params = self.custom_parameters()
+        for param in defined_custom_params:
+            param_name = param.name
+
+            # check if required parameter is present
+            if (
+                param.required
+                and param_name not in self._plugin_params.custom_parameters
+            ):
+                raise ValueError(
+                    f"required plugin parameter '{param_name}' not found in plugin_params.custom_parameters"
                 )
-                if self._req_canceled:
-                    raise RequestCanceledError("request %s canceled!" % (self._req_id))
 
-                # check threshold
-                failure_threshold = (
-                    GulpConfig.get_instance().ingestion_evt_failure_threshold()
+            # get current value or set default
+            param_value = self._plugin_params.custom_parameters.get(param_name)
+            if param_value is None and param.default_value is not None:
+                param_value = param.default_value
+                self._plugin_params.custom_parameters[param_name] = param_value
+
+            MutyLogger.get_instance().debug(
+                f"---> found plugin custom parameter: {param_name}={param_value}"
+            )
+
+    async def _setup_mapping(self) -> None:
+        """
+        setup mapping dictionaries from plugin_params.mappings or mapping files
+
+        Raises:
+            ValueError: if mapping file is empty or configuration is invalid
+        """
+        if self._plugin_params.mappings:
+            # use provided mappings dictionary
+            self._mappings = {
+                k: GulpMapping.model_validate(v)
+                for k, v in self._plugin_params.mappings.items()
+            }
+            MutyLogger.get_instance().debug(
+                f'using plugin_params.mappings="{self._plugin_params.mappings}"'
+            )
+        elif self._plugin_params.mapping_file:
+            # load from mapping file
+            mapping_file = self._plugin_params.mapping_file
+            MutyLogger.get_instance().debug(
+                f"using plugin_params.mapping_file={mapping_file}"
+            )
+
+            mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
+                mapping_file
+            )
+            file_content = await muty.file.read_file_async(mapping_file_path)
+            mapping_data = json.loads(file_content)
+
+            if not mapping_data:
+                raise ValueError(f"mapping file {mapping_file_path} is empty!")
+
+            mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
+            self._mappings = mapping_file_obj.mappings
+
+        # handle mapping_id
+        if self._plugin_params.mapping_id:
+            self._mapping_id = self._plugin_params.mapping_id
+            MutyLogger.get_instance().debug(
+                f"using plugin_params.mapping_id={self._mapping_id}"
+            )
+
+        # validation checks
+        if not self._mappings and self._mapping_id:
+            raise ValueError("mapping_id is set but mappings/mapping_file is not!")
+
+        if not self._mappings and not self._mapping_id:
+            MutyLogger.get_instance().warning(
+                "mappings/mapping_file and mapping_id are both None/empty!"
+            )
+            self._mappings = {"default": GulpMapping(fields={})}
+
+        # ensure mapping_id is set to first key if not specified
+        self._mapping_id = self._mapping_id or list(self._mappings.keys())[0]
+        MutyLogger.get_instance().debug(f"mapping_id={self._mapping_id}")
+
+        # load additional mappings if needed
+        await self._load_additional_mappings()
+
+    async def _load_additional_mappings(self) -> None:
+        """
+        load and merge additional mappings from files
+
+        Raises:
+            ValueError: if additional mapping file is empty
+        """
+        # skip if using direct mappings or no additional files
+        if (
+            self._plugin_params.mappings
+            or not self._plugin_params.additional_mapping_files
+        ):
+            return
+
+        MutyLogger.get_instance().debug(
+            f"loading additional mapping files/id: {self._plugin_params.additional_mapping_files} ..."
+        )
+
+        for file_info in self._plugin_params.additional_mapping_files:
+            additional_file_path = GulpConfig.get_instance().build_mapping_file_path(
+                file_info[0]
+            )
+            additional_mapping_id = file_info[1]
+
+            file_content = await muty.file.read_file_async(additional_file_path)
+            mapping_data = json.loads(file_content)
+
+            if not mapping_data:
+                raise ValueError(
+                    f"additional mapping file {additional_file_path} is empty!"
                 )
-                if failure_threshold > 0 and (
-                    self._tot_skipped_in_source >= failure_threshold
-                    or self._tot_failed_in_source >= failure_threshold
-                ):
-                    # abort this source
-                    raise SourceCanceledError(
-                        "ingestion per-source failure threshold reached (tot_skipped=%d, tot_failed=%d, threshold=%d), canceling source..."
-                        % (
-                            self._tot_skipped_in_source,
-                            self._tot_failed_in_source,
-                            failure_threshold,
-                        )
-                    )
 
-                if self._stats:
-                    # update stats
-                    MutyLogger.get_instance().debug(
-                        "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d"
-                        % (
-                            self._records_processed_per_chunk,
-                            ingested,
-                            skipped,
-                            self._tot_failed_in_source,
-                            self._tot_skipped_in_source,
-                        )
-                    )
-                    d = dict(
-                        source_id=self._source_id,
-                        records_skipped=skipped,
-                        records_ingested=ingested,
-                        records_processed=self._records_processed_per_chunk,
-                        records_failed=self._records_failed_per_chunk,
-                    )
-                    await self._stats.update(
-                        self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
-                    )
+            additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
 
-                # reset buffer and counters inside the plugin run
-                self._docs_buffer = []
-                self._records_processed_per_chunk = 0
-                self._records_failed_per_chunk = 0
+            # merge mappings
+            main_mapping = self.selected_mapping()
+            add_mapping = additional_mapping_file.mappings[additional_mapping_id]
+
+            MutyLogger.get_instance().debug(
+                f"adding additional mappings from {additional_file_path}.{additional_mapping_id} "
+                f"to {self.filename} '{self._mapping_id}' ..."
+            )
+
+            for key, value in add_mapping.fields.items():
+                main_mapping.fields[key] = value
+
+            self._mappings[self._mapping_id] = main_mapping
+
+    async def _handle_stacked_mappings(self) -> None:
+        """
+        pass mappings to the upper plugin in stacked configuration
+        """
+        if not self._stacked:
+            return
+
+        # pass our mappings to the upper plugin
+        if not self._upper_instance._mapping_id:
+            self._upper_instance._mapping_id = self._mapping_id
+
+        if not self._upper_instance._mappings:
+            self._upper_instance._mappings = self._mappings
+
+    async def _initialize_index_mappings(self) -> None:
+        """
+        initialize index type mapping from opensearch
+        """
+        if not self._index_type_mapping:
+            self._index_type_mapping = (
+                await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
+                    self._ingest_index
+                )
+            )
+            MutyLogger.get_instance().debug(
+                f"got index type mappings with {len(self._index_type_mapping)} entries"
+            )
 
     async def _initialize(self, plugin_params: GulpPluginParameters = None) -> None:
         """
@@ -1498,127 +1735,6 @@ class GulpPluginBase(ABC):
             ValueError: if a specific parameter is required but not found in plugin_params.
 
         """
-
-        def _parse_custom_parameters() -> None:
-            """
-            parse custom plugin parameters in plugin_params.custom_parameters against the one defined in GulpPlugin.custom_parameters(), and set default values if needed
-
-            """
-            # check any passed custom parameter against the plugin defined ones
-            defined_custom_params = self.custom_parameters()
-            for p in defined_custom_params:
-                k = p.name
-                if p.required and k not in plugin_params.custom_parameters:
-                    raise ValueError(
-                        "required plugin parameter '%s' not found in plugin_params.custom_parameters"
-                        % (k)
-                    )
-                v = self._plugin_params.custom_parameters.get(k)
-                if v is None and p.default_value is not None:
-                    # use default value if any
-                    v = p.default_value
-                    self._plugin_params.custom_parameters[k] = v
-                MutyLogger.get_instance().debug(
-                    "---> found plugin custom parameter: %s=%s" % (k, v)
-                )
-
-        async def _setup_mapping() -> None:
-            if self._plugin_params.mappings:
-                # mappings dict provided
-                mappings_dict = {
-                    k: GulpMapping.model_validate(v)
-                    for k, v in self._plugin_params.mappings.items()
-                }
-                MutyLogger.get_instance().debug(
-                    'using plugin_params.mappings="%s"' % (self._plugin_params.mappings)
-                )
-                self._mappings = mappings_dict
-            else:
-                if self._plugin_params.mapping_file:
-                    # load from file
-                    mapping_file = self._plugin_params.mapping_file
-                    MutyLogger.get_instance().debug(
-                        "using plugin_params.mapping_file=%s"
-                        % (self._plugin_params.mapping_file)
-                    )
-                    mapping_file_path = (
-                        GulpConfig.get_instance().build_mapping_file_path(mapping_file)
-                    )
-                    f = await muty.file.read_file_async(mapping_file_path)
-                    js = json.loads(f)
-                    if not js:
-                        raise ValueError(
-                            "mapping file %s is empty!" % (mapping_file_path)
-                        )
-
-                    gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
-                    self._mappings = gmf.mappings
-
-            if self._plugin_params.mapping_id:
-                # mapping id provided
-                self._mapping_id = self._plugin_params.mapping_id
-                MutyLogger.get_instance().debug(
-                    "using plugin_params.mapping_id=%s"
-                    % (self._plugin_params.mapping_id)
-                )
-
-            # checks
-            if not self._mappings and self._mapping_id:
-                raise ValueError("mapping_id is set but mappings/mapping_file is not!")
-            if not self._mappings and not self._mapping_id:
-                MutyLogger.get_instance().warning(
-                    "mappings/mapping_file and mapping_id are both None/empty!"
-                )
-                self._mappings = {"default": GulpMapping(fields={})}
-
-            # ensure mapping_id is set
-            self._mapping_id = self._mapping_id or list(self._mappings.keys())[0]
-
-            MutyLogger.get_instance().debug("mapping_id=%s" % (self._mapping_id))
-
-            # now go for additional mappings
-            if (
-                not self._plugin_params.mappings
-                and self._plugin_params.additional_mapping_files
-            ):
-                MutyLogger.get_instance().debug(
-                    "loading additional mapping files/id: %s ..."
-                    % (self._plugin_params.additional_mapping_files)
-                )
-                for f in self._plugin_params.additional_mapping_files:
-                    # each entry is a tuple (file, mapping_id)
-                    additional_mapping_file_path = (
-                        GulpConfig.get_instance().build_mapping_file_path(f[0])
-                    )
-                    additional_mapping_id = f[1]
-                    f = await muty.file.read_file_async(additional_mapping_file_path)
-                    js = json.loads(f)
-                    if not js:
-                        raise ValueError(
-                            "additional mapping file %s is empty!"
-                            % (additional_mapping_file_path)
-                        )
-
-                    a_gmf: GulpMappingFile = GulpMappingFile.model_validate(js)
-
-                    # update mappings
-                    MutyLogger.get_instance().debug(
-                        "adding additional mappings from %s.%s to %s '%s' ..."
-                        % (
-                            additional_mapping_file_path,
-                            additional_mapping_id,
-                            self.filename,
-                            self._mapping_id,
-                        )
-                    )
-
-                    main_mapping = self.selected_mapping()
-                    add_mapping = a_gmf.mappings[additional_mapping_id]
-                    for k, v in add_mapping.fields.items():
-                        main_mapping.fields[k] = v
-
-                    self._mappings[self._mapping_id] = main_mapping
-
         # ensure we have a plugin_params object
         self._plugin_params = plugin_params or GulpPluginParameters()
 
@@ -1631,7 +1747,7 @@ class GulpPluginBase(ABC):
         )
 
         # parse the custom parameters
-        _parse_custom_parameters()
+        await self._parse_custom_parameters()
         if (
             GulpPluginType.EXTENSION in self.type()
             or GulpPluginType.ENRICHMENT in self.type()
@@ -1641,30 +1757,16 @@ class GulpPluginBase(ABC):
             )
             return
 
+        # setup mappings if needed
         if not self._mappings:
-            # set mappings
-            await _setup_mapping()
+            await self._setup_mapping()
 
-        if self._stacked:
-            # if we are in a stacked plugin, and we are the lower
-            # pass mappings we are called with to the upper, so
-            # the upper can apply them
-            if not self._upper_instance._mapping_id:
-                self._upper_instance._mapping_id = self._mapping_id
-            if not self._upper_instance._mappings:
-                self._upper_instance._mappings = self._mappings
+        # handle stacked plugin mappings
+        await self._handle_stacked_mappings()
 
-        # initialize index types k,v mapping from opensearch
-        if not self._index_type_mapping:
-            self._index_type_mapping = (
-                await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
-                    self._ingest_index
-                )
-            )
-            MutyLogger.get_instance().debug(
-                "got index type mappings with %d entries"
-                % (len(self._index_type_mapping))
-            )
+        # initialize index type mappings
+        await self._initialize_index_mappings()
+
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
 
     def _type_checks(self, k: str, v: Any) -> tuple[str, Any]:
