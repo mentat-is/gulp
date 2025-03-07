@@ -154,16 +154,246 @@ async def _query_internal(
     return hits, None, q_name
 
 
-async def _worker_coro(kwds: dict):
+async def _prepare_query_options(
+    gq: GulpQuery, 
+    base_options: GulpQueryParameters
+) -> GulpQueryParameters:
     """
-    runs in background an spawn/waits query workers
-
-    1. run queries
-    2. wait each and collect totals
-    3. if all match, update note tags with group names and signal websocket with QUERY_GROUP_MATCH
+    prepare customized query options for a specific query.
+    
+    Args:
+        gq (GulpQuery): the query for which to prepare options
+        base_options (GulpQueryParameters): base query options to customize
+        
+    Returns:
+        GulpQueryParameters: customized query options for this specific query
     """
+    # create a deep copy to avoid modifying the original
+    q_opt = deepcopy(base_options)
 
-    tasks: list[Task] = []
+    # set name, i.e. for sigma rules we want the sigma rule name to be used
+    q_opt.name = gq.name
+
+    # note name set to query name
+    q_opt.note_parameters.note_name = gq.name
+
+    if gq.name not in q_opt.note_parameters.note_tags:
+        # query name in note tags (this will allow to identify the results in the end)
+        q_opt.note_parameters.note_tags.append(gq.name)
+        
+    return q_opt
+
+
+async def _process_batch_results(
+    batch_results: list[tuple[int, Exception, str]],
+    user_id: str,
+    req_id: str,
+    ws_id: str
+) -> tuple[int, int, list[str], list[str]]:
+    """
+    process batch results and send query_done packets for each result.
+    
+    Args:
+        batch_results (list[tuple[int, Exception, str]]): results from batch processing
+        user_id (str): the user id
+        req_id (str): request id
+        ws_id (str): websocket id
+        
+    Returns:
+        tuple[int, int, list[str], list[str]]: matched queries count, total document matches, 
+                                              query names that matched, errors encountered
+    """
+    query_matched: int = 0
+    total_doc_matches: int = 0
+    query_names: list[str] = []
+    errors: list[str] = []
+    
+    # process each result in the batch
+    for r in batch_results:
+        # res is a tuple (hits, exception, query_name)
+        hits: int = 0
+        ex: Exception = None
+        q_name: str = None
+        err: str = None
+        hits, ex, q_name = r
+        
+        MutyLogger.get_instance().debug(
+            "query %s matched %d hits, ex=%s" % (q_name, hits, ex)
+        )
+        
+        # track stats
+        if hits > 0:
+            # we have a match
+            query_matched += 1
+            query_names.append(q_name)
+            total_doc_matches += hits
+            
+        if ex:
+            # we have an error
+            err = muty.log.exception_to_string(ex, with_full_traceback=True)
+            errors.append(err)
+
+        # send a query_done on the ws for this query immediately
+        p = GulpQueryDonePacket(
+            status=GulpRequestStatus.DONE if not ex else GulpRequestStatus.FAILED,
+            errors=[err] if err else None,
+            total_hits=hits,
+            name=q_name,
+        )
+        GulpWsSharedQueue.get_instance().put(
+            type=GulpWsQueueDataType.QUERY_DONE,
+            ws_id=ws_id,
+            user_id=user_id,
+            req_id=req_id,
+            data=p.model_dump(exclude_none=True),
+        )
+        
+    return query_matched, total_doc_matches, query_names, errors
+
+
+async def _handle_query_group_match(
+    operation_id: str,
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    q_options: GulpQueryParameters,
+    query_names: list[str],
+    total_doc_matches: int,
+    user_is_admin: bool,
+    user_group_ids: list[str]
+) -> None:
+    """
+    handle query group matching - update note tags with group name and signal websocket.
+    
+    Args:
+        operation_id (str): operation id
+        user_id (str): user id
+        req_id (str): request id
+        ws_id (str): websocket id
+        q_options (GulpQueryParameters): query options
+        query_names (list[str]): list of query names that matched
+        total_doc_matches (int): total number of document matches across all queries
+        user_is_admin (bool): whether the user is an admin
+        user_group_ids (list[str]): list of group ids the user belongs to
+    """
+    # all queries in the group matched, update note tags with group name
+    MutyLogger.get_instance().info(
+        "query group '%s' matched, updating notes!" % (q_options.group)
+    )
+    
+    if q_options.note_parameters.create_notes:
+        async with GulpCollab.get_instance().session() as sess:
+            # look for tags = query name and update them with the group name
+            await GulpNote.bulk_update_tags(
+                sess,
+                query_names,
+                [q_options.group],
+                operation_id=operation_id,
+                user_id=user_id,
+                user_id_is_admin=user_is_admin,
+                user_group_ids=user_group_ids,
+            )
+    
+    # and signal websocket
+    p = GulpQueryGroupMatchPacket(
+        name=q_options.group, total_hits=total_doc_matches
+    )
+    GulpWsSharedQueue.get_instance().put(
+        type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
+        ws_id=ws_id,
+        user_id=user_id,
+        req_id=req_id,
+        data=p.model_dump(exclude_none=True),
+    )
+
+
+async def _process_query_batch(
+    batch: list[GulpQuery],
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    operation_id: str,
+    index: str,
+    q_options: GulpQueryParameters,
+    plugin: str,
+    plugin_params: GulpPluginParameters,
+    flt: GulpQueryFilter,
+    current_batch: int,
+    num_batches: int
+) -> tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
+    """
+    process a single batch of queries.
+    
+    Args:
+        batch (list[GulpQuery]): batch of queries to process
+        user_id (str): user id
+        req_id (str): request id
+        ws_id (str): websocket id
+        operation_id (str): operation id
+        index (str): index to query
+        q_options (GulpQueryParameters): query options
+        plugin (str): plugin to use
+        plugin_params (GulpPluginParameters): plugin parameters
+        flt (GulpQueryFilter): query filter
+        current_batch (int): current batch number
+        num_batches (int): total number of batches
+        
+    Returns:
+        tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]: 
+            batch results, matched queries count, total document matches, query names that matched, errors
+    """
+    batch_tasks = []
+
+    # create a task for each query in the batch
+    for gq in batch:
+        q_opt = await _prepare_query_options(gq, q_options)
+
+        # add task
+        d = dict(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            index=index,
+            q=gq.q,
+            q_options=q_opt,
+            plugin=plugin,
+            plugin_params=plugin_params,
+            flt=flt,
+        )
+
+        batch_tasks.append(
+            GulpProcess.get_instance().process_pool.apply(
+                _query_internal, kwds=d
+            )
+        )
+
+    # run the queries and wait to complete
+    MutyLogger.get_instance().debug(
+        "waiting for queries batch %d/%d, size of batch=%d" % (current_batch, num_batches, len(batch_tasks))
+    )
+    batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+
+    # process batch results and send query_done packets
+    query_matched, total_matches, names, errors = await _process_batch_results(
+        batch_results, user_id, req_id, ws_id
+    )
+    
+    return batch_results, query_matched, total_matches, names, errors
+
+
+async def _worker_coro(kwds: dict) -> None:
+    """
+    runs in background and processes queries in batches.
+    
+    1. processes queries in batches to limit resource usage
+    2. sends query_done packets immediately after each result
+    3. if all queries in a group match, updates note tags and signals websocket
+    
+    Args:
+        kwds (dict): dictionary containing all parameters for query processing
+    """
+    # extract parameters from kwds
     queries: list[GulpQuery] = kwds["queries"]
     operation_id: str = kwds["operation_id"]
     q_options: GulpQueryParameters = kwds["q_options"]
@@ -174,7 +404,14 @@ async def _worker_coro(kwds: dict):
     flt: GulpQueryFilter = kwds["flt"]
     plugin: str = kwds.get("plugin")
     plugin_params: GulpPluginParameters = kwds.get("plugin_params")
-    batch_size = GulpConfig.get_instance().parallel_queries_max()
+    batch_size: int = GulpConfig.get_instance().parallel_queries_max()
+
+    # track overall stats
+    all_results: list[tuple[int, Exception, str]] = []
+    query_matched_total: int = 0
+    total_doc_matches: int = 0
+    all_errors: list[str] = []
+    all_query_names: list[str] = []
 
     try:
         # process in batches to limit resource usage
@@ -182,58 +419,35 @@ async def _worker_coro(kwds: dict):
         MutyLogger.get_instance().info(
             "will spawn %d queries in batches of %d !" % (num_queries, batch_size)
         )
-        all_results = []
         num_batches = (num_queries // batch_size) + 1
-        current_batch = 0
 
         # build batches of batch_size
         for i in range(0, num_queries, batch_size):
+            current_batch = i // batch_size + 1
             batch = queries[i : i + batch_size]
-            batch_tasks = []
-
-            # create a task for each query in the batch and gather results
-            for gq in batch:
-                q_opt = deepcopy(q_options)
-
-                # set name, i.e. for sigma rules we want the sigma rule name to be used (which has been set in the GulpQuery struct)
-                q_opt.name = gq.name
-
-                # note name set to query name
-                q_opt.note_parameters.note_name = gq.name
-
-                if gq.name not in q_opt.note_parameters.note_tags:
-                    # query name in note tags (this will allow to identify the results in the end)
-                    q_opt.note_parameters.note_tags.append(gq.name)
-
-                # add task
-                d = dict(
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    operation_id=operation_id,
-                    index=index,
-                    q=gq.q,
-                    q_options=q_opt,
-                    plugin=plugin,
-                    plugin_params=plugin_params,
-                    flt=flt,
-                )
-
-                batch_tasks.append(
-                    GulpProcess.get_instance().process_pool.apply(
-                        _query_internal, kwds=d
-                    )
-                )
-
-            # process this batch: run the queries and wait to complete
-            current_batch += 1
-            MutyLogger.get_instance().debug(
-                "waiting for queries batch %d/%d, size of batch=%d" % (current_batch, num_batches, len(batch_tasks))
+            
+            # process this batch
+            batch_results, batch_matched, batch_matches, batch_names, batch_errors = await _process_query_batch(
+                batch=batch,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                index=index,
+                q_options=q_options,
+                plugin=plugin,
+                plugin_params=plugin_params,
+                flt=flt,
+                current_batch=current_batch,
+                num_batches=num_batches
             )
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-
-            # and add to totals
+            
+            # accumulate results for later processing if needed
             all_results.extend(batch_results)
+            query_matched_total += batch_matched
+            total_doc_matches += batch_matches
+            all_query_names.extend(batch_names)
+            all_errors.extend(batch_errors)
 
         # get user info (is admin, groups)
         async with GulpCollab.get_instance().session() as sess:
@@ -241,77 +455,24 @@ async def _worker_coro(kwds: dict):
             user_is_admin = u.is_admin()
             user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
 
-        # check if all queries matched
-        query_matched = 0
-        total_doc_matches = 0
-        errors: list[str] = []
-        query_names: list[str] = []
-        for r in all_results:
-            # res is a tuple (hits, exception, query_name)
-            hits: int = 0
-            ex: Exception = None
-            q_name: str = None
-            err: str = None
-            hits, ex, q_name = r
-            MutyLogger.get_instance().debug(
-                "query %s matched %d hits, ex=%s" % (q_name, hits, ex)
-            )
-            if hits > 0:
-                # we have a match
-                query_matched += 1
-                query_names.append(q_name)
-                total_doc_matches += hits
-            if ex:
-                # we have an error
-                err = muty.log.exception_to_string(ex, with_full_traceback=True)
-                errors.append(err)
-
-            # we send a query_done on the ws for each
-            p = GulpQueryDonePacket(
-                status=GulpRequestStatus.DONE if not ex else GulpRequestStatus.FAILED,
-                errors=[err] if err else None,
-                total_hits=hits,
-                name=q_name,
-            )
-            GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.QUERY_DONE,
-                ws_id=ws_id,
-                user_id=user_id,
-                req_id=req_id,
-                data=p.model_dump(exclude_none=True),
-            )
-
+        # log summary of query group results
         MutyLogger.get_instance().info(
             "query group=%s matched %d/%d queries, total hits=%d"
-            % (q_options.group, query_matched, num_queries, total_doc_matches)
+            % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
-        if num_queries > 1 and query_matched == num_queries:
-            # all queries in the group matched, update note tags with group name
-            MutyLogger.get_instance().info(
-                "query group '%s' matched, updating notes!" % (q_options.group)
-            )
-            if q_options.note_parameters.create_notes:
-                async with GulpCollab.get_instance().session() as sess:
-                    # look for tags = query name and update them with the group name
-                    await GulpNote.bulk_update_tags(
-                        sess,
-                        query_names,
-                        [q_options.group],
-                        operation_id=operation_id,
-                        user_id=user_id,
-                        user_id_is_admin=user_is_admin,
-                        user_group_ids=user_group_ids,
-                    )
-            # and signal websocket
-            p = GulpQueryGroupMatchPacket(
-                name=q_options.group, total_hits=total_doc_matches
-            )
-            GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
-                ws_id=ws_id,
+        
+        # if all queries in the group matched, update note tags and send notification
+        if num_queries > 1 and query_matched_total == num_queries:
+            await _handle_query_group_match(
+                operation_id=operation_id,
                 user_id=user_id,
                 req_id=req_id,
-                data=p.model_dump(exclude_none=True),
+                ws_id=ws_id,
+                q_options=q_options,
+                query_names=all_query_names,
+                total_doc_matches=total_doc_matches,
+                user_is_admin=user_is_admin,
+                user_group_ids=user_group_ids
             )
 
         # also update stats
@@ -322,14 +483,15 @@ async def _worker_coro(kwds: dict):
                 ws_id=ws_id,
                 user_id=user_id,
                 hits=total_doc_matches,
-                errors=errors,
+                errors=all_errors,
                 send_query_done=False,
             )
 
     finally:
-        tasks.clear()
-        tasks = None
-
+        # cleanup
+        all_results.clear()
+        all_errors.clear()
+        all_query_names.clear()
 
 async def _preview_query(
     operation_id: str,
