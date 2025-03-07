@@ -1,3 +1,4 @@
+import os
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
@@ -38,18 +39,19 @@ async def test_glyph():
             pass
     l = await GulpAPIGlyph.glyph_list(edit_token)
     assert not l
-
+    pwd = os.path.dirname(os.path.abspath(__file__))
+    
     # guest cannot create
     st = await GulpAPIGlyph.glyph_create(
         guest_token,
-        img_path="./user.png",
+        img_path=os.path.join(pwd, "./user.png"),
         name="user_test_glyph",
         expected_status=401,
     )
 
     st = await GulpAPIGlyph.glyph_create(
         edit_token,
-        img_path="./user.png",
+        img_path=os.path.join(pwd, "./user.png"),
         name="user_test_glyph",
     )
     assert st
@@ -73,7 +75,7 @@ async def test_glyph():
 
     # update
     await GulpAPIGlyph.glyph_update(
-        edit_token, st["id"], img_path="./user.png", name="glyph"
+        edit_token, st["id"], img_path=os.path.join(pwd, "./user.png"), name="glyph"
     )
     st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st["id"])
     assert st["name"] == "glyph"

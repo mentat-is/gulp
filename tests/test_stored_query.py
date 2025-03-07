@@ -37,7 +37,8 @@ async def test_stored_query():
         await GulpAPIStoredQuery.stored_query_delete(admin_token, q["id"])
 
     # read sigma
-    sigma_q = muty.file.read_file("./query/sigma/match_all.yaml")
+    pwd = os.path.dirname(os.path.abspath(__file__))
+    sigma_q = muty.file.read_file(os.path.join(pwd, "./query/sigma/match_all.yaml"))
 
     sigma_q: str = sigma_q.decode("utf-8")
     raw_q: str = json.dumps({"query": {"match_all": {}}})

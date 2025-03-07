@@ -8,18 +8,44 @@ import muty.time
 from muty.log import MutyLogger
 from psycopg import OperationalError
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import (ARRAY, BIGINT, VARCHAR, Boolean, ColumnElement,
-                        ForeignKey, Select, String, Tuple, and_, column,
-                        exists, func, insert, inspect, literal, or_, select,
-                        text)
+from sqlalchemy import (
+    ARRAY,
+    BIGINT,
+    VARCHAR,
+    Boolean,
+    ColumnElement,
+    ForeignKey,
+    Select,
+    String,
+    Tuple,
+    and_,
+    column,
+    exists,
+    func,
+    insert,
+    inspect,
+    literal,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.ext.mutable import MutableList
-from sqlalchemy.orm import (DeclarativeBase, Mapped, MappedAsDataclass,
-                            mapped_column, selectinload)
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    MappedAsDataclass,
+    mapped_column,
+    selectinload,
+)
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy_mixins.serialize import SerializeMixin
-from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
-                      wait_exponential)
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 if TYPE_CHECKING:
     from gulp.api.ws_api import GulpWsQueueDataType
@@ -603,42 +629,19 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MutyLogger.get_instance().error(f"Failed to acquire advisory lock: {e}")
             raise
 
-    @staticmethod
-    def _get_nested_relationships(model_class, seen=None):
-        if seen is None:
-            seen = set()
-
-        # Prevent infinite recursion
-        if model_class in seen:
-            return []
-        seen.add(model_class)
-
-        load_options = []
-        for rel in inspect(model_class).relationships:
-            # Add loading option for this relationship
-            load_opt = selectinload(getattr(model_class, rel.key))
-            load_options.append(load_opt)
-
-            # Recursively add nested relationships
-            target_class = rel.mapper.class_
-            nested_opts = GulpCollabBase._get_nested_relationships(target_class, seen)
-            for nested_opt in nested_opts:
-                load_options.append(load_opt.selectinload(nested_opt))
-
-        return load_options
-
     @classmethod
     def _build_relationship_loading_options(
         cls, recursive: bool = False, seen: set = None
     ) -> list:
         """
-        Build query options for eager loading relationships.
+        build query options for eager loading relationships.
 
         Args:
-            recursive (bool): Whether to load nested relationships recursively
-            seen (set): Set of classes already seen to prevent circular dependencies
+            recursive (bool): whether to load nested relationships recursively
+            seen (set): set of classes already seen to prevent circular dependencies
+
         Returns:
-            list: The list of loading options
+            list: the list of loading options
         """
         from sqlalchemy.orm import selectinload
 
@@ -654,24 +657,59 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if recursive:
             options = []
             for rel in inspect(cls).relationships:
-                # Add direct relationship
+                # add direct relationship
                 load_opt = selectinload(getattr(cls, rel.key))
                 options.append(load_opt)
 
-                # Add nested relationships
-                _ = rel.mapper.class_
-                nested_opts = cls._build_relationship_loading_options(
-                    recursive=True, seen=seen.copy()
+                # add nested relationships
+                target_class = rel.mapper.class_
+                nested_opts = target_class._build_relationship_loading_options(
+                    recursive=True, seen=seen
                 )
                 for nested_opt in nested_opts:
                     options.append(load_opt.selectinload(nested_opt))
             return options
         else:
-            # Direct relationships only
+            # direct relationships only
             return [
                 selectinload(getattr(cls, rel.key))
                 for rel in inspect(cls).relationships
             ]
+
+    @classmethod
+    def _process_grants(
+        cls, object_data: dict, owner_id: str, private: bool
+    ) -> tuple[list[str], list[str]]:
+        """
+        process user and group grants from object data.
+        
+        Args:
+            object_data (dict): the object data containing grants.
+            owner_id (str): the owner user ID.
+            private (bool): whether the object is private.
+            
+        Returns:
+            tuple[list[str], list[str]]: tuple of (user_grants, group_grants)
+        """
+        # extract grants from object data
+        granted_user_ids = object_data.get("granted_user_ids", [])
+        granted_user_group_ids = object_data.get("granted_user_group_ids", [])
+        
+        # determine final user grants
+        if granted_user_ids:
+            user_grants = granted_user_ids
+        elif private:
+            user_grants = [owner_id]  # private object, owner only
+        else:
+            user_grants = []  # public object
+        
+        # determine final group grants
+        if granted_user_group_ids:
+            group_grants = granted_user_group_ids
+        else:
+            group_grants = []
+        
+        return user_grants, group_grants
 
     @classmethod
     def build_base_object_dict(
@@ -709,35 +747,91 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj["time_updated"] = time_created
         obj["owner_user_id"] = owner_id
 
-        # check if user/groups are passed in object_data
-        granted_user_ids = object_data.get("granted_user_ids", [])
-        granted_user_group_ids = object_data.get("granted_user_group_ids", [])
-        if granted_user_ids:
-            # explicitly set user grants
-            obj["granted_user_ids"] = granted_user_ids
-        else:
-            # empty
-            if private:
-                # private object, just the owner can access it
-                obj["granted_user_ids"] = [owner_id]
-            else:
-                obj["granted_user_ids"] = []
-
-        if granted_user_group_ids:
-            # explicitly set group grants
-            obj["granted_user_group_ids"] = granted_user_group_ids
-        else:
-            # empty
-            if private:
-                # private object, just the owner can access it
-                obj["granted_user_group_ids"] = []
-            else:
-                obj["granted_user_group_ids"] = []
+        # set user and group grants
+        user_grants, group_grants = cls._process_grants(object_data, owner_id, private)
+        obj["granted_user_ids"] = user_grants
+        obj["granted_user_group_ids"] = group_grants
 
         if not obj.get("name", None):
             # set the name to the id if not provided
             obj["name"] = id
         return obj
+
+    @classmethod
+    async def _create_instance(cls, sess: AsyncSession, object_dict: dict) -> T:
+        """
+        creates an instance in the database from a prepared dictionary.
+
+        Args:
+            sess (AsyncSession): the database session to use.
+            object_dict (dict): the prepared dictionary with all required fields.
+
+        Returns:
+            T: the created instance.
+        """
+        # create select statement with eager loading
+        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {object_dict}")
+        stmt = (
+            select(cls)
+            .options(*cls._build_relationship_loading_options())
+            .from_statement(insert(cls).values(**object_dict).returning(cls))
+        )
+
+        result = await sess.execute(stmt)
+        instance: GulpCollabBase = result.scalar_one()
+        await sess.commit()
+        return instance
+
+    @classmethod
+    async def _send_ws_notification(
+        cls,
+        instance: T,
+        ws_id: str,
+        user_id: str,
+        ws_queue_datatype: "GulpWsQueueDataType" = None,
+        ws_data: dict = None,
+        object_data: dict = None,
+        req_id: str = None,
+        private: bool = True,
+    ) -> None:
+        """
+        sends websocket notification about an object creation or update.
+
+        Args:
+            instance (T): the instance that was created or updated.
+            ws_id (str): the websocket ID.
+            user_id (str): the user ID.
+            ws_queue_datatype (GulpWsQueueDataType, optional): the type of websocket data. defaults to COLLAB_UPDATE.
+            ws_data (dict, optional): custom data to send. defaults to None.
+            object_data (dict, optional): original object data. defaults to None.
+            req_id (str, optional): request ID. defaults to None.
+            private (bool, optional): if True, the notification is private. defaults to True.
+        """
+        from gulp.api.ws_api import (
+            GulpCollabCreateUpdatePacket,
+            GulpWsQueueDataType,
+            GulpWsSharedQueue,
+        )
+
+        if not ws_queue_datatype:
+            ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+
+        # use provided data or serialize the instance
+        if ws_data:
+            data = ws_data
+        else:
+            data = instance.to_dict(nested=True, exclude_none=True)
+
+        p = GulpCollabCreateUpdatePacket(data=data, created=True)
+        GulpWsSharedQueue.get_instance().put(
+            ws_queue_datatype,
+            ws_id=ws_id,
+            user_id=user_id,
+            operation_id=object_data.get("operation_id", None) if object_data else None,
+            req_id=req_id,
+            data=p.model_dump(exclude_none=True, exclude_defaults=True),
+            private=private,
+        )
 
     @classmethod
     async def _create(
@@ -771,53 +865,29 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
-        if not object_data:
-            object_data = {}
-
+        object_data = object_data or {}
         owner_id = owner_id or "admin"
+
+        # build object dictionary with necessary attributes
         d = cls.build_base_object_dict(
             object_data, owner_id=owner_id, id=id, private=private
         )
-        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {d}")
 
-        # create select statement with eager loading
-        stmt = (
-            select(cls)
-            .options(*cls._build_relationship_loading_options())
-            .from_statement(insert(cls).values(**d).returning(cls))
-        )
-
-        result = await sess.execute(stmt)
-        instance: GulpCollabBase = result.scalar_one()
-        instance_dict = instance.to_dict(nested=True, exclude_none=True)
-        await sess.commit()
-
+        # create object with eager loading
+        instance: GulpCollabBase = await cls._create_instance(sess, d)
         if ws_id:
-            from gulp.api.ws_api import (GulpCollabCreateUpdatePacket,
-                                         GulpWsQueueDataType,
-                                         GulpWsSharedQueue)
-
-            if not ws_queue_datatype:
-                ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
-
-            # notify the websocket of the collab object creation
-            if ws_data:
-                data = ws_data
-            else:
-                data = instance_dict
-
-            # FIXME: data=p.model.dump() creates data.data, which is ugly!
-            p = GulpCollabCreateUpdatePacket(data=data, created=True)
-            GulpWsSharedQueue.get_instance().put(
+            await cls._send_ws_notification(
+                instance,
+                ws_id,
+                owner_id,
                 ws_queue_datatype,
-                ws_id=ws_id,
-                user_id=owner_id,
-                operation_id=object_data.get("operation_id", None),
-                req_id=req_id,
-                data=p.model_dump(exclude_none=True, exclude_defaults=True),
-                private=private,
+                ws_data,
+                object_data,
+                req_id,
+                private,
             )
-        MutyLogger.get_instance().debug("created instance: %s" % (instance_dict))
+
+        # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
         return instance
 
     async def add_default_grants(self, sess: AsyncSession):
@@ -838,6 +908,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # add group grants
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+
         await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID)
 
     async def add_group_grant(self, sess: AsyncSession, group_id: str) -> None:
@@ -960,9 +1031,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         await sess.commit()
 
         if ws_id:
-            from gulp.api.ws_api import (GulpCollabDeletePacket,
-                                         GulpWsQueueDataType,
-                                         GulpWsSharedQueue)
+            from gulp.api.ws_api import (
+                GulpCollabDeletePacket,
+                GulpWsQueueDataType,
+                GulpWsSharedQueue,
+            )
 
             if not ws_queue_datatype:
                 ws_queue_datatype = GulpWsQueueDataType.COLLAB_DELETE
@@ -1146,9 +1219,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
 
         if ws_id:
-            from gulp.api.ws_api import (GulpCollabCreateUpdatePacket,
-                                         GulpWsQueueDataType,
-                                         GulpWsSharedQueue)
+            from gulp.api.ws_api import (
+                GulpCollabCreateUpdatePacket,
+                GulpWsQueueDataType,
+                GulpWsSharedQueue,
+            )
 
             if not ws_queue_datatype:
                 ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
@@ -1214,6 +1289,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         user_id: str = None,
         user_id_is_admin: bool = False,
         user_group_ids: list[str] = None,
+        recursive: bool = False,
     ) -> list[T]:
         """
         Asynchronously retrieves a list of objects based on the provided filter.
@@ -1225,6 +1301,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
             user_group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
+            recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
         Returns:
             list[T]: A list of objects that match the filter criteria.
         Raises:
@@ -1246,8 +1323,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt.granted_user_group_ids = user_group_ids or []
 
         q = flt.to_select_query(cls, with_for_update=with_for_update)
-        q = q.options(*cls._build_relationship_loading_options())
-        MutyLogger.get_instance().debug("get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q))
+        q = q.options(*cls._build_relationship_loading_options(recursive=recursive))
+        MutyLogger.get_instance().debug(
+            "get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
+        )
         res = await sess.execute(q)
         objects = res.scalars().all()
         if not objects:
@@ -1271,6 +1350,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         user_id: str = None,
         user_id_is_admin: bool = False,
         user_group_ids: list[str] = None,
+        recursive: bool = False,
     ) -> T:
         """
         Asynchronously retrieves the first object based on the provided filter.
@@ -1283,6 +1363,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
             user_group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
+            recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
 
         Returns:
             T: The first object that matches the filter criteria or None if not found.
@@ -1295,6 +1376,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             user_id=user_id,
             user_id_is_admin=user_id_is_admin,
             user_group_ids=user_group_ids,
+            recursive=recursive,
         )
 
         if obj:
