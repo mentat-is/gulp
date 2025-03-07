@@ -66,21 +66,21 @@ def main():
     )
     parser.add_argument(
         "--reset-collab",
-        help="reset collaboration database on start (do not delete data in 'operation' table).",
+        help="reset collaboration database on start (do not delete 'operation', 'users' and related tables to maintain existing owners and associations).",
         action="store_const",
         const=True,
         default=False,
     )
     parser.add_argument(
         "--reset-collab-full",
-        help="same as --reset-collab, but perform a full database reset and also delete operations data on OpenSearch.",
+        help="same as --reset-collab, but perform a full collaboration database reset also deleting data on OpenSearch for the operations found in the 'operations' table.",
         action="store_const",
         const=True,
         default=False,
     )
     parser.add_argument(
         "--reset-operation",
-        help="clear data for the given operation on start (the operation will be created if it doesn't exist).",
+        help="deletes operation data both on OpenSearch and on the collaboration database.",
         nargs=1,
         metavar=("operation_id"),
     )
