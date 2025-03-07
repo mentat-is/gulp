@@ -789,7 +789,7 @@ class GulpConnectedSocket:
 
         while True:
             # raise exception if websocket is disconnected
-            self._validate_connection()
+            self.validate_connection()
 
             try:
                 # use a shorter timeout to ensure we can yield control regularly
@@ -866,7 +866,7 @@ class GulpConnectedSocket:
         """
         return 0.05 if queue_size > self.QUEUE_SIZE_MEDIUM_THRESHOLD else 0.1
 
-    def _validate_connection(self) -> None:
+    def validate_connection(self) -> None:
         """
         validates that the websocket is still connected
 
@@ -896,7 +896,7 @@ class GulpConnectedSocket:
                 raise asyncio.CancelledError()
 
             # raise exception if websocket is disconnected
-            self._validate_connection()
+            self.validate_connection()
 
             # connection is verified, send the message
             await self.send_json(
