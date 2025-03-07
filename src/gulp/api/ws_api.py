@@ -1014,6 +1014,10 @@ class GulpConnectedSockets:
         if not hasattr(self, "_initialized"):
             self._initialized = True
             self._sockets: dict[str, GulpConnectedSocket] = {}
+            
+            # for faster lookup, maintain a mapping from ws_id to socket id
+            self._ws_id_map: dict[str, str] = {}
+            self._logger = MutyLogger.get_instance()
 
     def add(
         self,
@@ -1035,24 +1039,29 @@ class GulpConnectedSockets:
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
-        wws = GulpConnectedSocket(
+        # create connected socket instance
+        connected_socket = GulpConnectedSocket(
             ws=ws,
             ws_id=ws_id,
             types=types,
             operation_ids=operation_ids,
             socket_type=socket_type,
         )
-        self._sockets[str(id(ws))] = wws
+        
+        # store socket reference
+        socket_id = str(id(ws))
+        self._sockets[socket_id] = connected_socket
+        self._ws_id_map[ws_id] = socket_id
 
-        # also add to the global list
+        # add to global shared list
         from gulp.process import GulpProcess
-
         GulpProcess.get_instance().shared_ws_list.append(ws_id)
-        MutyLogger.get_instance().debug(
-            f"---> added connected ws: {ws}, id_str={str(id(ws))}, ws_id={ws_id}, len={len(self._sockets)}"
+        
+        self._logger.debug(
+            f"---> added connected ws: {ws}, id_str={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
         )
-        return wws
-
+        
+        return connected_socket
     async def remove(self, ws: WebSocket, flush: bool = True) -> None:
         """
         Removes a websocket from the connected sockets list
@@ -1062,32 +1071,36 @@ class GulpConnectedSockets:
             flush (bool, optional): If the queue should be flushed. Defaults to True.
 
         """
-        id_str = str(id(ws))
-        MutyLogger.get_instance().debug("---> remove, ws=%s, id_str=%s" % (ws, id_str))
-        cws = self._sockets.get(id_str, None)
-        if not cws:
-            MutyLogger.get_instance().warning(
-                f"remove(): no websocket found for ws={
-                    ws}, id_str={id_str}, len={len(self._sockets)}"
+        socket_id = str(id(ws))
+        self._logger.debug(f"---> remove, ws={ws}, id_str={socket_id}")
+        
+        connected_socket = self._sockets.get(socket_id)
+        if not connected_socket:
+            self._logger.warning(
+                f"remove(): no websocket found for ws={ws}, id_str={socket_id}, len={len(self._sockets)}"
             )
             return
 
-        # flush queue first
+        # flush queue if requested
         if flush:
-            await cws.cleanup()
+            await connected_socket.cleanup()
 
         # remove from global ws list
         from gulp.process import GulpProcess
+        ws_id = connected_socket.ws_id
+        while ws_id in GulpProcess.get_instance().shared_ws_list:
+            GulpProcess.get_instance().shared_ws_list.remove(ws_id)
 
-        while cws.ws_id in GulpProcess.get_instance().shared_ws_list:
-            GulpProcess.get_instance().shared_ws_list.remove(cws.ws_id)
+        # remove from internal maps
+        del self._sockets[socket_id]
+        if ws_id in self._ws_id_map:
+            del self._ws_id_map[ws_id]
 
-        del self._sockets[id_str]
-
-        MutyLogger.get_instance().debug(
-            f"---> removed connected ws={ws}, id={id_str}, ws_id={cws.ws_id}, len={len(self._sockets)}"
+        self._logger.debug(
+            f"---> removed connected ws={ws}, id={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
         )
 
+        
     def find(self, ws_id: str) -> GulpConnectedSocket:
         """
         Finds a ConnectedSocket object by its ID.
@@ -1098,113 +1111,121 @@ class GulpConnectedSockets:
         Returns:
             ConnectedSocket: The ConnectedSocket object or None if not found.
         """
-        for _, v in self._sockets.items():
-            if v.ws_id == ws_id:
-                return v
-
-        # MutyLogger.get_instance().warning(f"no websocket found for ws_id={ws_id}, len={len(self._sockets)}")
+        # use fast lookup via mapping
+        socket_id = self._ws_id_map.get(ws_id)
+        if socket_id:
+            return self._sockets.get(socket_id)
+        
+        # fallback to linear search if mapping fails
+        # this shouldn't happen but maintains backward compatibility
+        # TODO: we may remove this
+        for socket in self._sockets.values():
+            if socket.ws_id == ws_id:
+                # repair the mapping
+                self._ws_id_map[ws_id] = str(id(socket.ws))
+                return socket
+                
         return None
 
     async def cancel_all(self) -> None:
         """
-        Waits for all active websockets to close.
+        cancels all active websocket tasks
         """
-        # cancel all tasks
-        for _, cws in self._sockets.items():
-            MutyLogger.get_instance().warning(
-                "---> canceling ws %s, ws_id=%s, id_str=%s ..."
-                % (cws.ws, cws.ws_id, str(id(cws.ws)))
+        # create a copy to avoid modification during iteration
+        sockets_to_cancel = list(self._sockets.values())
+        
+        for connected_socket in sockets_to_cancel:
+            self._logger.warning(
+                f"---> canceling ws {connected_socket.ws}, ws_id={connected_socket.ws_id}"
             )
-            cws.receive_task.cancel()
-            cws.send_task.cancel()
+            if connected_socket.receive_task:
+                connected_socket.receive_task.cancel()
+            if connected_socket.send_task:
+                connected_socket.send_task.cancel()
 
-        MutyLogger.get_instance().debug(
-            "all active websockets closed, len=%d!" % (len(self._sockets))
+        self._logger.debug(
+            f"all active websockets cancelled, count={len(sockets_to_cancel)}"
         )
 
-    async def _route_message(
-        self, data: GulpWsData, client_ws: GulpConnectedSocket
-    ) -> None:
+    async def _route_message(self, data: GulpWsData, client_ws: GulpConnectedSocket) -> bool:
         """
-        routes the message to the target websocket
-
-        the message is routed only if:
-
-        - client ws is not an ingest ws AND
-        - message is not CLIENT_DATA (they are always routed) AND
-        - the message type is in the target websocket types AND
-        - the message operation_id is in the target websocket operation_ids AND
-        - private messages are only routed to the target websocket
-        - collab updates are only relayed to other websockets
+        determines if a message should be routed to the target websocket
+        and sends it if appropriate
 
         Args:
-            data (GulpWsData): The data to route.
-            client_ws (ConnectedSocket): The target websocket.
+            data (GulpWsData): the data to route
+            client_ws (GulpConnectedSocket): the target websocket
 
+        Returns:
+            bool: True if message was routed, False otherwise
         """
+        # skip if not a default socket
         if client_ws.socket_type != GulpWsType.WS_DEFAULT:
-            return
+            return False
 
-        # if types is set, only route if it matches
+        # check type filter
         if client_ws.types and data.type not in client_ws.types:
-            # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, types={client_ws.types}")
-            return
+            return False
 
-        # if operation_id is set, only route if it matches
+        # check operation filter
         if client_ws.operation_ids and data.operation_id not in client_ws.operation_ids:
-            # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}, operation_ids={client_ws.operation_ids}")
-            return
+            return False
 
-        # private messages are only routed to the target websocket (except login, always public)
-        if (
-            data.private and data.type != GulpWsQueueDataType.USER_LOGIN
-        ) and client_ws.ws_id != data.ws_id:
-            # MutyLogger.get_instance().warning(f"skipping private entry type={data.type} for ws_id={client_ws.ws_id}")
-            return
+        # handle private messages
+        if data.private and data.type != GulpWsQueueDataType.USER_LOGIN:
+            if client_ws.ws_id != data.ws_id:
+                return False
 
-        if data.type not in [
+        # check message distribution rules
+        broadcast_types = {
             GulpWsQueueDataType.COLLAB_UPDATE,
             GulpWsQueueDataType.COLLAB_DELETE,
             GulpWsQueueDataType.REBASE_DONE,
             GulpWsQueueDataType.USER_LOGIN,
             GulpWsQueueDataType.USER_LOGOUT,
-        ]:
-            # for data types not in this list, only relay to the ws_id of the client
-            if client_ws.ws_id != data.ws_id:
-                # MutyLogger.get_instance().warning(f"skipping entry type={data.type} for ws_id={client_ws.ws_id}")
-                return
+        }
+        
+        if data.type not in broadcast_types and client_ws.ws_id != data.ws_id:
+            return False
 
-        # send the message
+        # all checks passed, send the message
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
         await client_ws.put_message(message)
+        return True
 
-    async def broadcast_data(self, d: GulpWsData, skip_list: list[str] = None) -> None:
+    async def broadcast_message(self, data: GulpWsData, skip_list: list[str] = None) -> None:
         """
-        broadcasts data to all connected websockets
+        broadcasts message to appropriate connected websockets
 
         Args:
-            d (GulpWsData): The data to broadcast.
+            data (GulpWsData): The message to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
-        # Create copy of sockets dict
+        # create copy to avoid modification during iteration
         socket_items = list(self._sockets.items())
-
-        for ws_id, cws in socket_items:
+        
+        # track dead sockets for cleanup
+        dead_sockets = []
+        
+        for socket_id, connected_socket in socket_items:
             try:
-                if skip_list and ws_id in skip_list:
+                if skip_list and socket_id in skip_list:
                     continue
 
-                await self._route_message(d, cws)
+                await self._route_message(data, connected_socket)
 
             except Exception as ex:
-                MutyLogger.get_instance().warning(
-                    f"Failed to broadcast to {ws_id}: {str(ex)}"
+                self._logger.warning(
+                    f"Failed to broadcast to socket {socket_id}: {str(ex)}"
                 )
-                # remove dead socket
-                self._sockets.pop(ws_id, None)
-                continue
+                dead_sockets.append(socket_id)
+        
+        # clean up dead sockets
+        for socket_id in dead_sockets:
+            self._logger.warning(f"removing dead socket {socket_id}")
+            self._sockets.pop(socket_id, None)
 
 
 class GulpWsSharedQueue:
@@ -1368,7 +1389,7 @@ class GulpWsSharedQueue:
             try:
                 cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
                 if cws:
-                    await GulpConnectedSockets.get_instance().broadcast_data(msg)
+                    await GulpConnectedSockets.get_instance().broadcast_message(msg)
                 break
             except Exception as e:
                 retries += 1
@@ -1445,7 +1466,7 @@ class GulpWsSharedQueue:
                 try:
                     cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
                     if cws:
-                        await GulpConnectedSockets.get_instance().broadcast_data(msg)
+                        await GulpConnectedSockets.get_instance().broadcast_message(msg)
                 except Exception as e:
                     logger.error(f"Cleanup error: {e}")
 
