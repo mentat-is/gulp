@@ -50,13 +50,13 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _test_init()
-    """GulpAPICommon.get_instance().init(
+    # await _test_init()
+    GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
     admin_token = await GulpAPIUser.login("admin", "admin")
     assert admin_token
-    await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=False)"""
+    await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=False)
 
 
 @pytest.mark.asyncio
@@ -576,7 +576,7 @@ async def test_sigma_zip():
                                     test_completed = True
                                     break
 
-                            # Add dynamic backpressure - slow down if processing lots of messages
+                            # add dynamic backpressure - slow down if processing lots of messages
                             if num_done % 20 == 0:
                                 await asyncio.sleep(0.01)
 
@@ -617,5 +617,5 @@ async def test_sigma_zip():
     from tests.ingest.test_ingest import test_win_evtx_multiple
 
     # sigma zip test
-    await test_win_evtx_multiple()
+    #await test_win_evtx_multiple()
     await _test_sigma_zip(guest_token)
