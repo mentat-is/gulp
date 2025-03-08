@@ -50,26 +50,40 @@ class GulpOpenSearch:
 
     they should be named os-ca.pem, os.pem, os.key.
     """
+    _instance: "GulpOpenSearch" = None
 
     # to be used in dynamic templates
-    UNMAPPED_PREFIX = "gulp.unmapped"
+    UNMAPPED_PREFIX: str = "gulp.unmapped"
 
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
+
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance=super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
     def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._opensearch: AsyncOpenSearch = self._get_client()
+        """
+        Initialize the OpenSearch client singleton.
+        """
+        self._initialized: bool = True
+        self._opensearch: AsyncOpenSearch = self._get_client()
 
     @classmethod
     def get_instance(cls) -> "GulpOpenSearch":
         """
         returns the singleton instance of the OpenSearch client.
+
+        Returns:
+            GulpOpenSearch: The singleton instance of the OpenSearch client.
         """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+        if not cls._instance:
+            cls._instance=cls()
         return cls._instance
 
     async def reinit(self):

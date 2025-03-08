@@ -995,29 +995,39 @@ class GulpConnectedSockets:
     """
     singleton class to hold all connected sockets
     """
+    _instance: "GulpConnectedSockets" = None
 
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
+
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance=super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
     @classmethod
     def get_instance(cls) -> "GulpConnectedSockets":
         """
-        returns the singleton instance
-        """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+        Get the singleton instance of the class.
 
+        Returns:
+            GulpConnectedSockets: the singleton instance
+        """
+        if not cls._instance:
+            cls._instance=cls()
         return cls._instance
 
     def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._sockets: dict[str, GulpConnectedSocket] = {}
-            
-            # for faster lookup, maintain a mapping from ws_id to socket id
-            self._ws_id_map: dict[str, str] = {}
-            self._logger = MutyLogger.get_instance()
+        self._initialized: bool = True
+        self._sockets: dict[str, GulpConnectedSocket] = {}
+        
+        # for faster lookup, maintain a mapping from ws_id to socket id
+        self._ws_id_map: dict[str, str] = {}
+        self._logger = MutyLogger.get_instance()
 
     def add(
         self,
@@ -1233,6 +1243,7 @@ class GulpWsSharedQueue:
     Singleton class to manage a shared websocket queue between processes.
     Provides methods for adding data to the queue and processing messages.
     """
+    _instance: "GulpWsSharedQueue" = None
 
     # Class constants
     MAX_QUEUE_SIZE = 1000
@@ -1247,7 +1258,16 @@ class GulpWsSharedQueue:
     SUB_BATCH_SIZE = 20
 
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
+
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance=super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
     @classmethod
     def get_instance(cls) -> "GulpWsSharedQueue":
@@ -1257,17 +1277,16 @@ class GulpWsSharedQueue:
         Returns:
             GulpWsSharedQueue: The singleton instance.
         """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+        if not cls._instance:
+            cls._instance=cls()
         return cls._instance
 
     def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._shared_q: Queue = None
-            self._fill_task: asyncio.Task = None
-
+        self._initialized: bool = True
+        self._shared_q: Queue = None
+        self._fill_task: asyncio.Task = None
+        self._last_queue_warning: int = 0 # just for metrics...
+        
     def set_queue(self, q: Queue) -> None:
         """
         Sets the shared queue.
@@ -1316,9 +1335,6 @@ class GulpWsSharedQueue:
             sleep_time (float): applied sleep time
         """
         # log periodic warnings if queue remains consistently full
-        if not hasattr(self, "_last_queue_warning"):
-            self._last_queue_warning = 0
-
         now = time.time()
         load_ratio = queue_size / self.MAX_QUEUE_SIZE
 

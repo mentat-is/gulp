@@ -14,27 +14,42 @@ class GulpConfig:
     Gulp configuration singleton class.
     """
 
-    def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+    _instance: "GulpConfig" = None
 
-    @classmethod
-    def get_instance(cls) -> "GulpConfig":
+    def __init__(self):
+        pass
+
+    def __new__(cls):
         """
-        returns the singleton instance of the GulpConfig class, initializes it reading the configuration file if needed.
+        Create a new instance of the class.
         """
-        if not hasattr(cls, "_instance"):
+        if not cls._instance:
             cls._instance = super().__new__(cls)
             cls._instance._initialize()
         return cls._instance
 
-    def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._config_file_path: str = None
-            self._config: dict = None
+    @classmethod
+    def get_instance(cls) -> "GulpConfig":
+        """
+        get the singleton instance of the GulpConfig class, initializes it reading the configuration file if needed.
 
-            # read/initialize configuration and directories
-            self._read_config()
+        Return:
+            GulpConfig: the singleton
+        """
+        if not cls._instance:
+            cls._instance = cls()
+        return cls._instance
+
+    def _initialize(self):
+        """
+        Initializes the configuration singleton.
+        """
+        self._initialized: bool = True
+        self._config_file_path: str = None
+        self._config: dict = None
+
+        # read/initialize configuration and directories
+        self._read_config()
 
     def config(self) -> dict:
         """
@@ -644,7 +659,7 @@ class GulpConfig:
             n = 8
             # MutyLogger.get_instance().debug("using default number of parallel queries=%d" % (n))
         return n
-    
+
     def preview_mode_num_docs(self) -> int:
         """
         Returns the number of documents to show in preview mode.

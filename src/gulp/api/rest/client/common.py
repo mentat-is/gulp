@@ -37,8 +37,8 @@ async def _test_init(
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
-    from gulp.api.rest.client.user import GulpAPIUser
     from gulp.api.rest.client.db import GulpAPIDb
+    from gulp.api.rest.client.user import GulpAPIUser
 
     if reset_collab:
         # reset the collab
@@ -254,16 +254,28 @@ async def _test_ingest_ws_loop(
 
 
 class GulpAPICommon:
-    _instance = None
+    _instance: "GulpAPICommon" = None
+
+    def __init__(self):
+        pass
+
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
     @classmethod
     def get_instance(cls):
-        # get singleton
-        if cls._instance is None:
-            MutyLogger.get_instance("gulp_test")
-            cls._instance = GulpAPICommon()
-
+        if not cls._instance:
+            cls._instance = cls()
         return cls._instance
+
+    def _initialize(self):
+        MutyLogger.get_instance("gulp_test")
 
     def init(
         self,

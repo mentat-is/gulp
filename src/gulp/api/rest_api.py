@@ -39,33 +39,46 @@ class GulpRestServer:
     """
     manages the gULP REST server.
     """
+    _instance: "GulpRestServer" = None
 
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
 
-    def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._app = None
-            self._logger_file_path = None
-            self._log_level = None
-            self._reset_collab: int = 0
-            self._reset_operation = None
-            self._lifespan_task = None
-            self._shutdown: bool = False
-            self._restart_signal: asyncio.Event = asyncio.Event()
-            self._extension_plugins: list[GulpPluginBase] = []
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance=super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
     @classmethod
     def get_instance(cls) -> "GulpRestServer":
         """
         returns the singleton instance
-        """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
 
+        Returns:
+            GulpRestServer: the singleton instance
+        """
+        if not cls._instance:
+            cls._instance=cls()
         return cls._instance
+
+    def _initialize(self):
+        """
+        initializes the server singleton instance
+        """
+        self._initialized: bool = True
+        self._app: FastAPI = None
+        self._logger_file_path: str = None
+        self._log_level: int = None
+        self._reset_collab: int = 0
+        self._reset_operation: str = None
+        self._lifespan_task: asyncio.Task= None
+        self._shutdown: bool = False
+        self._restart_signal: asyncio.Event = asyncio.Event()
+        self._extension_plugins: list[GulpPluginBase] = []
 
     def trigger_restart(self) -> None:
         """Triggers server restart by setting event"""

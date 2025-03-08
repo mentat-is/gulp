@@ -167,24 +167,38 @@ class GulpPluginCache:
     """
     Plugin cache singleton.
     """
+    _instance: "GulpPluginCache"=None
 
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
 
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance=super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+    
     @classmethod
     def get_instance(cls) -> "GulpPluginCache":
         """
-        returns the plugin cache instance.
+        Get the plugin cache instance.
+
+        Returns:
+            GulpPluginCache: The plugin cache instance.
         """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+        if not cls._instance:
+            cls._instance=cls()
         return cls._instance
 
     def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._cache = {}
+        """
+        Initializes the instance.
+        """
+        self._initialized: bool = True
+        self._cache: dict = {}
 
     def clear(self):
         """
@@ -273,13 +287,13 @@ class GulpPluginBase(ABC):
         super().__init__()
 
         # tell if the plugin has been pickled by the multiprocessing module (internal)
-        self._pickled = pickled
+        self._pickled: bool = pickled
 
         # if set, this plugin have another plugin on top
-        self._stacked = False
+        self._stacked: bool = False
 
         # plugin file path
-        self.path = path
+        self.path: str = path
 
         #
         # the followin  are stored in the plugin instance at the query/ingest entrypoint
@@ -362,8 +376,8 @@ class GulpPluginBase(ABC):
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
         # to minimize db requests to postgres to get context and source at every record
-        self._ctx_cache = {}
-        self._src_cache = {}
+        self._ctx_cache: dict = {}
+        self._src_cache: dict = {}
         self._operation: GulpOperation = None
 
         # in preview mode, ingestion and stats are disabled

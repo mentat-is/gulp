@@ -3,6 +3,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Lock, Manager, Queue, Value
+from multiprocessing.managers import SyncManager
 
 from aiomultiprocess import Pool as AioProcessPool
 from asyncio_pool import AioPool as AioCoroPool
@@ -37,35 +38,74 @@ class GulpProcess:
             - GulpWsSharedQueue.get_instance(): the shared websocket queue
     """
 
+    _instance: "GulpProcess" = None
+
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
 
-    def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self.mp_manager = None
+    def __new__(cls) -> "GulpProcess":
+        """
+        creates a new instance of GulpProcess, or returns the existing one.
 
-            # allow main/worker processes to spawn threads
-            self.thread_pool: ThreadPoolExecutor = None
-            # allow main/worker processes to spawn coroutines
-            self.coro_pool: AioCoroPool = None
-            # allow the main process to spawn worker processes
-            self.process_pool: AioProcessPool = None
-            # active websocket ids
-            self.shared_ws_list: list[str] = None
-            self._log_level: int = None
-            self._logger_file_path: str = None
-            self._main_process = True
+        implements the singleton pattern by ensuring only one instance exists.
+
+        Args:
+            None
+
+        Returns:
+            GulpProcess: the singleton instance
+        """
+        if cls._instance is None:
+            # initialize the singleton instance
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+
+        return cls._instance
 
     @classmethod
     def get_instance(cls) -> "GulpProcess":
         """
-        returns the singleton instance of the OpenSearch client.
+        returns the singleton instance of the gulp process.
+
+        this method implements the singleton pattern to ensure only one
+        gulp process instance exists per actual process.
+
+        Args:
+            None
+
+        Returns:
+            GulpProcess: the singleton instance of the gulp process
         """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+        if not cls._instance:
+            cls._instance = cls()
         return cls._instance
+
+    def _initialize(self):
+        """
+        initializes the gulpprocess attributes.
+
+        this method is called only once when the singleton instance is created.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._initialized: bool = True
+        self.mp_manager: SyncManager = None
+
+        # allow main/worker processes to spawn threads
+        self.thread_pool: ThreadPoolExecutor = None
+        # allow main/worker processes to spawn coroutines
+        self.coro_pool: AioCoroPool = None
+        # allow the main process to spawn worker processes
+        self.process_pool: AioProcessPool = None
+        # active websocket ids
+        self.shared_ws_list: list[str] = None
+        self._log_level: int = None
+        self._logger_file_path: str = None
+        self._main_process: bool = True
 
     @staticmethod
     def _worker_exception_handler(ex: Exception):
@@ -75,7 +115,7 @@ class GulpProcess:
         MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None): # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):  # type: ignore
         """
         initializes a worker process
 
@@ -134,7 +174,7 @@ class GulpProcess:
         closes the thread pool
 
         Args:
-            wait (bool, optional): whether to wait for all threads to finish. Defaults
+            wait (bool, optional): whether to wait for all threads to finish. Defaults to True
         """
         if self.thread_pool:
             MutyLogger.get_instance().debug("closing thread pool...")
@@ -153,7 +193,8 @@ class GulpProcess:
                     await asyncio.wait_for(self.process_pool.join(), 5)
                 except asyncio.TimeoutError:
                     MutyLogger.get_instance().warning(
-                        "mp pool join timeout, terminating...")
+                        "mp pool join timeout, terminating..."
+                    )
                     self.process_pool.terminate()
                     await self.process_pool.join()
 
@@ -171,11 +212,12 @@ class GulpProcess:
 
         each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
         """
-        MutyLogger.get_instance().debug("recreating process pool and shared queue (respawn after %d tasks)..." %
-                                        (GulpConfig.get_instance().parallel_processes_respawn_after_tasks()))
+        MutyLogger.get_instance().debug(
+            "recreating process pool and shared queue (respawn after %d tasks)..."
+            % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
+        )
         if not self._main_process:
-            raise RuntimeError(
-                "only the main process can recreate the process pool")
+            raise RuntimeError("only the main process can recreate the process pool")
 
         if self.process_pool:
             # close the worker process pool gracefully if it is already running
@@ -283,8 +325,7 @@ class GulpProcess:
         # initializes executors
         await self.close_coro_pool()
         await self.close_thread_pool()
-        self.coro_pool = AioCoroPool(
-            GulpConfig.get_instance().concurrency_max_tasks())
+        self.coro_pool = AioCoroPool(GulpConfig.get_instance().concurrency_max_tasks())
         self.thread_pool = ThreadPoolExecutor()
 
         # initialize collab and opensearch clients
@@ -300,6 +341,7 @@ class GulpProcess:
 
             # load extension plugins
             from gulp.api.rest_api import GulpRestServer
+
             await GulpRestServer.get_instance()._unload_extension_plugins()
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:

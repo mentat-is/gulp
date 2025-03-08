@@ -26,6 +26,7 @@ from gulp.api.rest.test_values import (
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
+
 class GulpCollab:
     """
     singleton class, represents the collab database connection.
@@ -38,26 +39,40 @@ class GulpCollab:
 
     """
 
+    _instance: "GulpCollab" = None
+
     def __init__(self):
-        raise RuntimeError("call get_instance() instead")
+        pass
+
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
     @classmethod
     def get_instance(cls) -> "GulpCollab":
         """
         returns the singleton instance of the collab database connection.
-        """
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
 
+        Returns:
+            GulpCollab: The singleton instance of the collab database connection
+        """
+        if not cls._instance:
+            cls._instance = cls()
         return cls._instance
 
     def _initialize(self):
-        if not hasattr(self, "_initialized"):
-            self._initialized = True
-            self._setup_done = False
-            self._engine: AsyncEngine = None
-            self._collab_sessionmaker = None
+        """
+        initializes the collab database connection (create the engine and configure it) in the singleton instance.
+        """
+        self._initialized: bool = True
+        self._setup_done: bool = False
+        self._engine: AsyncEngine = None
+        self._collab_sessionmaker: async_sessionmaker = None
 
     async def init(
         self,
@@ -77,13 +92,6 @@ class GulpCollab:
         """
         url = GulpConfig.get_instance().postgres_url()
 
-        """
-        self._engine = await self._create_engine()
-        self._collab_sessionmaker = async_sessionmaker(
-            bind=self._engine, expire_on_commit=expire_on_commit
-        )
-        self._setup_done = True
-        """
         # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
         package_name = "gulp.api.collab"
         package = import_module(package_name)
@@ -109,7 +117,8 @@ class GulpCollab:
             async with self._collab_sessionmaker() as sess:
                 if not await self._check_all_tables_exist(sess):
                     raise Exception(
-                        "collab database exists but (some) tables are missing.")
+                        "collab database exists but (some) tables are missing."
+                    )
         else:
             MutyLogger.get_instance().debug("init in worker process ...")
             self._engine = await self._create_engine()
@@ -199,8 +208,7 @@ class GulpCollab:
             AsyncSession: The session to the collab database
         """
         if not self._setup_done:
-            raise Exception(
-                "collab not initialized, call GulpCollab().init() first!")
+            raise Exception("collab not initialized, call GulpCollab().init() first!")
 
         return self._collab_sessionmaker()
 
@@ -271,8 +279,7 @@ class GulpCollab:
                     raise ObjectNotFound("database %s does not exist!" % (url))
 
         MutyLogger.get_instance().debug(
-            "---> drop: url=%s, raise_if_not_exists=%r" % (
-                url, raise_if_not_exists)
+            "---> drop: url=%s, raise_if_not_exists=%r" % (url, raise_if_not_exists)
         )
         await asyncio.to_thread(_blocking_drop, url, raise_if_not_exists)
 
@@ -363,7 +370,9 @@ class GulpCollab:
                 if table_name not in exclude:
                     await conn.execute(table.delete())
 
-    async def create_default_operation(self, operation_id: str = TEST_OPERATION_ID, index: str = TEST_INDEX) -> None:
+    async def create_default_operation(
+        self, operation_id: str = TEST_OPERATION_ID, index: str = TEST_INDEX
+    ) -> None:
         """
         create the default operation with a context and a source.
 
@@ -379,8 +388,13 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_first_by_filter(sess, GulpCollabFilter(names=["test_operation_icon"]),
-                                                                             user_id="admin", user_id_is_admin=True, throw_if_not_found=False)
+            operation_glyph: GulpGlyph = await GulpGlyph.get_first_by_filter(
+                sess,
+                GulpCollabFilter(names=["test_operation_icon"]),
+                user_id="admin",
+                user_id_is_admin=True,
+                throw_if_not_found=False,
+            )
 
             # create default operation
             operation: GulpOperation = await GulpOperation._create(
@@ -406,7 +420,9 @@ class GulpCollab:
             # add default grants (groups and users)
             await operation.add_default_grants(sess)
 
-            operations: list[GulpOperation] = await GulpOperation.get_by_filter(sess, user_id="admin", user_id_is_admin=True)
+            operations: list[GulpOperation] = await GulpOperation.get_by_filter(
+                sess, user_id="admin", user_id_is_admin=True
+            )
             for op in operations:
                 MutyLogger.get_instance().debug(
                     json.dumps(op.to_dict(nested=True), indent=4)
@@ -467,6 +483,7 @@ class GulpCollab:
 
             # create user groups
             from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+
             group: GulpUserGroup = await GulpUserGroup._create(
                 sess,
                 id=ADMINISTRATORS_GROUP_ID,
@@ -475,14 +492,16 @@ class GulpCollab:
                     "permission": [GulpUserPermission.ADMIN],
                 },
                 owner_id=admin_user.id,
-                private=False
+                private=False,
             )
 
             # add admin to administrators group
             await group.add_user(sess, admin_user.id)
 
             # dump groups
-            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(sess, user_id="admin", user_id_is_admin=True)
+            groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(
+                sess, user_id="admin", user_id_is_admin=True
+            )
             for group in groups:
                 MutyLogger.get_instance().debug(
                     json.dumps(group.to_dict(nested=True), indent=4)
@@ -504,10 +523,18 @@ class GulpCollab:
         async with self._collab_sessionmaker() as sess:
             # get users
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            guest_user: GulpUser = await GulpUser.get_by_id(sess, "guest", throw_if_not_found=False)
-            editor_user: GulpUser = await GulpUser.get_by_id(sess, "editor", throw_if_not_found=False)
-            ingest_user: GulpUser = await GulpUser.get_by_id(sess, "ingest", throw_if_not_found=False)
-            power_user: GulpUser = await GulpUser.get_by_id(sess, "power", throw_if_not_found=False)
+            guest_user: GulpUser = await GulpUser.get_by_id(
+                sess, "guest", throw_if_not_found=False
+            )
+            editor_user: GulpUser = await GulpUser.get_by_id(
+                sess, "editor", throw_if_not_found=False
+            )
+            ingest_user: GulpUser = await GulpUser.get_by_id(
+                sess, "ingest", throw_if_not_found=False
+            )
+            power_user: GulpUser = await GulpUser.get_by_id(
+                sess, "power", throw_if_not_found=False
+            )
 
             # read glyphs
             assets_path = resources.files("gulp.api.collab.assets")
@@ -527,7 +554,7 @@ class GulpCollab:
                 },
                 owner_id=admin_user.id,
                 private=False,
-                id="test_user_icon"
+                id="test_user_icon",
             )
 
             _ = await GulpGlyph._create(
@@ -538,7 +565,7 @@ class GulpCollab:
                 },
                 owner_id=admin_user.id,
                 private=False,
-                id="test_operation_icon"
+                id="test_operation_icon",
             )
 
             # assign glyphs
@@ -555,12 +582,10 @@ class GulpCollab:
 
             # stored query: windows sigma 1
             sigma_match_some = await muty.file.read_file_async(
-                muty.file.safe_path_join(
-                    assets_path, "sigma_match_some.yaml")
+                muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")
             )
             sigma_match_some_more = await muty.file.read_file_async(
-                muty.file.safe_path_join(
-                    assets_path, "sigma_match_some_more.yaml")
+                muty.file.safe_path_join(assets_path, "sigma_match_some_more.yaml")
             )
             GulpStoredQuery = await GulpStoredQuery._create(
                 sess,
@@ -573,7 +598,7 @@ class GulpCollab:
                 },
                 id="test_stored_sigma_1",
                 owner_id=admin_user.id,
-                private=False
+                private=False,
             )
 
             # stored query: windows sigma 2
@@ -588,7 +613,7 @@ class GulpCollab:
                 },
                 id="test_stored_sigma_2",
                 owner_id=admin_user.id,
-                private=False
+                private=False,
             )
 
             # stored query: raw query
@@ -617,7 +642,7 @@ class GulpCollab:
                 },
                 id="test_stored_raw",
                 owner_id=admin_user.id,
-                private=False
+                private=False,
             )
 
             # stored query: splunk query
@@ -630,7 +655,7 @@ class GulpCollab:
                 },
                 id="test_stored_raw_splunk",
                 owner_id=admin_user.id,
-                private=False
+                private=False,
             )
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:
