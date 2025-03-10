@@ -66,7 +66,7 @@ async def test_elasticsearch():
                             token,
                             TEST_OPERATION_ID,
                             q=[TEST_QUERY_RAW],
-                            plugin="elasticsearch",
+                            plugin="query_elasticsearch",
                             plugin_params=plugin_params,
                             q_options=q_options,
                             ingest=ingest,
