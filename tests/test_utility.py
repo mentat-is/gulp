@@ -230,12 +230,17 @@ async def test_utility():
     assert v
 
     # check env
-    os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.abspath(
-        "../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.join(
+        current_dir, "../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
     )
-    os.environ["PATH_PLUGINS_EXTRA"] = os.path.abspath(
-        "../../gulp-paid-plugins/src/gulp-paid-plugins/plugins"
+    os.environ["PATH_PLUGINS_EXTRA"] = os.path.join(
+        current_dir, "../../gulp-paid-plugins/src/gulp-paid-plugins/plugins"
     )
+    MutyLogger.get_instance().info(
+        "PATH_MAPPING_FILES_EXTRA: " + os.environ["PATH_MAPPING_FILES_EXTRA"]
+    )
+    MutyLogger.get_instance().info("PATH_PLUGINS_EXTRA: " + os.environ["PATH_PLUGINS_EXTRA"])
     assert os.path.exists(os.environ["PATH_MAPPING_FILES_EXTRA"])
     assert os.path.exists(os.environ["PATH_PLUGINS_EXTRA"])
 
