@@ -3,19 +3,47 @@ sigma rules tools
 """
 
 from typing import TYPE_CHECKING
-from sigma.collection import SigmaCollection
-from sigma.rule import (
-    SigmaRule,
-)
-from sigma.conversion.base import Backend
 
 import muty.string
-
 from muty.log import MutyLogger
+from sigma.collection import SigmaCollection
+from sigma.conversion.base import Backend
+from sigma.rule import SigmaRule
 
+from gulp.plugin import GulpPluginBase
+from gulp.structs import GulpPluginParameters
 
 if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQuery
+
+
+async def sigma_to_tags(
+    plugin: str, sigma: str, plugin_params: GulpPluginParameters = None
+) -> list[str]:
+    """
+    get tags from a sigma rule.
+
+    Args:
+        plugin (str): the plugin to use
+        sigma (str): the sigma rule YAML
+        plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
+
+    Returns:
+        list[str]: the tags extracted from the sigma rule
+    """
+    mod: GulpPluginBase = None
+    tags: list[str] = []
+    try:
+        mod = await GulpPluginBase.load(plugin)
+        q: list[GulpQuery] = mod.sigma_convert(sigma, plugin_params)
+        for qq in q:
+            if qq.tags:
+                tags.extend(qq.tags)
+    finally:
+        if mod:
+            mod.unload()
+    MutyLogger.get_instance().debug("extracted tags from sigma rule:\n%s", tags)
+    return tags
 
 
 def to_gulp_query_struct(
@@ -45,6 +73,9 @@ def to_gulp_query_struct(
             rule_id = str(r.id) or muty.string.generate_unique()
             rule_name = r.name or r.title or "sigma_%s" % (rule_id)
             rule_tags: list[str] = [t.name for t in r.tags if t]
+            if r.level:
+                # add severity tag
+                rule_tags.append(f"severity-{r.level.name.lower()}")
             if tags:
                 # additional tags
                 [rule_tags.append(t) for t in tags if t not in rule_tags]

@@ -68,6 +68,7 @@ async def test_stored_query():
         ).model_dump(),
         description="Test stored sigma query",
     )
+    MutyLogger.get_instance().debug(query_sigma)
     assert query_sigma["name"] == "test_query_sigma"
     assert query_sigma["q"] == sigma_q
 
