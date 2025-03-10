@@ -68,34 +68,19 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        json_format = kwargs.get("json_format")
         timestamp_field = kwargs.get("timestamp_field")
         date_format = kwargs.get("date_format")
         line = kwargs.get("line")
 
         d: dict = {}
-        if json_format in ["line", "list"]:
-            # print(json_format, timestamp_filed, date_format)
-            # print(record)
-            # print("-"*20)
-            for k, v in record.items():
-                d[k] = v
-        else:
-            # TODO: dict
-            pass
+        for k, v in record.items():
+            d[k] = v
 
         if date_format:
             timestamp = datetime.datetime.strptime(
                 time_str, date_format).isoformat()
         else:
-            # TODO: find a better solution(?)
-            # currently we assume the following:
-            # - timestamp is nanoseconds from unix epoch, if numeric
-
-            # timestamp: str = d.get(timestamp_filed, "0")
-            # if timestamp.isnumeric():
-            #    timestamp = muty.time.string_to_nanos_from_unix_epoch(timestamp)
-            # else:
+            # Attempt autoparse of date
             timestamp: str = dateutil.parser.parse(
                 d.get(timestamp_field)).isoformat()
 
@@ -200,7 +185,7 @@ class Plugin(GulpPluginBase):
                     for event in events:
                         try:
                             await self.process_record(
-                                event, doc_idx, flt=flt, json_format=json_format, timestamp_field=timestamp_field, date_format=date_format
+                                event, doc_idx, flt=flt, line=json.dumps(event), timestamp_field=timestamp_field, date_format=date_format
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
@@ -219,19 +204,19 @@ class Plugin(GulpPluginBase):
                             f"wrong json format, expected '{json_format}' got {type(events)}")
                         return GulpRequestStatus.FAILED
 
-                    for k, v in json_s.load(file).items():
-                        try:
-                            await self.process_record(
-                                {k: v}, doc_idx, flt=flt, json_format=json_format, timestamp_filed=timestamp_field, date_format=date_format
-                            )
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            await self._source_failed(ex)
-                        except PreviewDone:
-                            # preview done, stop processing
-                            pass
+                    try:
+                        j = json_s.load(file)
+                        await self.process_record(
+                            j, doc_idx, flt=flt, line=json.dumps(j), timestamp_filed=timestamp_field, date_format=date_format
+                        )
+                    except (RequestCanceledError, SourceCanceledError) as ex:
+                        MutyLogger.get_instance().exception(ex)
+                        await self._source_failed(ex)
+                    except PreviewDone:
+                        # preview done, stop processing
+                        pass
 
-                        doc_idx += 1
+                    doc_idx += 1
             elif json_format == "line":
                 # one record per line:
                 # {"a": "b"}\n
@@ -242,7 +227,7 @@ class Plugin(GulpPluginBase):
                             parsed = json.loads(line)
 
                             await self.process_record(
-                                parsed, doc_idx, flt=flt, line=line, json_format=json_format, timestamp_filed=timestamp_field, date_format=date_format
+                                parsed, doc_idx, flt=flt, line=line, timestamp_filed=timestamp_field, date_format=date_format
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
