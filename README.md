@@ -53,24 +53,9 @@ localhost:5000
 
 ## installation
 
-### TLDR ;)
+[install with docker](./docs/Install%20Docker.md)
 
-| :warning: WARNING                                                                          |
-| :----------------------------------------------------------------------------------------- |
-| [READ THIS TO INSTALL until we have a stable solution](https://github.com/mentat-is/gulp/issues/37) |
-
-<del>
-#### docker
-this will start the provided [docker-compose.yml](./docker-compose.yml) in the current directory and uses [gulp_cfg_template.json](./gulp_cfg_template.json) and [default .env](./.env) as base.
-~~~bash
-curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/bootstrap.sh -o ./bootstrap.sh && chmod 755 ./bootstrap.sh && ./bootstrap.sh
-~~~
-#### from source
-this will install from sources and create a `gulp` folder, inside the current directory.
-~~~bash
-curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh | sudo bash
-~~~
-</del>
+[install for development](./docs/Install%20Dev.md)
 
 ### exposed services
 
