@@ -203,13 +203,13 @@ async def stored_query_update_handler(
             object_id,
             permission=[GulpUserPermission.EDIT],
         )
-        if plugin and r.get("plugin") != plugin:
-            raise ValueError(
-                f"Cannot change plugin from {r.plugin} to {plugin}, delete rule and recreate instead."
-            )
         if plugin and not r.get("plugin"):
             raise ValueError(
-                f"Cannot set plugin for non-sigma rule, delete rule and recreate instead."
+                f"Cannot set plugin for a stored raw query, delete rule and recreate instead."
+            )
+        if plugin and r.get("plugin") != plugin:
+            raise ValueError(
+                f"Cannot change plugin for a stored sigma query, delete query and recreate instead."
             )
 
         # handle tags if q is a sigma rule
