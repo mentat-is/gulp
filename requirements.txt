@@ -115,4 +115,4 @@ websockets==13.0.1
 xmltodict==0.13.0
 xxhash==3.5.0
 yarl==1.18.0
-muty@git+https://github.com/mentat-is/muty-python.git@refactor
+muty@git+https://github.com/mentat-is/muty-python.git@develop
