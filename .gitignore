@@ -37,3 +37,4 @@ gulp-paid-plugins
 #auto generated docs
 docs/html
 .VSCodeCounter
+.github/copilot-instructions.md

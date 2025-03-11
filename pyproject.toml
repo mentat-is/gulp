@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61", "setuptools_scm"]
+requires = ["setuptools>=61", "setuptools_scm", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -25,3 +25,4 @@ local_scheme = "node-and-date"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+

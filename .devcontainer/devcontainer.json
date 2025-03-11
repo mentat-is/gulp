@@ -32,12 +32,14 @@
         "tamasfe.even-better-toml",
         "Tyriar.sort-lines",
         "yzhang.markdown-all-in-one",
-        "zh9528.file-size"
+        "zh9528.file-size",
+        "rust-lang.rust-analyzer",
+        "dustypomerleau.rust-syntax"
       ]
     }
   },
   "features": {
-    "ghcr.io/meaningful-ooo/devcontainer-features/fish:1": {},
+    "ghcr.io/meaningful-ooo/devcontainer-features/fish:2.0.0": {},
     "ghcr.io/jungaretti/features/vim:1": {}
   },
   "remoteUser": "vscode",
@@ -55,5 +57,5 @@
     "PATH_PLUGINS_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/plugins",
     "PATH_MAPPING_FILES_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
   },
-  "postCreateCommand": "sudo chmod 666 /var/run/docker.sock && pip3 install -e . && pip3 install -e ./muty-python"
+  "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh"
 }

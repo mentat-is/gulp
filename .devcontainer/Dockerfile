@@ -4,7 +4,6 @@ FROM mcr.microsoft.com/vscode/devcontainers/python:3.13
 # Install OS dependencies
 RUN apt update && export DEBIAN_FRONTEND=noninteractive && \
     apt -y install --no-install-recommends \
-    rustc \
     libsystemd-dev \
     jq \
     libpqxx-dev \

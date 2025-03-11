@@ -41,7 +41,11 @@ def main():
     """
     ver = GulpRestServer.get_instance().version_string()
     installation_dir = os.path.dirname(os.path.realpath(__file__))
-    banner = art.text2art("(g)ULP", font="random")
+    banner = art.text2art("(g)ULP", font="random")    
+    from gulp.libgulp import fast_add
+    n = fast_add(1, 2)
+    print(n)
+    sys.exit(0)
 
     # parse args
     parser = argparse.ArgumentParser(
