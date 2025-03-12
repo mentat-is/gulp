@@ -189,7 +189,7 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOO", kwlist,
                                      &time_str_obj, &dayfirst_obj, &yearfirst_obj, &fuzzy_obj))
     {
-        return NULL;
+        Py_RETURN_NONE;
     }
 
     /* handle numeric timestamp as int */
@@ -220,7 +220,7 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
             if (!iso_str)
             {
                 PyErr_SetString(PyExc_ValueError, "invalid time format");
-                return NULL;
+                Py_RETURN_NONE;
             }
             PyObject *result = PyUnicode_FromString(iso_str);
             free(iso_str);

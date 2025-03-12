@@ -11,9 +11,9 @@ PYTHON := python
 EXT_SUFFIX := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
 OUTPUT_NAME := libgulp$(EXT_SUFFIX)
 
-# find all source files
-C_SOURCES := $(wildcard *.c)
-CPP_SOURCES := $(wildcard *.cpp)
+# find all source files including subdirectories
+C_SOURCES := $(wildcard *.c) $(wildcard utils/*.c)
+CPP_SOURCES := $(wildcard *.cpp) $(wildcard utils/*.cpp)
 OBJECTS := $(C_SOURCES:.c=.o) $(CPP_SOURCES:.cpp=.o)
 
 # flags for compiling
@@ -21,8 +21,13 @@ INCLUDEPY := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_
 LIBDIR := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
 LDVERSION := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LDVERSION'))")
 
-CFLAGS := -Wall -fPIC -O3 -I$(INCLUDEPY)
-CXXFLAGS := $(CFLAGS) -std=c++11 -I$(INCLUDEPY)
+# feature test macros for POSIX functions like strptime
+# _XOPEN_SOURCE for strptime, _GNU_SOURCE for more GNU extensions
+# _POSIX_C_SOURCE=200809L for POSIX.1-2008 compliance
+FEATURE_MACROS := -D_XOPEN_SOURCE=700 -D_POSIX_C_SOURCE=200809L -D_GNU_SOURCE
+
+CFLAGS := -Wall -fPIC -O3 -I$(INCLUDEPY) -Iinclude $(FEATURE_MACROS)
+CXXFLAGS := $(CFLAGS) -std=c++11
 LDFLAGS := -shared -L$(LIBDIR) -lpython$(LDVERSION)
 
 # default target
@@ -49,6 +54,8 @@ $(OUTPUT_NAME): $(OBJECTS)
 clean:
 	@echo "cleaning build files"
 	@rm -f $(OBJECTS) $(OUTPUT_NAME)
+	@rm -f utils/*.o
+	@rm ../$(OUTPUT_NAME)
 
 # install target (optional)
 .PHONY: install
