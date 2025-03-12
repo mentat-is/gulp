@@ -34,6 +34,9 @@ gulpconfig
 muty-python
 gulp-paid-plugins
 
+# libs
+*.so
+
 #auto generated docs
 docs/html
 .VSCodeCounter

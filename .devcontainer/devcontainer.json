@@ -33,8 +33,11 @@
         "Tyriar.sort-lines",
         "yzhang.markdown-all-in-one",
         "zh9528.file-size",
-        "rust-lang.rust-analyzer",
-        "dustypomerleau.rust-syntax"
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.hexeditor",
+        "ms-vscode.makefile-tools",
+        "frinkr.vscode-tabify"
       ]
     }
   },

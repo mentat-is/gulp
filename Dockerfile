@@ -12,6 +12,8 @@ ENV ADDRESS=0.0.0.0
 RUN apt-get -qq update
 RUN apt-get install -y -q \
     libsystemd-dev \
+    jq \
+    libpqxx-dev \
     vim \
     sed \
     git \
