@@ -22,7 +22,7 @@ LIBDIR := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var
 LDVERSION := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LDVERSION'))")
 
 CFLAGS := -Wall -fPIC -O3 -I$(INCLUDEPY)
-CXXFLAGS := $(CFLAGS) -std=c++11
+CXXFLAGS := $(CFLAGS) -std=c++11 -I$(INCLUDEPY)
 LDFLAGS := -shared -L$(LIBDIR) -lpython$(LDVERSION)
 
 # default target

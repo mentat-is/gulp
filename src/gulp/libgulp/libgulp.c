@@ -1,5 +1,5 @@
 /**
- * module.c - gulp c extension implementation
+ * libgulp.cpp - gulp c extension implementation
  *
  * this file contains the implementation of the c extension module for gulp.
  *
@@ -19,35 +19,21 @@
  */
 
 #define PY_SSIZE_T_CLEAN
+#include <string.h>
+#include <stdlib.h>
+#include <time.h>
+#include <errno.h>
+#include <ctype.h>
 #include <Python.h>
 #include "include/libgulp.h"
-
-/**
- * example method that adds two numbers
- *
- * Args:
- *     self: module object
- *     args: positional arguments (expects two integers)
- *
- * Returns:
- *     PyObject*: python integer with the sum
- */
-static PyObject *fast_add(PyObject *self, PyObject *args)
-{
-    int a, b;
-
-    /* parse arguments */
-    if (!PyArg_ParseTuple(args, "ii", &a, &b))
-    {
-        return NULL; /* raises appropriate exception */
-    }
-
-    return PyLong_FromLong(a + b);
-}
+#include "include/time_utils.h"
+#include "include/string_utils.h"
+#include "include/mapping.h"
 
 /* method definitions */
 static PyMethodDef ModuleMethods[] = {
-    {"fast_add", fast_add, METH_VARARGS, "add two integers quickly"},
+    {"c_type_checks", c_type_checks, METH_VARARGS, "convert value based on index mapping type"},
+    {"c_ensure_iso8601", c_ensure_iso8601, METH_VARARGS, "convert various time formats to iso8601"},
     {NULL, NULL, 0, NULL} /* sentinel */
 };
 

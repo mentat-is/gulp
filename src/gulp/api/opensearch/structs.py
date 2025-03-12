@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
-
+from gulp.libgulp import c_ensure_iso8601
 T = TypeVar("T", bound="GulpBaseDocumentFilter")
 
 
@@ -160,7 +160,8 @@ class GulpDocument(GulpBasicDocument):
 
         try:
             # get iso8601 timestamp
-            ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
+            #ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
+            ts = c_ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
             # we also need nanoseconds from the unix epoch
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch

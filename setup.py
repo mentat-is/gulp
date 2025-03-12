@@ -21,7 +21,11 @@ def get_requirements() -> List[str]:
 gulp_extension = Extension(
     'gulp.libgulp',
     # list all your source files here
-    sources=['src/gulp/libgulp/libgulp.c'],
+    sources=['src/gulp/libgulp/libgulp.c',
+             'src/gulp/libgulp/mapping.c',
+             'src/gulp/libgulp/utils/string_utils.c',
+             'src/gulp/libgulp/utils/time_utils.c',],
+
     # include directories
     include_dirs=['src/gulp/libgulp/include'],
     # libraries to link against
@@ -37,4 +41,3 @@ setup(
     install_requires=get_requirements(),
     ext_modules=[gulp_extension],
 )
-

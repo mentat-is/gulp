@@ -22,6 +22,19 @@
 			"comments": "",
 			"textMateRules": []
 		},
-		"makefile.configureOnOpen": false
+		"makefile.configureOnOpen": false,
+		"files.associations": {
+			"cstdlib": "cpp",
+			"*.tcc": "cpp",
+			"optional": "cpp",
+			"ratio": "cpp",
+			"system_error": "cpp",
+			"array": "cpp",
+			"functional": "cpp",
+			"regex": "cpp",
+			"tuple": "cpp",
+			"type_traits": "cpp",
+			"utility": "cpp"
+		}
 	}
 }

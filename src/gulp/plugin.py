@@ -58,6 +58,7 @@ from gulp.api.ws_api import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
+from gulp.libgulp import c_ensure_iso8601
 
 
 class GulpPluginType(StrEnum):
@@ -1783,7 +1784,7 @@ class GulpPluginBase(ABC):
 
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
 
-    def _type_checks(self, k: str, v: Any) -> tuple[str, Any]:
+    def _type_checks_native(self, k: str, v: Any) -> tuple[str, Any]:
         """
         check the type of a value and convert it if needed.
 
@@ -1794,6 +1795,31 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[str, any]: the key and the value
         """
+        from gulp.libgulp import c_type_checks
+        
+        # Get the index type from mapping
+        index_type = self._index_type_mapping.get(k)
+        
+        # call the C implementation
+        return c_type_checks(k, v, index_type)
+
+    def _type_checks(self, k: str, v: Any) -> tuple[str, Any]:
+        """
+        check the type of a value and convert it if needed.
+
+        Args:
+            k (str): the key
+            v (any): the value
+
+        Returns:
+            tuple[str, any]: the key and the value
+        """        
+        # Get the index type from mapping
+        index_type = self._index_type_mapping.get(k)
+        
+        # call the C implementation
+        # return c_type_checks(k, v, index_type)
+
         index_type = self._index_type_mapping.get(k)
         if not index_type:
             # MutyLogger.get_instance().warning("key %s not found in index_type_mapping" % (k))
@@ -1831,7 +1857,8 @@ class GulpPluginBase(ABC):
             # convert hex to int, then ensure it is a valid timestamp
             try:
                 # MutyLogger.get_instance().debug("converting %s: %s to date" % (k, v))
-                v = muty.time.ensure_iso8601(str(int(v, 16)))
+                #v = muty.time.ensure_iso8601(str(int(v, 16)))
+                v = c_ensure_iso8601(str(int(v, 16)))
                 return k, v
             except ValueError:
                 # MutyLogger.get_instance().exception("error converting %s:%s to date" % (k, v))

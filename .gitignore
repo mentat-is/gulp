@@ -36,6 +36,8 @@ gulp-paid-plugins
 
 # libs
 *.so
+*.o
+*.a
 
 #auto generated docs
 docs/html
