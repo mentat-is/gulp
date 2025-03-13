@@ -18,22 +18,21 @@ docker run mentatis/gulp-core:latest
   ~~~bash
   mkdir ./build && cd ./build
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+  cd ./gulp
   git clone https://github.com/mentat-is/muty-python.git
-  ln -s ./muty-python ./gulp/muty-python
   ~~~
 
 2. freeze the requirements
 
   ~~~bash
-  cd gulp
   ./update_requirements_txt.sh
   ~~~
 
 3. build `gulp-core` image
 
   ~~~bash
-  docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
   # to rebuild, add --no-cache flag ...
+  docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --build-arg _MUTY_VERSION=$(cd muty-python && git describe --tags --always) --rm -t gulp-core .
   ~~~
 
 ## run with docker-compose

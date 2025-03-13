@@ -55,5 +55,5 @@
     "PATH_PLUGINS_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/plugins",
     "PATH_MAPPING_FILES_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
   },
-  "postCreateCommand": "sudo chmod 666 /var/run/docker.sock && pip3 install -e . && pip3 install -e ./muty-python"
+  "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh"
 }
