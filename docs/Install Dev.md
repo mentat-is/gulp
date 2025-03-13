@@ -64,8 +64,6 @@ sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose dock
 mkdir ./repos && cd ./repos
 git clone https://github.com/mentat-is/muty-python.git
 git clone --recurse-submodules https://github.com/mentat-is/gulp.git
-
-# note: git-lfs is used to track samples and .zip files in test_scripts
 ~~~
 
 ### 3. create and enter virtualenv
