@@ -1,6 +1,6 @@
 - [docker Installation](#docker-installation)
   - [pull image directly from docker hub](#pull-image-directly-from-docker-hub)
-  - [(re)build image from a dev environment](#rebuild-image-from-a-dev-environment)
+  - [(re)build image](#rebuild-image)
   - [run with docker-compose](#run-with-docker-compose)
 
 # docker Installation
@@ -11,11 +11,18 @@
 docker run mentatis/gulp-core:latest
 ```
 
-## (re)build image from a dev environment
+## (re)build image
 
-1. clone this repository and perform [install from sources](<./Install Dev.md>)
+1. clone repositories
 
-2. build `gulp-core` image
+~~~bash
+mkdir ./build && cd ./build
+git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+git clone https://github.com/mentat-is/muty-python.git
+ln -s ./muty-python ./gulp/muty-python
+~~~
+
+1. build `gulp-core` image
 
 ~~~bash
 docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .

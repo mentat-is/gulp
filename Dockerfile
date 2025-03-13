@@ -31,15 +31,19 @@ COPY ./LICENSE.AGPL-3.0.md /app
 COPY ./LICENSE.md /app
 COPY ./CONTRIBUTING.md /app
 COPY ./README.md /app
+COPY ./muty-python/src /app/muty-python/src
+COPY ./muty-python/pyproject.toml /app/muty-python
+COPY ./muty-python/README.md /app/muty-python
+
 
 # copy requirements file if exists
-COPY ./requirements.txt* /app/requirements.txt
+COPY ./requirements.txt /app/requirements.txt
 
 # set version passed as build argument
 RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
-
 RUN  echo "[.] Installing project"
-RUN pip3 install --no-cache-dir --timeout=1000 -e . 
+RUN pip3 install --no-cache-dir --timeout=1000 -e . && \
+    pip3 install --no-cache-dir --timeout=1000 -r ./muty-python
 
 # should not be necessary but let's keep it for now
 RUN export PYTHONPATH="$PYTHONPATH:/app/src"
