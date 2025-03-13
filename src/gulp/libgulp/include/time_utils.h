@@ -4,8 +4,7 @@
 #include <Python.h>
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 	PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs);
 
