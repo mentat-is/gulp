@@ -46,7 +46,8 @@ PyObject *convert_type(const char *key, PyObject *value, const char *index_type)
         // either return as is
         Py_INCREF(value);
         return value;
-    } /*float/double type conversion:*/ else if (strcmp(index_type, "float") == 0 || strcmp(index_type, "double") == 0) { 
+    } else if (strcmp(index_type, "float") == 0 || strcmp(index_type, "double") == 0) { 
+        /*float/double type conversion:*/ 
 
         if (PyUnicode_Check(value)) {
             const char *str_value = PyUnicode_AsUTF8(value);
@@ -60,7 +61,8 @@ PyObject *convert_type(const char *key, PyObject *value, const char *index_type)
         // either return as is
         Py_INCREF(value);
         return value;
-    } /*date type conversion for hex strings:*/ else if (strcmp(index_type, "date") == 0 && PyUnicode_Check(value)) {
+    } else if (strcmp(index_type, "date") == 0 && PyUnicode_Check(value)) {
+        /*date type conversion for hex strings:*/ 
         const char *str_value = PyUnicode_AsUTF8(value);
         if (!str_value) {
             Py_RETURN_NONE;
@@ -74,7 +76,8 @@ PyObject *convert_type(const char *key, PyObject *value, const char *index_type)
                 return value;
             }
         }
-    } /*keyword/text type conversion:*/ else if (strcmp(index_type, "keyword") == 0 || strcmp(index_type, "text") == 0) {
+    } else if (strcmp(index_type, "keyword") == 0 || strcmp(index_type, "text") == 0) {
+        /*keyword/text type conversion:*/ 
         if (PyLong_Check(value)) {
             long int_value = PyLong_AsLong(value);
             return PyUnicode_FromFormat("%ld", int_value);
