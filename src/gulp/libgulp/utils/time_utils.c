@@ -16,20 +16,18 @@
  * Returns:
  *     int: number of digits
  */
-inline int num_digits(int64_t num)
-{
-    if (num == 0)
+inline int num_digits(int64_t num) {
+    if (num == 0) {
         return 1;
+    }
 
     int digits = 0;
-    if (num < 0)
-    {
+    if (num < 0) {
         num = -num;
         digits++; // for the minus sign
     }
 
-    while (num > 0)
-    {
+    while (num > 0) {
         num /= 10;
         digits++;
     }
@@ -46,8 +44,7 @@ inline int num_digits(int64_t num)
  * Returns:
  *     const char*: iso8601 formatted string (must be freed by caller)
  */
-char *number_to_iso8601(int64_t numeric)
-{
+char *number_to_iso8601(int64_t numeric) {
     time_t seconds;
     int64_t nanoseconds = 0;
     char *result = NULL;
@@ -56,46 +53,36 @@ char *number_to_iso8601(int64_t numeric)
     // Determine timestamp format based on value length
     int digits = num_digits(numeric);
 
-    if (numeric > 1000000000000000000LL)
-    {
+    if (numeric > 1000000000000000000LL) {
         // nanoseconds from epoch
         seconds = numeric / 1000000000LL;
         nanoseconds = numeric % 1000000000LL;
-    }
-    else if (numeric > 1000000000000LL)
-    {
+    } else if (numeric > 1000000000000LL) {
         // milliseconds from epoch
         seconds = numeric / 1000;
-    }
-    else
-    {
+    } else {
         // seconds from epoch
         seconds = numeric;
     }
 
     // Convert to tm struct
     tm_info = gmtime(&seconds);
-    if (!tm_info)
-    {
+    if (!tm_info) {
         return NULL;
     }
 
     // Format the ISO string (YYYY-MM-DDThh:mm:ss.sssZ)
     result = (char *)malloc(32);
-    if (!result)
-    {
+    if (!result) {
         return NULL;
     }
 
-    if (nanoseconds > 0)
-    {
+    if (nanoseconds > 0) {
         // Include milliseconds
         int milliseconds = nanoseconds / 1000000;
         strftime(result, 32, "%Y-%m-%dT%H:%M:%S", tm_info);
         sprintf(result + strlen(result), ".%03dZ", milliseconds);
-    }
-    else
-    {
+    } else {
         // Just seconds
         strftime(result, 32, "%Y-%m-%dT%H:%M:%SZ", tm_info);
     }
@@ -121,35 +108,29 @@ time_t parse_iso8601(const char *date_str)
     ret = strptime(date_str, "%Y-%m-%dT%H:%M:%S", &tm_time);
 
     // Check if parsing was successful
-    if (ret == NULL)
-    {
+    if (ret == NULL) {
         return -1;
     }
 
     // Handle milliseconds part if present
-    if (*ret == '.')
-    {
+    if (*ret == '.') {
         // Skip decimal point and milliseconds
-        while (*ret && *ret != 'Z' && *ret != '+' && *ret != '-')
-        {
+        while (*ret && *ret != 'Z' && *ret != '+' && *ret != '-') {
             ret++;
         }
     }
 
     // Handle timezone if present
-    if (*ret == 'Z')
-    {
+    if (*ret == 'Z') {
         // UTC timezone, no adjustment needed
     }
-    else if (*ret == '+' || *ret == '-')
-    {
+    else if (*ret == '+' || *ret == '-') {
         int sign = (*ret == '+') ? 1 : -1;
         ret++;
 
         // Parse hours and minutes
         int hours = 0, minutes = 0;
-        if (sscanf(ret, "%02d:%02d", &hours, &minutes) == 2)
-        {
+        if (sscanf(ret, "%02d:%02d", &hours, &minutes) == 2) {
             // Adjust time by timezone offset
             tm_time.tm_hour -= sign * hours;
             tm_time.tm_min -= sign * minutes;
@@ -176,8 +157,7 @@ time_t parse_iso8601(const char *date_str)
  *     ValueError: if time_str has invalid format
  *     TypeError: if time_str is not a string or integer
  */
-PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
-{
+PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *time_str_obj;
     PyObject *dayfirst_obj = Py_None;
     PyObject *yearfirst_obj = Py_None;
@@ -187,14 +167,12 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
 
     /* parse arguments and keyword arguments */
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOO", kwlist,
-                                     &time_str_obj, &dayfirst_obj, &yearfirst_obj, &fuzzy_obj))
-    {
+                                     &time_str_obj, &dayfirst_obj, &yearfirst_obj, &fuzzy_obj)) {
         Py_RETURN_NONE;
     }
 
     /* handle numeric timestamp as int */
-    if (PyLong_Check(time_str_obj))
-    {
+    if (PyLong_Check(time_str_obj)) {
         /* handle numeric timestamp */
         int64_t numeric = PyLong_AsLongLong(time_str_obj);
         char *iso_str = number_to_iso8601(numeric);
@@ -206,19 +184,14 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
         PyObject *result = PyUnicode_FromString(iso_str);
         free(iso_str);
         return result;
-    }
-    /* handle string input */
-    else if (PyUnicode_Check(time_str_obj))
-    {
+    } /* handle string input:*/ else if (PyUnicode_Check(time_str_obj)) {
         const char *time_str = PyUnicode_AsUTF8(time_str_obj);
 
         /* check if string is numeric */
-        if (is_numeric(time_str))
-        {
+        if (is_numeric(time_str)) {
             int64_t numeric = atoll(time_str);
             char *iso_str = number_to_iso8601(numeric);
-            if (!iso_str)
-            {
+            if (!iso_str) {
                 PyErr_SetString(PyExc_ValueError, "invalid time format");
                 Py_RETURN_NONE;
             }
@@ -229,8 +202,7 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
 
         /* try to parse as ISO8601 */
         time_t timestamp = parse_iso8601(time_str);
-        if (timestamp != -1)
-        {
+        if (timestamp != -1) {
             /* already ISO8601 format, return as is */
             return PyUnicode_FromString(time_str);
         }
@@ -238,9 +210,7 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs)
         /* if we get here, the format is not recognized */
         PyErr_Format(PyExc_ValueError, "invalid time format: %s", time_str);
         Py_RETURN_NONE;
-    }
-    else
-    {
+    } else {
         PyErr_SetString(PyExc_TypeError, "time_str must be a string or integer");
         Py_RETURN_NONE;
     }

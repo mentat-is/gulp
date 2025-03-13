@@ -54,7 +54,6 @@ static struct PyModuleDef module_def = {
  * Throws:
  *     PyError: if module creation fails
  */
-PyMODINIT_FUNC PyInit_libgulp(void)
-{
+PyMODINIT_FUNC PyInit_libgulp(void) {
     return PyModule_Create(&module_def);
 }

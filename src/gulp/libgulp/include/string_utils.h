@@ -2,8 +2,7 @@
 #define __STRING_UTILS_H__
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
 	int is_numeric(const char *str);

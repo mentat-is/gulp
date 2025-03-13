@@ -14,23 +14,18 @@
  * Returns:
  *     int: 1 if numeric, 0 otherwise
  */
-int is_numeric(const char *str)
-{
-	if (!str || !*str)
-	{
+int is_numeric(const char *str) {
+	if (!str || !*str) {
 		return 0;
 	}
 
 	// handle negative numbers
-	if (*str == '-')
-	{
+	if (*str == '-') {
 		str++;
 	}
 
-	while (*str)
-	{
-		if (!isdigit(*str))
-		{
+	while (*str) {
+		if (!isdigit(*str)) {
 			return 0;
 		}
 		str++;
@@ -48,24 +43,20 @@ int is_numeric(const char *str)
  * Returns:
  *     long: converted integer value, -1 if conversion fails
  */
-long hex_to_int(const char *hex_str)
-{
-	if (!hex_str || !*hex_str)
-	{
+long hex_to_int(const char *hex_str) {
+	if (!hex_str || !*hex_str) {
 		return -1;
 	}
 
 	// skip "0x" prefix if present
-	if (hex_str[0] == '0' && (hex_str[1] == 'x' || hex_str[1] == 'X'))
-	{
+	if (hex_str[0] == '0' && (hex_str[1] == 'x' || hex_str[1] == 'X')) {
 		hex_str += 2;
 	}
 
 	char *endptr;
 	long value = strtol(hex_str, &endptr, 16);
 
-	if (*endptr != '\0')
-	{
+	if (*endptr != '\0') {
 		return -1; // conversion failed
 	}
 
@@ -81,33 +72,24 @@ long hex_to_int(const char *hex_str)
  * Returns:
  *     int: 1 if valid ip, 0 otherwise
  */
-int is_valid_ip(const char *str)
-{
-	if (!str || !*str)
-	{
+int is_valid_ip(const char *str) {
+	if (!str || !*str) {
 		return 0;
 	}
 
 	int dots = 0;
 	int digits = 0;
 
-	while (*str)
-	{
-		if (*str == '.')
-		{
-			if (digits == 0 || digits > 3)
-			{
+	while (*str) {
+		if (*str == '.') {
+			if (digits == 0 || digits > 3) {
 				return 0;
 			}
 			dots++;
 			digits = 0;
-		}
-		else if (isdigit(*str))
-		{
+		} else if (isdigit(*str)) {
 			digits++;
-		}
-		else
-		{
+		} else {
 			return 0; // invalid character
 		}
 		str++;
