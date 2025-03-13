@@ -189,6 +189,7 @@ bool format_iso8601(time_t timestamp, int fraction_ns, char* buffer, size_t buff
  *     bool: true if conversion succeeded
  */
 bool enforce_utc_timezone(const char* iso_str, char* buffer, size_t buffer_size) {
+    // TODO check if len(iso_str) can be > buffer_size 
     if (!iso_str || !buffer || buffer_size < 20) return false;
     
     // check if already has UTC timezone
@@ -349,6 +350,9 @@ char* parse_date_to_iso8601(const char* date_str) {
         }
     }
     
+
+    printf("QUACK AAAAAAAAAAAAAAAAAAAAAAAAAAAAA Getting Ready to find format\n");
+
     // try parsing with different formats
     struct tm tm_info = {0};
     char* parse_success = NULL;
@@ -373,11 +377,14 @@ char* parse_date_to_iso8601(const char* date_str) {
     
     for (int i = 0; i < num_formats; i++) {
         memset(&tm_info, 0, sizeof(struct tm));
-        
+        printf("QUACK AAAAAAAAAAAAAAAAAAAAAAAAAAAAA Testing format...\n");
+
         // try each format
         parse_success = strptime(date_str, formats[i], &tm_info);
         
         if (parse_success) {
+            printf("QUACK AAAAAAAAAAAAAAAAAAAAAAAAAAAAA Format found (%s)\n", formats[i]);
+
             // if parsing time only, fill in today's date
             if (strcmp(formats[i], "%H:%M:%S") == 0 || 
                 strcmp(formats[i], "%I:%M:%S %p") == 0) {
@@ -415,6 +422,7 @@ char* parse_date_to_iso8601(const char* date_str) {
                     fraction_ns = atoi(fraction);
                 }
                 
+                printf("QUACK AAAAAAAAAAAAAAAAAAAAAAAAAAAAA Formatting iso8601\n");
                 if (format_iso8601(unix_seconds, fraction_ns, result, ISO8601_MAX_LEN)) {
                     return result;
                 }
@@ -461,12 +469,13 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs) {
         /* handle numeric timestamp */
         int64_t numeric = PyLong_AsLongLong(time_str_obj);
         char numstr[65] = {0};
-        snprintf(numstr, sizeof(numstr), "%lld", numeric);
+        snprintf(numstr, sizeof(numstr), "%"PRId64, numeric);
         char* iso_str = parse_date_to_iso8601(numstr);
         PyObject *result = PyUnicode_FromString(iso_str);
         free(iso_str);
         return result;
     } else if (PyUnicode_Check(time_str_obj)) {
+        printf("QUACK AAAAAAAAAAAAAAAAAAAAAAAAAAAAA INSIDE THE PyUnicode_Check is AsUTF8\n");
         /* handle string input:*/
         const char *time_str = PyUnicode_AsUTF8(time_str_obj);
         if(time_str == NULL) {
@@ -479,7 +488,7 @@ PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs) {
         free(iso_str);
         return result;
     }
-    
+
     PyErr_SetString(PyExc_TypeError, "time_str must be a string or integer");
     Py_RETURN_NONE;
 }
