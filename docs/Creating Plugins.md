@@ -314,6 +314,9 @@ Here's a commented example, further details in the [model definition source](../
       "timestamp_dayfirst": null, // defaults to False
       "timestamp_yearfirst": null, // defaults to False
       "timestamp_fuzzy": null, // defaults to False
+      // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
+      "allow_prefixed": true
+      
       // the fields to map: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
         // the field name
@@ -322,7 +325,9 @@ Here's a commented example, further details in the [model definition source](../
           "ecs": "gulp.html.form.field.name"
         },
         "value": {
-          "ecs": "gulp.html.form.field.value"
+          "ecs": "gulp.html.form.field.value",
+          // if "force_type" is set, value is converted to "int", "str" or "float" PRIOR to being ingested
+          "force_type": "int"
         },
         "date_created": {
           // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.
@@ -337,7 +342,7 @@ Here's a commented example, further details in the [model definition source](../
           "is_timestamp_chrome": true
         },        
         "date_last_used": {
-          // if this is set, this field represents a timestamp and a further document will be generated alongside the `main` document.
+          // if "extra_doc_with_event_code" is set, this field represents a timestamp and a further document will be generated alongside the `main` document.
           // 
           // in this example, in the extra document the following will be set:
           //
@@ -355,7 +360,7 @@ Here's a commented example, further details in the [model definition source](../
           // setting `extra_doc_with_event_code` for multiple fields allows to generate multiple documents from a single source (i.e. if an event has multiple timestamp like `creation_time`, `modify_time`, ...)
           //
           "extra_doc_with_event_code": "autofill_date_last_used",
-          "multiplier": 1000000000
+          "multiplier": 1000000000,
         }
       }
     }
@@ -420,4 +425,3 @@ to query gulp using sigma rules, we use the `query_sigma` API:
 2. pass the `q` parameter with one or more sigma rules to be translated: the resulting queries will be executed **in parallel**.
 
 > look at [test_win_evtx](../tests/query.py) in the query tests for an example usage
-
