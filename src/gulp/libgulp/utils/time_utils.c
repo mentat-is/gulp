@@ -23,6 +23,54 @@
 // maximum length of iso8601 string
 #define ISO8601_MAX_LEN 64
 
+
+/**ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
+            else:
+                ns = muty.time.string_to_nanos_from_unix_epoch( */
+
+static PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs) {
+    PyObject* numeric_obj = NULL;
+    static char* kwlist[] = {"numeric", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &numeric_obj)) {
+      Py_RETURN_NONE; // Parsing failure raises an exception
+    }
+
+    // Convert input to a Python integer
+    PyObject* numeric_int = PyNumber_Index(numeric_obj);
+    if (numeric_int == NULL) {
+      Py_RETURN_NONE; // Conversion failure raises an exception
+    }
+
+    // Extract the integer value as a long long
+    long long numeric = PyLong_AsLongLong(numeric_int);
+    Py_DECREF(numeric_int); // Release the temporary integer object
+
+    if (numeric == -1 && PyErr_Occurred()) {
+      Py_RETURN_NONE;
+    }
+
+    if (numeric < 0) {
+        PyErr_Format(PyExc_ValueError, "Numeric value must be non-negative: %lld", numeric);
+        Py_RETURN_NONE;
+    }
+
+    long long result;
+    if (numeric > 1000000000000000000LL) { // Assume nanoseconds
+        result = numeric;
+    } else if (numeric > 1000000000LL) { // Assume milliseconds
+        result = numeric * MILLISECONDS_TO_NANOSECONDS;
+    } else { // Assume seconds
+        result = numeric * SECONDS_TO_NANOSECONDS;
+    }
+
+    return PyLong_FromLongLong(result); // Return result as Python integer
+}
+
+PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs){
+  Py_RETURN_NONE;
+}
+
 /**
  * checks if a string is in iso8601 format
  *

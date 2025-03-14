@@ -7,7 +7,8 @@
 extern "C" {
 #endif
 	PyObject *c_ensure_iso8601(PyObject *self, PyObject *args, PyObject *kwargs);
-
+	PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs);
+	PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs);
 #ifdef __cplusplus
 }
 #endif
