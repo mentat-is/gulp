@@ -2288,7 +2288,7 @@ class GulpPluginBase(ABC):
         # get plugin path
         p = _get_plugin_path(plugin, is_extension)
         if not p and raise_if_not_found:
-            raise FileNotFoundError(f"plugin {plugin} not found in {p}!")
+            raise FileNotFoundError(f"plugin {plugin} not found, plugins_path={GulpConfig.get_instance().path_plugins_default()}, extra_path={GulpConfig.get_instance().path_plugins_extra()}")
         return p
 
     @staticmethod
