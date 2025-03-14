@@ -28,41 +28,59 @@
             else:
                 ns = muty.time.string_to_nanos_from_unix_epoch( */
 
-static PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs) {
+PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs) {
     PyObject* numeric_obj = NULL;
-    static char* kwlist[] = {"numeric", NULL};
+    char* kwlist[] = {"numeric", NULL};
+    long long result = 0;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &numeric_obj)) {
       Py_RETURN_NONE; // Parsing failure raises an exception
     }
 
-    // Convert input to a Python integer
-    PyObject* numeric_int = PyNumber_Index(numeric_obj);
-    if (numeric_int == NULL) {
-      Py_RETURN_NONE; // Conversion failure raises an exception
+    if (PyUnicode_Check(numeric_obj)) {
+      const char* num_str = PyUnicode_AsUTF8(numeric_obj);
+      if (num_str == NULL) {
+        PyErr_Format(PyExc_ValueError, "invalid time format: %s", num_str);
+        Py_RETURN_NONE;
+      }
+      
+      char *endptr;
+      // TODO: do we need to reduce ref count of numeric_obj since we are technically pointing it to somewhere else?
+      numeric_obj = PyLong_FromString(num_str, &endptr, 10); 
     }
 
-    // Extract the integer value as a long long
-    long long numeric = PyLong_AsLongLong(numeric_int);
-    Py_DECREF(numeric_int); // Release the temporary integer object
+    if (PyLong_Check(numeric_obj)) {
+      // Convert input to a Python integer
+      PyObject* numeric_int = PyNumber_Index(numeric_obj);
+      if (numeric_int == NULL) {
+        Py_RETURN_NONE; // Conversion failure raises an exception
+      }
 
-    if (numeric == -1 && PyErr_Occurred()) {
+      // Extract the integer value as a long long
+      long long numeric = PyLong_AsLongLong(numeric_int);
+      Py_DECREF(numeric_int); // Release the temporary integer object
+
+      if (numeric == -1 && PyErr_Occurred()) {
+        Py_RETURN_NONE;
+      }
+
+      if (numeric < 0) {
+          PyErr_Format(PyExc_ValueError, "Numeric value must be non-negative: %lld", numeric);
+          Py_RETURN_NONE;
+      }
+
+      if (numeric > 1000000000000000000LL) { // Assume nanoseconds
+          result = numeric;
+      } else if (numeric > 1000000000LL) { // Assume milliseconds
+          result = numeric * MILLISECONDS_TO_NANOSECONDS;
+      } else { // Assume seconds
+          result = numeric * SECONDS_TO_NANOSECONDS;
+      }
+    } else {
+      PyErr_Format(PyExc_ValueError, "Unsupported format type for object: %p", numeric_obj);
       Py_RETURN_NONE;
     }
-
-    if (numeric < 0) {
-        PyErr_Format(PyExc_ValueError, "Numeric value must be non-negative: %lld", numeric);
-        Py_RETURN_NONE;
-    }
-
-    long long result;
-    if (numeric > 1000000000000000000LL) { // Assume nanoseconds
-        result = numeric;
-    } else if (numeric > 1000000000LL) { // Assume milliseconds
-        result = numeric * MILLISECONDS_TO_NANOSECONDS;
-    } else { // Assume seconds
-        result = numeric * SECONDS_TO_NANOSECONDS;
-    }
+    
 
     return PyLong_FromLongLong(result); // Return result as Python integer
 }
