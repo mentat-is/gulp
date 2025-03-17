@@ -1,9 +1,7 @@
-from typing import Optional, override
+from typing import Literal, Optional, override
 
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-from muty.pydantic import (
-    autogenerate_model_example_by_class,
-)
 
 
 class GulpMappingField(BaseModel):
@@ -51,6 +49,8 @@ check `mftecmd_csv.json` for an example of this setting.
         None,
         description="if set and > 1, the corresponding value is multiplied by this value.",
     )
+    force_type: Optional[Literal["str", "int", "float"]] = Field(
+        None, description="if set, the corresponding value is forced to this type before ingestion.")
 
 
 class GulpMapping(BaseModel):
@@ -113,11 +113,13 @@ class GulpMapping(BaseModel):
         None,
         description="controls how timestamp strings are parsed, for advanced usage: if set, allows parsing of strings like 'Today is January 1, 2047 at 8:21:00AM' (default=dateutil.parser default=False)",
     )
+    # TODO: consider if this is needed or we can just deprecate/remove this.... it is used only by the win_evtx plugin and probably it is not needed even there.
     allow_prefixed: Optional[bool] = Field(
         False,
         description="""
-if set, the source field can be prefixed and only the part after the last "_" is used for mapping.
-i.e. if in the source document the field is 'this_is_a_field' and the "ecs" has "field".
+if set, the source field can be prefixed and only last part after "_" is used to match the `ecs` mapping.
+i.e. if the source field is "this_is_a_sourcekey", only "sourcekey" is considered.
+
 """,
     )
 

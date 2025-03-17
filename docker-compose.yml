@@ -15,6 +15,7 @@ services:
       #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
       OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
       OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
+      DISABLE_SECURITY_PLUGIN: true
       plugins.security.ssl.http.enabled: false
       http.cors.enabled: true
       http.cors.allow-origin: "*"

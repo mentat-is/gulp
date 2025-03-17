@@ -602,7 +602,7 @@ class GulpConfig:
         Returns the extra plugins path.
         """
         # try env
-        p = os.getenv("PATH_PLUGINS_EXTRA", None)
+        p = os.getenv("PATH_PLUGINS_EXTRA", None)        
         if not p:
             # try configuration
             p = self._config.get("path_plugins_extra", None)
