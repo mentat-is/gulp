@@ -35,7 +35,7 @@
  * Returns:
  *     bool: true if formatting succeeded
  */
-bool format_iso8601(time_t timestamp, int fraction_ns, char *buffer,
+bool format_iso8601(time_t timestamp, int fraction_ns, char* buffer,
                     size_t buffer_size) {
   // check buffer space early
   if (!buffer || buffer_size < 21) {  // minimum size for iso8601 with Z
@@ -137,7 +137,7 @@ bool format_iso8601(time_t timestamp, int fraction_ns, char *buffer,
 
         // convert to string directly (faster than snprintf)
         char temp[10];  // max 9 digits + null
-        char *ptr = &temp[9];
+        char* ptr = &temp[9];
         *ptr = '\0';
         int digit_count = 0;
 
@@ -154,7 +154,7 @@ bool format_iso8601(time_t timestamp, int fraction_ns, char *buffer,
         }
 
         // copy to buffer
-        const char *src = ptr;
+        const char* src = ptr;
         while (*src) {
           buffer[len++] = *src++;
         }
@@ -180,12 +180,12 @@ bool format_iso8601(time_t timestamp, int fraction_ns, char *buffer,
  * Returns:
  *     bool: true if string has utc timezone (Z or +00:00)
  */
-bool has_utc_timezone(const char *iso_str) {
+bool has_utc_timezone(const char* iso_str) {
   if (!iso_str) return false;
 
   // find string length and last character in one pass
   size_t len = 0;
-  const char *end = iso_str;
+  const char* end = iso_str;
   char last_char = '\0';
 
   while (*end) {
@@ -244,7 +244,6 @@ time_t tm_to_utc_time(struct tm* tm_info) {
 #endif
 }
 
-
 /**
  * checks if a string is in iso8601 format
  *
@@ -254,7 +253,7 @@ time_t tm_to_utc_time(struct tm* tm_info) {
  * Returns:
  *     bool: true if string is in iso8601 format
  */
-bool is_iso8601(const char *str) {
+bool is_iso8601(const char* str) {
   // basic validation check (minimum length and fast fail)
   if (!str || str[0] == '\0') return false;
 
@@ -269,7 +268,7 @@ bool is_iso8601(const char *str) {
   }
 
   // check for T separator (scan just until we find T or t or reach the end)
-  const char *p = str + 10;  // start after YYYY-MM-DD
+  const char* p = str + 10;  // start after YYYY-MM-DD
   while (*p && *p != 'T' && *p != 't') {
     p++;
   }
@@ -725,8 +724,7 @@ int parse_iso8601(const char* iso8601_string, struct tm* tm,
  *
  * Args:
  *     self (PyObject*): module object
- *     args (PyObject*): positional arguments (time_str, dayfirst, yearfirst,
- * fuzzy) kwargs (PyObject*): keyword arguments
+ *     args (PyObject*): positional arguments (time_str)
  *
  * Returns:
  *     PyObject*: iso8601 formatted string, or NULL on failure
@@ -735,18 +733,12 @@ int parse_iso8601(const char* iso8601_string, struct tm* tm,
  *     ValueError: if time_str has invalid format
  *     TypeError: if time_str is not a string or integer
  */
-PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
+PyObject* c_ensure_iso8601(PyObject* self, PyObject* args) {
   PyObject* time_str_obj;
-  PyObject* dayfirst_obj = Py_None;
-  PyObject* yearfirst_obj = Py_None;
-  PyObject* fuzzy_obj = Py_None;
 
-  static char* kwlist[] = {"time_str", "dayfirst", "yearfirst", "fuzzy", NULL};
-
-  /* parse arguments and keyword arguments */
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOO", kwlist, &time_str_obj,
-                                   &dayfirst_obj, &yearfirst_obj, &fuzzy_obj)) {
-    return NULL;  // parsing failed, exception already set
+  // parse "time_str"
+  if (!PyArg_ParseTuple(args, "O", &time_str_obj)) {
+    Py_RETURN_NONE;
   }
 
   /* handle numeric timestamp as int */
@@ -762,7 +754,7 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
       // handle parsing failure
       PyErr_Format(PyExc_ValueError, "failed to parse numeric value: %s",
                    numstr);
-      return NULL;
+      Py_RETURN_NONE;
     }
 
     // create python string
@@ -774,7 +766,7 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
     const char* time_str = PyUnicode_AsUTF8(time_str_obj);
     if (!time_str) {
       // pyunicode_asutf8 sets an exception
-      return NULL;
+      Py_RETURN_NONE;
     }
 
     // maximum length check to prevent malicious inputs
@@ -782,7 +774,7 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
       PyErr_Format(PyExc_ValueError,
                    "input string too long (max %d characters)",
                    ISO8601_MAX_LEN);
-      return NULL;
+      Py_RETURN_NONE;
     }
 
     // convert to iso8601
@@ -791,7 +783,7 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
       // handle parsing failure
       PyErr_Format(PyExc_ValueError, "failed to parse date string: %s",
                    time_str);
-      return NULL;
+      Py_RETURN_NONE;
     }
 
     // create python string
@@ -801,11 +793,10 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
   }
 
   PyErr_SetString(PyExc_TypeError, "time_str must be a string or integer");
-  return NULL;
+  Py_RETURN_NONE;
 }
 
-PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
-                                            PyObject* kwargs) {
+PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
   /**
    * c implementation of number_to_nanos_from_unix_epoch to convert various time
    *
@@ -819,13 +810,13 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
    *   failure
    */
   PyObject* numeric_obj = NULL;
-  char* kwlist[] = {"numeric", NULL};
-  long long result = 0;
 
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &numeric_obj)) {
-    Py_RETURN_NONE;  // Parsing failure raises an exception
+  // parse "numeric"
+  if (!PyArg_ParseTuple(args, "O", &numeric_obj)) {
+    Py_RETURN_NONE;
   }
 
+  long long result = 0;
   if (PyUnicode_Check(numeric_obj)) {
     const char* num_str = PyUnicode_AsUTF8(numeric_obj);
     if (num_str == NULL) {
@@ -882,8 +873,7 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
  *
  * Args:
  *     self (PyObject*): module object
- *     args (PyObject*): positional arguments (time_str, dayfirst, yearfirst,
- * fuzzy) kwargs (PyObject*): keyword arguments
+ *     args (PyObject*): positional arguments (time_str)
  *
  * Returns:
  *     PyObject*: nanoseconds from unix epoch as python integer, or None on
@@ -893,13 +883,12 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
  *     ValueError: if time_str has invalid format
  *     TypeError: if time_str is not a string or integer
  */
-PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
-                                            PyObject* kwargs) {
+PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
   // convert to iso8601 first, then to nanos
-  PyObject* iso8601 = c_ensure_iso8601(self, args, kwargs);
+  PyObject* iso8601 = c_ensure_iso8601(self, args);
   if (iso8601 == NULL) {
     // c_ensure_iso8601 should have set an exception already
-    return NULL;
+    Py_RETURN_NONE;
   }
 
   // ensure we have a unicode string
@@ -907,7 +896,7 @@ PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
     Py_DECREF(iso8601);
     PyErr_SetString(PyExc_ValueError,
                     "internal error: ensure_iso8601 returned non-string");
-    return NULL;
+    Py_RETURN_NONE;
   }
 
   // extract c string
@@ -915,7 +904,7 @@ PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
   if (time_str == NULL) {
     Py_DECREF(iso8601);
     // pyunicode_asutf8 sets an exception if it fails
-    return NULL;
+    Py_RETURN_NONE;
   }
 
   // convert to nanoseconds
@@ -928,7 +917,7 @@ PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
   if (nanos == -1) {
     PyErr_Format(PyExc_ValueError, "failed to parse iso8601 string: %s",
                  time_str);
-    return NULL;
+    Py_RETURN_NONE;
   }
 
   // return nanoseconds as python integer

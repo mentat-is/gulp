@@ -34,13 +34,13 @@
 
 /* method definitions */
 static PyMethodDef ModuleMethods[] = {
-    {"c_number_to_nanos_from_unix_epoch",  (PyCFunction)c_number_to_nanos_from_unix_epoch,
-     METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.number_to_nanos_from_unix_epoch"},
-    {"c_string_to_nanos_from_unix_epoch",  (PyCFunction)c_string_to_nanos_from_unix_epoch,
-     METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.c_string_to_nanos_from_unix_epoch"},
-    {"c_ensure_iso8601",  (PyCFunction)c_ensure_iso8601, METH_VARARGS | METH_KEYWORDS,
+    {"c_number_to_nanos_from_unix_epoch", c_number_to_nanos_from_unix_epoch,
+     METH_VARARGS, "C variant of muty.time.number_to_nanos_from_unix_epoch"},
+    {"c_string_to_nanos_from_unix_epoch", c_string_to_nanos_from_unix_epoch,
+     METH_VARARGS, "C variant of muty.time.c_string_to_nanos_from_unix_epoch"},
+    {"c_ensure_iso8601", c_ensure_iso8601, METH_VARARGS,
      "convert various time formats to iso8601"},
-    {"c_is_valid_ip",  (PyCFunction)c_is_valid_ip, METH_VARARGS,
+    {"c_is_valid_ip", c_is_valid_ip, METH_VARARGS,
      "C variant of muty.string.is_valid_ip"},
     {NULL, NULL, 0, NULL} /* sentinel */
 };

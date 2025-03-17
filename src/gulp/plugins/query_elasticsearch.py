@@ -133,10 +133,7 @@ class Plugin(GulpPluginBase):
         # convert timestamp to nanoseconds
         mapping = self.selected_mapping()
         _, ts_nsec, _ = GulpDocument.ensure_timestamp(
-            doc[timestamp_field],
-            dayfirst=mapping.timestamp_dayfirst if mapping else None,
-            yearfirst=mapping.timestamp_yearfirst if mapping else None,
-            fuzzy=mapping.timestamp_fuzzy if mapping else None,
+            doc[timestamp_field]
         )
         # strip timestamp
         doc.pop(timestamp_field, None)

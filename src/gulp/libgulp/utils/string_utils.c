@@ -273,7 +273,7 @@ PyObject *c_is_valid_ip(PyObject *self, PyObject *args) {
 
   // parse python string argument
   if (!PyArg_ParseTuple(args, "s", &ip_str)) {
-    return NULL;
+    Py_RETURN_NONE;
   }
 
   // call the c function
