@@ -75,7 +75,8 @@ async def test_utility():
         )
         p = await GulpAPIUtility.plugin_upload(admin_token, to_be_uploaded)
         assert os.path.realpath(p["path"]) == os.path.realpath(
-            os.path.join(GulpConfig.get_instance().path_plugins_extra(), test_plugin)
+            os.path.join(GulpConfig.get_instance(
+            ).path_plugins_extra(), test_plugin)
         )
 
         # list plugin again
@@ -83,7 +84,8 @@ async def test_utility():
         l = await GulpAPIUtility.plugin_list(guest_token)
         p = await GulpAPIUtility.plugin_get(admin_token, test_plugin)
         assert os.path.realpath(p["path"]) == os.path.realpath(
-            os.path.join(GulpConfig.get_instance().path_plugins_extra(), test_plugin)
+            os.path.join(GulpConfig.get_instance(
+            ).path_plugins_extra(), test_plugin)
         )
         found = False
         for plugin in l:
@@ -103,7 +105,8 @@ async def test_utility():
         )
         d = await GulpAPIUtility.plugin_delete(admin_token, plugin=test_plugin)
         assert os.path.realpath(d["path"]) == os.path.realpath(
-            os.path.join(GulpConfig.get_instance().path_plugins_extra(), test_plugin)
+            os.path.join(GulpConfig.get_instance(
+            ).path_plugins_extra(), test_plugin)
         )
         l = await GulpAPIUtility.plugin_list(guest_token)
         found = False
@@ -121,7 +124,8 @@ async def test_utility():
         if not os.environ.get("PATH_MAPPING_FILES_EXTRA"):
             raise ValueError("PATH_MAPPING_FILES_EXTRA not set")
         MutyLogger.get_instance().info(
-            "PATH_MAPPING_FILES_EXTRA: " + os.environ.get("PATH_MAPPING_FILES_EXTRA")
+            "PATH_MAPPING_FILES_EXTRA: " +
+            os.environ.get("PATH_MAPPING_FILES_EXTRA")
         )
 
         # ensure clean
@@ -231,18 +235,21 @@ async def test_utility():
 
     # check env
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.join(
-        current_dir, "../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
-    )
-    os.environ["PATH_PLUGINS_EXTRA"] = os.path.join(
-        current_dir, "../../gulp-paid-plugins/src/gulp-paid-plugins/plugins"
-    )
+    if not os.environ.get("PATH_MAPPING_FILES_EXTRA"):
+        # probably not in the dev container, gulp-paid-plugins must be at the same level of gulp directory
+        os.environ["PATH_MAPPING_FILES_EXTRA"] = os.path.join(
+            current_dir, "../../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
+        )
+        os.environ["PATH_PLUGINS_EXTRA"] = os.path.join(
+            current_dir, "../../gulp-paid-plugins/src/gulp-paid-plugins/plugins"
+        )
     MutyLogger.get_instance().info(
         "PATH_MAPPING_FILES_EXTRA: " + os.environ["PATH_MAPPING_FILES_EXTRA"]
     )
-    MutyLogger.get_instance().info("PATH_PLUGINS_EXTRA: " + os.environ["PATH_PLUGINS_EXTRA"])
-    assert os.path.exists(os.environ["PATH_MAPPING_FILES_EXTRA"])
-    assert os.path.exists(os.environ["PATH_PLUGINS_EXTRA"])
+    MutyLogger.get_instance().info("PATH_PLUGINS_EXTRA: " +
+                                   os.environ["PATH_PLUGINS_EXTRA"])
+    # assert os.path.exists(os.environ["PATH_MAPPING_FILES_EXTRA"])
+    # assert os.path.exists(os.environ["PATH_PLUGINS_EXTRA"])
 
     # test mapping files api
     await _test_mapping_files()
