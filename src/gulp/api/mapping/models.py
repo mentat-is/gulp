@@ -67,10 +67,7 @@ class GulpMapping(BaseModel):
                     "description": "test description.",
                     "agent_type": "win_evtx",
                     "event_code": "1234",
-                    "allow_prefixed": False,
-                    "timestamp_dayfirst": False,
-                    "timestamp_yearfirst": True,
-                    "timestamp_fuzzy": False,
+                    "allow_prefixed": False
                 }
             ]
         },
@@ -100,18 +97,6 @@ class GulpMapping(BaseModel):
     include: Optional[list[str]] = Field(
         None,
         description="if set, only these fields are processed and included in the generated document/s.",
-    )
-    timestamp_dayfirst: Optional[bool] = Field(
-        None,
-        description="controls how timestamp strings are parsed, for advanced usage: if set, in an ambiguous 3-integer date (i.e. 01/05/09) consider 01 as the day (default=dateutil.parser default=False).",
-    )
-    timestamp_yearfirst: Optional[bool] = Field(
-        None,
-        description="controls how timestamp strings are parsed, for advanced usage: if set, in an ambiguous 3-integer date (i.e. 01/05/09) consider 01 as the year (default=dateutil.parser default=False).",
-    )
-    timestamp_fuzzy: Optional[bool] = Field(
-        None,
-        description="controls how timestamp strings are parsed, for advanced usage: if set, allows parsing of strings like 'Today is January 1, 2047 at 8:21:00AM' (default=dateutil.parser default=False)",
     )
     # TODO: consider if this is needed or we can just deprecate/remove this.... it is used only by the win_evtx plugin and probably it is not needed even there.
     allow_prefixed: Optional[bool] = Field(

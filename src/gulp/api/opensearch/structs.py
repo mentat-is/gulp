@@ -136,19 +136,13 @@ class GulpDocument(GulpBasicDocument):
 
     @staticmethod
     def ensure_timestamp(
-        timestamp: str,
-        dayfirst: bool = None,
-        yearfirst: bool = None,
-        fuzzy: bool = None,
+        timestamp: str
     ) -> tuple[str, int, bool]:
         """
         returns a string guaranteed to be in iso8601 time format
 
         Args:
             timestamp (str): The time string to parse (in iso8601 format or a string in a format supported by muty.time.ensure_iso8601).
-            dayfirst (bool, optional): If set, parse the timestamp with dayfirst=True. Defaults to None (use dateutil.parser default).
-            yearfirst (bool, optional): If set, parse the timestamp with yearfirst=True. Defaults to None (use dateutil.parser default).
-            fuzzy (bool, optional): If set, parse the timestamp with fuzzy=True. Defaults to None (use dateutil.parser default).
         Returns:
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
@@ -160,15 +154,13 @@ class GulpDocument(GulpBasicDocument):
 
         try:
             # get iso8601 timestamp
-            ts = muty.time.ensure_iso8601(timestamp, dayfirst, yearfirst, fuzzy)
+            ts = muty.time.ensure_iso8601(timestamp)
             # we also need nanoseconds from the unix epoch
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
                 ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
             else:
-                ns = muty.time.string_to_nanos_from_unix_epoch(
-                    ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy
-                )
+                ns = muty.time.string_to_nanos_from_unix_epoch(ts)
 
             return ts, ns, False
         except Exception as e:
@@ -214,10 +206,12 @@ class GulpDocument(GulpBasicDocument):
         """
         # turn any document already in gulp ecs format back to GulpDocument
         # (i.e. turn "@timestamp" back to "timestamp")
-        kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
+        kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(
+            kwargs)
 
         # this is internal, set by _finalize_process_record() in the mapping engine
-        ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
+        ignore_default_event_code = kwargs.pop(
+            "__ignore_default_event_code__", False)
 
         # build initial data dict
         mapping: GulpMapping = plugin_instance.selected_mapping()
@@ -253,10 +247,7 @@ class GulpDocument(GulpBasicDocument):
 
         # ensure timestamp is valid
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-            str(data["timestamp"]),
-            dayfirst=mapping.timestamp_dayfirst if mapping else None,
-            yearfirst=mapping.timestamp_yearfirst if mapping else None,
-            fuzzy=mapping.timestamp_fuzzy if mapping else None,
+            str(data["timestamp"])
         )
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos

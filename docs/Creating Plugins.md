@@ -308,12 +308,6 @@ Here's a commented example, further details in the [model definition source](../
       "exclude": ["field1", "field2"],
       // optional: if set, only matching fields in the source document are processed and included in the generated document/s.      
       "include": ["field1", "field2"],
-      // the following are advanced options to control how timestamp strings are handled by the gulp's engine, and their usage should be rarely needed.
-      //
-      // anyway, they map 1:1 to options in python's [dateutil.parser.parse](https://dateutil.readthedocs.io/en/stable/parser.html).
-      "timestamp_dayfirst": null, // defaults to False
-      "timestamp_yearfirst": null, // defaults to False
-      "timestamp_fuzzy": null, // defaults to False
       // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
       "allow_prefixed": true
       
