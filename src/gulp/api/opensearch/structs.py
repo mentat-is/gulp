@@ -9,7 +9,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gulp.libgulp import c_number_to_nanos_from_unix_epoch
+from gulp.libgulp import c_number_to_nanos_from_unix_epoch, c_string_to_nanos_from_unix_epoch
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
@@ -169,7 +169,7 @@ class GulpDocument(GulpBasicDocument):
                 #ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
                 ns = c_number_to_nanos_from_unix_epoch(timestamp)
             else:
-                ns = muty.time.string_to_nanos_from_unix_epoch(
+                ns = c_string_to_nanos_from_unix_epoch(
                     ts, dayfirst=dayfirst, yearfirst=yearfirst, fuzzy=fuzzy
                 )
 

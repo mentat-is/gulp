@@ -23,6 +23,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginType
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
+from gulp.libgulp import c_string_to_nanos_from_unix_epoch
 
 
 class Plugin(GulpPluginBase):
@@ -82,7 +83,7 @@ class Plugin(GulpPluginBase):
 
         # map timestamp manually
         time_str = event.pop("date")
-        time_str = str(muty.time.string_to_nanos_from_unix_epoch(time_str))
+        time_str = str(c_string_to_nanos_from_unix_epoch(time_str))
         d["@timestamp"] = time_str
 
         # map

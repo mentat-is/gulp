@@ -12,7 +12,7 @@ from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
-
+from gulp.libgulp import c_string_to_nanos_from_unix_epoch
 
 class Plugin(GulpPluginBase):
     """
@@ -40,7 +40,7 @@ class Plugin(GulpPluginBase):
         end_time = record.pop("gulp.unmapped.endtime", 0)
         if end_time:
             # set connection.end_time and event.duration
-            end_time = muty.time.string_to_nanos_from_unix_epoch(end_time)
+            end_time = c_string_to_nanos_from_unix_epoch(end_time)
             start_time = record["gulp.timestamp"]
             record["connection.end_time"] = end_time
             record["event.duration"] = end_time - start_time

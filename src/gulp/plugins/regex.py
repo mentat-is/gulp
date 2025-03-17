@@ -23,6 +23,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+from gulp.libgulp import c_string_to_nanos_from_unix_epoch
 
 
 class Plugin(GulpPluginBase):
@@ -72,7 +73,7 @@ class Plugin(GulpPluginBase):
         # - timestamp is nanoseconds from unix epoch, if numeric
         timestamp: str = d.get("@timestamp", "0")
         if not timestamp.isnumeric():
-            timestamp = muty.time.string_to_nanos_from_unix_epoch(timestamp)
+            timestamp = c_string_to_nanos_from_unix_epoch(timestamp)
         d["@timestamp"] = timestamp
 
         return GulpDocument(
