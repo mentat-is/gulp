@@ -57,8 +57,8 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
 from gulp.libgulp import c_ensure_iso8601, c_is_valid_ip
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
 
 
 class GulpPluginType(StrEnum):
@@ -1866,14 +1866,9 @@ class GulpPluginBase(ABC):
 
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
             # convert hex to int, then ensure it is a valid timestamp
-            try:
                 # MutyLogger.get_instance().debug("converting %s: %s to date" % (k, v))
-                #v = muty.time.ensure_iso8601(str(int(v, 16)))
-                v = c_ensure_iso8601(str(int(v, 16)))
-                return k, v
-            except ValueError:
-                # MutyLogger.get_instance().exception("error converting %s:%s to date" % (k, v))
-                return k, None
+            v = c_ensure_iso8601(str(int(v, 16)))
+            return k, v
 
         if index_type == "keyword" or index_type == "text":
             # MutyLogger.get_instance().debug("converting %s:%s to keyword" % (k, v))
