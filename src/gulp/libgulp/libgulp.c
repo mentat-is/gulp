@@ -34,6 +34,9 @@
 static PyMethodDef ModuleMethods[] = {
     {"c_type_checks", c_type_checks, METH_VARARGS, "convert value based on index mapping type"},
     {"c_ensure_iso8601", c_ensure_iso8601, METH_VARARGS|METH_KEYWORDS, "convert various time formats to iso8601"},
+    {"c_number_to_nanos_from_unix_epoch", c_number_to_nanos_from_unix_epoch, METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.number_to_nanos_from_unix_epoch"},
+    {"c_string_to_nanos_from_unix_epoch", c_string_to_nanos_from_unix_epoch, METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.c_string_to_nanos_from_unix_epoch"},
+    
     {NULL, NULL, 0, NULL} /* sentinel */
 };
 
