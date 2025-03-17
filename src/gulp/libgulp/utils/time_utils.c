@@ -23,7 +23,6 @@
 // maximum length of iso8601 string
 #define ISO8601_MAX_LEN 64
 
-
 /**
  * formats a time_t value as iso8601 string with utc timezone
  *
@@ -119,7 +118,6 @@ bool has_utc_timezone(const char* iso_str) {
   return false;
 }
 
-
 /**
  * converts a tm struct to seconds since unix epoch (utc)
  *
@@ -130,25 +128,25 @@ bool has_utc_timezone(const char* iso_str) {
  *     time_t: seconds since unix epoch, or -1 on error
  */
 time_t tm_to_utc_time(struct tm* tm_info) {
-  #ifdef _WIN32
-    // windows doesn't have timegm, use mktime and adjust for local timezone
-    time_t local_time = mktime(tm_info);
-    if (local_time == -1) return -1;
-  
-    // get the timezone offset
-    time_t gmt_time;
-    struct tm gmt_tm;
-    gmtime_s(&gmt_tm, &local_time);
-    gmt_tm.tm_isdst = 0;
-    gmt_time = mktime(&gmt_tm);
-  
-    // return utc time
-    return local_time + (local_time - gmt_time);
-  #else
-    // use timegm on posix systems
-    return timegm(tm_info);
-  #endif
-  }
+#ifdef _WIN32
+  // windows doesn't have timegm, use mktime and adjust for local timezone
+  time_t local_time = mktime(tm_info);
+  if (local_time == -1) return -1;
+
+  // get the timezone offset
+  time_t gmt_time;
+  struct tm gmt_tm;
+  gmtime_s(&gmt_tm, &local_time);
+  gmt_tm.tm_isdst = 0;
+  gmt_time = mktime(&gmt_tm);
+
+  // return utc time
+  return local_time + (local_time - gmt_time);
+#else
+  // use timegm on posix systems
+  return timegm(tm_info);
+#endif
+}
 
 /**
  * checks if a string is in iso8601 format
@@ -177,7 +175,6 @@ bool is_iso8601(const char* str) {
   }
   return false;
 }
-
 
 /**
  * enforces utc timezone on an iso8601 string
@@ -279,67 +276,68 @@ bool enforce_utc_timezone(const char* iso_str, char* buffer,
 }
 
 // Helper function to convert timezone offset string to seconds
-long parse_timezone_offset(const char *offset_str) {
+long parse_timezone_offset(const char* offset_str) {
   int hours, minutes;
   char sign;
 
   if (sscanf(offset_str, "%c%2d:%2d", &sign, &hours, &minutes) == 3) {
-      long total_seconds = hours * 3600 + minutes * 60;
-      return (sign == '-') ? -total_seconds : total_seconds;
+    long total_seconds = hours * 3600 + minutes * 60;
+    return (sign == '-') ? -total_seconds : total_seconds;
   } else {
-      return 0; // Invalid offset format (Should be an error in strict parser)
+    return 0;  // Invalid offset format (Should be an error in strict parser)
   }
 }
 
 /**
-* converts an iso8601 string to nanoseconds since unix epoch
-*
-* Args:
-*     iso_str (const char*): the iso8601 string to convert
-*
-* Returns:
-*     int64_t: nanoseconds since unix epoch, or -1 on failure
-*
-* Throws:
-*     does not throw exceptions, returns -1 on failure
-*/
+ * converts an iso8601 string to nanoseconds since unix epoch
+ *
+ * Args:
+ *     iso_str (const char*): the iso8601 string to convert
+ *
+ * Returns:
+ *     int64_t: nanoseconds since unix epoch, or -1 on failure
+ *
+ * Throws:
+ *     does not throw exceptions, returns -1 on failure
+ */
 int64_t iso8601_to_nanos(const char* iso_str) {
   // validate input
   if (!iso_str || !is_iso8601(iso_str)) {
     return -1;
   }
- 
+
   // create a buffer for normalized iso8601 with utc timezone
   char utc_buffer[ISO8601_MAX_LEN];
   if (!enforce_utc_timezone(iso_str, utc_buffer, ISO8601_MAX_LEN)) {
     return -1;
   }
-  
+
   // parse the base time component
   struct tm tm_info = {0};
   char* parse_success = NULL;
-  
+
   // iso8601 format with Z: "2025-03-13t15:30:45z"
   parse_success = strptime(utc_buffer, "%Y-%m-%dT%H:%M:%S", &tm_info);
-  
+
   if (!parse_success) {
     return -1;
   }
-  
+
   // convert to seconds since unix epoch
   time_t unix_seconds = tm_to_utc_time(&tm_info);
   if (unix_seconds == -1) {
     return -1;
   }
-  
+
   // convert seconds to nanoseconds
   int64_t nanos = (int64_t)unix_seconds * SECONDS_TO_NANOSECONDS;
-  
+
   // handle fractional seconds if present
   char* fractional = strstr(utc_buffer, ".");
-  if (fractional && fractional[1] != '\0' && fractional[1] != 'Z' && fractional[1] != 'z') {
-    fractional++; // move past decimal point
-    
+  if (fractional && fractional[1] != '\0' && fractional[1] != 'Z' &&
+      fractional[1] != 'z') {
+    fractional++;  // move past decimal point
+
     // extract up to 9 digits for nanoseconds
     char fraction_str[10] = {0};
     size_t i = 0;
@@ -347,110 +345,21 @@ int64_t iso8601_to_nanos(const char* iso_str) {
       fraction_str[i] = fractional[i];
       i++;
     }
-    
+
     // pad with zeros to complete 9 digits
     while (i < 9) {
       fraction_str[i] = '0';
       i++;
     }
-    
+
     // convert fraction string to integer
     int64_t fraction_ns = atoll(fraction_str);
-    
+
     // add fractional part to total nanoseconds
     nanos += fraction_ns;
   }
-  
+
   return nanos;
-}
- 
-
-PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs) {
-    PyObject* numeric_obj = NULL;
-    char* kwlist[] = {"numeric", NULL};
-    long long result = 0;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &numeric_obj)) {
-      Py_RETURN_NONE; // Parsing failure raises an exception
-    }
-
-    if (PyUnicode_Check(numeric_obj)) {
-      const char* num_str = PyUnicode_AsUTF8(numeric_obj);
-      if (num_str == NULL) {
-        PyErr_Format(PyExc_ValueError, "invalid time format: %s", num_str);
-        Py_RETURN_NONE;
-      }
-      
-      char *endptr;
-      // TODO: do we need to reduce ref count of numeric_obj since we are technically pointing it to somewhere else?
-      numeric_obj = PyLong_FromString(num_str, &endptr, 10); 
-    }
-
-    if (PyLong_Check(numeric_obj)) {
-      // Convert input to a Python integer
-      PyObject* numeric_int = PyNumber_Index(numeric_obj);
-      if (numeric_int == NULL) {
-        Py_RETURN_NONE; // Conversion failure raises an exception
-      }
-
-      // Extract the integer value as a long long
-      long long numeric = PyLong_AsLongLong(numeric_int);
-      Py_DECREF(numeric_int); // Release the temporary integer object
-
-      if (numeric == -1 && PyErr_Occurred()) {
-        Py_RETURN_NONE;
-      }
-
-      if (numeric < 0) {
-          PyErr_Format(PyExc_ValueError, "Numeric value must be non-negative: %lld", numeric);
-          Py_RETURN_NONE;
-      }
-
-      if (numeric > 1000000000000000000LL) { // Assume nanoseconds
-          result = numeric;
-      } else if (numeric > 1000000000LL) { // Assume milliseconds
-          result = numeric * MILLISECONDS_TO_NANOSECONDS;
-      } else { // Assume seconds
-          result = numeric * SECONDS_TO_NANOSECONDS;
-      }
-    } else {
-      PyErr_Format(PyExc_ValueError, "Unsupported format type for object: %p", numeric_obj);
-      Py_RETURN_NONE;
-    }
-    
-
-    return PyLong_FromLongLong(result); // Return result as Python integer
-}
-
-/**
- * c implementation of string_to_nanos_from_unix_epoch to convert various time formats to nanos from unix epoch
- *
- * Args:
- *     self: module object
- *     args: positional arguments (time_str, dayfirst, yearfirst, fuzzy)
- *     kwargs: keyword arguments
- *
- * Returns:
- *     PyObject*: nanoseconds from unix epoch
- *
- * Throws:
- *     ValueError: if time_str has invalid format
- *     TypeError: if time_str is not a string or integer
- */
-PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args, PyObject* kwargs){
-  // ugly quick-hack to avoid reimplementing everything, convert to iso8601 first, then to nanos
-  PyObject* iso8601 = c_ensure_iso8601(self, args, kwargs);
-
-  char* time_str = PyUnicode_AsUTF8(iso8601);
-  if (time_str == NULL) {
-    PyErr_Format(PyExc_ValueError, "invalid time format: %s", time_str);
-    Py_RETURN_NONE;
-  }
-  
-  time_t nanos = iso8601_to_nanos(time_str);
-  PyObject* result = PyLong_FromLong(nanos);
-
-  return result;
 }
 
 /**
@@ -635,26 +544,30 @@ char* parse_date_to_iso8601(const char* date_str) {
   return NULL;
 }
 
-
-int parse_iso8601(const char *iso8601_string, struct tm *tm, long *nanoseconds) {
+int parse_iso8601(const char* iso8601_string, struct tm* tm,
+                  long* nanoseconds) {
   int year, month, day, hour, minute, second, nano = 0;
   double fraction = 0.0;
-  char timezone_offset_str[7] = {0}; // e.g., "+05:30" or "-08:00"
+  char timezone_offset_str[7] = {0};  // e.g., "+05:30" or "-08:00"
 
-  int matched = sscanf(iso8601_string, "%d-%d-%dT%d:%d:%d.%lf%6s", &year, &month, &day, &hour, &minute, &second, &fraction, timezone_offset_str);
+  int matched =
+      sscanf(iso8601_string, "%d-%d-%dT%d:%d:%d.%lf%6s", &year, &month, &day,
+             &hour, &minute, &second, &fraction, timezone_offset_str);
 
   if (matched < 6) {
-      matched = sscanf(iso8601_string, "%d-%d-%dT%d:%d:%d%6s", &year, &month, &day, &hour, &minute, &second, timezone_offset_str);
-      if (matched < 6) {
-          return -1;
-      }
-      fraction = 0.0;
+    matched = sscanf(iso8601_string, "%d-%d-%dT%d:%d:%d%6s", &year, &month,
+                     &day, &hour, &minute, &second, timezone_offset_str);
+    if (matched < 6) {
+      return -1;
+    }
+    fraction = 0.0;
   }
 
   // Basic sanity checks
   if (year < 1970 || month < 1 || month > 12 || day < 1 || day > 31 ||
-      hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
-      return -1; // Invalid date/time
+      hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 ||
+      second > 59) {
+    return -1;  // Invalid date/time
   }
 
   tm->tm_year = year - 1900;
@@ -663,39 +576,41 @@ int parse_iso8601(const char *iso8601_string, struct tm *tm, long *nanoseconds) 
   tm->tm_hour = hour;
   tm->tm_min = minute;
   tm->tm_sec = second;
-  tm->tm_isdst = -1; // Let mktime/localtime determine DST
+  tm->tm_isdst = -1;  // Let mktime/localtime determine DST
 
   // Handle timezone information
   if (matched > 6) {
-      if (timezone_offset_str[0] == 'Z') {
-        #ifdef __USE_MISC
-          tm->tm_gmtoff = 0;
-          tm->tm_zone = "UTC";
-        #else
-          tm->__tm_gmtoff = 0;
-          tm->__tm_zone = "UTC";
-        #endif
-      } else if (timezone_offset_str[0] == '+' || timezone_offset_str[0] == '-') {
-        #ifdef __USE_MISC
-          tm->tm_gmtoff = parse_timezone_offset(timezone_offset_str);
+    if (timezone_offset_str[0] == 'Z') {
+#ifdef __USE_MISC
+      tm->tm_gmtoff = 0;
+      tm->tm_zone = "UTC";
+#else
+      tm->__tm_gmtoff = 0;
+      tm->__tm_zone = "UTC";
+#endif
+    } else if (timezone_offset_str[0] == '+' || timezone_offset_str[0] == '-') {
+#ifdef __USE_MISC
+      tm->tm_gmtoff = parse_timezone_offset(timezone_offset_str);
 
-          snprintf((char*)tm->tm_zone, sizeof(tm->tm_zone), "%s", timezone_offset_str);
-        #else
-          tm->__tm_gmtoff = parse_timezone_offset(timezone_offset_str);
-          snprintf((char*)tm->__tm_zone, sizeof(tm->__tm_zone), "%s", timezone_offset_str);
-        #endif
-      } else {
-          return -1; // Invalid timezone format
-      }
+      snprintf((char*)tm->tm_zone, sizeof(tm->tm_zone), "%s",
+               timezone_offset_str);
+#else
+      tm->__tm_gmtoff = parse_timezone_offset(timezone_offset_str);
+      snprintf((char*)tm->__tm_zone, sizeof(tm->__tm_zone), "%s",
+               timezone_offset_str);
+#endif
+    } else {
+      return -1;  // Invalid timezone format
+    }
   } else {
-      // If no timezone information is present, leave tm_gmtoff to 0 (UTC)
-      #ifdef __USE_MISC
-        tm->tm_gmtoff = 0;  
-        tm->tm_zone = NULL;
-      #else
-        tm->__tm_gmtoff = 0;
-        tm->__tm_zone = NULL;
-      #endif
+// If no timezone information is present, leave tm_gmtoff to 0 (UTC)
+#ifdef __USE_MISC
+    tm->tm_gmtoff = 0;
+    tm->tm_zone = NULL;
+#else
+    tm->__tm_gmtoff = 0;
+    tm->__tm_zone = NULL;
+#endif
   }
 
   nano = (long)(fraction * 1e9);
@@ -708,12 +623,12 @@ int parse_iso8601(const char *iso8601_string, struct tm *tm, long *nanoseconds) 
  * c implementation of ensure_iso8601 to convert various time formats to iso8601
  *
  * Args:
- *     self: module object
- *     args: positional arguments (time_str, dayfirst, yearfirst, fuzzy)
- *     kwargs: keyword arguments
+ *     self (PyObject*): module object
+ *     args (PyObject*): positional arguments (time_str, dayfirst, yearfirst,
+ * fuzzy) kwargs (PyObject*): keyword arguments
  *
  * Returns:
- *     PyObject*: iso8601 formatted string
+ *     PyObject*: iso8601 formatted string, or NULL on failure
  *
  * Throws:
  *     ValueError: if time_str has invalid format
@@ -730,7 +645,7 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
   /* parse arguments and keyword arguments */
   if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOO", kwlist, &time_str_obj,
                                    &dayfirst_obj, &yearfirst_obj, &fuzzy_obj)) {
-    Py_RETURN_NONE;
+    return NULL;  // parsing failed, exception already set
   }
 
   /* handle numeric timestamp as int */
@@ -739,26 +654,182 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args, PyObject* kwargs) {
     int64_t numeric = PyLong_AsLongLong(time_str_obj);
     char numstr[65] = {0};
     snprintf(numstr, sizeof(numstr), "%" PRId64, numeric);
+
+    // convert to iso8601
     char* iso_str = parse_date_to_iso8601(numstr);
+    if (!iso_str) {
+      // handle parsing failure
+      PyErr_Format(PyExc_ValueError, "failed to parse numeric value: %s",
+                   numstr);
+      return NULL;
+    }
+
+    // create python string
     PyObject* result = PyUnicode_FromString(iso_str);
     free(iso_str);
     return result;
   } else if (PyUnicode_Check(time_str_obj)) {
-    /* handle string input:*/
+    /* handle string input */
     const char* time_str = PyUnicode_AsUTF8(time_str_obj);
-    if (time_str == NULL) {
-      PyErr_Format(PyExc_ValueError, "invalid time format: %s", time_str);
-      Py_RETURN_NONE;
+    if (!time_str) {
+      // pyunicode_asutf8 sets an exception
+      return NULL;
     }
 
-    char* iso_str = parse_date_to_iso8601(time_str);
-    PyObject* result = PyUnicode_FromString(iso_str);
-    if (iso_str) {
-      free(iso_str);
+    // maximum length check to prevent malicious inputs
+    if (strlen(time_str) > ISO8601_MAX_LEN) {
+      PyErr_Format(PyExc_ValueError,
+                   "input string too long (max %d characters)",
+                   ISO8601_MAX_LEN);
+      return NULL;
     }
+
+    // convert to iso8601
+    char* iso_str = parse_date_to_iso8601(time_str);
+    if (!iso_str) {
+      // handle parsing failure
+      PyErr_Format(PyExc_ValueError, "failed to parse date string: %s",
+                   time_str);
+      return NULL;
+    }
+
+    // create python string
+    PyObject* result = PyUnicode_FromString(iso_str);
+    free(iso_str);
     return result;
   }
 
   PyErr_SetString(PyExc_TypeError, "time_str must be a string or integer");
-  Py_RETURN_NONE;
+  return NULL;
+}
+
+PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
+                                            PyObject* kwargs) {
+  /**
+   * c implementation of number_to_nanos_from_unix_epoch to convert various time
+   *
+   * Args:
+   *    self (PyObject*): module object
+   *    args (PyObject*): positional arguments (numeric)
+   *    kwargs (PyObject*): keyword arguments
+   *
+   * Returns:
+   *   PyObject*: nanoseconds from unix epoch as python integer, or None on
+   *   failure
+   */
+  PyObject* numeric_obj = NULL;
+  char* kwlist[] = {"numeric", NULL};
+  long long result = 0;
+
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &numeric_obj)) {
+    Py_RETURN_NONE;  // Parsing failure raises an exception
+  }
+
+  if (PyUnicode_Check(numeric_obj)) {
+    const char* num_str = PyUnicode_AsUTF8(numeric_obj);
+    if (num_str == NULL) {
+      PyErr_Format(PyExc_ValueError, "invalid time format: %s", num_str);
+      Py_RETURN_NONE;
+    }
+
+    char* endptr;
+    // TODO: do we need to reduce ref count of numeric_obj since we are
+    // technically pointing it to somewhere else?
+    numeric_obj = PyLong_FromString(num_str, &endptr, 10);
+  }
+
+  if (PyLong_Check(numeric_obj)) {
+    // Convert input to a Python integer
+    PyObject* numeric_int = PyNumber_Index(numeric_obj);
+    if (numeric_int == NULL) {
+      Py_RETURN_NONE;  // Conversion failure raises an exception
+    }
+
+    // Extract the integer value as a long long
+    long long numeric = PyLong_AsLongLong(numeric_int);
+    Py_DECREF(numeric_int);  // Release the temporary integer object
+
+    if (numeric == -1 && PyErr_Occurred()) {
+      Py_RETURN_NONE;
+    }
+
+    if (numeric < 0) {
+      PyErr_Format(PyExc_ValueError, "Numeric value must be non-negative: %lld",
+                   numeric);
+      Py_RETURN_NONE;
+    }
+
+    if (numeric > 1000000000000000000LL) {  // Assume nanoseconds
+      result = numeric;
+    } else if (numeric > 1000000000LL) {  // Assume milliseconds
+      result = numeric * MILLISECONDS_TO_NANOSECONDS;
+    } else {  // Assume seconds
+      result = numeric * SECONDS_TO_NANOSECONDS;
+    }
+  } else {
+    PyErr_Format(PyExc_ValueError, "Unsupported format type for object: %p",
+                 numeric_obj);
+    Py_RETURN_NONE;
+  }
+
+  return PyLong_FromLongLong(result);  // Return result as Python integer
+}
+
+/**
+ * c implementation of string_to_nanos_from_unix_epoch to convert various time
+ * formats to nanos from unix epoch
+ *
+ * Args:
+ *     self (PyObject*): module object
+ *     args (PyObject*): positional arguments (time_str, dayfirst, yearfirst,
+ * fuzzy) kwargs (PyObject*): keyword arguments
+ *
+ * Returns:
+ *     PyObject*: nanoseconds from unix epoch as python integer, or None on
+ * failure
+ *
+ * Throws:
+ *     ValueError: if time_str has invalid format
+ *     TypeError: if time_str is not a string or integer
+ */
+PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args,
+                                            PyObject* kwargs) {
+  // convert to iso8601 first, then to nanos
+  PyObject* iso8601 = c_ensure_iso8601(self, args, kwargs);
+  if (iso8601 == NULL) {
+    // c_ensure_iso8601 should have set an exception already
+    return NULL;
+  }
+
+  // ensure we have a unicode string
+  if (!PyUnicode_Check(iso8601)) {
+    Py_DECREF(iso8601);
+    PyErr_SetString(PyExc_ValueError,
+                    "internal error: ensure_iso8601 returned non-string");
+    return NULL;
+  }
+
+  // extract c string
+  const char* time_str = PyUnicode_AsUTF8(iso8601);
+  if (time_str == NULL) {
+    Py_DECREF(iso8601);
+    // pyunicode_asutf8 sets an exception if it fails
+    return NULL;
+  }
+
+  // convert to nanoseconds
+  int64_t nanos = iso8601_to_nanos(time_str);
+
+  // clean up the iso8601 string, we don't need it anymore
+  Py_DECREF(iso8601);
+
+  // check if conversion was successful
+  if (nanos == -1) {
+    PyErr_Format(PyExc_ValueError, "failed to parse iso8601 string: %s",
+                 time_str);
+    return NULL;
+  }
+
+  // return nanoseconds as python integer
+  return PyLong_FromLongLong(nanos);
 }
