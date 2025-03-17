@@ -168,7 +168,7 @@ class GulpPluginCache:
     """
     Plugin cache singleton.
     """
-    _instance: "GulpPluginCache"=None
+    _instance: "GulpPluginCache" = None
 
     def __init__(self):
         pass
@@ -178,10 +178,10 @@ class GulpPluginCache:
         Create a new instance of the class.
         """
         if not cls._instance:
-            cls._instance=super().__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._initialize()
         return cls._instance
-    
+
     @classmethod
     def get_instance(cls) -> "GulpPluginCache":
         """
@@ -191,7 +191,7 @@ class GulpPluginCache:
             GulpPluginCache: The plugin cache instance.
         """
         if not cls._instance:
-            cls._instance=cls()
+            cls._instance = cls()
         return cls._instance
 
     def _initialize(self):
@@ -875,7 +875,8 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
+        MutyLogger.get_instance().debug(
+            f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
         last = kwargs.get("last", False)
@@ -1364,10 +1365,12 @@ class GulpPluginBase(ABC):
                 # single mapping
                 mapping = [mapping]
 
+            force_type = fields_mapping.force_type is not None
             if mapping:
                 # source key is mapped, add the mapped key to the document
                 for k in mapping:
-                    kk, vv = self._type_checks(k, source_value)
+                    kk, vv = self._type_checks(
+                        k, source_value, force_type_set=force_type)
                     if vv:
                         d[kk] = vv
             else:
@@ -1401,6 +1404,23 @@ class GulpPluginBase(ABC):
             return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
+        if fields_mapping.force_type:
+            # force value to the given type
+            t = fields_mapping.force_type
+            if t == "int":
+                try:
+                    source_value = int(source_value)
+                except ValueError:
+                    source_value = 0
+            elif t == "float":
+                try:
+                    source_value = float(source_value)
+                except ValueError:
+                    source_value = 0.0
+            elif t == "str":
+                source_value = str(source_value)
+            # MutyLogger.get_instance().warning(f"value {source_value} forced to {t}")
+
         if (
             fields_mapping.multiplier
             and isinstance(source_value, int)
@@ -1422,6 +1442,7 @@ class GulpPluginBase(ABC):
                 "event_code": str(fields_mapping.extra_doc_with_event_code),
                 "timestamp": source_value,
             }
+
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
             mapped = _try_map_ecs(fields_mapping, d, source_value)
@@ -1433,7 +1454,8 @@ class GulpPluginBase(ABC):
             # we also add this key to the main document
             return mapped
 
-        return _try_map_ecs(fields_mapping, d, source_value)
+        m = _try_map_ecs(fields_mapping, d, source_value)
+        return m
 
     async def _update_ingestion_stats(self, ingested: int, skipped: int) -> None:
         """
@@ -1646,7 +1668,8 @@ class GulpPluginBase(ABC):
 
         # validation checks
         if not self._mappings and self._mapping_id:
-            raise ValueError("mapping_id is set but mappings/mapping_file is not!")
+            raise ValueError(
+                "mapping_id is set but mappings/mapping_file is not!")
 
         if not self._mappings and not self._mapping_id:
             MutyLogger.get_instance().warning(
@@ -1693,7 +1716,8 @@ class GulpPluginBase(ABC):
                     f"additional mapping file {additional_file_path} is empty!"
                 )
 
-            additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
+            additional_mapping_file = GulpMappingFile.model_validate(
+                mapping_data)
 
             # merge mappings
             main_mapping = self.selected_mapping()
@@ -1782,38 +1806,22 @@ class GulpPluginBase(ABC):
         # initialize index type mappings
         await self._initialize_index_mappings()
 
-        # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % ( self.filename, self._mappings))
+        MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" %
+                                        (self.filename, self._mappings))
 
-    def _type_checks_native(self, k: str, v: Any) -> tuple[str, Any]:
+    def _type_checks(self, k: str, v: Any, force_type_set: bool = False) -> tuple[str, Any]:
         """
         check the type of a value and convert it if needed.
 
         Args:
             k (str): the key
             v (any): the value
+            force_type_set (bool, optional): if not set, and the key is not found in the index_type_mapping, the value is converted to string. Defaults to False.
+                this is set when "force_type" is set for a field mapping: the value is converted to the given type before reaching here, so we must not convert it again.
 
         Returns:
             tuple[str, any]: the key and the value
         """
-        from gulp.libgulp import c_type_checks
-        
-        # Get the index type from mapping
-        index_type = self._index_type_mapping.get(k)
-        
-        # call the C implementation
-        return c_type_checks(k, v, index_type)
-
-    def _type_checks(self, k: str, v: Any) -> tuple[str, Any]:
-        """
-        check the type of a value and convert it if needed.
-
-        Args:
-            k (str): the key
-            v (any): the value
-
-        Returns:
-            tuple[str, any]: the key and the value
-        """        
         # Get the index type from mapping
         index_type = self._index_type_mapping.get(k)
         
@@ -1823,8 +1831,11 @@ class GulpPluginBase(ABC):
         index_type = self._index_type_mapping.get(k)
         if not index_type:
             # MutyLogger.get_instance().warning("key %s not found in index_type_mapping" % (k))
-            # return an unmapped key, so it is guaranteed to be a string
-            # k = f{GulpOpenSearch.UNMAPPED_PREFIX}.{k}
+            if force_type_set:
+                # force_type has been enforced on this field, so we return as is
+                return k, v
+
+            # enforce to string
             return k, str(v)
 
         # check different types, we may add more ...
@@ -2113,7 +2124,8 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(plugin, extension, cache_mode, *args, **kwargs),
+                GulpPluginBase.load(plugin, extension,
+                                    cache_mode, *args, **kwargs),
             )
             return future.result()
 
@@ -2297,11 +2309,13 @@ class GulpPluginBase(ABC):
             if is_extension:
                 # add extension
                 extra_path = muty.file.safe_path_join(extra_path, "extension")
-                default_path = muty.file.safe_path_join(default_path, "extension")
+                default_path = muty.file.safe_path_join(
+                    default_path, "extension")
 
             # first we check in extra_path
             if extra_path and os.path.exists(extra_path):
-                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
+                p = _check_path(muty.file.safe_path_join(
+                    extra_path, plugin.lower()))
                 if p:
                     return p
 
@@ -2315,7 +2329,8 @@ class GulpPluginBase(ABC):
         # get plugin path
         p = _get_plugin_path(plugin, is_extension)
         if not p and raise_if_not_found:
-            raise FileNotFoundError(f"plugin {plugin} not found in {p}!")
+            raise FileNotFoundError(
+                f"plugin {plugin} not found, plugins_path={GulpConfig.get_instance().path_plugins_default()}, extra_path={GulpConfig.get_instance().path_plugins_extra()}")
         return p
 
     @staticmethod
