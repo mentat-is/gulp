@@ -7,7 +7,6 @@
 extern "C" {
 #endif
 
-	PyObject *c_type_checks(PyObject *self, PyObject *args);
 
 #ifdef __cplusplus
 }

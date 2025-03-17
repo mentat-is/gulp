@@ -58,7 +58,7 @@ from gulp.api.ws_api import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
-from gulp.libgulp import c_ensure_iso8601
+from gulp.libgulp import c_ensure_iso8601, c_is_valid_ip
 
 
 class GulpPluginType(StrEnum):
@@ -1883,9 +1883,7 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug("converting %s:%s to ip" % (k, v))
             if "local" in v.lower():
                 return k, "127.0.0.1"
-            try:
-                ipaddress.ip_address(v)
-            except ValueError:
+            if c_is_valid_ip(v) == 0:
                 # MutyLogger.get_instance().exception("error converting %s:%s to ip" % (k, v))
                 return k, None
 

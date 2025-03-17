@@ -34,7 +34,8 @@
 			"regex": "cpp",
 			"tuple": "cpp",
 			"type_traits": "cpp",
-			"utility": "cpp"
+			"utility": "cpp",
+			"time_utils.h": "c"
 		}
 	}
 }

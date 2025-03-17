@@ -258,8 +258,6 @@ bool is_iso8601(const char *str) {
   // basic validation check (minimum length and fast fail)
   if (!str || str[0] == '\0') return false;
 
-  const size_t min_len = 10;  // YYYY-MM-DD
-
   // verify first 10 chars match YYYY-MM-DD pattern
   // directly check without function calls
   if (!(str[0] >= '0' && str[0] <= '9' && str[1] >= '0' && str[1] <= '9' &&

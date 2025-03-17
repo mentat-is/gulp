@@ -19,32 +19,37 @@
  */
 
 #define PY_SSIZE_T_CLEAN
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <errno.h>
-#include <ctype.h>
-#include <Python.h>
 #include "include/libgulp.h"
-#include "include/time_utils.h"
-#include "include/string_utils.h"
+
+#include <Python.h>
+#include <ctype.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
 #include "include/mapping.h"
+#include "include/string_utils.h"
+#include "include/time_utils.h"
 
 /* method definitions */
 static PyMethodDef ModuleMethods[] = {
-    {"c_ensure_iso8601", c_ensure_iso8601, METH_VARARGS|METH_KEYWORDS, "convert various time formats to iso8601"},
-    {"c_number_to_nanos_from_unix_epoch", c_number_to_nanos_from_unix_epoch, METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.number_to_nanos_from_unix_epoch"},
-    {"c_string_to_nanos_from_unix_epoch", c_string_to_nanos_from_unix_epoch, METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.c_string_to_nanos_from_unix_epoch"},
-    
+    {"c_number_to_nanos_from_unix_epoch",  (PyCFunction)c_number_to_nanos_from_unix_epoch,
+     METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.number_to_nanos_from_unix_epoch"},
+    {"c_string_to_nanos_from_unix_epoch",  (PyCFunction)c_string_to_nanos_from_unix_epoch,
+     METH_VARARGS|METH_KEYWORDS, "C variant of muty.time.c_string_to_nanos_from_unix_epoch"},
+    {"c_ensure_iso8601",  (PyCFunction)c_ensure_iso8601, METH_VARARGS | METH_KEYWORDS,
+     "convert various time formats to iso8601"},
+    {"c_is_valid_ip",  (PyCFunction)c_is_valid_ip, METH_VARARGS,
+     "C variant of muty.string.is_valid_ip"},
     {NULL, NULL, 0, NULL} /* sentinel */
 };
 
 /* module definition */
 static struct PyModuleDef module_def = {
-    PyModuleDef_HEAD_INIT,
-    "gulp.libgulp",         /* module name */
-    "c extension for gulp", /* module docstring */
-    -1,                     /* size of per-interpreter state */
+    PyModuleDef_HEAD_INIT, "gulp.libgulp", /* module name */
+    "c extension for gulp",                /* module docstring */
+    -1,                                    /* size of per-interpreter state */
     ModuleMethods};
 
 /**
@@ -56,6 +61,4 @@ static struct PyModuleDef module_def = {
  * Throws:
  *     PyError: if module creation fails
  */
-PyMODINIT_FUNC PyInit_libgulp(void) {
-    return PyModule_Create(&module_def);
-}
+PyMODINIT_FUNC PyInit_libgulp(void) { return PyModule_Create(&module_def); }
