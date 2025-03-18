@@ -57,7 +57,7 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
-from gulp.libgulp import c_ensure_iso8601, c_is_valid_ip
+from gulp.libgulp import c_ensure_iso8601, c_is_valid_ip, c_chrome_epoch_to_nanos_from_unix_epoch
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
 
 
@@ -1431,7 +1431,7 @@ class GulpPluginBase(ABC):
 
         if fields_mapping.is_timestamp_chrome:
             # timestamp chrome, turn to nanoseconds from epoch
-            source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
+            source_value = c_chrome_epoch_to_nanos_from_unix_epoch(
                 int(source_value)
             )
 

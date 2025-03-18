@@ -9,6 +9,7 @@ extern "C" {
 	PyObject *c_ensure_iso8601(PyObject *self, PyObject *args);
 	PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args);
 	PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args);
+	PyObject* c_chrome_epoch_to_nanos_from_unix_epoch(PyObject* self, PyObject* args);
 #ifdef __cplusplus
 }
 #endif

@@ -37,11 +37,13 @@ static PyMethodDef ModuleMethods[] = {
     {"c_number_to_nanos_from_unix_epoch", c_number_to_nanos_from_unix_epoch,
      METH_VARARGS, "C variant of muty.time.number_to_nanos_from_unix_epoch"},
     {"c_string_to_nanos_from_unix_epoch", c_string_to_nanos_from_unix_epoch,
-     METH_VARARGS, "C variant of muty.time.c_string_to_nanos_from_unix_epoch"},
+     METH_VARARGS, "C variant of muty.time.string_to_nanos_from_unix_epoch"},
     {"c_ensure_iso8601", c_ensure_iso8601, METH_VARARGS,
      "convert various time formats to iso8601"},
     {"c_is_valid_ip", c_is_valid_ip, METH_VARARGS,
      "C variant of muty.string.is_valid_ip"},
+    {"c_chrome_epoch_to_nanos_from_unix_epoch", c_chrome_epoch_to_nanos_from_unix_epoch, 
+        METH_VARARGS, "C variant of muty.time.chrome_epoch_to_nanos_from_unix_epoch"},
     {NULL, NULL, 0, NULL} /* sentinel */
 };
 

@@ -17,8 +17,11 @@
 #define MILLISECONDS_TO_NANOSECONDS 1000000LL
 #define MICROSECONDS_TO_NANOSECONDS 1000LL
 
-// chrome epoch starts at 1601-01-01, unix epoch at 1970-01-01
+// difference between chrome epoch (1601-01-01) and unix epoch (1970-01-01)
 #define CHROME_TO_UNIX_EPOCH_SECONDS 11644473600LL
+
+// difference between chrome epoch (1601-01-01) and unix epoch (1970-01-01) in microseconds
+#define CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS 11644473600000000ULL
 
 // maximum length of iso8601 string
 #define ISO8601_MAX_LEN 64
@@ -922,4 +925,43 @@ PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
 
   // return nanoseconds as python integer
   return PyLong_FromLongLong(nanos);
+}
+
+/**
+* converts a chrome timestamp to nanoseconds since unix epoch
+*
+* chrome timestamps are microseconds since 1601-01-01 00:00:00 UTC
+* this function converts them to nanoseconds since 1970-01-01 00:00:00 UTC
+*
+* Args:
+*     timestamp: chrome timestamp in microseconds
+*
+* Returns:
+*     nanoseconds since unix epoch
+*
+* Throws:
+*     ValueError: if timestamp is too small for conversion
+*/
+PyObject* c_chrome_epoch_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
+  unsigned long long timestamp;
+  
+  // parse the python arguments
+  if (!PyArg_ParseTuple(args, "K", &timestamp)) {
+      return NULL;
+  }
+  
+  // check for potential underflow
+  if (timestamp < CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS) {
+      PyErr_SetString(PyExc_ValueError, "timestamp too small for conversion");
+      return NULL;
+  }
+  
+  // convert from chrome epoch to unix epoch (microseconds)
+  unsigned long long unix_microseconds = timestamp - CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS;
+  
+  // convert from microseconds to nanoseconds
+  unsigned long long unix_nanoseconds = unix_microseconds * 1000ULL;
+  
+  // return result as python integer
+  return PyLong_FromUnsignedLongLong(unix_nanoseconds);
 }
