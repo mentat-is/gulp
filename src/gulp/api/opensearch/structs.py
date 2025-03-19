@@ -149,7 +149,7 @@ class GulpDocument(GulpBasicDocument):
         Args:
             timestamp (str): The time string to parse (in iso8601 format or a string in a format supported by muty.time.ensure_iso8601).
         Returns:
-            tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
+            tuple[iso8601_str, nanoseconds, invalid]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
         epoch_start: str = "1970-01-01T00:00:00Z"
         # MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}")
@@ -157,22 +157,20 @@ class GulpDocument(GulpBasicDocument):
             # invalid timestamp
             return epoch_start, 0, True
 
-        try:
-            # get iso8601 timestamp
-            ts = c_ensure_iso8601(timestamp)
-            # we also need nanoseconds from the unix epoch
-            if timestamp.isdigit():
-                # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
-                # ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
-                ns = c_number_to_nanos_from_unix_epoch(timestamp)
-            else:
-                ns = c_string_to_nanos_from_unix_epoch(ts)
-
-            return ts, ns, False
-        except Exception as e:
+        # get iso8601 timestamp
+        ts = c_ensure_iso8601(timestamp)
+        if not ts:
             # invalid timestamp
-            # MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
+
+        # we also need nanoseconds from the unix epoch
+        if isinstance(timestamp, int):
+            # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
+            ns = c_number_to_nanos_from_unix_epoch(timestamp)
+        else:
+            ns = c_string_to_nanos_from_unix_epoch(ts)
+
+        return ts, ns, False
 
     @override
     def __init__(

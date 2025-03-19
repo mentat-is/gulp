@@ -20,7 +20,8 @@
 // difference between chrome epoch (1601-01-01) and unix epoch (1970-01-01)
 #define CHROME_TO_UNIX_EPOCH_SECONDS 11644473600LL
 
-// difference between chrome epoch (1601-01-01) and unix epoch (1970-01-01) in microseconds
+// difference between chrome epoch (1601-01-01) and unix epoch (1970-01-01) in
+// microseconds
 #define CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS 11644473600000000ULL
 
 // maximum length of iso8601 string
@@ -400,8 +401,6 @@ long parse_timezone_offset(const char* offset_str) {
  * Returns:
  *     int64_t: nanoseconds since unix epoch, or -1 on failure
  *
- * Throws:
- *     does not throw exceptions, returns -1 on failure
  */
 int64_t iso8601_to_nanos(const char* iso_str) {
   // validate input
@@ -523,8 +522,6 @@ bool timestamp_to_iso8601(int64_t timestamp, char* buffer, size_t buffer_size) {
  *     char*: newly allocated iso8601 string with utc timezone, or NULL on
  * failure caller must free this memory
  *
- * Throws:
- *     does not throw exceptions, returns NULL on failure
  */
 char* parse_date_to_iso8601(const char* date_str) {
   if (!date_str || strlen(date_str) == 0) {
@@ -730,33 +727,35 @@ int parse_iso8601(const char* iso8601_string, struct tm* tm,
  *     args (PyObject*): positional arguments (time_str)
  *
  * Returns:
- *     PyObject*: iso8601 formatted string, or NULL on failure
+ *     PyObject*: iso8601 formatted string, or None on failure
  *
- * Throws:
- *     ValueError: if time_str has invalid format
- *     TypeError: if time_str is not a string or integer
  */
 PyObject* c_ensure_iso8601(PyObject* self, PyObject* args) {
   PyObject* time_str_obj;
 
   // parse "time_str"
   if (!PyArg_ParseTuple(args, "O", &time_str_obj)) {
+    PyErr_Clear();
     Py_RETURN_NONE;
   }
 
   /* handle numeric timestamp as int */
   if (PyLong_Check(time_str_obj)) {
     /* handle numeric timestamp */
-    int64_t numeric = PyLong_AsLongLong(time_str_obj);
+    uint64_t numeric = PyLong_AsLongLong(time_str_obj);
+    if (PyErr_Occurred()) {
+      // conversion failure, clear the error
+      PyErr_Clear();
+      Py_RETURN_NONE;
+    }
+
     char numstr[65] = {0};
-    snprintf(numstr, sizeof(numstr), "%" PRId64, numeric);
+    snprintf(numstr, sizeof(numstr), "%" PRIu64, numeric);
 
     // convert to iso8601
     char* iso_str = parse_date_to_iso8601(numstr);
     if (!iso_str) {
-      // handle parsing failure
-      PyErr_Format(PyExc_ValueError, "failed to parse numeric value: %s",
-                   numstr);
+      // parse failure
       Py_RETURN_NONE;
     }
 
@@ -774,18 +773,14 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args) {
 
     // maximum length check to prevent malicious inputs
     if (strlen(time_str) > ISO8601_MAX_LEN) {
-      PyErr_Format(PyExc_ValueError,
-                   "input string too long (max %d characters)",
-                   ISO8601_MAX_LEN);
+      // string too long, max size=iso8601_MAX_LEN
       Py_RETURN_NONE;
     }
 
     // convert to iso8601
     char* iso_str = parse_date_to_iso8601(time_str);
     if (!iso_str) {
-      // handle parsing failure
-      PyErr_Format(PyExc_ValueError, "failed to parse date string: %s",
-                   time_str);
+      // parse failure
       Py_RETURN_NONE;
     }
 
@@ -795,7 +790,7 @@ PyObject* c_ensure_iso8601(PyObject* self, PyObject* args) {
     return result;
   }
 
-  PyErr_SetString(PyExc_TypeError, "time_str must be a string or integer");
+  // failure, time_str must be a string or integer
   Py_RETURN_NONE;
 }
 
@@ -809,13 +804,13 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
    *    kwargs (PyObject*): keyword arguments
    *
    * Returns:
-   *   PyObject*: nanoseconds from unix epoch as python integer, or None on
-   *   failure
+   *   PyObject*: nanoseconds from unix epoch as python integer, or 0 on failure
    */
   PyObject* numeric_obj = NULL;
 
   // parse "numeric"
   if (!PyArg_ParseTuple(args, "O", &numeric_obj)) {
+    PyErr_Clear();
     Py_RETURN_NONE;
   }
 
@@ -823,8 +818,8 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
   if (PyUnicode_Check(numeric_obj)) {
     const char* num_str = PyUnicode_AsUTF8(numeric_obj);
     if (num_str == NULL) {
-      PyErr_Format(PyExc_ValueError, "invalid time format: %s", num_str);
-      Py_RETURN_NONE;
+      // invalid time format
+      return PyLong_FromLong(0);
     }
 
     char* endptr;
@@ -834,24 +829,31 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
   }
 
   if (PyLong_Check(numeric_obj)) {
-    // Convert input to a Python integer
+    // convert input to a Python integer
     PyObject* numeric_int = PyNumber_Index(numeric_obj);
     if (numeric_int == NULL) {
-      Py_RETURN_NONE;  // Conversion failure raises an exception
+      if (PyErr_Occurred()) {
+        // conversion failure raises an exception, so we clear it
+        PyErr_Clear();
+      }
+      return PyLong_FromLong(0);
     }
 
-    // Extract the integer value as a long long
+    // extract the integer value as a long long
     long long numeric = PyLong_AsLongLong(numeric_int);
-    Py_DECREF(numeric_int);  // Release the temporary integer object
 
-    if (numeric == -1 && PyErr_Occurred()) {
-      Py_RETURN_NONE;
+    // release the temporary integer object
+    Py_DECREF(numeric_int);
+
+    if (PyErr_Occurred()) {
+      // conversion failure raises an exception, so we clear it
+      PyErr_Clear();
+      return PyLong_FromLong(0);
     }
 
     if (numeric < 0) {
-      PyErr_Format(PyExc_ValueError, "Numeric value must be non-negative: %lld",
-                   numeric);
-      Py_RETURN_NONE;
+      // Negative numeric value is not allowed
+      return PyLong_FromLong(0);
     }
 
     if (numeric > 1000000000000000000LL) {  // Assume nanoseconds
@@ -862,12 +864,12 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
       result = numeric * SECONDS_TO_NANOSECONDS;
     }
   } else {
-    PyErr_Format(PyExc_ValueError, "Unsupported format type for object: %p",
-                 numeric_obj);
-    Py_RETURN_NONE;
+    // unsupported format
+    return PyLong_FromLong(0);
   }
 
-  return PyLong_FromLongLong(result);  // Return result as Python integer
+  // return result as Python integer
+  return PyLong_FromLongLong(result);
 }
 
 /**
@@ -879,35 +881,31 @@ PyObject* c_number_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
  *     args (PyObject*): positional arguments (time_str)
  *
  * Returns:
- *     PyObject*: nanoseconds from unix epoch as python integer, or None on
- * failure
+ *     PyObject*: nanoseconds from unix epoch as python integer, or 0 on failure
+ * (invalid input date)
  *
- * Throws:
- *     ValueError: if time_str has invalid format
- *     TypeError: if time_str is not a string or integer
  */
 PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
   // convert to iso8601 first, then to nanos
   PyObject* iso8601 = c_ensure_iso8601(self, args);
   if (iso8601 == NULL) {
     // c_ensure_iso8601 should have set an exception already
-    Py_RETURN_NONE;
+    return PyLong_FromLong(0);
   }
 
   // ensure we have a unicode string
   if (!PyUnicode_Check(iso8601)) {
+    // invalid string
     Py_DECREF(iso8601);
-    PyErr_SetString(PyExc_ValueError,
-                    "internal error: ensure_iso8601 returned non-string");
-    Py_RETURN_NONE;
+    return PyLong_FromLong(0);
   }
 
   // extract c string
   const char* time_str = PyUnicode_AsUTF8(iso8601);
   if (time_str == NULL) {
+    // invalid string
     Py_DECREF(iso8601);
-    // pyunicode_asutf8 sets an exception if it fails
-    Py_RETURN_NONE;
+    return PyLong_FromLong(0);
   }
 
   // convert to nanoseconds
@@ -918,9 +916,8 @@ PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
 
   // check if conversion was successful
   if (nanos == -1) {
-    PyErr_Format(PyExc_ValueError, "failed to parse iso8601 string: %s",
-                 time_str);
-    Py_RETURN_NONE;
+    // invalid string
+    return PyLong_FromLong(0);
   }
 
   // return nanoseconds as python integer
@@ -928,40 +925,41 @@ PyObject* c_string_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
 }
 
 /**
-* converts a chrome timestamp to nanoseconds since unix epoch
-*
-* chrome timestamps are microseconds since 1601-01-01 00:00:00 UTC
-* this function converts them to nanoseconds since 1970-01-01 00:00:00 UTC
-*
-* Args:
-*     timestamp: chrome timestamp in microseconds
-*
-* Returns:
-*     nanoseconds since unix epoch
-*
-* Throws:
-*     ValueError: if timestamp is too small for conversion
-*/
-PyObject* c_chrome_epoch_to_nanos_from_unix_epoch(PyObject* self, PyObject* args) {
+ * converts a chrome timestamp to nanoseconds since unix epoch
+ *
+ * chrome timestamps are microseconds since 1601-01-01 00:00:00 UTC
+ * this function converts them to nanoseconds since 1970-01-01 00:00:00 UTC
+ *
+ * Args:
+ *     timestamp: chrome timestamp in microseconds
+ *
+ * Returns:
+ *     nanoseconds since unix epoch, or 0 on error
+ */
+PyObject* c_chrome_epoch_to_nanos_from_unix_epoch(PyObject* self,
+                                                  PyObject* args) {
   unsigned long long timestamp;
-  
+
   // parse the python arguments
   if (!PyArg_ParseTuple(args, "K", &timestamp)) {
-      return NULL;
+    // invalid input
+    PyErr_Clear();
+    return PyLong_FromLong(0);
   }
-  
+
   // check for potential underflow
   if (timestamp < CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS) {
-      PyErr_SetString(PyExc_ValueError, "timestamp too small for conversion");
-      return NULL;
+    // invalid input
+    return PyLong_FromLong(0);
   }
-  
+
   // convert from chrome epoch to unix epoch (microseconds)
-  unsigned long long unix_microseconds = timestamp - CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS;
-  
+  unsigned long long unix_microseconds =
+      timestamp - CHROME_TO_UNIX_EPOCH_DIFF_MICROSECONDS;
+
   // convert from microseconds to nanoseconds
   unsigned long long unix_nanoseconds = unix_microseconds * 1000ULL;
-  
+
   // return result as python integer
   return PyLong_FromUnsignedLongLong(unix_nanoseconds);
 }
