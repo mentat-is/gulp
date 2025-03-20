@@ -30,8 +30,10 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpNameDescriptionEntry, GulpPluginParameters
 
 # needs the following backends for sigma support (add others if needed)
-muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
-muty.os.check_and_install_package("pysigma-backend-opensearch", ">=1.0.3,<2.0.0")
+muty.os.check_and_install_package(
+    "pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
+muty.os.check_and_install_package(
+    "pysigma-backend-opensearch", ">=1.0.3,<2.0.0")
 
 
 class Plugin(GulpPluginBase):
@@ -160,7 +162,8 @@ class Plugin(GulpPluginBase):
                         else:
                             if item not in (None, ""):
                                 self._process_leaf(
-                                    "_".join(current_path + [str(i)]), item, result
+                                    "_".join(current_path +
+                                             [str(i)]), item, result
                                 )
             else:
                 if value != "":
@@ -184,10 +187,6 @@ class Plugin(GulpPluginBase):
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
 
-        if d.get("event.code") == "0":
-            MutyLogger.get_instance().debug(json.dumps(d, indent=2))
-            muty.os.exit_now()
-
         return GulpDocument(
             self,
             timestamp=timestamp,
@@ -196,7 +195,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -217,10 +217,11 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
         **kwargs
-  ) -> GulpRequestStatus:
+    ) -> GulpRequestStatus:
         try:
             if not plugin_params or plugin_params.is_empty():
-                plugin_params = GulpPluginParameters(mapping_file="windows.json")
+                plugin_params = GulpPluginParameters(
+                    mapping_file="windows.json")
             await super().ingest_file(
                 sess=sess,
                 stats=stats,
