@@ -43,7 +43,8 @@
         "agent": {
           "ecs": "user_agent.original"
         }
-      }
+      },
+      "time_format_string": "%d/%b/%Y:%H:%M:%S %z"
     }
   }
 }

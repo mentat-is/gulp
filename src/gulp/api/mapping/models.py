@@ -107,6 +107,10 @@ i.e. if the source field is "this_is_a_sourcekey", only "sourcekey" is considere
 
 """,
     )
+    time_format_string: Optional[str] = Field(
+        None,
+        description="""
+if set, this is the format string to use to parse the timestamp/s for this mapping. either, common format strings are tried or the plugin is responsible for handling this.""")
 
 
 class GulpMappingFileMetadata(BaseModel):

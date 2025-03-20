@@ -57,7 +57,11 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
-from gulp.libgulp import c_ensure_iso8601, c_is_valid_ip, c_chrome_epoch_to_nanos_from_unix_epoch
+from gulp.libgulp import (
+    c_chrome_epoch_to_nanos_from_unix_epoch,
+    c_ensure_iso8601,
+    c_is_valid_ip,
+)
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
 
 
@@ -1358,6 +1362,7 @@ class GulpPluginBase(ABC):
             fields_mapping: GulpMappingField, d: dict, source_value: Any
         ) -> dict:
             # fields are added to d if found
+            time_format_string = self.selected_mapping().time_format_string
 
             # print(fields_mapping)
             mapping = fields_mapping.ecs
@@ -1370,7 +1375,7 @@ class GulpPluginBase(ABC):
                 # source key is mapped, add the mapped key to the document
                 for k in mapping:
                     kk, vv = self._type_checks(
-                        k, source_value, force_type_set=force_type)
+                        k, source_value, force_type_set=force_type, time_format_string=time_format_string)
                     if vv:
                         d[kk] = vv
             else:
@@ -1806,10 +1811,10 @@ class GulpPluginBase(ABC):
         # initialize index type mappings
         await self._initialize_index_mappings()
 
-        MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" %
-                                        (self.filename, self._mappings))
+        # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" % (self.filename, self._mappings))
 
-    def _type_checks(self, k: str, v: Any, force_type_set: bool = False) -> tuple[str, Any]:
+    def _type_checks(self, k: str, v: Any, force_type_set: bool = False,
+                     time_format_string: str=None) -> tuple[str, Any]:
         """
         check the type of a value and convert it if needed.
 
@@ -1818,13 +1823,13 @@ class GulpPluginBase(ABC):
             v (any): the value
             force_type_set (bool, optional): if not set, and the key is not found in the index_type_mapping, the value is converted to string. Defaults to False.
                 this is set when "force_type" is set for a field mapping: the value is converted to the given type before reaching here, so we must not convert it again.
-
+            time_format_string (str, optional): the time format string to use for date conversion. Defaults to None.
         Returns:
             tuple[str, any]: the key and the value
         """
         # Get the index type from mapping
         index_type = self._index_type_mapping.get(k)
-        
+
         # call the C implementation
         # return c_type_checks(k, v, index_type)
 
@@ -1866,8 +1871,8 @@ class GulpPluginBase(ABC):
 
         if index_type == "date" and isinstance(v, str) and v.lower().startswith("0x"):
             # convert hex to int, then ensure it is a valid timestamp
-                # MutyLogger.get_instance().debug("converting %s: %s to date" % (k, v))
-            v = c_ensure_iso8601(str(int(v, 16)))
+            # MutyLogger.get_instance().debug("converting %s: %s to date" % (k, v))
+            v = c_ensure_iso8601(str(int(v, 16)), time_format_string)
             return k, v
 
         if index_type == "keyword" or index_type == "text":

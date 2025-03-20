@@ -9,8 +9,9 @@ import muty.log
 import muty.string
 import muty.time
 import muty.xml
-from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     PreviewDone,
@@ -20,10 +21,9 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
-from gulp.structs import GulpPluginParameters
 from gulp.libgulp import c_string_to_nanos_from_unix_epoch
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -83,8 +83,6 @@ class Plugin(GulpPluginBase):
 
         # map timestamp manually
         time_str = event.pop("date")
-        time_str = str(c_string_to_nanos_from_unix_epoch(time_str))
-        d["@timestamp"] = time_str
 
         # map
         for k, v in event.items():
@@ -93,12 +91,14 @@ class Plugin(GulpPluginBase):
 
         return GulpDocument(
             self,
+            timestamp=time_str,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 

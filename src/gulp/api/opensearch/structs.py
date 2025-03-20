@@ -141,13 +141,15 @@ class GulpDocument(GulpBasicDocument):
 
     @staticmethod
     def ensure_timestamp(
-        timestamp: str
+        timestamp: str,
+        time_format_string: Optional[str] = None,
     ) -> tuple[str, int, bool]:
         """
-        returns a string guaranteed to be in iso8601 time format
+        returns a string guaranteed to be in iso8601 time format with UTC timezone
 
         Args:
             timestamp (str): The time string to parse (in iso8601 format or a string in a format supported by muty.time.ensure_iso8601).
+            time_format_string (str, optional): The format string to use to parse the timestamp. Defaults to None.
         Returns:
             tuple[iso8601_str, nanoseconds, invalid]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
@@ -158,7 +160,9 @@ class GulpDocument(GulpBasicDocument):
             return epoch_start, 0, True
 
         # get iso8601 timestamp
-        ts = c_ensure_iso8601(timestamp)
+        ts = c_ensure_iso8601(timestamp, time_format_string)
+
+        # MutyLogger.get_instance().debug("timestamp=%s, ts=%s" % (timestamp, ts))
         if not ts:
             # invalid timestamp
             return epoch_start, 0, True
@@ -208,10 +212,11 @@ class GulpDocument(GulpBasicDocument):
             Returns:
             None
         """
-        # turn any document already in gulp ecs format back to GulpDocument
-        # (i.e. turn "@timestamp" back to "timestamp")
-        kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(
-            kwargs)
+        if kwargs.get("gulp.operation_id"):
+            # happens during raw documents ingestion: this is already a GulpDocument, so we need to fix the aliases
+            # i.e. "event.code" -> "event_code"
+            kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(
+                kwargs)
 
         # this is internal, set by _finalize_process_record() in the mapping engine
         ignore_default_event_code = kwargs.pop(
@@ -251,8 +256,8 @@ class GulpDocument(GulpBasicDocument):
 
         # ensure timestamp is valid
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-            str(data["timestamp"])
-        )
+            str(data["timestamp"]), mapping.time_format_string)
+
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
         if invalid or ts_nanos == 0:

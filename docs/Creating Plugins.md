@@ -309,8 +309,9 @@ Here's a commented example, further details in the [model definition source](../
       // optional: if set, only matching fields in the source document are processed and included in the generated document/s.      
       "include": ["field1", "field2"],
       // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
-      "allow_prefixed": true
-      
+      "allow_prefixed": true,
+      // if specified, a custom time format string to be used when parsing timestamp/s
+      "time_format_string": "%d/%b/%Y:%H:%M:%S %z",
       // the fields to map: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
         // the field name
