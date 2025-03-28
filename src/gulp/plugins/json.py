@@ -77,6 +77,7 @@ class Plugin(GulpPluginBase):
             d[k] = v
 
         if date_format:
+            time_str = d.get(timestamp_field)
             timestamp = datetime.datetime.strptime(
                 time_str, date_format).isoformat()
         else:
@@ -199,7 +200,7 @@ class Plugin(GulpPluginBase):
                 # {"a":"b", "c":"d"}
                 # this may be memory heavy for big files
                 with open(file_path) as file:
-                    if not isinstance(events, json_stream.base.TransientStreamingJSON):
+                    if not isinstance(events, json_s.base.TransientStreamingJSON):
                         MutyLogger.get_instance().exception(
                             f"wrong json format, expected '{json_format}' got {type(events)}")
                         return GulpRequestStatus.FAILED
