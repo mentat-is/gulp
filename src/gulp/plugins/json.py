@@ -11,21 +11,27 @@ custom date parsing, and flattens nested JSON structures for easier indexing.
 
 It can also be used as base for stacked plugins dealing with specific JSON formats.
 """
+
 import datetime
 import json
 import os
 from typing import Any, override
+
 import aiofiles
 import dateutil
-from sqlalchemy.ext.asyncio import AsyncSession
 import muty.dict
 import muty.json
 import muty.os
 import muty.time
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    PreviewDone,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
@@ -33,9 +39,10 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
-#pylint: disable=C0411
+# pylint: disable=C0411
 muty.os.check_and_install_package("json-stream", ">=2.3.3,<3.0.0")
 import json_stream as json_s
+
 
 class Plugin(GulpPluginBase):
     @override
@@ -84,7 +91,7 @@ class Plugin(GulpPluginBase):
             d[k] = v
 
         if date_format:
-            time_str: str = d.get(timestamp_field)
+            time_str = d.get(timestamp_field)
             timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
         else:
             # Attempt autoparse of date
@@ -178,7 +185,7 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         try:
             if json_format == "list":
-                with open(file_path, encoding='utf-8') as file:
+                with open(file_path, encoding="utf-8") as file:
                     # list of objects:
                     # [ {"a":"b"}, {"b":"c"}]
                     events = json_s.load(file)
@@ -209,7 +216,7 @@ class Plugin(GulpPluginBase):
                 # json file:
                 # {"a":"b", "c":"d"}
                 # this may be memory heavy for big files
-                with open(file_path, encoding='utf-8') as file:
+                with open(file_path, encoding="utf-8") as file:
                     if not isinstance(events, json_s.base.TransientStreamingJSON):
                         MutyLogger.get_instance().exception(
                             f"wrong json format, expected '{json_format}' got {type(events)}"
