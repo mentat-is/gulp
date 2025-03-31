@@ -1,8 +1,33 @@
+"""
+Defines the core database models and structures for the collaborative features in Gulp.
+
+This module includes the base classes for all database objects in the collaboration system,
+as well as utility classes for filtering, permissions, and object management.
+
+Key components:
+- GulpCollabBase: Abstract base class for all database objects
+- GulpCollabObject: Base class for operation-related collaboration objects
+- GulpCollabFilter: Filter model for querying database objects
+- Permission enums and constants for access control
+
+The module implements a comprehensive access control system where objects can be:
+- Private (only accessible to the owner)
+- Shared with specific users via grants
+- Shared with user groups
+- Public (no specific grants)
+
+Each object type is derived from these base classes and implements specific functionality
+while inheriting common persistence and access control capabilities.
+
+"""
+
+# pylint: disable=too-many-lines
 import json
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, List, Optional, TypeVar, override
+from typing import TYPE_CHECKING, List, Optional, TypeVar, override
 
+import muty.crypto
 import muty.string
 import muty.time
 from muty.log import MutyLogger
@@ -11,10 +36,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     ARRAY,
     BIGINT,
-    VARCHAR,
-    Boolean,
     ColumnElement,
     ForeignKey,
+    Result,
     Select,
     String,
     Tuple,
@@ -50,7 +74,7 @@ from tenacity import (
 if TYPE_CHECKING:
     from gulp.api.ws_api import GulpWsQueueDataType
 
-from gulp.structs import GulpSortOrder, ObjectAlreadyExists, ObjectNotFound
+from gulp.structs import GulpSortOrder, ObjectNotFound
 
 
 class SessionExpired(Exception):
@@ -179,6 +203,11 @@ class GulpCollabFilter(BaseModel):
         },
     )
 
+    # for access checks, internal
+    granted_user_ids: Optional[list[str]] = Field(None)
+    granted_user_group_ids: Optional[list[str]] = Field(None)
+    owner_user_ids: Optional[list[str]] = Field(None)
+
     ids: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     types: Optional[list[GulpCollabType]] = Field(
         None,
@@ -249,12 +278,12 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     def __str__(self) -> str:
         return self.model_dump_json(exclude_none=True)
 
-    def _case_insensitive_or_ilike(self, column, values: list) -> ColumnElement[bool]:
+    def _case_insensitive_or_ilike(self, col, values: list) -> ColumnElement[bool]:
         """
         Create a case-insensitive OR query for the given column and values.
 
         Args:
-            column: The column to apply the ilike condition.
+            col: The column to apply the ilike condition.
             values: The list of values to match against the column.
 
         Returns:
@@ -263,7 +292,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         # print("column=%s, values=%s" % (column, values))
         # check if values in values contains wildcards as *, if so, replace with % for SQL LIKE operator
         values = [val.replace("*", "%") for val in values]
-        conditions = [column.ilike(value) for value in values]
+        conditions = [col.ilike(value) for value in values]
         return or_(*conditions)
 
     def _array_contains_all(self, array_field, values):
@@ -295,7 +324,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         )
         return exists(subq)
 
-    def to_select_query(self, type: T, with_for_update: bool = False) -> Select[Tuple]:
+    def to_select_query(self, obj_type: T) -> Select[Tuple]:
         """
         convert the filter to a select query
 
@@ -305,42 +334,50 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         Returns:
             Select[Tuple]: the select query
         """
-        q: Select = select(type)
+        # disable not-an-iterable and non-subscribtable:
+        # checks are in place and the pydantic model enforces the type
+        # pylint: disable=E1133,E1136
+
+        q: Select = select(obj_type)
         if self.ids:
-            q = q.filter(self._case_insensitive_or_ilike(type.id, self.ids))
+            q = q.filter(self._case_insensitive_or_ilike(obj_type.id, self.ids))
         if self.types:
             # match if equal to any in the list
-            q = q.filter(type.type.in_(self.types))
-        if self.operation_ids and "operation_id" in type.columns:
+            q = q.filter(obj_type.type.in_(self.types))
+        if self.operation_ids and "operation_id" in obj_type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.operation_id, self.operation_ids)
+                self._case_insensitive_or_ilike(
+                    obj_type.operation_id, self.operation_ids
+                )
             )
-        if self.context_ids and "context_id" in type.columns:
+        if self.context_ids and "context_id" in obj_type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.context_id, self.context_ids)
+                self._case_insensitive_or_ilike(obj_type.context_id, self.context_ids)
             )
-        if self.source_ids and "source_id" in type.columns:
+        if self.source_ids and "source_id" in obj_type.columns:
             q = q.filter(
-                self._case_insensitive_or_ilike(type.source_id, self.source_ids)
+                self._case_insensitive_or_ilike(obj_type.source_id, self.source_ids)
             )
-        if self.owner_user_ids and "owner_user_id" in type.columns:
+        if self.owner_user_ids and "owner_user_id" in obj_type.columns:
             q = q = q.filter(
-                self._case_insensitive_or_ilike(type.owner_user_id, self.owner_user_ids)
+                self._case_insensitive_or_ilike(
+                    obj_type.owner_user_id, self.owner_user_ids
+                )
             )
 
-        if self.tags and "tags" in type.columns:
+        if self.tags and "tags" in obj_type.columns:
             lower_tags = [tag.lower() for tag in self.tags]
             if self.tags_and:
                 # all tags must match (CONTAINS operator)
-                q = q.filter(self._array_contains_all(type.tags, lower_tags))
+                q = q.filter(self._array_contains_all(obj_type.tags, lower_tags))
             else:
                 # at least one tag must match (OVERLAP operator)
-                q = q.filter(self._array_contains_any(type.tags, lower_tags))
+                q = q.filter(self._array_contains_any(obj_type.tags, lower_tags))
 
-        if self.names and "name" in type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(type.name, self.names))
-        if self.texts and "text" in type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(type.text, self.texts))
+        if self.names and "name" in obj_type.columns:
+            q = q.filter(self._case_insensitive_or_ilike(obj_type.name, self.names))
+        if self.texts and "text" in obj_type.columns:
+            q = q.filter(self._case_insensitive_or_ilike(obj_type.text, self.texts))
 
         if self.model_extra:
             # Handle granted_user_ids and granted_group_ids as special case first
@@ -351,19 +388,21 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 # match only objects with the defined granted_user_ids or granted_group_ids
                 conditions = []
                 if granted_user_ids:
-                    conditions.append(type.granted_user_ids.op("&&")(granted_user_ids))
-
-                    # append condition that the column is empty or an empty array, as OR
-                    conditions.append(type.granted_user_ids is None)
-                    conditions.append(type.granted_user_ids == [])
-                if granted_group_ids:
                     conditions.append(
-                        type.granted_user_group_ids.op("&&")(granted_group_ids)
+                        obj_type.granted_user_ids.op("&&")(granted_user_ids)
                     )
 
                     # append condition that the column is empty or an empty array, as OR
-                    conditions.append(type.granted_user_group_ids is None)
-                    conditions.append(type.granted_user_group_ids == [])
+                    conditions.append(obj_type.granted_user_ids is None)
+                    conditions.append(obj_type.granted_user_ids == [])
+                if granted_group_ids:
+                    conditions.append(
+                        obj_type.granted_user_group_ids.op("&&")(granted_group_ids)
+                    )
+
+                    # append condition that the column is empty or an empty array, as OR
+                    conditions.append(obj_type.granted_user_group_ids is None)
+                    conditions.append(obj_type.granted_user_group_ids == [])
 
                 # Combine with OR
                 if conditions:
@@ -371,27 +410,27 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
             # Process remaining model_extra fields
             for k, v in self.model_extra.items():
-                if hasattr(type, k):
-                    column = getattr(type, k)
+                if hasattr(obj_type, k):
+                    col = getattr(obj_type, k)
                     # check if column type is ARRAY using SQLAlchemy's inspection
-                    is_array = isinstance(getattr(column, "type", None), ARRAY)
+                    is_array = isinstance(getattr(col, "type", None), ARRAY)
                     if is_array:
-                        q = q.filter(self._array_contains_any(column, v))
+                        q = q.filter(self._array_contains_any(col, v))
                     else:
-                        q = q.filter(self._case_insensitive_or_ilike(column, v))
+                        q = q.filter(self._case_insensitive_or_ilike(col, v))
 
-        if self.doc_ids and "doc_ids" in type.columns:
+        if self.doc_ids and "doc_ids" in obj_type.columns:
             # return all collab objects that have at least one document with _id in doc_ids
-            q = q.filter(type.doc_ids.op("&&")(self.doc_ids))
+            q = q.filter(obj_type.doc_ids.op("&&")(self.doc_ids))
 
-        if self.time_pin_range and "time_pin" in type.columns:
+        if self.time_pin_range and "time_pin" in obj_type.columns:
             # returns all collab objects that have time_pin in time_pin_range
             if self.time_pin_range[0]:
-                q = q.where(type.time_pin >= self.time_pin_range[0])
+                q = q.where(obj_type.time_pin >= self.time_pin_range[0])
             if self.time_pin_range[1]:
-                q = q.where(type.time_pin <= self.time_pin_range[1])
+                q = q.where(obj_type.time_pin <= self.time_pin_range[1])
 
-        if self.doc_ids and "docs" in type.columns:
+        if self.doc_ids and "docs" in obj_type.columns:
             # returns all collab objects that have at least one document with _id in doc_ids
             conditions = []
             for doc_id in self.doc_ids:
@@ -406,7 +445,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     ).bindparams(doc_id=doc_id.lower())
                 )
             q = q.filter(or_(*conditions))
-        if self.doc_time_range and "docs" in type.columns:
+        if self.doc_time_range and "docs" in obj_type.columns:
             # returns all collab objects that have at least one document with gulp.timestamp in doc_time_range
             conditions = []
             if self.doc_time_range[0]:
@@ -433,16 +472,23 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if not self.sort:
             # default, time_created ASC, id ASC
             order_clauses = [
-                type.time_created.asc(),
-                type.id.asc(),
+                obj_type.time_created.asc(),
+                obj_type.id.asc(),
             ]
         else:
             order_clauses = []
             for field, direction in self.sort:
-                if direction == GulpSortOrder.ASC:
-                    order_clauses.append(getattr(type, field).asc())
+                # check if field is a valid column in the object
+                if hasattr(obj_type, field):
+                    if direction == GulpSortOrder.ASC:
+                        order_clauses.append(getattr(obj_type, field).asc())
+                    else:
+                        order_clauses.append(getattr(obj_type, field).desc())
                 else:
-                    order_clauses.append(getattr(type, field).desc())
+                    # field is not a valid column, log a warning
+                    MutyLogger.get_instance().warning(
+                        "invalid sort field: %s. skipping this field." % (field)
+                    )
         q = q.order_by(*order_clauses)
 
         if self.limit:
@@ -450,8 +496,6 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.offset:
             q = q.offset(self.offset)
 
-        if with_for_update:
-            q = q.with_for_update()
         # MutyLogger.get_instance().debug(f"to_select_query: {q}")
         return q
 
@@ -516,7 +560,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             dict: the model example
         """
         return {
-            "id": "id1",
+            "obj_id": "id1",
             "type": cls.__tablename__,
             "owner_user_id": "admin",
             "granted_user_ids": ["user1"],
@@ -528,30 +572,28 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "description": "object description",
         }
 
-    def __init_subclass__(
-        cls, type: GulpCollabType | str, abstract: bool = False, **kwargs
-    ) -> None:
+    def __init_subclass__(cls, /, abstract: bool = False, **kwargs) -> None:
         """
         this is called automatically when a subclass is created, before __init__ on the instance is called
 
         Args:
-            type (GulpCollabType|str): The type of the object.
+            obj_type (GulpCollabType|str): The type of the object.
             abstract (bool): If True, the class is abstract
             **kwargs: Additional keyword arguments.
         """
-        # print(f"__init_subclass__: cls={cls}, type={type}, abstract={abstract}, kwargs={kwargs}")
-
-        cls.__gulp_collab_type__ = type
+        # print(f"__init_subclass__: cls={cls}, abstract={abstract}, kwargs={kwargs}")
+        obj_type = kwargs.pop("type", None)
+        cls.__gulp_collab_type__ = obj_type
 
         if abstract:
             # this is an abstract class
             cls.__abstract__ = True
         else:
             # set table name based on type
-            cls.__tablename__ = str(type)
+            cls.__tablename__ = str(obj_type)
 
         cls.__mapper_args__ = {
-            "polymorphic_identity": str(type),
+            "polymorphic_identity": str(obj_type),
         }
 
         # print("type=%s, cls.__name__=%s, abstract=%r, cls.__abstract__=%r, cls.__mapper_args__=%s" % (cls.__gulp_collab_type__, cls.__name__, abstract, cls.__abstract__, cls.__mapper_args__))
@@ -610,24 +652,102 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id}
         )
 
-    @staticmethod
-    @_create_retry_decorator()
-    async def acquire_advisory_lock(sess: AsyncSession, lock_id: int) -> None:
+    @classmethod
+    # @_create_retry_decorator()
+    async def acquire_advisory_lock(cls, sess: AsyncSession, lock_id: int) -> None:
         """
-        Acquire an advisory lock, with retry logic.
+        acquire an advisory (session) lock, with better deadlock prevention and handling.
+
+        this function tries a non-blocking attempt first, then falls back to blocking
+        acquisition with timeouts to avoid indefinite waits.
 
         Args:
-            sess (AsyncSession): The database session to use.
-            lock_id (int): The lock ID to acquire.
+            sess (AsyncSession): the database session to use.
+            lock_id (int): the lock ID to acquire.
+
+        Raises:
+            OperationalError: if the lock cannot be acquired after retries.
         """
-        try:
+        # first try non-blocking lock acquisition
+        result = await sess.execute(
+            text("SELECT pg_try_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
+        lock_acquired = result.scalar()
+
+        if not lock_acquired:
+            # if non-blocking acquisition failed, log and try blocking version
+            MutyLogger.get_instance().debug(
+                f"waiting to acquire advisory lock with id {lock_id}"
+            )
+
+            # use blocking lock acquisition with timeout protection
             await sess.execute(
                 text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
             )
-        except OperationalError as e:
-            # Log the error
-            MutyLogger.get_instance().error(f"Failed to acquire advisory lock: {e}")
-            raise
+
+            MutyLogger.get_instance().debug(f"acquired advisory lock with id {lock_id}")
+
+    @classmethod
+    async def row_lock_by_id(cls, sess: AsyncSession, obj_id: str) -> Result:
+        """
+        acquire a row lock on the object with the specified id
+
+        this method locks a specific row in the database using the FOR UPDATE clause,
+        which prevents other transactions from modifying the row until the current
+        transaction is committed or rolled back.
+
+        Args:
+            sess (AsyncSession): the database session to use.
+            obj_id (str): the id of the object to lock.
+
+        Returns:
+            Result: the result of the query execution
+
+        Raises:
+            OperationalError: if the lock cannot be acquired due to database issues.
+        """
+        # acquire row lock
+        stmt = select(cls).where(cls.id == obj_id).with_for_update()
+        try:
+            res = await sess.execute(stmt)
+            MutyLogger.get_instance().debug(
+                f"acquired row lock on {cls.__name__} with id {obj_id}"
+            )
+            return res
+        except Exception as ex:
+            await sess.rollback()
+            raise ex
+
+    async def row_lock(self, sess: AsyncSession) -> Result:
+        """
+        acquire a row lock on the object
+
+        this method locks a specific row in the database using the FOR UPDATE clause,
+        which prevents other transactions from modifying the row until the current
+        transaction is committed or rolled back.
+
+        Args:
+            sess (AsyncSession): the database session to use.
+
+        Returns:
+            Result: the result of the query execution
+
+        Raises:
+            OperationalError: if the lock cannot be acquired due to database issues.
+        """
+        # acquire row lock
+        stmt = (
+            select(self.__class__).where(self.__class__.id == self.id).with_for_update()
+        )
+        try:
+            res = await sess.execute(stmt)
+            MutyLogger.get_instance().debug(
+                f"acquired row lock on {self.__class__.__name__} with id {self.id}"
+            )
+            return res
+        except Exception as ex:
+            await sess.rollback()
+            raise ex
 
     @classmethod
     def _build_relationship_loading_options(
@@ -643,8 +763,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             list: the list of loading options
         """
-        from sqlalchemy.orm import selectinload
-
         if seen is None:
             seen = set()
 
@@ -663,57 +781,22 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
                 # add nested relationships
                 target_class = rel.mapper.class_
+                # pylint: disable=protected-access
                 nested_opts = target_class._build_relationship_loading_options(
                     recursive=True, seen=seen
                 )
                 for nested_opt in nested_opts:
                     options.append(load_opt.selectinload(nested_opt))
             return options
-        else:
-            # direct relationships only
-            return [
-                selectinload(getattr(cls, rel.key))
-                for rel in inspect(cls).relationships
-            ]
 
-    @classmethod
-    def _process_grants(
-        cls, object_data: dict, owner_id: str, private: bool
-    ) -> tuple[list[str], list[str]]:
-        """
-        process user and group grants from object data.
-        
-        Args:
-            object_data (dict): the object data containing grants.
-            owner_id (str): the owner user ID.
-            private (bool): whether the object is private.
-            
-        Returns:
-            tuple[list[str], list[str]]: tuple of (user_grants, group_grants)
-        """
-        # extract grants from object data
-        granted_user_ids = object_data.get("granted_user_ids", [])
-        granted_user_group_ids = object_data.get("granted_user_group_ids", [])
-        
-        # determine final user grants
-        if granted_user_ids:
-            user_grants = granted_user_ids
-        elif private:
-            user_grants = [owner_id]  # private object, owner only
-        else:
-            user_grants = []  # public object
-        
-        # determine final group grants
-        if granted_user_group_ids:
-            group_grants = granted_user_group_ids
-        else:
-            group_grants = []
-        
-        return user_grants, group_grants
+        # direct relationships only
+        return [
+            selectinload(getattr(cls, rel.key)) for rel in inspect(cls).relationships
+        ]
 
     @classmethod
     def build_base_object_dict(
-        cls, object_data: dict, owner_id: str, id: str = None, private: bool = True
+        cls, object_data: dict, owner_id: str, obj_id: str = None, private: bool = True
     ) -> dict:
         """
         build a dictionary to create a new base object
@@ -721,19 +804,19 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             object_data (dict): The data to create the object with.
             owner_id (str): The ID of the user creating the object
-            id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to False.
 
         Returns:
             dict: The dictionary to create the object with
         """
-        if not id:
+        if not obj_id:
             # generate a unique ID if not provided or None
-            id = muty.string.generate_unique()
+            obj_id = muty.string.generate_unique()
         else:
             # check id is a valid string for a primary key (not having spaces, ...)
-            if " " in id or not re.match(r"^[a-zA-Z0-9_\-@\.]+$", id):
-                raise ValueError(f"invalid id: {id}")
+            if " " in obj_id or not re.match(r"^[a-zA-Z0-9_\-@\.]+$", obj_id):
+                raise ValueError(f"invalid id: {obj_id}")
 
         # set the time created
         time_created = muty.time.now_msec()
@@ -742,71 +825,101 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj: dict = {k: v for k, v in object_data.items() if v is not None}
 
         obj["type"] = cls.__gulp_collab_type__
-        obj["id"] = id
+        obj["id"] = obj_id
         obj["time_created"] = time_created
         obj["time_updated"] = time_created
         obj["owner_user_id"] = owner_id
 
         # set user and group grants
-        user_grants, group_grants = cls._process_grants(object_data, owner_id, private)
+        granted_user_ids = object_data.get("granted_user_ids", [])
+        granted_user_group_ids = object_data.get("granted_user_group_ids", [])
+
+        # determine final user grants
+        if granted_user_ids:
+            user_grants = granted_user_ids
+        elif private:
+            user_grants = [owner_id]  # private object, owner only
+        else:
+            user_grants = []  # public object
+
+        # determine final group grants
+        if granted_user_group_ids:
+            group_grants = granted_user_group_ids
+        else:
+            group_grants = []
+
         obj["granted_user_ids"] = user_grants
         obj["granted_user_group_ids"] = group_grants
 
         if not obj.get("name", None):
             # set the name to the id if not provided
-            obj["name"] = id
+            obj["name"] = obj_id
         return obj
 
     @classmethod
-    async def _create_instance(cls, sess: AsyncSession, object_dict: dict) -> T:
+    async def _create_internal(
+        cls,
+        sess: AsyncSession,
+        object_data: dict,
+        obj_id: str = None,
+        ws_id: str = None,
+        owner_id: str = None,
+        ws_queue_datatype: "GulpWsQueueDataType" = None,
+        ws_data: dict = None,
+        req_id: str = None,
+        private: bool = True,
+    ) -> T:
         """
-        creates an instance in the database from a prepared dictionary.
+        Asynchronously creates and stores an instance of the class, also updating the websocket if required.
+
+        NOTE: session is committed after the operation, data is eager loaded.
 
         Args:
-            sess (AsyncSession): the database session to use.
-            object_dict (dict): the prepared dictionary with all required fields.
-
+            sess (AsyncSession): The database session to use.
+            object_data (dict): The data to create the object with.
+            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            operation_id (str, optional): The ID of the operation associated with the instance. Defaults to None.
+            ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
+            owner_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
+            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
+            ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
+            req_id (str, optional): Request ID associated with the instance. Defaults to None.
+            private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
         Returns:
-            T: the created instance.
+            T: The created instance of the class.
+        Raises:
+            Exception: If there is an error during the creation or storage process.
         """
-        # create select statement with eager loading
-        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {object_dict}")
+        object_data = object_data or {}
+        owner_id = owner_id or "admin"
+
+        # build object dictionary with necessary attributes
+        d = cls.build_base_object_dict(
+            object_data, owner_id=owner_id, obj_id=obj_id, private=private
+        )
+
+        # create object with eager loading
+        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {d}")
         stmt = (
             select(cls)
             .options(*cls._build_relationship_loading_options())
-            .from_statement(insert(cls).values(**object_dict).returning(cls))
+            .from_statement(insert(cls).values(**d).returning(cls))
         )
 
-        result = await sess.execute(stmt)
-        instance: GulpCollabBase = result.scalar_one()
+        try:
+            res = await sess.execute(stmt)
+            instance: GulpCollabBase = res.scalar_one()
+        except Exception as ex:
+            # rollback the transaction
+            await sess.rollback()
+            raise ex
+
+        # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
         await sess.commit()
-        return instance
+        if not ws_id:
+            # no websocket, return the instance
+            return instance
 
-    @classmethod
-    async def _send_ws_notification(
-        cls,
-        instance: T,
-        ws_id: str,
-        user_id: str,
-        ws_queue_datatype: "GulpWsQueueDataType" = None,
-        ws_data: dict = None,
-        object_data: dict = None,
-        req_id: str = None,
-        private: bool = True,
-    ) -> None:
-        """
-        sends websocket notification about an object creation or update.
-
-        Args:
-            instance (T): the instance that was created or updated.
-            ws_id (str): the websocket ID.
-            user_id (str): the user ID.
-            ws_queue_datatype (GulpWsQueueDataType, optional): the type of websocket data. defaults to COLLAB_UPDATE.
-            ws_data (dict, optional): custom data to send. defaults to None.
-            object_data (dict, optional): original object data. defaults to None.
-            req_id (str, optional): request ID. defaults to None.
-            private (bool, optional): if True, the notification is private. defaults to True.
-        """
         from gulp.api.ws_api import (
             GulpCollabCreateUpdatePacket,
             GulpWsQueueDataType,
@@ -826,68 +939,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         GulpWsSharedQueue.get_instance().put(
             ws_queue_datatype,
             ws_id=ws_id,
-            user_id=user_id,
+            user_id=owner_id,
             operation_id=object_data.get("operation_id", None) if object_data else None,
             req_id=req_id,
             data=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )
-
-    @classmethod
-    async def _create(
-        cls,
-        sess: AsyncSession,
-        object_data: dict,
-        id: str = None,
-        ws_id: str = None,
-        owner_id: str = None,
-        ws_queue_datatype: "GulpWsQueueDataType" = None,
-        ws_data: dict = None,
-        req_id: str = None,
-        private: bool = True,
-    ) -> T:
-        """
-        Asynchronously creates and stores an instance of the class, also updating the websocket if required.
-
-        Args:
-            sess (AsyncSession): The database session to use.
-            object_data (dict): The data to create the object with.
-            id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
-            operation_id (str, optional): The ID of the operation associated with the instance. Defaults to None.
-            ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
-            owner_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
-            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
-            ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
-            req_id (str, optional): Request ID associated with the instance. Defaults to None.
-            private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
-        Returns:
-            T: The created instance of the class.
-        Raises:
-            Exception: If there is an error during the creation or storage process.
-        """
-        object_data = object_data or {}
-        owner_id = owner_id or "admin"
-
-        # build object dictionary with necessary attributes
-        d = cls.build_base_object_dict(
-            object_data, owner_id=owner_id, id=id, private=private
-        )
-
-        # create object with eager loading
-        instance: GulpCollabBase = await cls._create_instance(sess, d)
-        if ws_id:
-            await cls._send_ws_notification(
-                instance,
-                ws_id,
-                owner_id,
-                ws_queue_datatype,
-                ws_data,
-                object_data,
-                req_id,
-                private,
-            )
-
-        # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
         return instance
 
     async def add_default_grants(self, sess: AsyncSession):
@@ -923,14 +980,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         if group_id not in self.granted_user_group_ids:
             MutyLogger.get_instance().info(
-                "Adding granted user group %s to object %s" % (group_id, self.id)
+                "adding granted user group %s to object %s" % (group_id, self.id)
             )
+            await self.row_lock(sess)
             self.granted_user_group_ids.append(group_id)
             await sess.commit()
-            await sess.refresh(self)
         else:
             MutyLogger.get_instance().warning(
-                "User group %s already granted on object %s" % (group_id, self.id)
+                "user group %s already granted on object %s" % (group_id, self.id)
             )
 
     async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
@@ -944,15 +1001,15 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             None
         """
         if group_id in self.granted_user_group_ids:
+            MutyLogger.get_instance().info(
+                "removing granted user group %s from object %s" % (group_id, self.id)
+            )
+            await self.row_lock(sess)
             self.granted_user_group_ids.remove(group_id)
             await sess.commit()
-            await sess.refresh(self)
-            MutyLogger.get_instance().info(
-                "Removed granted user group %s from object %s" % (group_id, self.id)
-            )
         else:
             MutyLogger.get_instance().warning(
-                "User group %s not in granted list on object %s" % (group_id, self.id)
+                "user group %s not in granted list on object %s" % (group_id, self.id)
             )
 
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
@@ -967,14 +1024,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         if user_id not in self.granted_user_ids:
             MutyLogger.get_instance().info(
-                "Adding granted user %s to object %s" % (user_id, self.id)
+                "adding granted user %s to object %s" % (user_id, self.id)
             )
+            await self.row_lock(sess)
             self.granted_user_ids.append(user_id)
             await sess.commit()
-            await sess.refresh(self)
         else:
             MutyLogger.get_instance().warning(
-                "User %s already granted on object %s" % (user_id, self.id)
+                "user %s already granted on object %s" % (user_id, self.id)
             )
 
     async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
@@ -988,15 +1045,18 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             None
         """
         if user_id in self.granted_user_ids:
+            MutyLogger.get_instance().info(
+                "removing granted user %s from object %s" % (user_id, self.id)
+            )
+            await self.row_lock(sess)
             self.granted_user_ids.remove(user_id)
             await sess.commit()
-            await sess.refresh(self)
             MutyLogger.get_instance().info(
-                "Removed granted user %s from object %s" % (user_id, self.id)
+                "removed granted user %s from object %s" % (user_id, self.id)
             )
         else:
             MutyLogger.get_instance().warning(
-                "User %s not in granted list on object %s" % (user_id, self.id)
+                "user %s not in granted list on object %s" % (user_id, self.id)
             )
 
     async def delete(
@@ -1018,42 +1078,46 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_DELETE.
             ws_data (dict, optional): data to send to the websocket. Defaults to GulpDeleteCollabPacket.
             req_id (str, optional): The ID of the request. Defaults to None.
-        Raises:
-            ObjectNotFoundError: If throw_if_not_found is True and the object does not exist.
         Returns:
             None
         """
-        # query to get the instance
-        stmt = select(self.__class__).filter(self.__class__.id == self.id)
-        result = await sess.execute(stmt)
-        instance = result.scalar_one()
-        await sess.delete(instance)
+        try:
+            # lock and delete
+            res = await self.row_lock(sess)
+            instance = res.scalar_one()
+            await sess.delete(instance)
+        except Exception as ex:
+            # rollback the transaction
+            await sess.rollback()
+            raise ex
+
         await sess.commit()
+        if not ws_id:
+            return
 
-        if ws_id:
-            from gulp.api.ws_api import (
-                GulpCollabDeletePacket,
-                GulpWsQueueDataType,
-                GulpWsSharedQueue,
-            )
+        # notify the websocket of the deletion
+        from gulp.api.ws_api import (
+            GulpCollabDeletePacket,
+            GulpWsQueueDataType,
+            GulpWsSharedQueue,
+        )
 
-            if not ws_queue_datatype:
-                ws_queue_datatype = GulpWsQueueDataType.COLLAB_DELETE
+        if not ws_queue_datatype:
+            ws_queue_datatype = GulpWsQueueDataType.COLLAB_DELETE
 
-            # notify the websocket of the deletion
-            if ws_data:
-                data = ws_data
-            else:
-                p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=self.id)
-                data = p.model_dump()
-            GulpWsSharedQueue.get_instance().put(
-                type=ws_queue_datatype,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=getattr(self, "operation_id", None),
-                req_id=req_id,
-                data=data,
-            )
+        if ws_data:
+            data = ws_data
+        else:
+            p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=self.id)
+            data = p.model_dump()
+        GulpWsSharedQueue.get_instance().put(
+            type=ws_queue_datatype,
+            ws_id=ws_id,
+            user_id=user_id,
+            operation_id=getattr(self, "operation_id", None),
+            req_id=req_id,
+            data=data,
+        )
 
     def is_owner(self, user_id: str) -> bool:
         """
@@ -1116,11 +1180,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             None
         """
 
+        # lock the row
+        await self.row_lock(sess)
+
         # private object = only owner or admin can see it
         self.granted_user_ids = [self.owner_user_id]
         self.granted_user_group_ids = []
         await sess.commit()
-        await sess.refresh(self)
         MutyLogger.get_instance().info(
             "object %s is now PRIVATE to user %s" % (self.id, self.owner_user_id)
         )
@@ -1135,12 +1201,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
+        # lock the row
+        await self.row_lock(sess)
+
         # clear all granted users and groups
         self.granted_user_group_ids = []
         self.granted_user_ids = []
         await sess.commit()
-        await sess.refresh(self)
-        MutyLogger.get_instance().info("Object %s is now PUBLIC" % (self.id))
+        MutyLogger.get_instance().info("object %s is now PUBLIC" % (self.id))
 
     @staticmethod
     def object_type_to_class(collab_type: GulpCollabType) -> T:
@@ -1171,35 +1239,30 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_queue_datatype: "GulpWsQueueDataType" = None,
         ws_data: dict = None,
         req_id: str = None,
-        updated_instance: T = None,
     ) -> None:
         """
         updates the object, also updating the websocket if required.
 
+        NOTE: session is committed after the operation
+
         Args:
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
-            d (dict): A dictionary containing the fields to update and their new values, must be None and is ignored if updated_instance is provided.
-            ws_id (str, optional): The ID of the websocket connection. Defaults to None.
-            user_id (str, optional): The ID of the user making the request. Defaults to None.
-            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
-            ws_data (dict, optional): data to send to the websocket. Defaults to the updated object.
-            req_id (str, optional): The ID of the request. Defaults to None.
-            updated_instance (T, optional): An already updated instance of the object, if set d is ignored. Defaults to None.
+            d (dict): A dictionary containing the fields to update and their new values
+            ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
+            user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided.
+            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data, ignored if ws_id is not provided. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
+            ws_data (dict, optional): data to send to the websocket. Defaults to the updated object, ignored if ws_id is not provided
+            req_id (str, optional): The ID of the request, ignored if ws_id is not provided. Defaults to None.
         """
-        if updated_instance:
-            # use updated_instance if provided
-            instance = updated_instance
-        else:
-            # use dict, query our instance with lock
-            stmt = (
-                select(self.__class__)
-                .filter(self.__class__.id == self.id)
-                .options(selectinload("*"))
-                .with_for_update()
-            )
-            result = await sess.execute(stmt)
-            instance: GulpCollabBase = result.scalar_one()
+        try:
+            res = await self.row_lock(sess)
+            instance: GulpCollabBase = res.scalar_one()
+        except Exception as ex:
+            # rollback the transaction
+            await sess.rollback()
+            raise ex
 
+        if d:
             # update instance from d, ensure d has no 'id' (the id cannot be updated)
             d.pop("id", None)
             for k, v in d.items():
@@ -1208,60 +1271,68 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
                     setattr(instance, k, v)
 
-        # update time
-        instance.time_updated = muty.time.now_msec()
+            # update time
+            if not d.get("time_updated", None):
+                # set the time updated
+                d["time_updated"] = muty.time.now_msec()
+            
+
         updated_dict = instance.to_dict(nested=True, exclude_none=True)
         private = instance.is_private()
 
         # commit
         await sess.commit()
-
         MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
 
-        if ws_id:
-            from gulp.api.ws_api import (
-                GulpCollabCreateUpdatePacket,
-                GulpWsQueueDataType,
-                GulpWsSharedQueue,
-            )
+        if not ws_id:
+            # no websocket ID provided, return
+            return
 
-            if not ws_queue_datatype:
-                ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+        # send update to websocket
+        from gulp.api.ws_api import (
+            GulpCollabCreateUpdatePacket,
+            GulpWsQueueDataType,
+            GulpWsSharedQueue,
+        )
 
-            # notify the websocket of the collab object update
-            if ws_data:
-                data = ws_data
-            else:
-                data = updated_dict
-                p = GulpCollabCreateUpdatePacket(data=data)
-            GulpWsSharedQueue.get_instance().put(
-                type=ws_queue_datatype,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=data.get("operation_id", None),
-                req_id=req_id,
-                data=p.model_dump(exclude_none=True, exclude_defaults=True),
-                private=private,
-            )
+        if not ws_queue_datatype:
+            ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+
+        # notify the websocket of the collab object update
+        if ws_data:
+            data = ws_data
+        else:
+            data = updated_dict
+
+        p = GulpCollabCreateUpdatePacket(data=data)
+        GulpWsSharedQueue.get_instance().put(
+            type=ws_queue_datatype,
+            ws_id=ws_id,
+            user_id=user_id,
+            operation_id=data.get("operation_id", None),
+            req_id=req_id,
+            data=p.model_dump(exclude_none=True, exclude_defaults=True),
+            private=private,
+        )
 
     @classmethod
     async def get_by_id(
         cls,
         sess: AsyncSession,
-        id: str,
+        obj_id: str,
         throw_if_not_found: bool = True,
-        with_for_update: bool = False,
         recursive: bool = False,
+        lock: bool = False,
     ) -> T:
         """
         Asynchronously retrieves an object of the class type with the specified ID.
 
         Args:
             sess (AsyncSession): The database session to use.
-            id (str): The ID of the object to retrieve.
+            obj_id (str): The ID of the object to retrieve.
             throw_if_not_found (bool, optional): If True, raises an exception if the object is not found. Defaults to True.
-            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
             recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
+            lock (bool, optional): If True, acquires a row lock on the object. Defaults to False.
         Returns:
             T: The object with the specified ID or None if not found.
         Raises:
@@ -1269,13 +1340,17 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         loading_options = cls._build_relationship_loading_options(recursive=recursive)
 
-        stmt = select(cls).options(*loading_options).filter(cls.id == id)
-        if with_for_update:
+        stmt = select(cls).options(*loading_options).filter(cls.id == obj_id)
+        if lock:
             stmt = stmt.with_for_update()
+
         res = await sess.execute(stmt)
         c = res.scalar_one_or_none()
-        if not c and throw_if_not_found:
-            raise ObjectNotFound(f'{cls.__name__} with id "{id}" not found')
+        if not c:
+            if throw_if_not_found:
+                # rollback the transaction and except
+                await sess.rollback()
+                raise ObjectNotFound(f'{cls.__name__} with id "{obj_id}" not found')
 
         return c
 
@@ -1285,7 +1360,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         flt: GulpCollabFilter = None,
         throw_if_not_found: bool = True,
-        with_for_update: bool = False,
         user_id: str = None,
         user_id_is_admin: bool = False,
         user_group_ids: list[str] = None,
@@ -1297,7 +1371,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
-            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
             user_group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
@@ -1322,7 +1395,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt.granted_user_ids = [user_id]
             flt.granted_user_group_ids = user_group_ids or []
 
-        q = flt.to_select_query(cls, with_for_update=with_for_update)
+        q = flt.to_select_query(cls)
         q = q.options(*cls._build_relationship_loading_options(recursive=recursive))
         MutyLogger.get_instance().debug(
             "get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
@@ -1346,7 +1419,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         flt: GulpCollabFilter = None,
         throw_if_not_found: bool = True,
-        with_for_update: bool = False,
         user_id: str = None,
         user_id_is_admin: bool = False,
         user_group_ids: list[str] = None,
@@ -1359,7 +1431,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to True.
-            with_for_update (bool, optional): If True, the query will be executed
             user_id (str, optional): if set, only return objects that the user has access to.
             user_id_is_admin (bool, optional): If True, the user is an admin (has access to all objects). Defaults to False.
             user_group_ids (list[str], optional): The IDs of the groups the user belongs to. Defaults to None.
@@ -1372,7 +1443,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess,
             flt=flt,
             throw_if_not_found=throw_if_not_found,
-            with_for_update=with_for_update,
             user_id=user_id,
             user_id_is_admin=user_id_is_admin,
             user_group_ids=user_group_ids,
@@ -1387,23 +1457,22 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     async def get_by_id_wrapper(
         cls,
         token: str,
-        id: str,
-        with_for_update: bool = False,
-        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        obj_id: str,
+        permission: list[GulpUserPermission] = None,
         nested: bool = False,
         enforce_owner: bool = False,
+        lock: bool = False,
     ) -> dict:
         """
         helper to get an object by ID, handling session and ACL check
 
         Args:
             token (str): The user token.
-            id (str): The ID of the object to get.
-            with_for_update (bool, optional): If True, the query will be executed with the FOR UPDATE clause (lock). Defaults to False.
+            obj_id (str): The ID of the object to get.
             permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
             nested (bool, optional): If True, nested relationships will be loaded. Defaults to False.
             enforce_owner (bool, optional): If True, the user must be the owner of the object (or admin). Defaults to False.
-
+            lock (bool, optional): If True, acquires a row lock on the object. Defaults to False.
         Returns:
             dict: The object as a dictionary
 
@@ -1414,10 +1483,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
+        if not permission:
+            permission = [GulpUserPermission.READ]
+
         async with GulpCollab.get_instance().session() as sess:
-            n: GulpCollabBase = await cls.get_by_id(
-                sess, id, with_for_update=with_for_update
-            )
+            n: GulpCollabBase = await cls.get_by_id(sess, obj_id, lock=lock)
 
             # token needs at least read permission (or be the owner)
             await GulpUserSession.check_token(
@@ -1430,7 +1500,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         cls,
         token: str,
         flt: GulpCollabFilter,
-        permission: list[GulpUserPermission] = [GulpUserPermission.READ],
+        permission: list[GulpUserPermission] = None,
         throw_if_not_found: bool = False,
         nested: bool = False,
     ) -> list[dict]:
@@ -1449,6 +1519,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
+        if not permission:
+            permission = [GulpUserPermission.READ]
         async with GulpCollab.get_instance().session() as sess:
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
@@ -1489,17 +1561,17 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     async def delete_by_id(
         cls,
         token: str,
-        id: str,
+        obj_id: str,
         ws_id: str,
         req_id: str,
-        permission: list[GulpUserPermission] = [GulpUserPermission.DELETE],
+        permission: list[GulpUserPermission] = None,
     ) -> None:
         """
         helper to delete an object by ID, handling session and ACL check
 
         Args:
             token (str): The user token, pass None to skip token check.
-            id (str): The ID of the object to delete.
+            obj_id (str): The ID of the object to delete.
             ws_id (str): The websocket ID, ignored if token is None
             req_id (str): The request ID.
             permission (list[GulpUserPermission], optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
@@ -1511,8 +1583,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
+        if not permission:
+            permission = [GulpUserPermission.DELETE]
+
         async with GulpCollab.get_instance().session() as sess:
-            n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
+            n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
 
             if token:
                 # token needs at least delete permission (or be the owner)
@@ -1531,40 +1606,37 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     async def update_by_id(
         cls,
         token: str,
-        id: str,
+        obj_id: str,
         ws_id: str,
         req_id: str,
         d: dict = None,
-        updated_instance: T = None,
-        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
+        permission: list[GulpUserPermission] = None,
     ) -> dict:
         """
         helper to update an object by ID, handling session
 
         Args:
             token (str): The user token.
-            id (str): The ID of the object to update.
+            obj_id (str): The ID of the object to update.
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
             d (dict, optional): The data to update the object with. Defaults to None.
-            updated_instance (T, optional): An already updated instance of the object. Defaults to None.
             permission (list[GulpUserPermission], optional): The permission required to update the object. Defaults to GulpUserPermission.EDIT.
 
         Returns:
             dict: The updated object as a dictionary.
 
         Raises:
-            ValueError: If both d and updated_instance are provided.
             MissingPermissionError: If the user does not have permission to update the object.
         """
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
+        if not permission:
+            permission = [GulpUserPermission.EDIT]
         async with GulpCollab.get_instance().session() as sess:
-            if d and updated_instance:
-                raise ValueError("only one of d or updated_instance should be provided")
 
-            n: GulpCollabBase = await cls.get_by_id(sess, id, with_for_update=True)
+            n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
 
             # token needs at least edit permission (or be the owner)
             s = await GulpUserSession.check_token(
@@ -1576,7 +1648,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 ws_id=ws_id,
                 user_id=s.user_id,
                 req_id=req_id,
-                updated_instance=updated_instance,
             )
             return n.to_dict(exclude_none=True)
 
@@ -1587,8 +1658,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_id: str,
         req_id: str,
         object_data: dict,
-        permission: list[GulpUserPermission] = [GulpUserPermission.EDIT],
-        id: str = None,
+        permission: list[GulpUserPermission] = None,
+        obj_id: str = None,
         private: bool = True,
         operation_id: str = None,
     ) -> dict:
@@ -1601,7 +1672,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             req_id (str): The request ID.
             object_data (dict): The data to create the object with.
             permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.
-            id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             private (bool, optional): If True, the object will be private. Defaults to False.
             operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None.
         Returns:
@@ -1612,6 +1683,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
+
+        if not permission:
+            permission = [GulpUserPermission.EDIT]
 
         async with GulpCollab.get_instance().session() as sess:
             # check permission for creation
@@ -1629,10 +1703,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     sess, token, permission=permission
                 )
 
-            n: GulpCollabBase = await cls._create(
+            n: GulpCollabBase = await cls._create_internal(
                 sess,
                 object_data,
-                id=id,
+                obj_id=obj_id,
                 owner_id=s.user_id,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -1711,4 +1785,4 @@ class GulpCollabObject(
                 "GulpCollabObject is an abstract class and cannot be instantiated directly."
             )
         super().__init__(*args, **kwargs)
-        MutyLogger.get_instance().debug("---> GulpCollabObject: " % (*args, kwargs))
+        MutyLogger.get_instance().debug("---> GulpCollabObject: ", *args, kwargs)

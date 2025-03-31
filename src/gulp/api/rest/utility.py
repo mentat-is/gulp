@@ -1,11 +1,21 @@
+"""
+This module provides utility REST API endpoints for Gulp.
+
+It includes various endpoints for:
+- Request management (get, cancel, list)
+- Server management (restart, status, garbage collection)
+- Plugin management (list, get, upload, delete)
+- Mapping file management (list, get, upload, delete)
+- Version information
+
+These endpoints support system administration, debugging, and customizing
+the Gulp platform through plugin and mapping management.
+
+"""
+
 import base64
-import gc
-import inspect
 import json
 import os
-import sys
-import time
-from collections import defaultdict
 from typing import Annotated
 
 import muty.file
@@ -18,11 +28,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpRequestStatus,
-    GulpUserPermission,
-)
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMappingFile
@@ -35,6 +41,7 @@ from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
+
 
 @router.get(
     "/request_get_by_id",
@@ -59,18 +66,18 @@ router: APIRouter = APIRouter()
 )
 async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpRequestStats.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -113,13 +120,13 @@ async def request_cancel_handler(
             stats: GulpRequestStats = await GulpRequestStats.get_by_id(
                 sess, req_id_to_cancel
             )
-            s = await GulpUserSession.check_token(
+            _ = await GulpUserSession.check_token(
                 sess, token, obj=stats, enforce_owner=True
             )
-            await stats.cancel(sess, s.user_id)
+            await stats.cancel(sess)
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -154,8 +161,7 @@ async def request_list_handler(
         str, Query(description="optional ID of operation to filter requests by.")
     ] = None,
     running_only: Annotated[
-        bool, Query(
-            description="if set, only return requests that are still running.")
+        bool, Query(description="if set, only return requests that are still running.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -176,7 +182,7 @@ async def request_list_handler(
         stats: list[dict] = await GulpRequestStats.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=stats)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -191,7 +197,7 @@ async def request_list_handler(
                     "example": {
                         "status": "success",
                         "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237"
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
                     }
                 }
             }
@@ -204,8 +210,8 @@ async def request_list_handler(
 
 use i.e. to apply changes to the server configuration or plugins, or if the server gets slow or consumes too much memory.
 
-- token needs `admin` permission.    
-"""
+- token needs `admin` permission.
+""",
 )
 async def restart_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -239,7 +245,7 @@ async def restart_handler(
                                 "available": 17274675200,
                                 "percent": 45.1,
                                 "used": 12644323328,
-                                "free": 15703216128
+                                "free": 15703216128,
                             },
                             "cpu": {
                                 "percent": 36.6,
@@ -247,14 +253,14 @@ async def restart_handler(
                                 "freq": {
                                     "current": 3135.96325,
                                     "min": 1400.0,
-                                    "max": 2100.0
-                                }
+                                    "max": 2100.0,
+                                },
                             },
                             "disk": {
                                 "total": 467783827456,
                                 "used": 215005560832,
                                 "free": 228940931072,
-                                "percent": 48.4
+                                "percent": 48.4,
                             },
                             "processes": [
                                 {
@@ -267,11 +273,11 @@ async def restart_handler(
                                         "vms": 964345856,
                                         "vms_mb": 919.671875,
                                         "shared": 5677056,
-                                        "shared_mb": 5.4140625
+                                        "shared_mb": 5.4140625,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 /home/vscode/.local/bin/gulp",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52234,
@@ -283,11 +289,11 @@ async def restart_handler(
                                         "vms": 19591168,
                                         "vms_mb": 18.68359375,
                                         "shared": 6639616,
-                                        "shared_mb": 6.33203125
+                                        "shared_mb": 6.33203125,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.resource_tracker import main;main(14)",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52235,
@@ -299,11 +305,11 @@ async def restart_handler(
                                         "vms": 332206080,
                                         "vms_mb": 316.81640625,
                                         "shared": 26664960,
-                                        "shared_mb": 25.4296875
+                                        "shared_mb": 25.4296875,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=25) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52270,
@@ -315,11 +321,11 @@ async def restart_handler(
                                         "vms": 333705216,
                                         "vms_mb": 318.24609375,
                                         "shared": 29970432,
-                                        "shared_mb": 28.58203125
+                                        "shared_mb": 28.58203125,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=23) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52274,
@@ -331,11 +337,11 @@ async def restart_handler(
                                         "vms": 409251840,
                                         "vms_mb": 390.29296875,
                                         "shared": 29945856,
-                                        "shared_mb": 28.55859375
+                                        "shared_mb": 28.55859375,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=27) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52278,
@@ -347,11 +353,11 @@ async def restart_handler(
                                         "vms": 333742080,
                                         "vms_mb": 318.28125,
                                         "shared": 29908992,
-                                        "shared_mb": 28.5234375
+                                        "shared_mb": 28.5234375,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=29) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52282,
@@ -363,11 +369,11 @@ async def restart_handler(
                                         "vms": 409288704,
                                         "vms_mb": 390.328125,
                                         "shared": 30007296,
-                                        "shared_mb": 28.6171875
+                                        "shared_mb": 28.6171875,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=31) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52286,
@@ -379,11 +385,11 @@ async def restart_handler(
                                         "vms": 409243648,
                                         "vms_mb": 390.28515625,
                                         "shared": 29990912,
-                                        "shared_mb": 28.6015625
+                                        "shared_mb": 28.6015625,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=33) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52290,
@@ -395,11 +401,11 @@ async def restart_handler(
                                         "vms": 333701120,
                                         "vms_mb": 318.2421875,
                                         "shared": 30146560,
-                                        "shared_mb": 28.75
+                                        "shared_mb": 28.75,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=35) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52294,
@@ -411,11 +417,11 @@ async def restart_handler(
                                         "vms": 333684736,
                                         "vms_mb": 318.2265625,
                                         "shared": 30015488,
-                                        "shared_mb": 28.625
+                                        "shared_mb": 28.625,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=37) --multiprocessing-fork",
-                                    "username": "vscode"
+                                    "username": "vscode",
                                 },
                                 {
                                     "pid": 52298,
@@ -427,14 +433,14 @@ async def restart_handler(
                                         "vms": 333623296,
                                         "vms_mb": 318.16796875,
                                         "shared": 29974528,
-                                        "shared_mb": 28.5859375
+                                        "shared_mb": 28.5859375,
                                     },
                                     "status": "sleeping",
                                     "cmdline": "/usr/local/bin/python3.13 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=15, pipe_handle=39) --multiprocessing-fork",
-                                    "username": "vscode"
-                                }
-                            ]
-                        }
+                                    "username": "vscode",
+                                },
+                            ],
+                        },
                     }
                 }
             }
@@ -445,13 +451,17 @@ async def restart_handler(
     description="""
 gets detailed gulp server health status, including memory, cpu, disk usage, and running processes.
 
-- token needs `admin` permission.    
-    """
+- token needs `admin` permission.
+    """,
 )
 async def server_status_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    gulp_only: Annotated[bool, Query(
-        description="if set, only return process information for gulp processes only. either, return process information for all the running processes.")] = True,
+    gulp_only: Annotated[
+        bool,
+        Query(
+            description="if set, only return process information for gulp processes only. either, return process information for all the running processes."
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
 
@@ -488,7 +498,7 @@ async def server_status_handler(
 
     # Get system stats
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
+    disk = psutil.disk_usage("/")
 
     stats = {
         "memory": {
@@ -496,24 +506,26 @@ async def server_status_handler(
             "available": memory.available,
             "percent": memory.percent,
             "used": memory.used,
-            "free": memory.free
+            "free": memory.free,
         },
         "cpu": {
             "percent": psutil.cpu_percent(interval=1),
             "count": psutil.cpu_count(),
-            "freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else {}
+            "freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else {},
         },
         "disk": {
             "total": disk.total,
             "used": disk.used,
             "free": disk.free,
-            "percent": disk.percent
+            "percent": disk.percent,
         },
         "processes": [
-            info for info in [
-                _get_process_info(proc, gulp_only)
-                for proc in psutil.process_iter()
-            ] if info is not None]
+            info
+            for info in [
+                _get_process_info(proc, gulp_only) for proc in psutil.process_iter()
+            ]
+            if info is not None
+        ],
     }
 
     return JSendResponse.success(data=stats, req_id=req_id)
@@ -530,46 +542,38 @@ async def server_status_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data":  {
+                        "data": {
                             "before": {
                                 "memory": {
                                     "rss_mb": 292.34375,
                                     "vms_mb": 1214.890625,
-                                    "shared_mb": 5.4140625
+                                    "shared_mb": 5.4140625,
                                 },
                                 "gc_stats": {
-                                    "collections": [
-                                        1,
-                                        1,
-                                        3
-                                    ],
+                                    "collections": [1, 1, 3],
                                     "objects_tracked": 346601,
-                                    "garbage": 0
-                                }
+                                    "garbage": 0,
+                                },
                             },
                             "after": {
                                 "memory": {
                                     "rss_mb": 292.34375,
                                     "vms_mb": 1214.890625,
-                                    "shared_mb": 5.4140625
+                                    "shared_mb": 5.4140625,
                                 },
                                 "gc_stats": {
-                                    "collections": [
-                                        1,
-                                        0,
-                                        0
-                                    ],
+                                    "collections": [1, 0, 0],
                                     "objects_tracked": 346269,
-                                    "garbage": 0
-                                }
+                                    "garbage": 0,
+                                },
                             },
                             "delta": {
                                 "rss_mb": 0.0,
                                 "vms_mb": 0.0,
                                 "shared_mb": 0.0,
-                                "objects": 332
+                                "objects": 332,
                             },
-                            "collection_time_ms": 170.80650408752263
+                            "collection_time_ms": 170.80650408752263,
                         },
                     }
                 }
@@ -727,7 +731,7 @@ async def plugin_list_handler(
                 ll.append(p.model_dump(exclude_none=True))
             return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -797,7 +801,7 @@ async def plugin_get_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -853,8 +857,7 @@ async def plugin_delete_handler(
 
             # cannot delete base plugins (may be in a container)
             if GulpConfig.get_instance().path_plugins_default() in file_path:
-                raise Exception(
-                    "cannot delete plugin in base path: %s" % (file_path))
+                raise Exception("cannot delete plugin in base path: %s" % (file_path))
 
             # delete file
             await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
@@ -864,7 +867,7 @@ async def plugin_delete_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -899,8 +902,7 @@ async def plugin_upload_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     plugin: Annotated[UploadFile, File(description="the plugin file to upload")],
     is_extension: Annotated[
-        bool, Query(
-            description="True if the plugin is an extension, False otherwise")
+        bool, Query(description="True if the plugin is an extension, False otherwise")
     ],
     filename: Annotated[
         str,
@@ -909,8 +911,7 @@ async def plugin_upload_handler(
         ),
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(
-            description="if set, will overwrite an existing plugin file.")
+        bool, Query(description="if set, will overwrite an existing plugin file.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
@@ -923,8 +924,7 @@ async def plugin_upload_handler(
             await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
             if not GulpConfig.get_instance().path_plugins_extra():
-                raise Exception(
-                    "to upload plugins, define PATH_PLUGINS_EXTRA.")
+                raise Exception("to upload plugins, define PATH_PLUGINS_EXTRA.")
 
             await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
             if not filename:
@@ -943,8 +943,7 @@ async def plugin_upload_handler(
             if not allow_overwrite:
                 # overwrite disabled
                 if os.path.exists(file_path):
-                    raise ObjectAlreadyExists(
-                        "plugin %s already exists." % (filename))
+                    raise ObjectAlreadyExists("plugin %s already exists." % (filename))
 
             # ok, write file
             await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(file_path))
@@ -958,7 +957,7 @@ async def plugin_upload_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -999,7 +998,7 @@ async def get_version_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -1036,8 +1035,7 @@ async def mapping_file_upload_handler(
         UploadFile, File(description="the mapping json file")
     ] = None,
     allow_overwrite: Annotated[
-        bool, Query(
-            description="if set, will overwrite an existing mapping file.")
+        bool, Query(description="if set, will overwrite an existing mapping file.")
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
@@ -1051,8 +1049,7 @@ async def mapping_file_upload_handler(
 
         extra_path = GulpConfig.get_instance().path_mapping_files_extra()
         if not extra_path:
-            raise Exception(
-                "to upload mapping files, define PATH_MAPPING_FILES_EXTRA.")
+            raise Exception("to upload mapping files, define PATH_MAPPING_FILES_EXTRA.")
 
         # load file
         filename: str = os.path.basename(mapping_file.filename)
@@ -1089,7 +1086,7 @@ async def mapping_file_upload_handler(
             )
         )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -1202,7 +1199,7 @@ async def mapping_file_list_handler(
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -1231,7 +1228,7 @@ async def mapping_file_list_handler(
     summary="get a mapping file (i.e. for editing and reupload).",
     description="""
 - token needs `edit` permission.
-- file is read from the `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES_EXTRA` environment variable).    
+- file is read from the `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES_EXTRA` environment variable).
 """,
 )
 async def mapping_file_get_handler(
@@ -1263,7 +1260,7 @@ async def mapping_file_get_handler(
             )
         )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
+        raise JSendException(req_id=req_id, status_code=404) from ex
 
 
 @router.delete(
@@ -1311,16 +1308,14 @@ async def mapping_file_delete_handler(
 
         # cannot delete base plugins (may be in a container)
         if GulpConfig.get_instance().path_mapping_files_default() in file_path:
-            raise Exception(
-                "cannot delete mapping file in base path: %s" % (file_path))
+            raise Exception("cannot delete mapping file in base path: %s" % (file_path))
 
         # delete file
         await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
         return JSONResponse(
             JSendResponse.success(
-                req_id=req_id, data={
-                    "filename": mapping_file, "path": file_path}
+                req_id=req_id, data={"filename": mapping_file, "path": file_path}
             )
         )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex, status_code=404) from ex
+        raise JSendException(req_id=req_id, status_code=404) from ex

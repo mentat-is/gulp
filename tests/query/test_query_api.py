@@ -467,8 +467,8 @@ async def test_queries():
         # grant guest user
         await GulpAPIObjectACL.object_add_granted_user(
             token=admin_token,
-            object_id="new_operation",
-            object_type=GulpCollabType.OPERATION,
+            obj_id="new_operation",
+            obj_type=GulpCollabType.OPERATION,
             user_id="guest",
         )
 

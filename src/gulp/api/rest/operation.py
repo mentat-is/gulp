@@ -14,6 +14,7 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -21,7 +22,6 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
 from gulp.structs import ObjectAlreadyExists
-from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
 router: APIRouter = APIRouter()
 
@@ -126,6 +126,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
             )
             d["granted_user_ids"] = ["admin", "guest", "ingest", "power", "editor"]
             from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+
             d["granted_user_group_ids"] = [ADMINISTRATORS_GROUP_ID]
         try:
             dd = await GulpOperation.create(
@@ -134,7 +135,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 req_id=req_id,
                 object_data=d,
                 permission=[GulpUserPermission.INGEST],
-                id=operation_id,
+                obj_id=operation_id,
             )
         except Exception as exx:
             # fail, delete the previously created index
@@ -212,7 +213,7 @@ async def operation_update_handler(
 
             # get the operation to be updated
             op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id, with_for_update=True
+                sess, operation_id
             )
 
             # build update dict
@@ -296,7 +297,8 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
             group_grants = [ADMINISTRATORS_GROUP_ID]
             operation_data = {}
             MutyLogger.get_instance().debug(
-                "operation_reset, creating new operation=%s, index=%s!" % (operation_id, index)
+                "operation_reset, creating new operation=%s, index=%s!"
+                % (operation_id, index)
             )
             # create index
             await GulpOpenSearch.get_instance().datastream_create(index)
@@ -316,10 +318,10 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
             "granted_user_ids": user_grants,
             "granted_user_group_ids": group_grants,
         }
-        await GulpOperation._create(
+        await GulpOperation._create_internal(
             sess,
             d,
-            id=operation_id,
+            obj_id=operation_id,
             owner_id=owner_id or "admin",
             ws_id=None,
             private=False,
@@ -445,7 +447,9 @@ async def operation_reset_handler(
                 owner_id: str = op.owner_user_id
             else:
                 # create anew
-                MutyLogger.get_instance().debug("operation %s NOT exists!" % operation_id)
+                MutyLogger.get_instance().debug(
+                    "operation %s NOT exists!" % operation_id
+                )
                 s = await GulpUserSession.check_token(
                     sess, token, permission=GulpUserPermission.INGEST
                 )

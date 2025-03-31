@@ -1,18 +1,30 @@
 """
-gulp links rest api
+This module provides REST API endpoints for managing links in GULP.
+
+The link endpoints allows creation, update, deletion, retrieval, and listing of links
+between documents. Links establish relationships between a source document and one or more
+target documents, with customizable properties like name, color, tags, and glyph.
+
+Endpoints:
+- POST /link_create: Create a new link between documents
+- PATCH /link_update: Update an existing link's properties
+- DELETE /link_delete: Delete a link by ID
+- GET /link_get_by_id: Retrieve a link by ID
+- POST /link_list: List links with optional filtering
+
+Each endpoint requires authentication via a token parameter and returns responses
+in JSend format.
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
+
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+
 from gulp.api.collab.link import GulpLink
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-)
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -58,9 +70,7 @@ async def link_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[
-        bool, Depends(APIDependencies.param_private_optional)
-    ] = False,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -84,7 +94,7 @@ async def link_create_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -113,7 +123,7 @@ async def link_create_handler(
 )
 async def link_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_ids: Annotated[
         list[str], Body(description="One or more target document IDs.")
@@ -139,14 +149,14 @@ async def link_update_handler(
         d["color"] = color
         d = await GulpLink.update_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
             d=d,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -175,7 +185,7 @@ async def link_update_handler(
 )
 async def link_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -183,13 +193,13 @@ async def link_delete_handler(
     try:
         await GulpLink.delete_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -215,18 +225,18 @@ async def link_delete_handler(
 )
 async def link_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpLink.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -270,4 +280,4 @@ async def link_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

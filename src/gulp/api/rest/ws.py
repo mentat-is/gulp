@@ -1,15 +1,35 @@
+"""
+Websocket implementation for the GULP (Generic Unstructured Language Processing) API.
+
+This module provides websocket endpoints for real-time bidirectional communication between
+clients and the GULP server. It supports three main connection types:
+1. Default websocket (/ws) - Generic websocket connection for data exchange
+2. Ingest websocket (/ws_ingest_raw) - Specialized for streaming ingestion of documents
+3. Client data websocket (/ws_client_data) - For routing UI data between connected clients
+
+The websocket protocol follows a simple pattern:
+1. Authentication via token and establishment of a connection identified by ws_id
+2. Two-way communication with rate limiting to prevent overloading
+3. Support for broadcasting events to other connected clients
+
+Key components:
+- GulpAPIWebsocket: Main class handling websocket connections, authentication, and messaging
+- WsIngestRawWorker: Background worker for processing raw ingestion requests
+- Rate limiting mechanisms to manage client message throughput
+- Support for user permissions and authentication
+
+The module integrates with the rest of the GULP API, allowing for real-time updates
+during ingestion operations, collaboration features, and inter-client communication.
+
+"""
+
 import asyncio
 import time
 from multiprocessing import Queue
 from typing import Awaitable, Callable, Optional
 
-import muty.jsend
-import muty.list
-import muty.log
-import muty.os
 import muty.string
 import muty.time
-import muty.uploadfile
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
@@ -49,8 +69,7 @@ class InternalWsIngestPacket(BaseModel):
 
     user_id: str = Field(..., description="the user id")
     index: str = Field(..., description="the index to ingest into")
-    data: GulpWsIngestPacket = Field(...,
-                                     description="a GulpWsIngestPacket dictionary")
+    data: GulpWsIngestPacket = Field(..., description="a GulpWsIngestPacket dictionary")
 
 
 class WsIngestRawWorker:
@@ -180,7 +199,7 @@ class GulpAPIWebsocket:
     async def _authenticate_websocket(
         websocket: WebSocket,
         params: GulpWsAuthPacket,
-        required_permission: Optional[GulpUserPermission] = None
+        required_permission: Optional[GulpUserPermission] = None,
     ) -> tuple[str, Optional[str]]:
         """
         authenticates a websocket connection
@@ -220,10 +239,7 @@ class GulpAPIWebsocket:
 
     @staticmethod
     async def _send_error_response(
-        websocket: WebSocket,
-        ex: Exception,
-        ws_id: str,
-        error_type: GulpWsError
+        websocket: WebSocket, ex: Exception, ws_id: str, error_type: GulpWsError
     ) -> None:
         """
         sends an error response to the client
@@ -234,9 +250,7 @@ class GulpAPIWebsocket:
             ws_id (str): the websocket id
             error_type (GulpWsError): the type of error
         """
-        p = GulpWsErrorPacket(
-            error=str(ex), error_code=error_type.name
-        )
+        p = GulpWsErrorPacket(error=str(ex), error_code=error_type.name)
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=GulpWsQueueDataType.WS_ERROR,
@@ -247,10 +261,7 @@ class GulpAPIWebsocket:
 
     @staticmethod
     async def _send_connection_ack(
-        websocket: WebSocket,
-        ws_id: str,
-        token: str,
-        user_id: Optional[str]
+        websocket: WebSocket, ws_id: str, token: str, user_id: Optional[str]
     ) -> None:
         """
         sends connection acknowledgment to the client
@@ -266,9 +277,9 @@ class GulpAPIWebsocket:
             type=GulpWsQueueDataType.WS_CONNECTED,
             ws_id=ws_id,
             user_id=user_id,
-            data=GulpWsAcknowledgedPacket(
-                token=token, ws_id=ws_id
-            ).model_dump(exclude_none=True),
+            data=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id).model_dump(
+                exclude_none=True
+            ),
         )
         await websocket.send_json(p.model_dump(exclude_none=True))
 
@@ -305,7 +316,11 @@ class GulpAPIWebsocket:
             logger.debug(f"{socket_type} accepted for ws_id={ws_id}")
 
             ws = GulpConnectedSockets.get_instance().add(
-                websocket, ws_id, params.types, params.operation_ids, socket_type=socket_type
+                websocket,
+                ws_id,
+                params.types,
+                params.operation_ids,
+                socket_type=socket_type,
             )
 
             # acknowledge connection
@@ -336,12 +351,11 @@ class GulpAPIWebsocket:
                 try:
                     await GulpConnectedSockets.get_instance().remove(websocket)
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        f"error during ws cleanup: {ex}")
+                    MutyLogger.get_instance().error(f"error during ws cleanup: {ex}")
                 del ws
 
             # close websocket gracefully if still connected
-            if (websocket.client_state == WebSocketState.CONNECTED):
+            if websocket.client_state == WebSocketState.CONNECTED:
                 try:
                     await websocket.close()
                 except:
@@ -352,7 +366,7 @@ class GulpAPIWebsocket:
         message_count: int,
         last_window_start: float,
         max_messages: int = MAX_MESSAGES_PER_SECOND,
-        window_seconds: float = RATE_LIMIT_WINDOW_SECONDS
+        window_seconds: float = RATE_LIMIT_WINDOW_SECONDS,
     ) -> tuple[int, float, bool]:
         """
         applies rate limiting logic
@@ -397,14 +411,12 @@ class GulpAPIWebsocket:
         Args:
             websocket (WebSocket): The websocket object.
         """
+
         async def run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
             await ws.run_loop()
 
         await GulpAPIWebsocket._handle_websocket(
-            websocket,
-            GulpWsType.WS_DEFAULT,
-            None,
-            run_loop
+            websocket, GulpWsType.WS_DEFAULT, None, run_loop
         )
 
     @router.websocket("/ws_ingest_raw")
@@ -425,7 +437,7 @@ class GulpAPIWebsocket:
             websocket,
             GulpWsType.WS_INGEST,
             GulpUserPermission.INGEST,
-            GulpAPIWebsocket.ws_ingest_run_loop
+            GulpAPIWebsocket.ws_ingest_run_loop,
         )
 
     @staticmethod
@@ -462,8 +474,13 @@ class GulpAPIWebsocket:
                     ws.validate_connection()
 
                     # apply rate limiting
-                    message_count, last_window_start, apply_delay = await GulpAPIWebsocket._apply_rate_limiting(
-                        message_count, last_window_start, max_messages, window_seconds
+                    message_count, last_window_start, apply_delay = (
+                        await GulpAPIWebsocket._apply_rate_limiting(
+                            message_count,
+                            last_window_start,
+                            max_messages,
+                            window_seconds,
+                        )
                     )
 
                     if apply_delay:
@@ -496,8 +513,7 @@ class GulpAPIWebsocket:
                         if not operation:
                             # missing operation, abort
                             MutyLogger.get_instance().error(
-                                "operation %s not found!" % (
-                                    ingest_packet.operation_id)
+                                "operation %s not found!" % (ingest_packet.operation_id)
                             )
                             p = GulpWsErrorPacket(
                                 error="operation %s not found!"
@@ -554,7 +570,7 @@ class GulpAPIWebsocket:
             websocket,
             GulpWsType.WS_CLIENT_DATA,
             None,
-            GulpAPIWebsocket.ws_client_data_run_loop
+            GulpAPIWebsocket.ws_client_data_run_loop,
         )
 
     @staticmethod
@@ -577,8 +593,10 @@ class GulpAPIWebsocket:
             ws.validate_connection()
 
             # apply rate limiting
-            message_count, last_window_start, apply_delay = await GulpAPIWebsocket._apply_rate_limiting(
-                message_count, last_window_start
+            message_count, last_window_start, apply_delay = (
+                await GulpAPIWebsocket._apply_rate_limiting(
+                    message_count, last_window_start
+                )
             )
 
             if apply_delay:
@@ -612,6 +630,7 @@ class GulpAPIWebsocket:
 
                 # route to all connected client_data websockets
                 s = GulpConnectedSockets.get_instance()
+                # pylint: disable=protected-access
                 for _, cws in s._sockets.items():
                     if (
                         ws.ws_id == cws.ws_id
@@ -644,9 +663,9 @@ class GulpAPIWebsocket:
             ws (GulpConnectedSocket): the websocket connection
             user_id (str): the user id
 
-        Throws: 
+        Throws:
             WebSocketDisconnect: when the client disconnects
-            Exception: for any unexpected errors during processing            
+            Exception: for any unexpected errors during processing
         """
         tasks: list[asyncio.Task[None]] = []
         try:
@@ -672,8 +691,7 @@ class GulpAPIWebsocket:
                     )
                     raise
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        f"error in {task.get_name()}: {ex}")
+                    MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
                     raise
 
         finally:

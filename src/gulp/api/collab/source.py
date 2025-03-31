@@ -1,13 +1,19 @@
+"""
+gulp source representation module.
+
+this module provides the `GulpSource` class, which represents a source of data
+being processed by the gulp system. a source is always associated with an operation
+and a context, forming a unique tuple.
+
+the source entity is a fundamental part of the collaboration data model, linking
+operations and contexts with the actual datasource, and providing additional metadata like color.
+"""
 from typing import Optional
 
-from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.structs import (
-    GulpCollabBase,
-    GulpCollabType,
-    T,
-)
+
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 
 
 class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):

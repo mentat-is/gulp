@@ -1,3 +1,26 @@
+"""
+The `process` module implements the core processing functionality for the Gulp application.
+
+It provides the `GulpProcess` class which manages the application's process architecture,
+handling both the main process and worker processes. This module establishes the foundation
+for parallel processing, thread management, and inter-process communication within the Gulp
+application.
+
+The module implements a singleton pattern for the GulpProcess class to ensure only one
+instance exists per process. It manages shared resources like thread pools, coroutine pools,
+process pools, and websocket queues, facilitating efficient communication between processes.
+
+Key components:
+- Process pool management for parallel task execution
+- Thread and coroutine pools for concurrent operations
+- Inter-process communication through shared queues
+- Lifecycle management for graceful startup and shutdown
+- Integration with other Gulp components (Collab, OpenSearch, WebSocket)
+
+This architecture enables Gulp to efficiently handle concurrent requests and distribute
+workloads across multiple processes while maintaining consistent state management.
+"""
+
 import asyncio
 import os
 import sys
@@ -41,7 +64,20 @@ class GulpProcess:
     _instance: "GulpProcess" = None
 
     def __init__(self):
-        pass
+        self._initialized: bool = True
+        self.mp_manager: SyncManager = None
+
+        # allow main/worker processes to spawn threads
+        self.thread_pool: ThreadPoolExecutor = None
+        # allow main/worker processes to spawn coroutines
+        self.coro_pool: AioCoroPool = None
+        # allow the main process to spawn worker processes
+        self.process_pool: AioProcessPool = None
+        # active websocket ids
+        self.shared_ws_list: list[str] = None
+        self._log_level: int = None
+        self._logger_file_path: str = None
+        self._main_process: bool = True
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -58,7 +94,6 @@ class GulpProcess:
         if cls._instance is None:
             # initialize the singleton instance
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
 
         return cls._instance
 
@@ -79,33 +114,6 @@ class GulpProcess:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    def _initialize(self):
-        """
-        initializes the gulpprocess attributes.
-
-        this method is called only once when the singleton instance is created.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self._initialized: bool = True
-        self.mp_manager: SyncManager = None
-
-        # allow main/worker processes to spawn threads
-        self.thread_pool: ThreadPoolExecutor = None
-        # allow main/worker processes to spawn coroutines
-        self.coro_pool: AioCoroPool = None
-        # allow the main process to spawn worker processes
-        self.process_pool: AioProcessPool = None
-        # active websocket ids
-        self.shared_ws_list: list[str] = None
-        self._log_level: int = None
-        self._logger_file_path: str = None
-        self._main_process: bool = True
 
     @staticmethod
     def _worker_exception_handler(ex: Exception):
@@ -342,6 +350,7 @@ class GulpProcess:
             # load extension plugins
             from gulp.api.rest_api import GulpRestServer
 
+            # pylint: disable=protected-access
             await GulpRestServer.get_instance()._unload_extension_plugins()
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:
@@ -356,4 +365,4 @@ class GulpProcess:
         returns whether this is the main gulp process.
         either, it is a worker process.
         """
-        return GulpProcess.get_instance()._main_process
+        return self._main_process

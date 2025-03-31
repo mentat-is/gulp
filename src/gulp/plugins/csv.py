@@ -1,5 +1,27 @@
+"""
+CSV generic file processor
+
+the csv plugin may ingest any CSV file itself, but it is also used as a base plugin for other plugins (in "stacked" mode).
+
+NOTE: since each document must have a "@timestamp", a mapping file with "@timestamp" field mapped is advised.
+
+### standalone mode
+
+when used standalone, it is enough to ingest a CSV file with the default settings (no extra parameters needed).
+
+### stacked mode
+
+in stacked mode, we simply run the stacked plugin, which in turn use the CSV plugin to parse the data.
+
+### parameters
+
+CSV plugin support the following custom parameters in the plugin_params.extra dictionary:
+
+- `delimiter`: set the delimiter for the CSV file (default=",")
+"""
+
 import os
-from typing import Any, override
+from typing import override
 
 import aiofiles
 import muty.dict
@@ -29,30 +51,6 @@ except Exception:
 
 
 class Plugin(GulpPluginBase):
-    """
-    CSV generic file processor
-
-    the csv plugin may ingest any CSV file itself, but it is also used as a base plugin for other plugins (in "stacked" mode).
-
-    NOTE: since each document must have a "@timestamp", a mapping file with "@timestamp" field mapped is advised.
-
-    ### standalone mode
-
-    when used by itself, it is enough to ingest a CSV file with the default settings (no extra parameters needed).
-
-    ### stacked mode
-
-    in stacked mode, we simply run the stacked plugin, which in turn use the CSV plugin to parse the data.
-
-    ### parameters
-
-    CSV plugin support the following custom parameters in the plugin_params.extra dictionary:
-
-    - `delimiter`: set the delimiter for the CSV file (default=",")
-
-    ~~~
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -92,10 +90,10 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        """timestamp = d.get("@timestamp")
-        if not timestamp:
-            # not mapped, last resort is to use the timestamp field, if set
-            timestamp = record.get(self.selected_mapping().timestamp_field)"""
+        # timestamp = d.get("@timestamp")
+        # if not timestamp:
+        #     # not mapped, last resort is to use the timestamp field, if set
+        #     timestamp = record.get(self.selected_mapping().timestamp_field)
 
         return GulpDocument(
             self,
@@ -105,8 +103,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -123,10 +120,10 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> GulpRequestStatus:
         if not plugin_params:
             plugin_params = GulpPluginParameters()
         try:
@@ -142,13 +139,15 @@ class Plugin(GulpPluginBase):
                 source_id=source_id,
                 file_path=file_path,
                 original_file_path=original_file_path,
-                plugin_params=plugin_params,
                 flt=flt,
+                plugin_params=plugin_params,
                 **kwargs,
             )
 
             # stats must be created by the caller, get it
-            stats: GulpRequestStats = await GulpRequestStats.get_by_id(sess, id=req_id)
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+                sess, obj_id=req_id
+            )
 
         except Exception as ex:
             await self._source_failed(ex)
@@ -189,4 +188,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

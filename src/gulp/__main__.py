@@ -11,28 +11,25 @@ from muty.log import MutyLogger
 from gulp.api.rest_api import GulpRestServer
 
 # just for quick testing from the command line
-__RUN_TESTS__ = os.getenv("INTERNAL_TEST", False)
+__RUN_TESTS__ = os.getenv("INTERNAL_TEST", "0") == "1"
 if not __debug__:
     __RUN_TESTS__ = False
 
 
 async def async_test():
-    if not __debug__:
-        return
-    l = 10
-    batch_size = 3
-    count = 0
-    for i in range(0, l, batch_size):
-        is_last = False
-        if i + batch_size > l:
-            batch_size = l - i
-            is_last = True
+    # from muty.jsend import JSendException, JSendResponseStatus
 
-        count += 1
-        print(
-            "running batch %d of %d tasks, total=%d, last=%r ..."
-            % (count, batch_size, l, is_last)
-        )
+    # try:
+    #     try:
+    #         raise ValueError("test exception")
+    #     except Exception as ex:
+    #         raise JSendException("this is the jsend exceptiom", req_id="1234") from ex
+    # except Exception as ex:
+    #     # this will be logged
+    #     MutyLogger.get_instance().exception(ex)
+    #     print("-----")
+    #     print(ex.to_string())
+    pass
 
 
 def main():
@@ -117,7 +114,9 @@ def main():
                 reset_collab = 2
             # default
             print("%s\n%s" % (banner, ver))
-            reset_operation = args.reset_operation[0] if args.reset_operation is not None else None
+            reset_operation = (
+                args.reset_operation[0] if args.reset_operation is not None else None
+            )
             GulpRestServer.get_instance().start(
                 logger_file_path=logger_file_path,
                 level=lv,

@@ -1,4 +1,17 @@
-from typing import Literal, Optional, override
+"""
+Mapping models for Gulp, which facilitates transforming log sources into standardized documents.
+
+This module defines the data structures used to map source data fields to ECS (Elastic Common Schema) fields.
+The mapping system supports transformations, type conversion, and the creation of multiple output documents
+from a single input event.
+
+Key components:
+- GulpMappingField: Configuration for individual field mappings with transformation options
+- GulpMapping: Full mapping definition for translating a log source to Gulp documents
+- GulpMappingFileMetadata: Metadata for mapping files, including plugin associations
+- GulpMappingFile: Container for multiple mappings that can be loaded from JSON
+"""
+from typing import Literal, Optional
 
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field

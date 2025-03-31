@@ -1,10 +1,29 @@
+"""
+IIS access log processor plugin for Gulp.
+
+This module provides a plugin for ingesting and processing Microsoft Internet Information Services (IIS)
+access log files. It parses the standard IIS log format and converts records into structured GulpDocument
+objects for indexing.
+
+Features:
+- Parses comma-separated IIS log entries with standard fields
+- Converts timestamps using configurable date formats
+- Preserves original log entries while extracting structured fields
+- Handles file processing asynchronously with proper error handling
+
+The plugin supports custom parameters including:
+- date_format: Format string for parsing date/time fields (default: "%m/%d/%y %H:%M:%S")
+
+Usage:
+This plugin is registered as a GulpPluginType.INGESTION plugin and can be used
+to process IIS access logs through the Gulp ingestion pipeline.
+"""
+
 import datetime
 import os
 from typing import Any, override
 
 import aiofiles
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,9 +79,21 @@ class Plugin(GulpPluginBase):
         event: dict = {}
         fields = record.split(",")
         header = [
-            "ClientIP", "Username", "Date", "Time", "Service", "ServerName", "ServerIP",
-            "TimeTaken", "ClientBytesSent", "ServerBytesSent", "ServiceStatusCode", "WindowsStatusCode",
-            "RequestType", "TargetOfOperation", "Parameters"
+            "ClientIP",
+            "Username",
+            "Date",
+            "Time",
+            "Service",
+            "ServerName",
+            "ServerIP",
+            "TimeTaken",
+            "ClientBytesSent",
+            "ServerBytesSent",
+            "ServiceStatusCode",
+            "WindowsStatusCode",
+            "RequestType",
+            "TargetOfOperation",
+            "Parameters",
         ]
 
         for k in header:
@@ -72,8 +103,7 @@ class Plugin(GulpPluginBase):
         d = {}
         # map timestamp manually
         time_str = " ".join([event["Date"], event["Time"]])
-        d["@timestamp"] = datetime.datetime.strptime(
-            time_str, date_format).isoformat()
+        d["@timestamp"] = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -87,8 +117,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -106,13 +135,14 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> GulpRequestStatus:
 
         date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%m/%d/%y %H:%M:%S")
+            "date_format", "%m/%d/%y %H:%M:%S"
+        )
         # log_format = log_format.lower()
         try:
             # if not plugin_params or plugin_params.is_empty():
@@ -149,7 +179,9 @@ class Plugin(GulpPluginBase):
                     # continue
 
                     try:
-                        await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+                        await self.process_record(
+                            l, doc_idx, flt=flt, date_format=date_format
+                        )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
@@ -163,4 +195,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

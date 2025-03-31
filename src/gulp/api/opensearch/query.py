@@ -1,6 +1,23 @@
+"""
+This module provides functionality for querying OpenSearch/Elasticsearch within the Gulp API.
+
+It includes classes and utilities for creating and executing queries against OpenSearch/Elasticsearch
+indices, with support for various query parameters, filtering, pagination, and note creation.
+
+The main components are:
+
+- GulpQuery: A model for representing queries with various metadata
+- GulpQueryNoteParameters: Parameters for creating notes on query matches
+- GulpQueryParameters: Additional options for configuring query execution
+- GulpQueryHelpers: Utility methods for executing queries and manipulating query objects
+
+This module supports both OpenSearch and Elasticsearch backends through their respective
+async client interfaces.
+
+"""
+
 from typing import Any, Optional
 
-import muty.log
 import muty.string
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger

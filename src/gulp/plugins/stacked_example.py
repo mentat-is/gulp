@@ -1,25 +1,14 @@
-from typing import Any, override
-
-import aiofiles
-import muty.dict
-import muty.os
-import muty.string
-import muty.xml
+"""
+this is just an example of a stacked plugin, to allow a gulp plugin to sit on top of another and post-process
+the records before ingestion
+"""
+from typing import override
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
-
-try:
-    from aiocsv import AsyncDictReader
-except Exception:
-    muty.os.install_package("aiocsv")
-    from aiocsv import AsyncDictReader
-
+from gulp.structs import GulpPluginParameters
 
 class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:
@@ -48,6 +37,7 @@ class Plugin(GulpPluginBase):
         record["event.duration"] = 9999
         return record
 
+    @override
     async def ingest_file(
         self,
         sess: AsyncSession,
@@ -61,8 +51,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
 

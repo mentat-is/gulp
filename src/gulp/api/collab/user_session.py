@@ -1,6 +1,22 @@
+"""
+This module provides classes for handling user sessions in the Gulp application.
+
+The `GulpUserSession` class represents a user session for a logged-in user, maintaining
+the relationship between sessions and users, and providing mechanisms for session validation,
+permission checking, and access control.
+
+Key features include:
+- Session management with expiration handling
+- Permission-based access control for resources
+- Special handling for admin sessions
+- Token validation with configurable permission requirements
+
+This module works in conjunction with the user management system to provide
+authentication and authorization services throughout the application.
+"""
+
 from typing import TYPE_CHECKING, Optional, override
 
-import muty.time
 from muty.log import MutyLogger
 from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,14 +97,14 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
         await GulpCollabBase.acquire_advisory_lock(sess, ADMIN_SESSION_LOCK_ID)
 
         # the "admin" user always exists
-        admin_user: GulpUser = await GulpUser.get_by_id(sess, id="admin")
+        admin_user: GulpUser = await GulpUser.get_by_id(sess, obj_id="admin")
         if admin_user.session:
             # already exists
             return admin_user.session
 
         # create a new permanent admin session
         object_data = {"user_id": admin_user.id, "time_expire": 0}
-        admin_session: GulpUserSession = await GulpUserSession._create(
+        admin_session: GulpUserSession = await GulpUserSession._create_internal(
             sess,
             object_data=object_data,
             owner_id=admin_user.id,
@@ -145,11 +161,11 @@ class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
 
         try:
             user_session: GulpUserSession = await GulpUserSession.get_by_id(
-                sess, id=token, throw_if_not_found=throw_on_no_permission
+                sess, obj_id=token, throw_if_not_found=throw_on_no_permission
             )
             # MutyLogger.get_instance().debug("got user session for token %s: %s" % (token, user_session.to_dict()))
-        except ObjectNotFound:
-            raise MissingPermission('token "%s" not logged in' % (token))
+        except ObjectNotFound as ex:
+            raise MissingPermission('token "%s" not logged in' % (token)) from ex
 
         if user_session.user.is_admin():
             # admin user can access any object and always have permission

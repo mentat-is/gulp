@@ -1,14 +1,19 @@
+"""
+IIS Access (NCSA) log parser plugin for Gulp.
+
+This plugin processes IIS access logs in NCSA format, parsing each line
+into structured fields such as remote host, username, timestamp, HTTP verb,
+status code, and bytes sent.
+
+The plugin supports custom date formatting through the 'date_format' parameter,
+defaulting to '%d/%b/%Y:%H:%M:%S %z'.
+"""
 import datetime
 import os
 import re
 from typing import Any, override
-from urllib.parse import parse_qs, urlparse
 
 import aiofiles
-import dateutil
-import muty.string
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +31,6 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    IIS access (NCSA) logs file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -56,7 +57,7 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         date_format = kwargs.get("date_format")
         event: dict = {}
-        fields = record.split(",")
+        # fields = record.split(",")
 
         # TODO: move compile regex outside _record_to_gulp_document (also in apache plugin)
         regex = "".join([
@@ -116,8 +117,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs
  ) -> GulpRequestStatus:
 
@@ -173,4 +174,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

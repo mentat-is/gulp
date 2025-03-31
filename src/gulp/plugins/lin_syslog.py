@@ -1,3 +1,15 @@
+"""
+Linux Syslog Format Plugin for GULP
+
+This plugin processes Linux syslog format logs such as auth.log, boot.log, kern.log, etc.
+It stacks on top of the regex plugin to parse standard Linux syslog entries and extract
+relevant fields including timestamps, hostnames, processes, PIDs, and message information.
+
+The plugin provides special handling for SSH daemon logs to extract IP and port information
+from connection messages. It converts timestamps to a standardized format and maintains
+compatibility with the GULP ingestion framework.
+"""
+
 import datetime
 import re
 from typing import override
@@ -17,10 +29,6 @@ from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    linux syslog format plugin (auth.log, boot.log, kern.log, etc) stacked over the regex plugin
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -92,8 +100,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
 
@@ -130,6 +138,7 @@ class Plugin(GulpPluginBase):
             original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
+            **kwargs,
         )
         await lower.unload()
         return res

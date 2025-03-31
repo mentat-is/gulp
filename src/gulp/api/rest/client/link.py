@@ -53,7 +53,7 @@ class GulpAPILink:
     @staticmethod
     async def link_update(
         token: str,
-        object_id: str,
+        obj_id: str,
         doc_ids: list = None,
         name: str = None,
         tags: list[str] = None,
@@ -65,7 +65,7 @@ class GulpAPILink:
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
-            "object_id": object_id,
+            "obj_id": obj_id,
             "ws_id": ws_id or api_common.ws_id,
             "name": name,
             "color": color,
@@ -91,7 +91,7 @@ class GulpAPILink:
     @staticmethod
     async def link_delete(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         ws_id: str = None,
         expected_status: int = 200,
@@ -99,7 +99,7 @@ class GulpAPILink:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_delete(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             api="link_delete",
             req_id=req_id,
             ws_id=ws_id,
@@ -109,14 +109,14 @@ class GulpAPILink:
     @staticmethod
     async def link_get_by_id(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             api="link_get_by_id",
             req_id=req_id,
             expected_status=expected_status,

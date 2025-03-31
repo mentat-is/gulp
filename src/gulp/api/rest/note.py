@@ -1,22 +1,33 @@
 """
-gulp notes rest api
+This module implements REST API endpoints for managing notes in the Gulp system.
+
+Notes are text annotations that can be associated with documents or pinned to a specific time.
+They can be created, updated, retrieved, and deleted through the provided API endpoints.
+
+Endpoints:
+- POST /note_create: Create a new note
+- PATCH /note_update: Update an existing note
+- DELETE /note_delete: Delete a note
+- GET /note_get_by_id: Retrieve a note by ID
+- POST /note_list: List notes with optional filtering
+
+Notes have various attributes including text content, color, associated documents,
+time pinning, tags, and permissions.
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
+
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+import muty.time
+from muty.jsend import JSendException, JSendResponse
+
 from gulp.api.collab.note import GulpNote, GulpNoteEdit
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpUserPermission,
-)
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -119,7 +130,7 @@ async def note_create_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -148,7 +159,7 @@ async def note_create_handler(
 )
 async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     docs: Annotated[
         list[GulpBasicDocument],
@@ -182,9 +193,7 @@ async def note_update_handler(
                 "at least one of docs, time_pin, text, name, tags, glyph_id, color must be set."
             )
         async with GulpCollab.get_instance().session() as sess:
-            n: GulpNote = await GulpNote.get_by_id(
-                sess, object_id, with_for_update=True
-            )
+            n: GulpNote = await GulpNote.get_by_id(sess, obj_id)
 
             s = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.EDIT, obj=n
@@ -212,10 +221,18 @@ async def note_update_handler(
             d["glyph_id"] = glyph_id
             d["color"] = color
             d["last_editor_id"] = s.user_id
+            time_updated = muty.time.now_msec()
+            d["time_updated"] = time_updated
+
+            # add an edit
+            p = GulpNoteEdit(
+                user_id=s.user_id, text=text, timestamp=time_updated
+            )
+
+            n.edits.append(p)
             await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
 
             # get the note again and add the edit info
-            await sess.refresh(n)
             p = GulpNoteEdit(
                 user_id=n.last_editor_id, text=n.text, timestamp=n.time_updated
             )
@@ -230,12 +247,11 @@ async def note_update_handler(
                 req_id=req_id,
                 updated_instance=n,
             )
-            await sess.refresh(n)
             d = n.to_dict(exclude_none=True)
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -264,7 +280,7 @@ async def note_update_handler(
 )
 async def note_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -272,13 +288,13 @@ async def note_delete_handler(
     try:
         await GulpNote.delete_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -304,18 +320,18 @@ async def note_delete_handler(
 )
 async def note_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpNote.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -359,4 +375,4 @@ async def note_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

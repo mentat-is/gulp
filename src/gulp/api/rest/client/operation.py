@@ -110,7 +110,7 @@ class GulpAPIOperation:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=operation_id,
+            obj_id=operation_id,
             api="operation_get_by_id",
             req_id=req_id,
             expected_status=expected_status,

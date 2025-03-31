@@ -1,3 +1,14 @@
+"""
+PCAP log file processor plugin for Gulp.
+
+This module provides a plugin for processing PCAP (packet capture) files in both
+PCAP and PCAPNG formats. It leverages Scapy for packet parsing and converts
+packet data into a structured format suitable for ingestion into search engines.
+
+The plugin supports customizable parameters and implements the necessary methods
+for the Gulp ingestion pipeline, converting network packet data into searchable documents.
+"""
+
 import json
 import os
 import pathlib
@@ -14,8 +25,6 @@ import muty.string
 import muty.time
 import muty.xml
 from muty.log import MutyLogger
-from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
-from scapy.packet import Raw
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -31,13 +40,9 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
-
+from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
 
 class Plugin(GulpPluginBase):
-    """
-    pcap file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -87,6 +92,8 @@ class Plugin(GulpPluginBase):
                 try:
                     fields[field_name] = getattr(p.getlayer(layer_name), field_name)
                     # MutyLogger.get_instance().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
+
+                # pylint: disable=W0612
                 except Exception as ex:
                     # skip fields that cannot be accessed
                     # MutyLogger.get_instance().exception(ex)
@@ -180,10 +187,10 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
                 sess=sess,
@@ -261,4 +268,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

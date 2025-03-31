@@ -1,14 +1,20 @@
+"""
+MBOX Plugin for Gulp
+
+This module provides a plugin for processing MBOX files (mailbox format) by leveraging the EML plugin to handle individual email messages extracted from the MBOX container.
+
+It acts as a bridge between MBOX files and email processing capabilities, demonstrating how to use another plugin to process
+the data using GulpPluginBase.load_plugin method: this allow to stack one plugin on top of another and process the data calling the lower plugin directly, bypassing the engine.
+"""
+
 import mailbox
 from typing import Any, override
 
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    PreviewDone,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+
+from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
+                                   RequestCanceledError, SourceCanceledError)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -17,12 +23,6 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    this plugin demonstrates how to use another plugin to process the data, using the GulpPluginBase.load_plugin method
-
-    this allow to stack one plugin on top of another the data is processed by calling the lower plugin directly, bypassing the engine
-    """
-
     @override
     def desc(self) -> str:
         return """generic MBOX file processor"""
@@ -53,7 +53,12 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         # document is processed by eml plugin
-        return await self._eml_parser._record_to_gulp_document(record, record_idx, **kwargs)
+        eml_parser: GulpPluginBase =kwargs["eml_parser"]
+
+        # pylint: disable=W0212
+        # call the eml plugin directly
+        return await eml_parser._record_to_gulp_document(record, record_idx, **kwargs)
+
 
     @override
     async def ingest_file(
@@ -69,8 +74,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
         try:
@@ -93,7 +98,7 @@ class Plugin(GulpPluginBase):
             )
 
             # load eml plugin
-            self._eml_parser = await self.load_plugin(
+            eml_parser = await self.load_plugin(
                 "eml",
                 sess=sess,
                 stats=stats,
@@ -119,7 +124,7 @@ class Plugin(GulpPluginBase):
             mbox = mailbox.mbox(file_path)
             for message in mbox.itervalues():
                 try:
-                    await self.process_record(message, doc_idx, flt=flt)
+                    await self.process_record(message, doc_idx, flt=flt, eml_parser=eml_parser)
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)
@@ -133,4 +138,4 @@ class Plugin(GulpPluginBase):
         finally:
             await self._source_done(flt)
             await self._eml_parser.unload()
-            return self._stats_status()
+        return self._stats_status()

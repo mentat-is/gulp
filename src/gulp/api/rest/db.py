@@ -1,5 +1,20 @@
+"""
+Database and Data Management REST API endpoints for Gulp.
+
+This module provides endpoints to manage the underlying OpenSearch and PostgreSQL databases used by Gulp,
+including operations like creating/deleting indexes, resetting the collaboration database, and rebasing indexes.
+
+The endpoints are organized into several main operations:
+- OpenSearch datastream operations (create, delete, list)
+- PostgreSQL collaboration database management
+- Complete system reset
+- Index rebasing operations
+
+Most operations require admin-level permissions, as they can potentially delete or modify significant amounts of data.
+"""
+
 import json
-from typing import Annotated, Optional, Union
+from typing import Annotated, Union
 
 import muty.file
 import muty.log
@@ -25,7 +40,7 @@ from gulp.api.rest.test_values import TEST_INDEX
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpRebaseDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.process import GulpProcess
-from gulp.structs import ObjectAlreadyExists, ObjectNotFound
+from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
 
@@ -85,7 +100,11 @@ async def opensearch_delete_index_handler(
             if delete_operation:
                 # get operation
                 op = await GulpOperation.get_first_by_filter(
-                    sess, GulpCollabFilter(index=[index]), throw_if_not_found=False, user_id=user_id, user_id_is_admin=True
+                    sess,
+                    GulpCollabFilter(index=[index]),
+                    throw_if_not_found=False,
+                    user_id=user_id,
+                    user_id_is_admin=True,
                 )
                 if op:
                     # delete the operation on collab
@@ -106,7 +125,7 @@ async def opensearch_delete_index_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -173,7 +192,7 @@ async def opensearch_list_index_handler(
         l = await GulpOpenSearch.get_instance().datastream_list()
         return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 async def _recreate_index_internal(
@@ -265,7 +284,7 @@ async def opensearch_create_index_handler(
                 JSendResponse.success(req_id=req_id, data={"index": index})
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
     finally:
         if f is not None:
             await muty.file.delete_file_or_dir_async(f)
@@ -390,7 +409,7 @@ async def postgres_reset_collab_handler(
 
         return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -440,7 +459,7 @@ async def gulp_reset_handler(
         await collab.create_default_operation()
         return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 async def _rebase_internal(
@@ -478,7 +497,7 @@ async def _rebase_internal(
         # the operation object must now point to the new index
         async with GulpCollab.get_instance().session() as sess:
             op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id, with_for_update=True
+                sess, operation_id
             )
             d = {
                 "index": dest_index,
@@ -617,12 +636,9 @@ optional custom rebase script to run on the documents.
             index = op.index
 
         if index == dest_index:
-            raise JSendException(
-                req_id=req_id,
-                ex=Exception(
-                    "index and dest_index must be different! (index=%s, dest_index=%s)"
-                    % (index, dest_index)
-                ),
+            raise JSendException(req_id=req_id) from Exception(
+                "index and dest_index must be different! (index=%s, dest_index=%s)"
+                % (index, dest_index)
             )
 
         # spawn a task which runs the rebase in a worker process
@@ -648,4 +664,4 @@ optional custom rebase script to run on the documents.
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex

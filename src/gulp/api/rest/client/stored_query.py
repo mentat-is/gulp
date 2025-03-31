@@ -54,7 +54,7 @@ class GulpAPIStoredQuery:
     @staticmethod
     async def stored_query_update(
         token: str,
-        object_id: str,
+        obj_id: str,
         name: str = None,
         q: str = None,
         q_groups: list[str] = None,
@@ -69,7 +69,7 @@ class GulpAPIStoredQuery:
         """Update an existing stored query"""
         api_common = GulpAPICommon.get_instance()
         params = {
-            "object_id": object_id,
+            "obj_id": obj_id,
             "name": name,
             "plugin": plugin,
             "req_id": req_id or api_common.req_id,
@@ -97,7 +97,7 @@ class GulpAPIStoredQuery:
     @staticmethod
     async def stored_query_delete(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -105,7 +105,7 @@ class GulpAPIStoredQuery:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_delete(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             api="stored_query_delete",
             req_id=req_id,
             expected_status=expected_status,
@@ -114,7 +114,7 @@ class GulpAPIStoredQuery:
     @staticmethod
     async def stored_query_get_by_id(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -122,7 +122,7 @@ class GulpAPIStoredQuery:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             req_id=req_id,
             api="stored_query_get_by_id",
             expected_status=expected_status,

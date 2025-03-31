@@ -1,23 +1,42 @@
+"""
+Chrome browser history processor plugin for Gulp.
+
+This module provides a stacked plugin built on top of the SQLite plugin for ingesting and processing
+Chrome-based browser history databases. It extracts browsing history, downloads, and related metadata
+from Chrome/Chromium SQLite history files and converts them into structured documents for indexing.
+
+Features:
+- Processes Chrome browser history SQLite databases
+- Extracts visited URLs, timestamps, visit counts, and download information
+- Performs join queries to enrich visit data with URL information
+- Calculates download durations from start and end times
+- Uses a pre-defined mapping file (chrome_history.json) for field transformations
+
+Tables processed include:
+- visits - Contains browsing history visit information
+- urls - Contains information about visited URLs
+- downloads - Contains download history records
+- And various other Chrome history database tables
+
+Usage:
+This plugin is registered as a GulpPluginType.INGESTION plugin and depends on the SQLite plugin.
+
+Example usage:
+  ./test_scripts/ingest.py --plugin chrome_history_sqlite_stacked --path ~/Downloads/history.sqlite
+"""
 from enum import Enum
-from typing import Any, override
+from typing import override
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import GulpDocument
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    chrome based browsers history plugin stacked over the SQLITE plugin
-
-    ./test_scripts/ingest.py --plugin chrome_history_sqlite_stacked --path ~/Downloads/history.sqlite
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -33,6 +52,9 @@ class Plugin(GulpPluginBase):
         return ["sqlite"]
 
     class ChromeHistoryTable(Enum):
+        """
+        Chrome history tables int mapping
+        """
         cluster_keywords = 0
         cluster_visit_duplicates = 1
         clusters = 2
@@ -81,8 +103,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs
     ) -> GulpRequestStatus:
 
@@ -95,7 +117,7 @@ class Plugin(GulpPluginBase):
 
         if not plugin_params:
             plugin_params = GulpPluginParameters()
-        
+
         plugin_params.mapping_file = "chrome_history.json"
         plugin_params.custom_parameters["queries"] = {
             "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
@@ -114,8 +136,9 @@ class Plugin(GulpPluginBase):
             source_id=source_id,
             file_path=file_path,
             original_file_path=original_file_path,
-            plugin_params=plugin_params,
             flt=flt,
+            plugin_params=plugin_params,
+            **kwargs,
         )
         await lower.unload()
         return res

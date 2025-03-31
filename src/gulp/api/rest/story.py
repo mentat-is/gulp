@@ -1,19 +1,27 @@
 """
-gulp stories rest api
+This module defines the REST API endpoints for managing stories in the Gulp application.
+
+Stories are collections that group together multiple documents, allowing for organization
+and association of related content. The module provides endpoints for:
+
+- Creating new stories with associated documents
+- Updating existing stories (modifying properties or document associations)
+- Deleting stories
+- Retrieving individual stories by ID
+- Listing stories with optional filtering
+
+All operations require appropriate authentication tokens with the necessary permissions.
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
-from fastapi import APIRouter, Body, Depends, Query
+
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+
 from gulp.api.collab.story import GulpStory
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpUserPermission,
-)
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -87,7 +95,7 @@ async def story_create_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -116,7 +124,7 @@ async def story_create_handler(
 )
 async def story_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_ids: Annotated[
         list[str], Body(description="One or more target document IDs.")
@@ -141,14 +149,14 @@ async def story_update_handler(
         d["color"] = color
         d = await GulpStory.update_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
             d=d,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -177,7 +185,7 @@ async def story_update_handler(
 )
 async def story_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -185,13 +193,13 @@ async def story_delete_handler(
     try:
         await GulpStory.delete_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -217,18 +225,18 @@ async def story_delete_handler(
 )
 async def story_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpStory.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -272,4 +280,4 @@ async def story_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

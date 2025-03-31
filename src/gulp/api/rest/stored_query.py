@@ -1,5 +1,18 @@
 """
-gulp stored_queries rest api
+Module for handling stored query operations through REST API.
+
+This module provides endpoints for creating, updating, deleting, retrieving, and listing
+stored queries. Stored queries are reusable queries that can be shared with other users.
+
+The module includes the following endpoints:
+- POST /stored_query_create: Create a new stored query
+- PATCH /stored_query_update: Update an existing stored query
+- DELETE /stored_query_delete: Delete a stored query
+- GET /stored_query_get_by_id: Get a specific stored query by ID
+- POST /stored_query_list: List stored queries with optional filtering
+
+Stored queries can be either Sigma rules (YAML format) or Gulp raw queries (JSON format).
+When using Sigma rules, tags are automatically extracted from the rule's tags and level.
 """
 
 from typing import Annotated, Optional
@@ -123,7 +136,7 @@ async def stored_query_create_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -153,7 +166,7 @@ async def stored_query_create_handler(
 )
 async def stored_query_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)],
     q: Annotated[
         str,
@@ -200,16 +213,16 @@ async def stored_query_update_handler(
         # get rule
         r: dict = await GulpStoredQuery.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
             permission=[GulpUserPermission.EDIT],
         )
         if plugin and not r.get("plugin"):
             raise ValueError(
-                f"Cannot set plugin for a stored raw query, delete rule and recreate instead."
+                "Cannot set plugin for a stored raw query, delete rule and recreate instead."
             )
         if plugin and r.get("plugin") != plugin:
             raise ValueError(
-                f"Cannot change plugin for a stored sigma query, delete query and recreate instead."
+                "Cannot change plugin for a stored sigma query, delete query and recreate instead."
             )
 
         # handle tags if q is a sigma rule
@@ -242,14 +255,14 @@ async def stored_query_update_handler(
 
         d = await GulpStoredQuery.update_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
             d=d,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -278,7 +291,7 @@ async def stored_query_update_handler(
 )
 async def stored_query_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -286,13 +299,13 @@ async def stored_query_delete_handler(
     try:
         await GulpStoredQuery.delete_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -318,18 +331,18 @@ async def stored_query_delete_handler(
 )
 async def stored_query_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpStoredQuery.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -373,4 +386,4 @@ async def stored_query_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

@@ -1,12 +1,23 @@
 """
-This module contains the REST API for gULP (gui Universal Log Processor).
+Module that defines API endpoints for user management for the Gulp API.
+
+This module provides RESTful API endpoints to manage users within the Gulp platform.
+Functionality includes:
+- User authentication (login/logout)
+- User creation, deletion and updates
+- User listing and retrieval
+- Permission management
+
+The module uses FastAPI for API definition and JSendResponse for standardized JSON responses.
+Authentication is handled via tokens that are checked against user permissions stored in the
+collaboration database.
+
+Most operations require specific permissions, particularly admin privileges for user management
+operations beyond self-management.
 """
 
 from typing import Annotated, Optional
 
-import muty.os
-import muty.string
-import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -221,7 +232,7 @@ async def login_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -271,7 +282,7 @@ async def logout_handler(
                 )
             )
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -347,7 +358,7 @@ the new user id.
                 )
             )
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -404,7 +415,7 @@ async def user_delete_handler(
         )
 
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -481,12 +492,10 @@ async def user_update_handler(
             )
 
         async with GulpCollab.get_instance().session() as sess:
-            from gulp.api.collab.user_session import GulpUserSession
-
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
 
             # get the user to be updated
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id, with_for_update=True)
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             if s.user_id != u.id and not s.user.is_admin():
                 raise MissingPermission("only admin can update other users.")
 
@@ -518,7 +527,7 @@ async def user_update_handler(
                 JSendResponse.success(req_id=req_id, data=u.to_dict(exclude_none=True))
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -560,7 +569,7 @@ async def user_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -599,4 +608,4 @@ async def user_get_by_id(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

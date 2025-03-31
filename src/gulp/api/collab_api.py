@@ -1,3 +1,17 @@
+"""
+collab_api module for managing PostgreSQL database connections and operations.
+
+this module provides the GulpCollab class, a singleton that handles database connections,
+table creation, and default data initialization for the gulp collaboration database.
+it supports ssl connections, connection pooling, and session management.
+
+the module handles:
+- database connection creation and management
+- table creation and initialization
+- default data creation (users, operations, contexts, glyphs)
+- session management for database operations
+"""
+
 import asyncio
 import json
 import os
@@ -5,7 +19,6 @@ import pkgutil
 from importlib import import_module, resources
 
 import muty.file
-import muty.time
 from muty.log import MutyLogger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -42,7 +55,10 @@ class GulpCollab:
     _instance: "GulpCollab" = None
 
     def __init__(self):
-        pass
+        self._initialized: bool = True
+        self._setup_done: bool = False
+        self._engine: AsyncEngine = None
+        self._collab_sessionmaker: async_sessionmaker = None
 
     def __new__(cls):
         """
@@ -50,7 +66,6 @@ class GulpCollab:
         """
         if not cls._instance:
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
         return cls._instance
 
     @classmethod
@@ -64,15 +79,6 @@ class GulpCollab:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    def _initialize(self):
-        """
-        initializes the collab database connection (create the engine and configure it) in the singleton instance.
-        """
-        self._initialized: bool = True
-        self._setup_done: bool = False
-        self._engine: AsyncEngine = None
-        self._collab_sessionmaker: async_sessionmaker = None
 
     async def init(
         self,
@@ -397,14 +403,15 @@ class GulpCollab:
             )
 
             # create default operation
-            operation: GulpOperation = await GulpOperation._create(
+            # pylint: disable=protected-access
+            operation: GulpOperation = await GulpOperation._create_internal(
                 sess,
                 object_data={
                     "name": operation_id,
                     "index": index,
                     "glyph_id": operation_glyph.id if operation_glyph else None,
                 },
-                id=operation_id,
+                obj_id=operation_id,
                 owner_id=admin_user.id,
             )
 
@@ -457,24 +464,24 @@ class GulpCollab:
             # admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
             # create other users
-            guest_user = await GulpUser.create(
+            _ = await GulpUser.create(
                 sess,
                 user_id="guest",
                 password="guest",
             )
-            editor_user = await GulpUser.create(
+            _ = await GulpUser.create(
                 sess,
                 user_id="editor",
                 password="editor",
                 permission=PERMISSION_MASK_EDIT,
             )
-            ingest_user = await GulpUser.create(
+            _ = await GulpUser.create(
                 sess,
                 user_id="ingest",
                 password="ingest",
                 permission=PERMISSION_MASK_INGEST,
             )
-            power_user = await GulpUser.create(
+            _ = await GulpUser.create(
                 sess,
                 user_id="power",
                 password="power",
@@ -484,9 +491,10 @@ class GulpCollab:
             # create user groups
             from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
-            group: GulpUserGroup = await GulpUserGroup._create(
+            # pylint: disable=protected-access
+            group: GulpUserGroup = await GulpUserGroup._create_internal(
                 sess,
-                id=ADMINISTRATORS_GROUP_ID,
+                obj_id=ADMINISTRATORS_GROUP_ID,
                 object_data={
                     "name": "example group",
                     "permission": [GulpUserPermission.ADMIN],
@@ -546,7 +554,8 @@ class GulpCollab:
             )
 
             # create glyphs
-            user_glyph = await GulpGlyph._create(
+            # pylint: disable=protected-access
+            user_glyph = await GulpGlyph._create_internal(
                 sess,
                 object_data={
                     "name": "test_user_icon",
@@ -554,10 +563,10 @@ class GulpCollab:
                 },
                 owner_id=admin_user.id,
                 private=False,
-                id="test_user_icon",
+                obj_id="test_user_icon",
             )
 
-            _ = await GulpGlyph._create(
+            _ = await GulpGlyph._create_internal(
                 sess,
                 object_data={
                     "name": "test_operation_icon",
@@ -565,7 +574,7 @@ class GulpCollab:
                 },
                 owner_id=admin_user.id,
                 private=False,
-                id="test_operation_icon",
+                obj_id="test_operation_icon",
             )
 
             # assign glyphs
@@ -587,7 +596,7 @@ class GulpCollab:
             sigma_match_some_more = await muty.file.read_file_async(
                 muty.file.safe_path_join(assets_path, "sigma_match_some_more.yaml")
             )
-            GulpStoredQuery = await GulpStoredQuery._create(
+            GulpStoredQuery = await GulpStoredQuery._create_internal(
                 sess,
                 object_data={
                     "name": "win_evtx_sigma_1",
@@ -596,13 +605,13 @@ class GulpCollab:
                     "q": sigma_match_some.decode("utf-8"),
                     "plugin": "win_evtx",
                 },
-                id="test_stored_sigma_1",
+                obj_id="test_stored_sigma_1",
                 owner_id=admin_user.id,
                 private=False,
             )
 
             # stored query: windows sigma 2
-            GulpStoredQuery = await GulpStoredQuery._create(
+            GulpStoredQuery = await GulpStoredQuery._create_internal(
                 sess,
                 object_data={
                     "name": "win_evtx_sigma_2",
@@ -611,13 +620,13 @@ class GulpCollab:
                     "q": sigma_match_some_more.decode("utf-8"),
                     "plugin": "win_evtx",
                 },
-                id="test_stored_sigma_2",
+                obj_id="test_stored_sigma_2",
                 owner_id=admin_user.id,
                 private=False,
             )
 
             # stored query: raw query
-            GulpStoredQuery = await GulpStoredQuery._create(
+            GulpStoredQuery = await GulpStoredQuery._create_internal(
                 sess,
                 object_data={
                     "name": "raw_query",
@@ -640,20 +649,20 @@ class GulpCollab:
                         }
                     ),
                 },
-                id="test_stored_raw",
+                obj_id="test_stored_raw",
                 owner_id=admin_user.id,
                 private=False,
             )
 
             # stored query: splunk query
-            GulpStoredQuery = await GulpStoredQuery._create(
+            GulpStoredQuery = await GulpStoredQuery._create_internal(
                 sess,
                 object_data={
                     "name": "splunk_raw_query",
                     "tags": ["stored", "raw", "splunk"],
                     "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',
                 },
-                id="test_stored_raw_splunk",
+                obj_id="test_stored_raw_splunk",
                 owner_id=admin_user.id,
                 private=False,
             )

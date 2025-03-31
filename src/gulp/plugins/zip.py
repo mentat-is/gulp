@@ -1,3 +1,19 @@
+
+"""
+A plugin for processing and ingesting ZIP files into GULP.
+
+This plugin extracts files from ZIP archives, processes their metadata, and converts them into GulpDocument objects.
+It supports password-protected ZIP files, custom encoding settings, and hash calculation for extracted content.
+
+Features:
+- Extraction of files from ZIP archives
+- Handling of file metadata (timestamps, permissions, etc.)
+- MIME type detection for extracted files
+- Option to keep or discard original file content
+- Support for password-protected archives
+- Customizable hashing algorithm
+"""
+import os
 import datetime
 import hashlib
 import json
@@ -25,12 +41,6 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    this plugin demonstrates how to use another plugin to process the data, using the GulpPluginBase.load_plugin method
-
-    this allow to stack one plugin on top of another the data is processed by calling the lower plugin directly, bypassing the engine
-    """
-
     @override
     def desc(self) -> str:
         return """generic zip file processor"""
@@ -79,7 +89,7 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        zip: zipfile.ZipFile = kwargs.get("zip")
+        z: zipfile.ZipFile = kwargs.get("zip")
         f: zipfile.ZipInfo = kwargs.get("file")
         encoding: str = kwargs.get("encoding")
         hash_type: str = kwargs.get("hash_type")
@@ -90,7 +100,7 @@ class Plugin(GulpPluginBase):
             v = getattr(f, attr)
             # ignore functions and private methods while collecting attributes
             # not (attr.startswith("__") or attr.endswith("__")):
-            if not callable(v) and not (attr.startswith("__")):
+            if not callable(v) and not attr.startswith("__"):
                 if isinstance(v, bytes):
                     v = v.decode(encoding)
                 d[attr] = v
@@ -100,16 +110,16 @@ class Plugin(GulpPluginBase):
         #      could we pass this file to an enrich plugin which handles files based on known
         #      file formats to get extra information?
         event_original = ""
-        content = zip.read(f, pwd=password.encode(encoding)
+        _ = z.read(f, pwd=password.encode(encoding)
                            if password is not None else None)
-        hash = hashlib.__dict__[hash_type]()
-        with zip.open(f) as i:
+        h = hashlib.__dict__[hash_type]()
+        with z.open(f) as i:
             while True:
                 chunk = i.read(chunk_size)
                 event_original += chunk.hex()
                 if not chunk:
                     break
-                hash.update(chunk)
+                h.update(chunk)
         d[hash_type] = hash.hexdigest()
 
         mimetype = mimetypes.guess_file_type(f.filename)
@@ -159,8 +169,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
         try:
@@ -193,21 +203,20 @@ class Plugin(GulpPluginBase):
             "chunk_size")
         doc_idx = 0
         try:
-            d = {}
-            with zipfile.ZipFile(file_path) as zip:
-                for f in zip.filelist:
+            with zipfile.ZipFile(file_path) as z:
+                for f in z.filelist:
                     try:
                         await self.process_record(
                             f, doc_idx,
                             flt=flt,
-                            zip=zip,
+                            zip=z,
                             file=f,
                             encoding=encoding,
                             password=password,
                             hash_type=hash_type,
                             chunk_size=chunk_size
                         )
-                    except (RequestCanceledError, SourceCanceledError) as expand_lists:
+                    except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
                     except PreviewDone:
@@ -218,4 +227,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

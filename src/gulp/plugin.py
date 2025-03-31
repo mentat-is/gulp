@@ -11,13 +11,10 @@ from enum import StrEnum
 from types import ModuleType
 from typing import Any, Callable, Optional
 
-import muty.crypto
 import muty.dynload
 import muty.file
-import muty.jsend
 import muty.log
 import muty.pydantic
-import muty.string
 import muty.time
 from muty.log import MutyLogger
 from opensearchpy import Field
@@ -25,7 +22,6 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
-from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import (
     GulpRequestStats,
@@ -41,12 +37,7 @@ from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
     GulpQueryFilter,
 )
-from gulp.api.opensearch.query import (
-    GulpQuery,
-    GulpQueryHelpers,
-    GulpQueryNoteParameters,
-    GulpQueryParameters,
-)
+from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
@@ -167,10 +158,12 @@ class GulpPluginCache:
     """
     Plugin cache singleton.
     """
+
     _instance: "GulpPluginCache" = None
 
     def __init__(self):
-        pass
+        self._initialized: bool = True
+        self._cache: dict = {}
 
     def __new__(cls):
         """
@@ -178,7 +171,6 @@ class GulpPluginCache:
         """
         if not cls._instance:
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
         return cls._instance
 
     @classmethod
@@ -192,13 +184,6 @@ class GulpPluginCache:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    def _initialize(self):
-        """
-        Initializes the instance.
-        """
-        self._initialized: bool = True
-        self._cache: dict = {}
 
     def clear(self):
         """
@@ -252,19 +237,51 @@ class GulpPluginBase(ABC):
     Base class for all Gulp plugins.
     """
 
-    def __reduce__(self):
+    @classmethod
+    def load_pickled(
+        cls, path: str, extension: bool, cache_mode: GulpPluginCacheMode
+    ) -> "GulpPluginBase":
         """
-        This method is automatically used by the pickle module to serialize the object when it is passed to the multiprocessing module.
+        load a plugin with pickled=True, used by __reduce__
+
+        Args:
+            path (str): path to the plugin
+            extension (bool): whether this is an extension plugin
+            cache_mode (GulpPluginCacheMode): cache mode to use
 
         Returns:
-            tuple: A tuple containing the callable, its arguments, and the object's state.
+            GulpPluginBase: the loaded plugin instance
         """
-        # load with ignore_cache=True, pickled=True
+        return cls.load_sync(path, extension, cache_mode, pickled=True)
+
+    def __reduce__(self) -> tuple:
+        """
+        define how the object should be pickled when passed to multiprocessing.
+
+        this method is automatically called by the pickle module when serializing the object.
+        it instructs pickle how to reconstruct the object when unpickling.
+
+        Args:
+            none
+
+        Returns:
+            tuple: a tuple containing:
+                - callable: the function to call to recreate the object
+                - args: arguments to pass to the callable
+                - state: the object's state to restore after recreation
+
+        Notes:
+            - plugins are loaded with ignore_cache=True and pickled=True when passed to workers
+            - the extension status is determined from the plugin type
+        """
+        # determine if this is an extension plugin
         extension = GulpPluginType.EXTENSION in self.type()
+
+        # return the reconstruction information as a tuple
         return (
-            GulpPluginBase.load_sync,
-            (self.path, extension, GulpPluginCacheMode.IGNORE, True),
-            self.__dict__,
+            GulpPluginBase.load_pickled,  # callable to recreate the object
+            (self.path, extension, GulpPluginCacheMode.IGNORE),  # args for callable
+            self.__dict__,  # object state to restore
         )
 
     def __init__(
@@ -507,10 +524,9 @@ class GulpPluginBase(ABC):
             )
             # print(json.dumps(ingested_docs, indent=2))
             if ingestion_errors > 0:
-                """
-                NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
-                ideally, function should NEVER append errors and the errors total should be the same before and after this function returns (this function may only change the skipped total, which means some duplicates were found).
-                """
+                # NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
+                # ideally, function should NEVER append errors and the errors total should be the same before and
+                # after this function returns (this function may only change the skipped total, which means some duplicates were found).
                 if (
                     GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error()
                 ):
@@ -874,8 +890,7 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        MutyLogger.get_instance().debug(
-            f"enriched ({self.name}) {len(docs)} documents")
+        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
         last = kwargs.get("last", False)
@@ -1161,6 +1176,7 @@ class GulpPluginBase(ABC):
         lower = await GulpPluginBase.load(plugin, cache_mode=cache_mode)
 
         # initialize private fields
+        # pylint: disable=W0212
         lower._sess = sess
         lower._stats = stats
         lower._ws_id = ws_id
@@ -1178,8 +1194,8 @@ class GulpPluginBase(ABC):
     async def setup_stacked_plugin(
         self,
         plugin: str,
-        cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
         *args,
+        cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
         **kwargs,
     ) -> "GulpPluginBase":
         """
@@ -1194,8 +1210,8 @@ class GulpPluginBase(ABC):
 
         Args:
             plugin (str): the plugin to load
-            cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
             *args: additional arguments to pass to the plugin constructor.
+            cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
             **kwargs: additional keyword arguments to pass to the plugin constructor.
         Returns:
             PluginBase: the loaded plugin
@@ -1205,6 +1221,7 @@ class GulpPluginBase(ABC):
         )
 
         # set the upper plugin as stacked, so it can call our (lower) functions
+        # pylint: disable=W0212
         p._upper_record_to_gulp_document_fun = self._record_to_gulp_document
         p._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
         p._upper_instance = self
@@ -1243,17 +1260,16 @@ class GulpPluginBase(ABC):
             new_doc = GulpDocument(
                 self, **new_doc_data, __ignore_default_event_code__=True
             )
-            """
-            MutyLogger.get_instance().debug(
-                "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
-                % (
-                    json.dumps(base_doc_dump, indent=2),
-                    json.dumps(new_doc_data, indent=2),
-                    json.dumps(new_doc.model_dump(), indent=2),
-                )
-            )
-            """
+            # MutyLogger.get_instance().debug(
+            #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
+            #     % (
+            #         json.dumps(base_doc_dump, indent=2),
+            #         json.dumps(new_doc_data, indent=2),
+            #         json.dumps(new_doc.model_dump(), indent=2),
+            #     )
+            # )
             extra_docs.append(new_doc.model_dump(by_alias=True))
+
         return [doc.model_dump(by_alias=True)] + extra_docs
 
     async def _record_to_gulp_document(
@@ -1294,6 +1310,7 @@ class GulpPluginBase(ABC):
             list[dict]: processed documents
         """
         for i, doc in enumerate(docs):
+            # pylint: disable=E1102
             docs[i] = await self._upper_record_to_gulp_document_fun(
                 doc, record_idx, **kwargs
             )
@@ -1308,7 +1325,7 @@ class GulpPluginBase(ABC):
         Args:
             record (any): the record to convert
             record_idx (int): the index of the record in the source
-            kwargs: additional keyword arguments
+            kwargs: additional keyword arguments, they will be passed to plugin's `_record_to_gulp_documennt`
         Returns:
             list[dict]: zero or more GulpDocument dictionaries
 
@@ -1369,7 +1386,8 @@ class GulpPluginBase(ABC):
                 # source key is mapped, add the mapped key to the document
                 for k in mapping:
                     kk, vv = self._type_checks(
-                        k, source_value, force_type_set=force_type)
+                        k, source_value, force_type_set=force_type
+                    )
                     if vv:
                         d[kk] = vv
             else:
@@ -1547,7 +1565,7 @@ class GulpPluginBase(ABC):
             record_idx (int): The index of the record.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
-            kwargs: additional keyword arguments.
+            kwargs: additional keyword arguments, they will be passed to plugin's `_record_to_gulp_documennt`
         """
         if self._external_query:
             # external query, documents have been already filtered by the query
@@ -1667,8 +1685,7 @@ class GulpPluginBase(ABC):
 
         # validation checks
         if not self._mappings and self._mapping_id:
-            raise ValueError(
-                "mapping_id is set but mappings/mapping_file is not!")
+            raise ValueError("mapping_id is set but mappings/mapping_file is not!")
 
         if not self._mappings and not self._mapping_id:
             MutyLogger.get_instance().warning(
@@ -1715,8 +1732,7 @@ class GulpPluginBase(ABC):
                     f"additional mapping file {additional_file_path} is empty!"
                 )
 
-            additional_mapping_file = GulpMappingFile.model_validate(
-                mapping_data)
+            additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
 
             # merge mappings
             main_mapping = self.selected_mapping()
@@ -1736,6 +1752,7 @@ class GulpPluginBase(ABC):
         """
         pass mappings to the upper plugin in stacked configuration
         """
+        # pylint: disable=W0212
         if not self._stacked:
             return
 
@@ -1805,10 +1822,11 @@ class GulpPluginBase(ABC):
         # initialize index type mappings
         await self._initialize_index_mappings()
 
-        MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s" %
-                                        (self.filename, self._mappings))
+        # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s"% (self.filename, self._mappings))
 
-    def _type_checks(self, k: str, v: Any, force_type_set: bool = False) -> tuple[str, Any]:
+    def _type_checks(
+        self, k: str, v: Any, force_type_set: bool = False
+    ) -> tuple[str, Any]:
         """
         check the type of a value and convert it if needed.
 
@@ -1927,10 +1945,11 @@ class GulpPluginBase(ABC):
 
                 if self._upper_enrich_documents_chunk_fun:
                     # if an upper plugin is stacked, call its enrich_documents too to postprocess
+                    # pylint: disable=E1102
                     self._docs_buffer = await self._upper_enrich_documents_chunk_fun(
                         self._docs_buffer, **kwargs
                     )
-            except Exception as ex:
+            except:  # Exception aa ex:
                 # MutyLogger.get_instance().exception(ex)
                 pass
 
@@ -1947,18 +1966,16 @@ class GulpPluginBase(ABC):
         self._tot_skipped_in_source += skipped
         self._tot_ingested_in_source += ingested
 
-        """
-        if wait_for_refresh:
-            # update index type mapping too
-            el = GulpOpenSearch.get_instance()
-            self._index_type_mapping = await el.datastream_get_key_value_mapping(
-                self._index
-            )
-            MutyLogger.get_instance().debug(
-                "got index type mappings with %d entries"
-                % (len(self._index_type_mapping))
-            )
-        """
+        # if wait_for_refresh:
+        #     # update index type mapping too
+        #     el = GulpOpenSearch.get_instance()
+        #     self._index_type_mapping = await el.datastream_get_key_value_mapping(
+        #         self._index
+        #     )
+        #     MutyLogger.get_instance().debug(
+        #         "got index type mappings with %d entries"
+        #         % (len(self._index_type_mapping))
+        #     )
         return ingested, skipped
 
     def _record_failed(self, ex: Exception | str = None) -> None:
@@ -1980,18 +1997,26 @@ class GulpPluginBase(ABC):
             err (str | Exception): The error that caused the source to fail.
         """
         if isinstance(err, SourceCanceledError):
+            # request has benn canceled
             self._req_canceled = True
         else:
+            # it's an error
             self._is_source_failed = True
+            if self._stats:
+                # also update status
+                self._stats.status = GulpRequestStatus.FAILED
 
         if not isinstance(err, str):
-            # , with_full_traceback=True)
-            err = muty.log.exception_to_string(err)
+            # exception to string
+            e = muty.log.exception_to_string(err)  # , with_full_traceback=True)
+        else:
+            e = err
+
         MutyLogger.get_instance().error(
             "SOURCE FAILED: source=%s, ex=%s, processed in this source=%d, canceled=%r, failed=%r, ingestion=%r"
             % (
                 self._file_path,
-                err,
+                e,
                 self._records_processed_per_chunk,
                 self._req_canceled,
                 self._is_source_failed,
@@ -1999,8 +2024,9 @@ class GulpPluginBase(ABC):
             )
         )
 
-        err = "source=%s, %s" % (self._file_path, err)
-        self._source_error = err
+        # add source info
+        ee = "source=%s, %s" % (self._file_path, e)
+        self._source_error = ee
 
     async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
         """
@@ -2075,7 +2101,7 @@ class GulpPluginBase(ABC):
                 error=self._source_error,
             )
             if self._raw_ingestion and not self._req_canceled:
-                # keep status as ongoing
+                # force status update, keep status as ongoing
                 d["status"] = GulpRequestStatus.ONGOING
 
             try:
@@ -2085,7 +2111,7 @@ class GulpPluginBase(ABC):
                     ws_id=self._ws_id,
                     user_id=self._user_id,
                 )
-            except RequestCanceledError as ex:
+            except RequestCanceledError:
                 MutyLogger.get_instance().warning("request canceled, source_done!")
             finally:
                 self._sess = None
@@ -2095,7 +2121,6 @@ class GulpPluginBase(ABC):
         plugin: str,
         extension: bool = False,
         cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
-        *args,
         **kwargs,
     ) -> "GulpPluginBase":
         """
@@ -2105,7 +2130,6 @@ class GulpPluginBase(ABC):
             plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
             cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
-            *args: Additional arguments (args[0]: pickled).
             **kwargs: Additional keyword arguments.
         """
         loop = asyncio.get_event_loop()
@@ -2116,15 +2140,14 @@ class GulpPluginBase(ABC):
             executor = GulpProcess.get_instance().thread_pool
             future = executor.submit(
                 asyncio.run,
-                GulpPluginBase.load(plugin, extension,
-                                    cache_mode, *args, **kwargs),
+                GulpPluginBase.load(plugin, extension, cache_mode, **kwargs),
             )
             return future.result()
 
         # either, create a new event loop to run the coroutine
         return loop.run_until_complete(
             GulpPluginBase.load(
-                plugin, extension=extension, cache_mode=cache_mode, *args, **kwargs
+                plugin, extension=extension, cache_mode=cache_mode, **kwargs
             )
         )
 
@@ -2133,7 +2156,6 @@ class GulpPluginBase(ABC):
         plugin: str,
         extension: bool = False,
         cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
-        *args,
         **kwargs,
     ) -> "GulpPluginBase":
         """
@@ -2143,13 +2165,12 @@ class GulpPluginBase(ABC):
             plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
             cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
-            *args: Additional arguments (args[0]: pickled).
             **kwargs: Additional keyword arguments.
         """
         # this is set in __reduce__(), which is called when the plugin is pickled(=loaded in another process)
         # pickled=True: running in worker
         # pickled=False: running in main process
-        pickled = args[0] if args else False
+        pickled = kwargs.get("pickled", False)
 
         # get plugin full path by name
         path = GulpPluginBase.path_from_plugin(
@@ -2301,13 +2322,11 @@ class GulpPluginBase(ABC):
             if is_extension:
                 # add extension
                 extra_path = muty.file.safe_path_join(extra_path, "extension")
-                default_path = muty.file.safe_path_join(
-                    default_path, "extension")
+                default_path = muty.file.safe_path_join(default_path, "extension")
 
             # first we check in extra_path
             if extra_path and os.path.exists(extra_path):
-                p = _check_path(muty.file.safe_path_join(
-                    extra_path, plugin.lower()))
+                p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
                 if p:
                     return p
 
@@ -2322,7 +2341,8 @@ class GulpPluginBase(ABC):
         p = _get_plugin_path(plugin, is_extension)
         if not p and raise_if_not_found:
             raise FileNotFoundError(
-                f"plugin {plugin} not found, plugins_path={GulpConfig.get_instance().path_plugins_default()}, extra_path={GulpConfig.get_instance().path_plugins_extra()}")
+                f"plugin {plugin} not found, plugins_path={GulpConfig.get_instance().path_plugins_default()}, extra_path={GulpConfig.get_instance().path_plugins_extra()}"
+            )
         return p
 
     @staticmethod

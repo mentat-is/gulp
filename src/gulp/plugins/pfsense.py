@@ -1,15 +1,19 @@
+"""
+Module for processing and ingesting pfSense firewall logs into the Gulp system.
+
+This plugin handles pfSense filter.log files, parsing their specific format
+and converting log entries into structured Gulp documents. It supports both
+RFC3164 and RFC5424 log formats and processes various network protocols
+including TCP, UDP, ICMP, and VRRP.
+"""
+
 import os
 import re
 from typing import Any, override
 
-import muty.jsend
-import muty.log
-import muty.os
-import muty.string
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import (
     GulpRequestStats,
     PreviewDone,
@@ -19,8 +23,8 @@ from gulp.api.collab.stats import (
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.structs import GulpPluginParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -63,7 +67,7 @@ class Plugin(GulpPluginBase):
             "direction",
             "version",
         ]
-        for f in range(len(fields)):
+        for _, f in enumerate(fields):
             # interface is realint converted to a friendlier format
             # since we can't convert the interface, we assing it the same value as realint'
             if fields[f] == "interface":
@@ -74,12 +78,12 @@ class Plugin(GulpPluginBase):
 
         if flent["version"] == "4":
             fields = ["tos", "ecn", "ttl", "id", "offset", "flags", "protoid", "proto"]
-            for f in range(len(fields)):
+            for _, f in enumerate(fields):
                 flent[fields[f]] = rule_data[field]
                 field += 1
         elif flent["version"] == "6":
             fields = ["class", "flowlabel", "hlim", "proto", "protoid"]
-            for f in range(len(fields)):
+            for _, f in enumerate(fields):
                 flent[fields[f]] = rule_data[field]
                 field += 1
         else:
@@ -179,7 +183,7 @@ class Plugin(GulpPluginBase):
 
         elif flent["protoid"] == "112":
             fields = ["type", "ttl", "vhid", "version", "advskew", "advbase"]
-            for f in range(len(fields)):
+            for _, f in enumerate(fields):
                 field += 1
                 flent[fields[f]] = rule_data[field]
 
@@ -225,9 +229,9 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
@@ -256,7 +260,7 @@ class Plugin(GulpPluginBase):
 
             doc_idx = 0
 
-            with open(file_path, "r") as log_file:
+            with open(file_path, "r", encoding="utf-8") as log_file:
                 # SNIPPET: peek first line and decide pattern to use
                 # peek=log_file.readline()
                 # self.pattern = self.rfc3164
@@ -275,9 +279,7 @@ class Plugin(GulpPluginBase):
                     m: re.Match[str] = regex.match(rr)
                     if m:
                         try:
-                            await self.process_record(
-                                rr, doc_idx, flt=flt, match=m
-                            )
+                            await self.process_record(rr, doc_idx, flt=flt, match=m)
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
                             await self._source_failed(ex)
@@ -295,4 +297,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

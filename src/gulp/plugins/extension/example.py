@@ -1,39 +1,41 @@
+"""
+Extension Example Plugin Module
+
+This module provides an example implementation of an extension plugin for the Gulp framework.
+It demonstrates how to create an extension plugin that adds custom API routes and handles
+both main process and worker process operations.
+
+The plugin adds an `/example_extension` API endpoint that:
+1. Handles PUT requests
+2. Creates an example stats entry in the database
+3. Spawns a task in a worker process
+4. Demonstrates message passing between processes using shared queues
+
+Extension plugins in Gulp are:
+- Automatically loaded from `PLUGIN_DIR/extension` at startup
+- Initialized in the main process context
+- Able to extend the API through `GulpRestServer.get_instance().add_api_route()`
+- Optionally re-initialized in worker processes if they support pickling
+
+This example serves as a template for developing custom extensions for the Gulp framework.
+
+"""
+
 import asyncio
 from typing import Annotated
 
-import muty.file
-import muty.jsend
-import muty.list
-import muty.log
-import muty.os
-import muty.string
-import muty.uploadfile
-from fastapi import Depends, Header, Query
+from fastapi import Depends
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
-
-"""
-# extension plugins
-
-## loading
-
-extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension`.
-
-## internals
-
-- they may extend api through `GulpRestServer.get_instance().add_api_route()`.
-- `their init runs in the MAIN process context`
-"""
 
 
 class Plugin(GulpPluginBase):
@@ -114,7 +116,7 @@ class Plugin(GulpPluginBase):
                     source_total=33,
                 )
             except Exception as ex:
-                raise JSendException(req_id=req_id, ex=ex) from ex
+                raise JSendException(req_id=req_id) from ex
 
         # spawn coro in worker process
         tasks = []
@@ -136,7 +138,7 @@ class Plugin(GulpPluginBase):
 
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
-            raise JSendException(req_id=req_id, ex=ex) from ex
+            raise JSendException(req_id=req_id) from ex
 
     def _add_api_routes(self):
         # add /example_extension API
@@ -183,7 +185,7 @@ class Plugin(GulpPluginBase):
                 await GulpRestServer.get_instance().spawn_bg_task(coro)
                 return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
-            raise JSendException(req_id=req_id, ex=ex) from ex
+            raise JSendException(req_id=req_id) from ex
 
     def desc(self) -> str:
         return "Extension example."

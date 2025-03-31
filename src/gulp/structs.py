@@ -1,4 +1,14 @@
-"""Gulp global definitions."""
+"""Gulp global definitions.
+
+This module contains core data structures and exceptions used throughout Gulp.
+It defines models for API parameters, plugin configuration, and common utility classes.
+
+Key components:
+- Exception classes for object management
+- API parameter and method models
+- Plugin parameter handling
+- Sorting and configuration enums
+"""
 
 from enum import StrEnum
 from typing import Any, Literal, Optional
@@ -21,6 +31,7 @@ class GulpAPIParameter(BaseModel):
     """
     describes a parameter for a Gulp API method.
     """
+
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
@@ -42,21 +53,23 @@ class GulpAPIParameter(BaseModel):
     default_value: Optional[Any] = Field(None, description="default value.")
     desc: Optional[str] = Field(None, description="parameter description.")
     location: Optional[Literal["query", "header", "body"]] = Field(
-        default="query", description="where the parameter is located, for API requests.")
-    required: Optional[bool] = Field(
-        False, description="is the parameter required ?")
+        default="query", description="where the parameter is located, for API requests."
+    )
+    required: Optional[bool] = Field(False, description="is the parameter required ?")
 
 
 class GulpAPIMethod(BaseModel):
     """
     describes a Gulp API method.
     """
-    method: Literal["PUT", "GET", "POST", "DELETE", "PATCH"] = Field(
-        ..., description="the method to be used"),
-    url: str = Field(...,
-                     description="the endpoint url, relative to the base host"),
+
+    method: Literal["PUT", "GET", "POST", "DELETE", "PATCH"] = (
+        Field(..., description="the method to be used"),
+    )
+    url: str = (Field(..., description="the endpoint url, relative to the base host"),)
     params: Optional[list[GulpAPIParameter]] = Field(
-        [], description="list of parameters for the method")
+        [], description="list of parameters for the method"
+    )
 
 
 class GulpPluginParameters(BaseModel):
@@ -73,13 +86,15 @@ class GulpPluginParameters(BaseModel):
                 {
                     "mapping_file": "mftecmd_csv.json",
                     "mappings": {
-                        "the_mapping_id": autogenerate_model_example_by_class(GulpMapping),
+                        "the_mapping_id": autogenerate_model_example_by_class(
+                            GulpMapping
+                        ),
                     },
                     "mapping_id": "record",
                     "additional_mapping_files": [
                         ("mftecmd_csv.json", "record"),
                         ("mftecmd_csv.json", "file"),
-                    ]
+                    ],
                 }
             ]
         },
@@ -141,7 +156,7 @@ class GulpPluginCustomParameter(GulpAPIParameter):
     """
     this is used by the UI through `plugin_list` API, which calls each plugin `custom_parameters()` entrypoint to get custom parameters name/type/description/default if defined.
 
-    to pass custom parameters to a plugin, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary: 
+    to pass custom parameters to a plugin, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary:
 
     ~~~js
     {

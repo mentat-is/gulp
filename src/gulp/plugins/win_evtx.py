@@ -1,7 +1,20 @@
+"""
+Windows Event Log (EVTX) Processing Plugin for Gulp
+
+This module provides a plugin for processing Windows Event Log (EVTX) files. It parses EVTX files,
+maps event codes to appropriate categories and types, and converts the events into a structured format
+suitable for ingestion and analysis.
+
+The plugin supports:
+- Reading and parsing EVTX files
+- Mapping Windows event codes to standardized event categories
+- Converting Sigma rules to Gulp query format
+- Extracting relevant information from complex event structures
+- Integrating with Gulp's ingestion system
+"""
 import json
 import os
 from typing import Any, override
-
 import muty.dict
 import muty.file
 import muty.log
@@ -12,7 +25,7 @@ import muty.xml
 from evtx import PyEvtxParser
 from muty.log import MutyLogger
 from sigma.backends.opensearch import OpensearchLuceneBackend
-from sigma.pipelines.elasticsearch.windows import ecs_windows, ecs_windows_old
+from sigma.pipelines.elasticsearch.windows import ecs_windows
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -27,7 +40,7 @@ from gulp.api.opensearch.query import GulpQuery
 from gulp.api.opensearch.sigma import to_gulp_query_struct
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpNameDescriptionEntry, GulpPluginParameters
+from gulp.structs import GulpPluginParameters
 
 # needs the following backends for sigma support (add others if needed)
 muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
@@ -35,10 +48,6 @@ muty.os.check_and_install_package("pysigma-backend-opensearch", ">=1.0.3,<2.0.0"
 
 
 class Plugin(GulpPluginBase):
-    """
-    windows evtx log file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -214,8 +223,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs
   ) -> GulpRequestStatus:
         try:
@@ -262,7 +271,7 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()
 
     @override
     def sigma_convert(

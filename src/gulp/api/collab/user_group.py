@@ -1,4 +1,22 @@
-from typing import Optional, override
+"""
+Module for user group management in the Gulp system.
+
+This module provides classes for managing user groups, their associations with users,
+and permission handling. It includes the GulpUserGroup class, which represents a user
+group with functionality to add/remove users and check permissions.
+
+The module defines:
+- GulpUserAssociations: Handles the many-to-many relationship between users and groups
+- GulpUserGroup: Represents a user group with associated users and permissions
+- ADMINISTRATORS_GROUP_ID: Constant identifier for the administrators group (which is automatically created)
+
+User groups can have various permissions defined in GulpUserPermission, and users can
+be added to or removed from groups. The module supports checking if a user is part of a
+group and if a group has specific permissions.
+
+"""
+
+from typing import TYPE_CHECKING, Optional, override
 
 from muty.log import MutyLogger
 from sqlalchemy import ARRAY, Column, ForeignKey, Table
@@ -7,14 +25,15 @@ from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
-from gulp.api.collab.structs import (
-    GulpCollabBase,
-    GulpCollabType,
-    GulpUserPermission,
-)
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, GulpUserPermission
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
+if TYPE_CHECKING:
+    from gulp.api.collab.user import GulpUser
+
+
 ADMINISTRATORS_GROUP_ID = "administrators"
+
 
 class GulpUserAssociations:
     # multiple users can be associated with a group
@@ -74,7 +93,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         """
         from gulp.api.collab.user import GulpUser
 
-        user = await GulpUser.get_by_id(sess, id=user_id)
+        user = await GulpUser.get_by_id(sess, obj_id=user_id)
         existing_users = [u.id for u in self.users]
         if user_id not in existing_users:
             self.users.append(user)
@@ -105,7 +124,7 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         """
         from gulp.api.collab.user import GulpUser
 
-        user = await GulpUser.get_by_id(sess, id=user_id)
+        user = await GulpUser.get_by_id(sess, obj_id=user_id)
         existing_users = [u.id for u in self.users]
         if user_id in existing_users:
             self.users.remove(user)

@@ -1,3 +1,12 @@
+"""
+Gulp plugin module for processing systemd journal logs.
+
+This module provides a plugin for ingesting and processing logs from systemd journal files.
+It extracts information from journal entries and transforms them into structured GulpDocuments then ingested into Gulp.
+
+NOTE: This plugin requires the systemd-python package and is not available on Windows or macOS.
+
+"""
 import datetime
 import os
 from typing import Any, override
@@ -11,12 +20,9 @@ import muty.time
 import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    PreviewDone,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+
+from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
+                                   RequestCanceledError, SourceCanceledError)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -102,8 +108,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
         try:
@@ -154,4 +160,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

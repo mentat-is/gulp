@@ -1,8 +1,22 @@
+"""
+This module defines the GulpHighlight class, which represents highlights in the gulp collaboration system.
+
+Highlights are time-based annotations associated with a gulp source, allowing users to mark specific
+temporal sections of content for collaboration purposes.
+
+The module provides:
+- GulpHighlight: A class for creating, storing, and manipulating highlight objects
+- Integration with SQLAlchemy for database persistence
+- Support for time ranges specified in nanoseconds
+- Optional association with source objects through foreign key relationships
+"""
+
 from typing import Optional
 
 from sqlalchemy import ARRAY, ForeignKey, Integer
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableList
+from sqlalchemy.orm import Mapped, mapped_column
+
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
 
 

@@ -1,3 +1,20 @@
+"""
+This module defines the GulpNote class, which represents a note in the gulp collaboration system.
+
+The GulpNote class inherits from GulpCollabObject and implements note-specific functionality.
+It includes methods for creating and updating notes, particularly in bulk operations.
+
+Classes:
+    GulpNoteEdit: Represents an edit made to a note, tracking the editor, timestamp, and text.
+    GulpNote: Represents a note in the collaboration system with methods for creation and manipulation.
+
+Main functionalities:
+- Creating notes from documents
+- Bulk creation of notes
+- Bulk updating of note tags
+- Associating notes with contexts, sources, and documents
+"""
+
 from typing import Optional, override
 
 from muty.log import MutyLogger
@@ -21,7 +38,8 @@ from gulp.api.ws_api import (
 
 class GulpNoteEdit(BaseModel):
     """
-    a note edit
+    a note edit represent an edit made to a note
+    it tracks the editor, timestamp and text
     """
 
     model_config = ConfigDict(
@@ -100,6 +118,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
 
     @override
     @classmethod
+    # pylint: disable=arguments-renamed,arguments-differ
     def build_dict(
         cls,
         operation_id: str,
@@ -307,7 +326,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 user_id_is_admin=user_id_is_admin,
                 user_group_ids=user_group_ids,
                 throw_if_not_found=False,
-                with_for_update=True,
             )
             if not notes:
                 break

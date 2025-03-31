@@ -1,3 +1,12 @@
+"""
+Windows Registry File Processor Plugin for Gulp.
+
+This module provides functionality to ingest and process Windows registry files,
+extracting registry keys, values, and other metadata for analysis.
+
+The plugin supports parsing both complete registry hives and partial hives,
+with customizable starting paths for traversal.
+"""
 import json
 import os
 from typing import Any, override
@@ -29,20 +38,6 @@ muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
 
 
 class Plugin(GulpPluginBase):
-    """
-    Windows Registry
-
-    the win_reg plugin ingests windows registry files
-
-    ### parameters
-
-    win_reg supports the following custom parameters:
-
-    - `path`: registry path to start traversing the hive from (default=None - start of the hive)
-    - `partial_hive_path`: the path from which the partial hive actually starts (default=None)
-    - `partial_hive_type`: the hive type can be specified if this is a partial hive, or if auto-detection fails (default=None)
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -150,8 +145,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
         try:
@@ -205,4 +200,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

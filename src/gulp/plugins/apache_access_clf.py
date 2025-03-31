@@ -1,3 +1,24 @@
+"""
+Apache Access Log Common Log Format (CLF) File Processor
+
+This module provides a plugin for processing Apache access logs in Common Log Format (CLF).
+It parses log lines using regular expressions to extract fields like host, user, datetime,
+request method, path, status, size, referrer, and user agent.
+
+The plugin supports:
+- Parsing Apache access.log files in CLF format
+- Converting log entries to structured GulpDocument objects
+- Custom date format specification
+- Query parameter extraction from URLs
+- Field normalization for Elasticsearch compatibility
+
+# TODO support gzipped logs from rotated configurations, same for error logs
+
+The main class, Plugin, inherits from GulpPluginBase and implements the necessary methods
+for ingesting and processing log files.
+
+"""
+
 import datetime
 import os
 import re
@@ -5,10 +26,10 @@ from typing import Any, override
 from urllib.parse import parse_qs, urlparse
 
 import aiofiles
+import muty.elastic
 import muty.string
 import muty.time
 import muty.xml
-import muty.elastic
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,14 +45,8 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
-# TODO support gzipped logs from rotated configurations, same for error logs
-
 
 class Plugin(GulpPluginBase):
-    """
-    common access.log format file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -64,9 +79,20 @@ class Plugin(GulpPluginBase):
 
         event = {
             name: matches.group(name) if matches.groups(name) else None
-            for name in ["host", "user", "datetime", "date", "timezone",
-                         "request_method", "path", "request_version",
-                         "status", "size", "referrer", "agent"]
+            for name in [
+                "host",
+                "user",
+                "datetime",
+                "date",
+                "timezone",
+                "request_method",
+                "path",
+                "request_version",
+                "status",
+                "size",
+                "referrer",
+                "agent",
+            ]
         }
 
         url = urlparse(event.get("path"))
@@ -81,8 +107,10 @@ class Plugin(GulpPluginBase):
         # map timestamp manually
         time_str = event.pop("datetime")
         d["@timestamp"] = datetime.datetime.strptime(
-            time_str, self._plugin_params.custom_parameters.get(
-                "date_format", "%d/%b/%Y:%H:%M:%S %z")
+            time_str,
+            self._plugin_params.custom_parameters.get(
+                "date_format", "%d/%b/%Y:%H:%M:%S %z"
+            ),
         ).isoformat()
 
         # map
@@ -93,8 +121,10 @@ class Plugin(GulpPluginBase):
         null_param_key = 0
         for pk, pv in query.items():
             if not pk:
-                null_param_key+=1
-            pk = muty.elastic.normalize_elastic_fieldname(pk, null_field_prefix=f"null_param_key{null_param_key}")
+                null_param_key += 1
+            pk = muty.elastic.normalize_elastic_fieldname(
+                pk, null_field_prefix=f"null_param_key{null_param_key}"
+            )
 
             k = "gulp.http.query.params.%s" % (pk)
             mapped = self._process_key(k, pv)
@@ -107,8 +137,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -126,9 +155,9 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> GulpRequestStatus:
         try:
             if not plugin_params or plugin_params.is_empty():
@@ -147,8 +176,8 @@ class Plugin(GulpPluginBase):
                 source_id=source_id,
                 file_path=file_path,
                 original_file_path=original_file_path,
-                plugin_params=plugin_params,
                 flt=flt,
+                plugin_params=plugin_params,
                 **kwargs,
             )
         except Exception as ex:
@@ -173,7 +202,7 @@ class Plugin(GulpPluginBase):
         pattern = re.compile(r"\s+".join(parts) + r".*\Z")
 
         doc_idx = 0
-        l:list[dict]=[]
+        l: list[dict] = []
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
                 async for l in log_src:
@@ -197,4 +226,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

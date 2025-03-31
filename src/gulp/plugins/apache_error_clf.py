@@ -1,3 +1,19 @@
+"""
+Apache Error Log Common Log Format (CLF) Parser Plugin for Gulp
+
+This module provides a plugin for parsing Apache error logs in Common Log Format.
+It extracts key information such as timestamp, log level, process ID, thread ID,
+client details, IP addresses, and error messages from Apache error log entries.
+
+The plugin implements the GulpPluginBase and supports the ingestion pipeline
+to transform raw log entries into structured GulpDocument objects that can be
+indexed and searched.
+
+Example log format parsed:
+[Fri Sep 09 10:42:29.902022 2011] [core:error] [pid 35708:tid 4328636416] [client 72.15.99.187] File does not exist: /usr/local/apache2/htdocs/favicon.ico
+"""
+
+
 import os
 import re
 from typing import Any, override
@@ -9,27 +25,19 @@ import muty.log
 import muty.string
 import muty.time
 import muty.xml
-from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    PreviewDone,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
+                                   RequestCanceledError, SourceCanceledError)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    common error.log format file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -55,10 +63,10 @@ class Plugin(GulpPluginBase):
         pattern = re.compile(r"\s+".join(parts))
         matches = pattern.match(record.strip("\n"))
 
-        """if matches is None:
-            print(matches)
-            print(record)
-            print("*" * 1000)"""
+        # if matches is None:
+        #     print(matches)
+        #     print(record)
+        #     print("*" * 1000)
 
         client = matches.groupdict().get("client", "")
         ip = matches.groupdict().get("ip", "")
@@ -97,7 +105,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(
+                self._file_path),
             **d,
         )
 
@@ -115,8 +124,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs
     ) -> GulpRequestStatus:
         try:
@@ -136,8 +145,8 @@ class Plugin(GulpPluginBase):
                 source_id=source_id,
                 file_path=file_path,
                 original_file_path=original_file_path,
-                plugin_params=plugin_params,
                 flt=flt,
+                plugin_params=plugin_params,
                 **kwargs,
             )
         except Exception as ex:
@@ -168,4 +177,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()
