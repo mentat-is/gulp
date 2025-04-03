@@ -1244,9 +1244,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.execute(
                 text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id}
             )
-            MutyLogger.get_instance().debug(
-                f"released advisory lock for {cls.__name__} {obj_id}: {lock_id}"
-            )
+            # MutyLogger.get_instance().debug(f"released advisory lock for {cls.__name__} {obj_id}: {lock_id}")
         except OperationalError as e:
             MutyLogger.get_instance().error(f"failed to release advisory lock: {e}")
             raise
@@ -1265,9 +1263,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.execute(
                 text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
             )
-            MutyLogger.get_instance().debug(
-                f"acquired advisory lock for {cls.__name__} {obj_id}: {lock_id}"
-            )
+            # MutyLogger.get_instance().debug(f"acquired advisory lock for {cls.__name__} {obj_id}: {lock_id}")
         except OperationalError as e:
             MutyLogger.get_instance().error(f"failed to acquire advisory lock: {e}")
             raise

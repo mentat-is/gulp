@@ -17,7 +17,7 @@ request body example:
         "operation_ids": [
         "test_operation"
         ],
-        "int_filter": [ 1475739447131043840, 1475739547131043840 ]
+        "time_range": [ 1475739447131043840, 1475739547131043840 ]
     },
     "plugin_params": {
             // those fields will be looked up for whois information
@@ -265,5 +265,5 @@ class Plugin(GulpPluginBase):
     ) -> dict:
 
         # parse custom parameters
-        self._initialize(plugin_params)
+        await self._initialize(plugin_params)
         return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)

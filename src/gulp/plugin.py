@@ -970,8 +970,7 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
 
-        # initialize
-        await self._initialize(plugin_params=plugin_params)
+        #await self._initialize(plugin_params=plugin_params)
 
         self._user_id = user_id
         self._req_id = req_id
@@ -1034,7 +1033,7 @@ class GulpPluginBase(ABC):
         Returns:
             dict: the enriched document
 
-        NOTE: implementers must implement _enrich_documents_chunk, call self._parse_custom_parameters and then super().enrich_single_document
+        NOTE: implementers must implement _enrich_documents_chunk, call self._initialize() and then super().enrich_single_document
         """
         if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
             GulpPluginBase._enrich_documents_chunk
@@ -1044,7 +1043,7 @@ class GulpPluginBase(ABC):
             )
 
         self._operation_id = operation_id
-        await self._initialize(plugin_params=plugin_params)
+        # await self._initialize(plugin_params=plugin_params)
 
         # get the document
         doc = await GulpQueryHelpers.query_single(index, doc_id)

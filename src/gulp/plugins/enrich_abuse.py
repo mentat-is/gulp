@@ -158,7 +158,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> int:
         # parse custom parameters
-        self._initialize(plugin_params)
+        await self._initialize(plugin_params)
         self._get_auth_key()
 
         url_fields = self._plugin_params.custom_parameters.get("url_fields", [])
@@ -198,7 +198,7 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters,
     ) -> dict:
         # parse custom parameters
-        self._initialize(plugin_params)
+        await self._initialize(plugin_params)
         self._get_auth_key()
 
         return await super().enrich_single_document(

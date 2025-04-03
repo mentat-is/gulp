@@ -444,6 +444,7 @@ async def tag_documents_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
     try:
