@@ -363,7 +363,7 @@ class GulpAPICommon:
     async def object_delete(
         self,
         token: str,
-        object_id: str,
+        obj_id: str,
         api: str,
         req_id: str = None,
         ws_id: str = None,
@@ -372,9 +372,9 @@ class GulpAPICommon:
         """
         common object deletion
         """
-        MutyLogger.get_instance().info(f"Deleting object {object_id}, api={api}...")
+        MutyLogger.get_instance().info(f"Deleting object {obj_id}, api={api}...")
         params = {
-            "object_id": object_id,
+            "obj_id": obj_id,
             "ws_id": req_id or self.ws_id,
             "req_id": req_id or self.req_id,
         }
@@ -386,7 +386,7 @@ class GulpAPICommon:
     async def object_get_by_id(
         self,
         token: str,
-        object_id: str,
+        obj_id: str,
         api: str,
         req_id: str = None,
         expected_status: int = 200,
@@ -395,8 +395,8 @@ class GulpAPICommon:
         """
         common object get
         """
-        MutyLogger.get_instance().info(f"Getting object {object_id}, api={api}...")
-        params = {"object_id": object_id, "req_id": req_id or self.req_id, **kwargs}
+        MutyLogger.get_instance().info(f"Getting object {obj_id}, api={api}...")
+        params = {"obj_id": obj_id, "req_id": req_id or self.req_id, **kwargs}
         res = await self.make_request(
             "GET",
             api,

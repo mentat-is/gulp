@@ -757,7 +757,7 @@ class GulpConnectedSocket:
             tasks (list): the tasks to clean up
         """
         logger = MutyLogger.get_instance()
-    
+
         for task in tasks:
             if not task.done():
                 task.cancel()
@@ -779,7 +779,6 @@ class GulpConnectedSocket:
         except ValueError:
             logger.debug(f"ws_id={self.ws_id} not found in shared_ws_list")
 
-
     async def _receive_loop(self) -> None:
         """
         continuously receives messages to detect disconnection
@@ -798,7 +797,9 @@ class GulpConnectedSocket:
                 # yield control periodically even if receiving messages quickly
                 current_time = time.monotonic()
                 if current_time - last_yield_time > 0.1:
-                    await asyncio.sleep(self.YIELD_CONTROL_DELAY)  # brief yield to handle control frames
+                    await asyncio.sleep(
+                        self.YIELD_CONTROL_DELAY
+                    )  # brief yield to handle control frames
                     last_yield_time = current_time
 
             except asyncio.TimeoutError:
@@ -925,7 +926,7 @@ class GulpConnectedSocket:
         """
         elapsed: float = time.monotonic() - start_time
         queue_size: int = self.q.qsize()
-        
+
         if elapsed > 0:
             rate: float = message_count / elapsed
             MutyLogger.get_instance().info(
@@ -986,7 +987,6 @@ class GulpConnectedSocket:
             logger.exception(ex)
             raise
 
-
     def __str__(self):
         return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operations={self.operation_ids})"
 
@@ -995,6 +995,7 @@ class GulpConnectedSockets:
     """
     singleton class to hold all connected sockets
     """
+
     _instance: "GulpConnectedSockets" = None
 
     def __init__(self):
@@ -1005,7 +1006,7 @@ class GulpConnectedSockets:
         Create a new instance of the class.
         """
         if not cls._instance:
-            cls._instance=super().__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._initialize()
         return cls._instance
 
@@ -1018,13 +1019,13 @@ class GulpConnectedSockets:
             GulpConnectedSockets: the singleton instance
         """
         if not cls._instance:
-            cls._instance=cls()
+            cls._instance = cls()
         return cls._instance
 
     def _initialize(self):
         self._initialized: bool = True
         self._sockets: dict[str, GulpConnectedSocket] = {}
-        
+
         # for faster lookup, maintain a mapping from ws_id to socket id
         self._ws_id_map: dict[str, str] = {}
         self._logger = MutyLogger.get_instance()
@@ -1057,7 +1058,7 @@ class GulpConnectedSockets:
             operation_ids=operation_ids,
             socket_type=socket_type,
         )
-        
+
         # store socket reference
         socket_id = str(id(ws))
         self._sockets[socket_id] = connected_socket
@@ -1065,13 +1066,15 @@ class GulpConnectedSockets:
 
         # add to global shared list
         from gulp.process import GulpProcess
+
         GulpProcess.get_instance().shared_ws_list.append(ws_id)
-        
+
         self._logger.debug(
             f"---> added connected ws: {ws}, id_str={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
         )
-        
+
         return connected_socket
+
     async def remove(self, ws: WebSocket, flush: bool = True) -> None:
         """
         Removes a websocket from the connected sockets list
@@ -1083,7 +1086,7 @@ class GulpConnectedSockets:
         """
         socket_id = str(id(ws))
         self._logger.debug(f"---> remove, ws={ws}, id_str={socket_id}")
-        
+
         connected_socket = self._sockets.get(socket_id)
         if not connected_socket:
             self._logger.warning(
@@ -1097,6 +1100,7 @@ class GulpConnectedSockets:
 
         # remove from global ws list
         from gulp.process import GulpProcess
+
         ws_id = connected_socket.ws_id
         while ws_id in GulpProcess.get_instance().shared_ws_list:
             GulpProcess.get_instance().shared_ws_list.remove(ws_id)
@@ -1110,7 +1114,6 @@ class GulpConnectedSockets:
             f"---> removed connected ws={ws}, id={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
         )
 
-        
     def find(self, ws_id: str) -> GulpConnectedSocket:
         """
         Finds a ConnectedSocket object by its ID.
@@ -1125,7 +1128,7 @@ class GulpConnectedSockets:
         socket_id = self._ws_id_map.get(ws_id)
         if socket_id:
             return self._sockets.get(socket_id)
-        
+
         # fallback to linear search if mapping fails
         # this shouldn't happen but maintains backward compatibility
         # TODO: we may remove this
@@ -1134,7 +1137,7 @@ class GulpConnectedSockets:
                 # repair the mapping
                 self._ws_id_map[ws_id] = str(id(socket.ws))
                 return socket
-                
+
         return None
 
     async def cancel_all(self) -> None:
@@ -1143,7 +1146,7 @@ class GulpConnectedSockets:
         """
         # create a copy to avoid modification during iteration
         sockets_to_cancel = list(self._sockets.values())
-        
+
         for connected_socket in sockets_to_cancel:
             self._logger.warning(
                 f"---> canceling ws {connected_socket.ws}, ws_id={connected_socket.ws_id}"
@@ -1157,7 +1160,9 @@ class GulpConnectedSockets:
             f"all active websockets cancelled, count={len(sockets_to_cancel)}"
         )
 
-    async def _route_message(self, data: GulpWsData, client_ws: GulpConnectedSocket) -> bool:
+    async def _route_message(
+        self, data: GulpWsData, client_ws: GulpConnectedSocket
+    ) -> bool:
         """
         determines if a message should be routed to the target websocket
         and sends it if appropriate
@@ -1194,7 +1199,7 @@ class GulpConnectedSockets:
             GulpWsQueueDataType.USER_LOGIN,
             GulpWsQueueDataType.USER_LOGOUT,
         }
-        
+
         if data.type not in broadcast_types and client_ws.ws_id != data.ws_id:
             return False
 
@@ -1205,7 +1210,9 @@ class GulpConnectedSockets:
         await client_ws.put_message(message)
         return True
 
-    async def broadcast_message(self, data: GulpWsData, skip_list: list[str] = None) -> None:
+    async def broadcast_message(
+        self, data: GulpWsData, skip_list: list[str] = None
+    ) -> None:
         """
         broadcasts message to appropriate connected websockets
 
@@ -1215,10 +1222,10 @@ class GulpConnectedSockets:
         """
         # create copy to avoid modification during iteration
         socket_items = list(self._sockets.items())
-        
+
         # track dead sockets for cleanup
         dead_sockets = []
-        
+
         for socket_id, connected_socket in socket_items:
             try:
                 if skip_list and socket_id in skip_list:
@@ -1231,7 +1238,7 @@ class GulpConnectedSockets:
                     f"Failed to broadcast to socket {socket_id}: {str(ex)}"
                 )
                 dead_sockets.append(socket_id)
-        
+
         # clean up dead sockets
         for socket_id in dead_sockets:
             self._logger.warning(f"removing dead socket {socket_id}")
@@ -1243,6 +1250,7 @@ class GulpWsSharedQueue:
     Singleton class to manage a shared websocket queue between processes.
     Provides methods for adding data to the queue and processing messages.
     """
+
     _instance: "GulpWsSharedQueue" = None
 
     # Class constants
@@ -1265,7 +1273,7 @@ class GulpWsSharedQueue:
         Create a new instance of the class.
         """
         if not cls._instance:
-            cls._instance=super().__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._initialize()
         return cls._instance
 
@@ -1278,15 +1286,15 @@ class GulpWsSharedQueue:
             GulpWsSharedQueue: The singleton instance.
         """
         if not cls._instance:
-            cls._instance=cls()
+            cls._instance = cls()
         return cls._instance
 
     def _initialize(self):
         self._initialized: bool = True
         self._shared_q: Queue = None
         self._fill_task: asyncio.Task = None
-        self._last_queue_warning: int = 0 # just for metrics...
-        
+        self._last_queue_warning: int = 0  # just for metrics...
+
     def set_queue(self, q: Queue) -> None:
         """
         Sets the shared queue.

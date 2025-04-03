@@ -1,23 +1,28 @@
+"""
+This module contains the Plugin class for enriching file hashes using the CIRCL.lu hash lookup API.
+
+The plugin connects to the CIRCL.lu hashlookup service to retrieve information about file hashes
+(MD5, SHA1, SHA256, SHA512). It adds the retrieved information to the document with flattened keys
+under the gulp namespace.
+
+The plugin supports:
+- Auto-detection of hash types from field names
+- Configurable hash fields to enrich
+- Single document and bulk document enrichment
+
+Example usage:
+    plugin = Plugin(path="path/to/plugin")
+    enriched_docs = await plugin.enrich_documents(...)
+
+"""
+
 import itertools
-import json
-import socket
-from typing import Any, Optional, override
-from urllib.parse import urlparse
+from typing import Optional, override
 
 import aiohttp
-import muty.file
-import muty.json
-import muty.log
-import muty.os
-import muty.string
-import muty.time
-import muty.xml
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
-from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -27,7 +32,7 @@ class Plugin(GulpPluginBase):
     enric a file hash using circl.lu hash lookup API
     """
     class MissingAuthKey(Exception):
-        def __init__(self, message, errors):
+        def __init__(self, message):
             # Call the base class constructor with the parameters it needs
             super().__init__(message)
 
@@ -68,17 +73,16 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    async def _get_hash(self, hash: str, hash_type: str) -> Optional[dict]:
+    async def _get_hash(self, h: str, hash_type: str) -> Optional[dict]:
         """
-            Given a hash get info from circl.lu's db
+        Given a hash get info from circl.lu's db
         """
-
+        headers=None
         async with aiohttp.ClientSession(headers=headers) as sess:
-            async with sess.get(f"https://hashlookup.circl.lu/lookup/{hash_type}/{hash}") as resp:
+            async with sess.get(f"https://hashlookup.circl.lu/lookup/{hash_type}/{h}") as resp:
                 if resp.status == 200:
                     return await resp.json()
-                else:
-                    return None
+                return None
 
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         hash_type = self._plugin_params.custom_parameters.get("hash_type")

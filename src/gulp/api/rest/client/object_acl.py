@@ -12,23 +12,23 @@ class GulpAPIObjectACL:
     @staticmethod
     async def _object_make_public_or_private(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         private: bool,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         MutyLogger.get_instance().info(
-            "Making object %s public/private, private=%r" % (object_id, private)
+            "Making object %s public/private, private=%r" % (obj_id, private)
         )
         if private:
             api = "object_make_private"
         else:
             api = "object_make_public"
         params = {
-            "object_id": object_id,
-            "type": object_type.value,
+            "obj_id": obj_id,
+            "obj_type": obj_type.value,
             "req_id": req_id or api_common.req_id,
         }
         res = await api_common.make_request(
@@ -43,15 +43,15 @@ class GulpAPIObjectACL:
     @staticmethod
     async def object_make_public(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_make_public_or_private(
             token,
-            object_id=object_id,
-            object_type=object_type,
+            obj_id=obj_id,
+            obj_type=obj_type,
             private=False,
             req_id=req_id,
             expected_status=expected_status,
@@ -60,15 +60,15 @@ class GulpAPIObjectACL:
     @staticmethod
     async def object_make_private(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_make_public_or_private(
             token,
-            object_id=object_id,
-            object_type=object_type,
+            obj_id=obj_id,
+            obj_type=obj_type,
             private=True,
             req_id=req_id,
             expected_status=expected_status,
@@ -77,8 +77,8 @@ class GulpAPIObjectACL:
     @staticmethod
     async def _object_add_remove_granted_user(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         user_id: str,
         remove: bool,
         req_id: str = None,
@@ -87,15 +87,15 @@ class GulpAPIObjectACL:
         api_common = GulpAPICommon.get_instance()
         MutyLogger.get_instance().info(
             "Adding/removing user grant on object %s, user %s, remove=%r"
-            % (object_id, user_id, remove)
+            % (obj_id, user_id, remove)
         )
         if remove:
             api = "object_remove_granted_user"
         else:
             api = "object_add_granted_user"
         params = {
-            "object_id": object_id,
-            "type": object_type.value,
+            "obj_id": obj_id,
+            "obj_type": obj_type.value,
             "user_id": user_id,
             "req_id": req_id or api_common.req_id,
         }
@@ -111,16 +111,16 @@ class GulpAPIObjectACL:
     @staticmethod
     async def object_add_granted_user(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         user_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_user(
             token,
-            object_id=object_id,
-            object_type=object_type,
+            obj_id=obj_id,
+            obj_type=obj_type,
             user_id=user_id,
             req_id=req_id,
             remove=False,
@@ -130,16 +130,16 @@ class GulpAPIObjectACL:
     @staticmethod
     async def object_remove_granted_user(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         user_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_user(
             token,
-            object_id=object_id,
-            object_type=object_type,
+            obj_id=obj_id,
+            obj_type=obj_type,
             user_id=user_id,
             req_id=req_id,
             remove=True,
@@ -149,8 +149,8 @@ class GulpAPIObjectACL:
     @staticmethod
     async def _object_add_remove_granted_group(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         group_id: str,
         remove: bool,
         req_id: str = None,
@@ -159,15 +159,15 @@ class GulpAPIObjectACL:
         api_common = GulpAPICommon.get_instance()
         MutyLogger.get_instance().info(
             "Adding group grant, object %s, group %s, remove=%r"
-            % (object_id, group_id, remove)
+            % (obj_id, group_id, remove)
         )
         if remove:
             api = "object_remove_granted_group"
         else:
             api = "object_add_granted_group"
         params = {
-            "object_id": object_id,
-            "type": object_type.value,
+            "obj_id": obj_id,
+            "obj_type": obj_type.value,
             "group_id": group_id,
             "req_id": req_id or api_common.req_id,
         }
@@ -183,16 +183,16 @@ class GulpAPIObjectACL:
     @staticmethod
     async def object_add_granted_group(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         group_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_group(
             token,
-            object_id=object_id,
-            object_type=object_type,
+            obj_id=obj_id,
+            obj_type=obj_type,
             group_id=group_id,
             remove=False,
             req_id=req_id,
@@ -202,16 +202,16 @@ class GulpAPIObjectACL:
     @staticmethod
     async def object_remove_granted_group(
         token: str,
-        object_id: str,
-        object_type: GulpCollabType,
+        obj_id: str,
+        obj_type: GulpCollabType,
         group_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         return await GulpAPIObjectACL._object_add_remove_granted_group(
             token,
-            object_id=object_id,
-            object_type=object_type,
+            obj_id=obj_id,
+            obj_type=obj_type,
             group_id=group_id,
             remove=True,
             req_id=req_id,

@@ -1,10 +1,20 @@
+"""
+Plugin for parsing and ingesting IIS access logs in W3C format.
+
+This module contains a `Plugin` class that implements the base `GulpPluginBase` interface
+for handling IIS access logs. The plugin parses W3C formatted log files, extracts fields
+according to the W3C format directives, and converts them into `GulpDocument` objects
+ready for ingestion.
+
+The plugin handles W3C header directives like #Software, #Version, #Date, and #Fields
+to correctly map log fields to structured data.
+
+"""
 import datetime
 import os
 from typing import Any, override
 
 import aiofiles
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
@@ -20,10 +30,6 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 class Plugin(GulpPluginBase):
-    """
-    IIS access (W3C) logs file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -88,8 +94,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
         try:
@@ -155,4 +161,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

@@ -1,24 +1,34 @@
 """
-gulp user groups managementrest api
+Module for user group management API endpoints.
+
+This module provides REST API handlers for creating, updating, deleting, and managing user groups.
+User groups contain collections of users who share the same permissions within the system.
+
+The module includes endpoints for:
+- Creating new user groups
+- Updating existing user group properties
+- Deleting user groups
+- Retrieving user group details
+- Listing user groups with optional filtering
+- Adding users to groups
+- Removing users from groups
+
+All endpoints require administrative permissions for access.
 """
 
-from muty.jsend import JSendException, JSendResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated, Optional
+
+import muty.string
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
-from gulp.api.collab.user_group import GulpUserGroup, ADMINISTRATORS_GROUP_ID
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpUserPermission,
-)
+from muty.jsend import JSendException, JSendResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID, GulpUserGroup
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
-import muty.string
-
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -52,7 +62,7 @@ async def _add_remove_user(
 
     # get user group
     group: GulpUserGroup = await GulpUserGroup.get_by_id(
-        sess, group_id, with_for_update=True
+        sess, group_id
     )
 
     # add/remove user
@@ -125,11 +135,11 @@ async def user_group_create_handler(
             req_id=req_id,
             object_data=d,
             permission=[GulpUserPermission.ADMIN],
-            id=muty.string.ensure_no_space_no_special(name.lower()),
+            obj_id=muty.string.ensure_no_space_no_special(name.lower()),
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -195,7 +205,7 @@ async def user_group_update_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -242,7 +252,7 @@ async def user_group_delete_handler(
         )
         return JSendResponse.success(req_id=req_id, data={"id": group_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -279,12 +289,12 @@ async def user_group_get_by_id_handler(
         d = await GulpUserGroup.get_by_id_wrapper(
             token,
             group_id,
-            nested=True,
+            recursive=True,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -327,12 +337,12 @@ async def user_group_list_handler(
         d = await GulpUserGroup.get_by_filter_wrapper(
             token,
             flt,
-            nested=True,
+            recursive=True,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -375,7 +385,7 @@ async def user_group_add_user_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -418,4 +428,4 @@ async def user_group_remove_user_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

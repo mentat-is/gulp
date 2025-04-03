@@ -1,10 +1,25 @@
 """
-gulp highlights rest api
+This module handles REST API endpoints for highlights in the GULP system.
+
+It provides functionality to create, update, delete, get by ID, and list highlights.
+Highlights represent time ranges on sources that can be marked with colors and
+additional metadata such as names, tags, and glyphs.
+
+The module includes route handlers for the following operations:
+- Creating a new highlight
+- Updating an existing highlight
+- Deleting a highlight
+- Retrieving a highlight by its ID
+- Listing highlights with optional filtering
+
+Each endpoint follows a consistent pattern of request validation, authorization checking,
+and response formatting using JSendResponse structure.
+
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
@@ -85,7 +100,7 @@ async def highlight_create_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -114,7 +129,7 @@ async def highlight_create_handler(
 )
 async def highlight_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     time_range: Annotated[
         tuple[int, int],
@@ -142,14 +157,14 @@ async def highlight_update_handler(
         d["color"] = color
         d = await GulpHighlight.update_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
             d=d,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -178,7 +193,7 @@ async def highlight_update_handler(
 )
 async def highlight_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -186,13 +201,13 @@ async def highlight_delete_handler(
     try:
         await GulpHighlight.delete_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=ws_id,
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -218,18 +233,18 @@ async def highlight_delete_handler(
 )
 async def highlight_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpHighlight.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -273,4 +288,4 @@ async def highlight_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

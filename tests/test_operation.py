@@ -7,8 +7,8 @@ import websockets
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
-from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.rest.client.common import GulpAPICommon, _test_init
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+from gulp.api.rest.client.common import GulpAPICommon
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.operation import GulpAPIOperation
@@ -23,7 +23,6 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
-from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
 
 async def _ws_loop():
@@ -112,7 +111,9 @@ async def test_operation_api():
 
     # recreate test operation
     await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
-    await GulpAPIOperation.operation_create(admin_token, TEST_OPERATION_ID, set_default_grants=True)
+    await GulpAPIOperation.operation_create(
+        admin_token, TEST_OPERATION_ID, set_default_grants=True
+    )
 
     # ingest some data
     from tests.ingest.test_ingest import test_csv_file_mapping
@@ -177,8 +178,8 @@ async def test_operation_api():
     # allow ingest to see the new operation (ingest cannot do it)
     await GulpAPIObjectACL.object_add_granted_user(
         token=ingest_token,
-        object_id=new_operation_id,
-        object_type=GulpCollabType.OPERATION,
+        obj_id=new_operation_id,
+        obj_type=GulpCollabType.OPERATION,
         user_id="ingest",
         expected_status=401,
     )
@@ -186,8 +187,8 @@ async def test_operation_api():
     # allow ingest to see the new operation (admin can)
     await GulpAPIObjectACL.object_add_granted_user(
         token=admin_token,
-        object_id=new_operation_id,
-        object_type=GulpCollabType.OPERATION,
+        obj_id=new_operation_id,
+        obj_type=GulpCollabType.OPERATION,
         user_id="ingest",
     )
 
@@ -206,22 +207,24 @@ async def test_operation_api():
     # now no more
     await GulpAPIObjectACL.object_remove_granted_user(
         token=ingest_token,
-        object_id=new_operation_id,
-        object_type=GulpCollabType.OPERATION,
+        obj_id=new_operation_id,
+        obj_type=GulpCollabType.OPERATION,
         user_id="ingest",
         expected_status=401,
     )
     await GulpAPIObjectACL.object_remove_granted_user(
         token=admin_token,
-        object_id=new_operation_id,
-        object_type=GulpCollabType.OPERATION,
+        obj_id=new_operation_id,
+        obj_type=GulpCollabType.OPERATION,
         user_id="ingest",
     )
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert operations and len(operations) == 1
 
     # add ingest to administrators group
-    await GulpAPIUserGroup.usergroup_add_user(admin_token, "ingest", ADMINISTRATORS_GROUP_ID)
+    await GulpAPIUserGroup.usergroup_add_user(
+        admin_token, "ingest", ADMINISTRATORS_GROUP_ID
+    )
 
     # now ingest can see the new operation again
 

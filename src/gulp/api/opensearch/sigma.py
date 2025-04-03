@@ -1,7 +1,17 @@
 """
-sigma rules tools
-"""
+Utilities for handling Sigma rules in Gulp API.
 
+This module provides functions to convert Sigma rules to GulpQuery objects and to extract tags
+from Sigma rules. The module integrates with the Sigma framework for threat detection and
+serves as a bridge between Sigma rules and Gulp's search capabilities.
+
+The module includes:
+- `sigma_to_tags`: Function to extract tags from a Sigma rule
+- `to_gulp_query_struct`: Function to convert a Sigma rule to a GulpQuery object
+
+These utilities facilitate the use of Sigma rules for security monitoring and threat detection
+using the Gulp framework.
+"""
 from typing import TYPE_CHECKING
 
 import muty.string
@@ -78,7 +88,9 @@ def to_gulp_query_struct(
                 rule_tags.append(f"severity-{r.level.name.lower()}")
             if tags:
                 # additional tags
-                [rule_tags.append(t) for t in tags if t not in rule_tags]
+                for t in tags:
+                    if t not in rule_tags:
+                        rule_tags.append(t)
 
             converted = GulpQuery(
                 name=rule_name,

@@ -1,4 +1,6 @@
-# test values for the API
+"""
+test values for the API
+"""
 
 TEST_OPERATION_ID = "test_operation"
 TEST_CONTEXT_NAME = "test_context"

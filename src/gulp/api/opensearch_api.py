@@ -1,13 +1,30 @@
+"""
+This module provides the GulpOpenSearch class, which serves as a singleton wrapper around OpenSearch client functionality.
+
+It handles:
+- Connection to OpenSearch instances with SSL/TLS support
+- Creation, deletion, and management of datastreams and indices
+- Document ingestion and querying
+- Aggregation operations for statistics and filtering
+- Templating and mapping operations
+- Rebasing of documents
+- Integration with the GulpCollab system for field mappings
+
+The module serves as the primary interface between Gulp and OpenSearch, providing both low-level
+operations (like bulk ingestion) and high-level functionality (like querying operations).
+
+"""
+
+# pylint: disable=too-many-lines
+
 import asyncio
 import json
 import os
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-import muty.crypto
 import muty.dict
 import muty.file
-import muty.log
 import muty.string
 import muty.time
 from elasticsearch import AsyncElasticsearch
@@ -29,7 +46,6 @@ from gulp.api.opensearch.filters import (
 )
 from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
-    GulpQueryDonePacket,
     GulpSourceFieldsChunkPacket,
     GulpWsQueueDataType,
     GulpWsSharedQueue,
@@ -50,29 +66,23 @@ class GulpOpenSearch:
 
     they should be named os-ca.pem, os.pem, os.key.
     """
+
     _instance: "GulpOpenSearch" = None
 
     # to be used in dynamic templates
     UNMAPPED_PREFIX: str = "gulp.unmapped"
 
     def __init__(self):
-        pass
+        self._initialized: bool = True
+        self._opensearch: AsyncOpenSearch = self._get_client()
 
     def __new__(cls):
         """
         Create a new instance of the class.
         """
         if not cls._instance:
-            cls._instance=super().__new__(cls)
-            cls._instance._initialize()
+            cls._instance = super().__new__(cls)
         return cls._instance
-
-    def _initialize(self):
-        """
-        Initialize the OpenSearch client singleton.
-        """
-        self._initialized: bool = True
-        self._opensearch: AsyncOpenSearch = self._get_client()
 
     @classmethod
     def get_instance(cls) -> "GulpOpenSearch":
@@ -83,7 +93,7 @@ class GulpOpenSearch:
             GulpOpenSearch: The singleton instance of the OpenSearch client.
         """
         if not cls._instance:
-            cls._instance=cls()
+            cls._instance = cls()
         return cls._instance
 
     async def reinit(self):
@@ -235,8 +245,6 @@ class GulpOpenSearch:
         context_id: str,
         source_id: str,
         user_id: str,
-        user_id_is_admin: bool = False,
-        user_group_ids: list[str] = None,
     ) -> dict:
         """
         get source->fields mappings from the collab database
@@ -247,8 +255,6 @@ class GulpOpenSearch:
             context_id (str): The context ID.
             source_id (str): The source ID.
             user_id (str): The user ID.
-            user_id_is_admin (bool, optional): Whether the user is an admin. Defaults to False.
-            user_group_ids (list[str], optional): The user group IDs. Defaults to None.
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
 
@@ -260,7 +266,10 @@ class GulpOpenSearch:
             source_ids=[source_id],
         )
         fields: list[GulpSourceFields] = await GulpSourceFields.get_by_filter(
-            sess, flt, throw_if_not_found=False, user_id=user_id, user_id_is_admin=user_id_is_admin, user_group_ids=user_group_ids
+            sess,
+            flt,
+            throw_if_not_found=False,
+            user_id=user_id,
         )
         if fields:
             # cache hit!
@@ -468,11 +477,13 @@ class GulpOpenSearch:
                 break
 
         if not filtered_mapping:
-            MutyLogger.get_instance().warning
-            "no documents found for source_id=%s, context_id=%s, operation_id=%s" % (
-                source_id,
-                context_id,
-                operation_id,
+            MutyLogger.get_instance().warning(
+                "no documents found for source_id=%s, context_id=%s, operation_id=%s"
+                % (
+                    source_id,
+                    context_id,
+                    operation_id,
+                )
             )
             return {}
 
@@ -557,7 +568,9 @@ class GulpOpenSearch:
         try:
             res = await self._opensearch.indices.get_index_template(name=template_name)
         except Exception as e:
-            raise ObjectNotFound("no template found for datastream/index %s" % (index))
+            raise ObjectNotFound(
+                "no template found for datastream/index %s" % (index)
+            ) from e
 
         return res["index_templates"][0]["index_template"]
 
@@ -1099,8 +1112,12 @@ class GulpOpenSearch:
             bulk_docs.append({k: v for k, v in doc.items() if k != "_id"})
 
         # Set request parameters
-        timeout = GulpConfig.get_instance().ingestion_request_timeout()
-        params = {"timeout": timeout}
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        if timeout > 0:
+            params = {"timeout": timeout}
+        else:
+            params = {}
+
         if wait_for_refresh:
             params["refresh"] = "wait_for"
 
@@ -1529,10 +1546,9 @@ class GulpOpenSearch:
         # get all operations from collab db
         # MutyLogger.get_instance().debug(f"parsing operations aggregations: {json.dumps(aggregations, indent=2)}")
         async with GulpCollab.get_instance().session() as sess:
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
             all_operations = await GulpOperation.get_by_filter(
-                sess, user_id=user_id, user_id_is_admin=u.is_admin(), user_group_ids=user_group_ids
+                sess,
+                user_id=user_id,                
             )
 
         # create operation lookup map
@@ -1564,7 +1580,8 @@ class GulpOpenSearch:
 
                 # Find matching context in operation
                 matching_context = next(
-                    (ctx for ctx in operation.contexts if ctx.id == context_id), None
+                    (ctx for ctx in operation.contexts if ctx.id == context_id),
+                    None,
                 )
                 if not matching_context:
                     continue
@@ -1687,7 +1704,7 @@ class GulpOpenSearch:
     async def query_single_document(
         self,
         datastream: str,
-        id: str,
+        doc_id: str,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
     ) -> dict:
         """
@@ -1718,17 +1735,17 @@ class GulpOpenSearch:
 
         try:
             if el:
-                res = await el.get(index=index, id=id)
+                res = await el.get(index=index, id=doc_id)
             else:
-                res = await self._opensearch.get(index=index, id=id)
+                res = await self._opensearch.get(index=index, id=doc_id)
             js = res["_source"]
             js["_id"] = res["_id"]
             return js
-        except KeyError:
+        except KeyError as ex:
             raise ObjectNotFound(
-                f'document with ID "{id}" not found in datastream={
+                f'document with ID "{doc_id}" not found in datastream={
                     datastream} index={index}'
-            )
+            ) from ex
 
     async def _search_dsl_internal(
         self,
@@ -1767,6 +1784,11 @@ class GulpOpenSearch:
         headers = {
             "content-type": "application/json",
         }
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        params: dict={}
+        if timeout > 0:
+            # set timeout in seconds
+            params["timeout"] = timeout
 
         if el:
             if isinstance(el, AsyncElasticsearch):
@@ -1780,21 +1802,21 @@ class GulpOpenSearch:
                     search_after=parsed_options["search_after"],
                     source=parsed_options["_source"],
                     highlight=q.get("highlight", None),
+                    timeout=timeout if timeout else None,
                 )
             else:
                 # external opensearch
-                res = await el.search(body=body, index=index, headers=headers)
+                res = await el.search(body=body, index=index, headers=headers, params=params)
         else:
             # use the OpenSearch client (default)
-            res = await self._opensearch.search(body=body, index=index, headers=headers)
+            res = await self._opensearch.search(body=body, index=index, headers=headers, params=params)
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (json.dumps(res, indent=2)))
         hits = res["hits"]["hits"]
         if not hits:
             if raise_on_error:
                 raise ObjectNotFound("no more hits")
-            else:
-                return 0, [], []
+            return 0, [], []
 
         # get data
         total_hits = res["hits"]["total"]["value"]
@@ -1941,15 +1963,11 @@ class GulpOpenSearch:
                 if check_canceled_count >= 10:
                     # every 10 chunk, check for request cancelation
                     check_canceled_count = 0
-                    stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                        sess, req_id, throw_if_not_found=False
-                    )
+                    canceled = await GulpRequestStats.is_canceled(sess, req_id)
                     # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s" % (req_id, stats))
-                    if stats and stats.status == GulpRequestStatus.CANCELED:
+                    if canceled:
                         last = True
-                        MutyLogger.get_instance().warning(
-                            "search_dsl: request %s cancelled!" % (req_id)
-                        )
+                        MutyLogger.get_instance().warning("search_dsl: request %s canceled!" % (req_id))
 
                 if callback:
                     # call the callback for each document
@@ -1970,13 +1988,12 @@ class GulpOpenSearch:
                         **callback_chunk_args if callback_chunk_args else {},
                     )
 
-            except ObjectNotFound as ex:
+            except ObjectNotFound:
                 if processed == 0 and ws_id:
                     # no results
                     return 0, 0
-                else:
-                    # indicates the last result
-                    last = True
+                # indicates the last result
+                last = True
             except Exception as ex:
                 # something went wrong
                 MutyLogger.get_instance().exception(ex)

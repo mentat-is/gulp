@@ -1,5 +1,13 @@
 """
-This module contains the REST API for gULP (gui Universal Log Processor).
+This module manages the REST API server for the gULP application.
+
+It provides a singleton server instance that handles API routes, request validation,
+exception handling, and server lifecycle. The server supports both HTTP and HTTPS
+configurations and integrates with various gULP components like WebSockets,
+collaborative features, and plugins.
+
+The module also handles server initialization, shutdown procedures, and restart
+capabilities for the application.
 """
 
 import asyncio
@@ -8,13 +16,9 @@ import ssl
 from typing import Any, Coroutine
 
 import asyncio_atexit
-import muty.crypto
 import muty.file
-import muty.list
-import muty.log
 import muty.os
 import muty.string
-import muty.uploadfile
 import muty.version
 import uvicorn
 from fastapi import FastAPI, Request
@@ -27,7 +31,7 @@ from opensearchpy import RequestError
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
+from gulp.api.rest.test_values import TEST_OPERATION_ID
 from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -39,18 +43,27 @@ class GulpRestServer:
     """
     manages the gULP REST server.
     """
+
     _instance: "GulpRestServer" = None
 
     def __init__(self):
-        pass
+        self._initialized: bool = True
+        self._app: FastAPI = None
+        self._logger_file_path: str = None
+        self._log_level: int = None
+        self._reset_collab: int = 0
+        self._reset_operation: str = None
+        self._lifespan_task: asyncio.Task = None
+        self._shutdown: bool = False
+        self._restart_signal: asyncio.Event = asyncio.Event()
+        self._extension_plugins: list[GulpPluginBase] = []
 
     def __new__(cls):
         """
         Create a new instance of the class.
         """
         if not cls._instance:
-            cls._instance=super().__new__(cls)
-            cls._instance._initialize()
+            cls._instance = super().__new__(cls)
         return cls._instance
 
     @classmethod
@@ -62,23 +75,8 @@ class GulpRestServer:
             GulpRestServer: the singleton instance
         """
         if not cls._instance:
-            cls._instance=cls()
+            cls._instance = cls()
         return cls._instance
-
-    def _initialize(self):
-        """
-        initializes the server singleton instance
-        """
-        self._initialized: bool = True
-        self._app: FastAPI = None
-        self._logger_file_path: str = None
-        self._log_level: int = None
-        self._reset_collab: int = 0
-        self._reset_operation: str = None
-        self._lifespan_task: asyncio.Task= None
-        self._shutdown: bool = False
-        self._restart_signal: asyncio.Event = asyncio.Event()
-        self._extension_plugins: list[GulpPluginBase] = []
 
     def trigger_restart(self) -> None:
         """Triggers server restart by setting event"""
@@ -160,9 +158,10 @@ class GulpRestServer:
             req_id = ex.req_id
             if ex.status_code is not None:
                 status_code = ex.status_code
-            if ex.ex is not None:
+
+            if ex.__cause__ is not None:
                 # use the inner exception
-                ex = ex.ex
+                ex = ex.__cause__
                 name = ex.__class__.__name__
 
         if isinstance(ex, RequestValidationError):
@@ -406,7 +405,7 @@ class GulpRestServer:
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
-            MutyLogger.get_instance().debug("future %s completed!" % (future))
+            MutyLogger.get_instance().debug("future completed!")
 
     async def spawn_bg_task(self, coro: Coroutine) -> None:
         """
@@ -580,6 +579,6 @@ class GulpRestServer:
         MutyLogger.get_instance().warning(
             "FIRST RUN! first run file does not exist: %s" % (check_first_run_file)
         )
-        with open(check_first_run_file, "w") as f:
+        with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")
         return True

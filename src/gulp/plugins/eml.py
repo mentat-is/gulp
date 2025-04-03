@@ -1,3 +1,21 @@
+"""
+EML (Email) Plugin for Gulp
+
+This module provides the Plugin class which implements the GulpPluginBase interface
+for processing EML (email) files during ingestion. The plugin parses email files,
+extracts header fields and content parts, and converts them into GulpDocument objects
+that can be indexed in search backends.
+
+Features:
+- Processes standard EML email files
+- Extracts email headers as metadata fields
+- Handles multipart email messages
+- Attempts to decode message content based on charset
+- Flattens email structure into searchable fields
+
+The plugin normalizes field names and values for consistent indexing and provides
+configurable decoding of message parts.
+"""
 import email
 import os
 from email.message import Message
@@ -90,14 +108,14 @@ class Plugin(GulpPluginBase):
             email_dict["email.is_multipart"] = True
             for part in event.walk():
                 msg = part.get_payload(
-                    decode=self._plugin_params.custom_parameters.get("decode"))
+                    decode=self._plugin_params.custom_parameters.get("decode")
+                )
                 enc = part.get_content_charset()
 
                 if msg is None:
                     msg = ""
 
-                email_dict["email.parts"].append(
-                    self._normalize_value(msg, enc))
+                email_dict["email.parts"].append(self._normalize_value(msg, enc))
         else:
             msg = event.get_payload(decode=True)
             enc = event.get_content_charset()
@@ -126,8 +144,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=str(event),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -145,10 +162,10 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
                 sess=sess,
@@ -162,8 +179,8 @@ class Plugin(GulpPluginBase):
                 source_id=source_id,
                 file_path=file_path,
                 original_file_path=original_file_path,
-                plugin_params=plugin_params,
                 flt=flt,
+                plugin_params=plugin_params,
                 **kwargs,
             )
         except Exception as ex:
@@ -190,4 +207,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

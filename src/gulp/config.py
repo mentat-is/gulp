@@ -1,3 +1,15 @@
+"""
+Module for managing configuration in Gulp application.
+
+This module provides the `GulpConfig` singleton class that handles loading, accessing,
+and managing configuration settings for the Gulp application. It reads configuration from
+a JSON file (by default at ~/.config/gulp/gulp_cfg.json) and provides methods to access
+various configuration parameters needed across the application.
+
+Configuration can be overridden by environment variables for certain settings.
+If the configuration file doesn't exist, it will be created with default values.
+"""
+
 import multiprocessing
 import os
 from copy import deepcopy
@@ -5,19 +17,18 @@ from importlib import resources as impresources
 
 import json5
 import muty.file
-import muty.os
 from muty.log import MutyLogger
 
 
 class GulpConfig:
-    """
-    Gulp configuration singleton class.
-    """
-
     _instance: "GulpConfig" = None
 
     def __init__(self):
-        pass
+        self._config_file_path: str = None
+        self._config: dict = None
+
+        # read configuration on init
+        self._read_config()
 
     def __new__(cls):
         """
@@ -25,7 +36,6 @@ class GulpConfig:
         """
         if not cls._instance:
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
         return cls._instance
 
     @classmethod
@@ -39,17 +49,6 @@ class GulpConfig:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    def _initialize(self):
-        """
-        Initializes the configuration singleton.
-        """
-        self._initialized: bool = True
-        self._config_file_path: str = None
-        self._config: dict = None
-
-        # read/initialize configuration and directories
-        self._read_config()
 
     def config(self) -> dict:
         """
@@ -263,11 +262,11 @@ class GulpConfig:
             )
         return n
 
-    def ingestion_request_timeout(self) -> int:
+    def opensearch_request_timeout(self) -> int:
         """
-        Returns the ingestion request timeout in seconds.
+        Returns the requests timeout for opensearch (default: 60 seconds, use 0 for no timeout).
         """
-        n = self._config.get("ingestion_request_timeout", 60)
+        n = self._config.get("opensearch_request_timeout", 60)
         return n
 
     def config_dir(self) -> str:
@@ -602,7 +601,7 @@ class GulpConfig:
         Returns the extra plugins path.
         """
         # try env
-        p = os.getenv("PATH_PLUGINS_EXTRA", None)        
+        p = os.getenv("PATH_PLUGINS_EXTRA", None)
         if not p:
             # try configuration
             p = self._config.get("path_plugins_extra", None)

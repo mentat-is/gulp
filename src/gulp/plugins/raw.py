@@ -1,33 +1,23 @@
-from typing import Any, override
+"""
+a gulp plugin for ingesting `raw` (already processed, i.e. by an agent) GulpDocument entries without transformation.
 
+the raw plugin may also be used by other plugins (i.e. `èxternal query` plugins in ingestion mode) to ingest the GulpDocument entries
+they generate from the external source into the Gulp pipeline.
+"""
+
+from typing import override
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError, SourceCanceledError
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import (
-    GulpDocument,
-    GulpRawDocument,
-    GulpRawDocumentBaseFields,
-)
+from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
-
+from gulp.structs import GulpPluginParameters
 
 class Plugin(GulpPluginBase):
-    """
-    ingests raw events
-
-    this plugin is used to ingest raw events, without any transformation.
-
-    the input for this plugin is a list of GulpDocument dictionaries coming from i.e. a SIEM agent.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -36,7 +26,7 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return "Raw GulpDocuments ingestion plugin"
+        return "raw GulpDocuments ingestion plugin"
 
     @override
     async def _record_to_gulp_document(
@@ -111,4 +101,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

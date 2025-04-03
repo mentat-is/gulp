@@ -1,6 +1,22 @@
+"""
+Win PE File Processor Module
+
+Provides a plugin to extract metadata from Windows PE (Portable Executable) files.
+Parses PE files and extracts structured information about headers, sections,
+imports/exports, and other PE-specific data.
+
+Features:
+- PE file format analysis (DLL, EXE, drivers)
+- Optional entropy checks for malware/packing detection
+- Configurable output detail levels (relocations, warnings, etc.)
+- File timestamp extraction
+
+Uses pefile and peutils libraries for PE parsing operations.
+"""
+
 import datetime
 from typing import Any, override
-
+import os
 import muty.crypto
 import muty.json
 import muty.os
@@ -26,12 +42,6 @@ muty.os.check_and_install_package("pefile", ">=2024.8.26")
 
 
 class Plugin(GulpPluginBase):
-    """
-    this plugin demonstrates how to use another plugin to process the data, using the GulpPluginBase.load_plugin method
-
-    this allow to stack one plugin on top of another the data is processed by calling the lower plugin directly, bypassing the engine
-    """
-
     @override
     def desc(self) -> str:
         return """generic PE file processor"""
@@ -46,7 +56,7 @@ class Plugin(GulpPluginBase):
                 name="include_relocations",
                 type="bool",
                 desc="include base relocations information",
-                default_value=False
+                default_value=False,
             ),
             GulpPluginCustomParameter(
                 name="entropy_checks",
@@ -58,14 +68,14 @@ class Plugin(GulpPluginBase):
                 name="keep_files",
                 type="bool",
                 desc="if True, event.original will keep the whole PE file",
-                default_value=False
+                default_value=False,
             ),
             GulpPluginCustomParameter(
                 name="keep_warnings",
                 type="bool",
                 desc="do not discard pefile parsing warnings from document",
-                default_value=False
-            )
+                default_value=False,
+            ),
         ]
 
     def type(self) -> list[GulpPluginType]:
@@ -79,16 +89,13 @@ class Plugin(GulpPluginBase):
         record: pefile.PE = record
         relos: str = kwargs.get("include_relocations")
         entropy_checks: str = kwargs.get("entropy_checks")
-        keep_files: bool = self._plugin_params.custom_parameters.get(
-            "keep_files")
-        keep_warnings: bool = self._plugin_params.custom_parameters.get(
-            "keep_warnings")
+        keep_files: bool = self._plugin_params.custom_parameters.get("keep_files")
+        keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
 
         d = record.dump_dict()
         if entropy_checks:
             d["peutils.is_suspicious"] = peutils.is_suspicious(record)
-            d["peutils.is_probably_packed"] = peutils.is_probably_packed(
-                record)
+            d["peutils.is_probably_packed"] = peutils.is_probably_packed(record)
             d["peutils.is_valid"] = peutils.is_valid(record)
 
         if not relos:
@@ -106,7 +113,9 @@ class Plugin(GulpPluginBase):
 
         # apply mappings
         final = {}
-        for k, v in muty.json.flatten_json(d, normalize=pretty, expand_lists=False).items():
+        for k, v in muty.json.flatten_json(
+            d, normalize=pretty, expand_lists=False
+        ).items():
             if isinstance(v, bytes):
                 v = v.encode("utf8")
             mapped = self._process_key(str(k), str(v))
@@ -124,7 +133,8 @@ class Plugin(GulpPluginBase):
         timestamp = d["FILE_HEADER"]["TimeDateStamp"]["Value"].split(" ")[0]
         timestamp = int(timestamp, 0)
         timestamp = datetime.datetime.fromtimestamp(
-            timestamp, tz=datetime.timezone.utc).isoformat()
+            timestamp, tz=datetime.timezone.utc
+        ).isoformat()
 
         return GulpDocument(
             self,
@@ -135,8 +145,7 @@ class Plugin(GulpPluginBase):
             timestamp=timestamp,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **final,
         )
 
@@ -154,9 +163,9 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> GulpRequestStatus:
         try:
 
@@ -181,20 +190,19 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        relos = self._plugin_params.custom_parameters.get(
-            "include_relocations")
-        entropy_check = self._plugin_params.custom_parameters.get(
-            "entropy_checks")
+        relos = self._plugin_params.custom_parameters.get("include_relocations")
+        entropy_check = self._plugin_params.custom_parameters.get("entropy_checks")
 
         doc_idx = 0
         try:
             with pefile.PE(file_path) as pe:
                 try:
                     await self.process_record(
-                        pe, doc_idx,
+                        pe,
+                        doc_idx,
                         flt=flt,
                         include_relocations=relos,
-                        entropy_checks=entropy_check
+                        entropy_checks=entropy_check,
                     )
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
@@ -205,4 +213,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

@@ -1,3 +1,17 @@
+"""
+JSON plugin for GULP - a generic json file processor.
+
+This module provides a plugin to process and ingest JSON data in various formats:
+- list format: a JSON array of objects
+- dict format: a single JSON object
+- line format: one JSON object per line
+
+The plugin supports timestamp extraction from JSON fields with automatic or
+custom date parsing, and flattens nested JSON structures for easier indexing.
+
+It can also be used as base for stacked plugins dealing with specific JSON formats.
+"""
+
 import datetime
 import json
 import os
@@ -25,8 +39,8 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
-muty.os.check_and_install_package(
-    "json-stream", ">=2.3.3,<3.0.0")
+# pylint: disable=C0411
+muty.os.check_and_install_package("json-stream", ">=2.3.3,<3.0.0")
 import json_stream as json_s
 
 
@@ -61,28 +75,27 @@ class Plugin(GulpPluginBase):
                 type="str",
                 desc="'line' one object per line, 'dict' standard json object, 'list' list of json objects",
                 default_value="list",
-            )
+            ),
         ]
 
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        timestamp_field = kwargs.get("timestamp_field")
-        date_format = kwargs.get("date_format")
-        line = kwargs.get("line")
+        timestamp_field: str = kwargs.get("timestamp_field")
+        date_format: str = kwargs.get("date_format")
+        line: str = kwargs.get("line")
 
         d: dict = {}
         for k, v in record.items():
             d[k] = v
 
         if date_format:
-            timestamp = datetime.datetime.strptime(
-                time_str, date_format).isoformat()
+            time_str = d.get(timestamp_field)
+            timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
         else:
             # Attempt autoparse of date
-            timestamp: str = dateutil.parser.parse(
-                d.get(timestamp_field)).isoformat()
+            timestamp: str = dateutil.parser.parse(d.get(timestamp_field)).isoformat()
 
         # map
         final: dict = {}
@@ -98,8 +111,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=line,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **final,
         )
 
@@ -117,10 +129,10 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             if not plugin_params:
                 plugin_params = GulpPluginParameters()
@@ -148,8 +160,7 @@ class Plugin(GulpPluginBase):
             if not mappings:
                 mappings = {
                     "default": GulpMapping(
-                        fields={"timestamp": GulpMappingField(
-                            ecs="@timestamp")}
+                        fields={"timestamp": GulpMappingField(ecs="@timestamp")}
                     )
                 }
                 plugin_params.mappings = mappings
@@ -160,11 +171,12 @@ class Plugin(GulpPluginBase):
             return GulpRequestStatus.FAILED
 
         timestamp_field = self._plugin_params.custom_parameters.get(
-            "timestamp_field", "create_datetime")
-        date_format = self._plugin_params.custom_parameters.get(
-            "date_format", None)
+            "timestamp_field", "create_datetime"
+        )
+        date_format = self._plugin_params.custom_parameters.get("date_format", None)
         json_format = self._plugin_params.custom_parameters.get(
-            "format", "list").lower()
+            "format", "list"
+        ).lower()
 
         if not timestamp_field:
             return GulpRequestStatus.FAILED
@@ -173,19 +185,25 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         try:
             if json_format == "list":
-                with open(file_path) as file:
+                with open(file_path, encoding="utf-8") as file:
                     # list of objects:
                     # [ {"a":"b"}, {"b":"c"}]
                     events = json_s.load(file)
                     if not isinstance(events, json_s.base.TransientStreamingJSONList):
                         MutyLogger.get_instance().exception(
-                            f"wrong json format, expected '{json_format}' got {type(events)}")
+                            f"wrong json format, expected '{json_format}' got {type(events)}"
+                        )
                         return GulpRequestStatus.FAILED
 
                     for event in events:
                         try:
                             await self.process_record(
-                                event, doc_idx, flt=flt, line=json.dumps(event), timestamp_field=timestamp_field, date_format=date_format
+                                event,
+                                doc_idx,
+                                flt=flt,
+                                line=json.dumps(event),
+                                timestamp_field=timestamp_field,
+                                date_format=date_format,
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
@@ -198,16 +216,22 @@ class Plugin(GulpPluginBase):
                 # json file:
                 # {"a":"b", "c":"d"}
                 # this may be memory heavy for big files
-                with open(file_path) as file:
-                    if not isinstance(events, json_stream.base.TransientStreamingJSON):
+                with open(file_path, encoding="utf-8") as file:
+                    if not isinstance(events, json_s.base.TransientStreamingJSON):
                         MutyLogger.get_instance().exception(
-                            f"wrong json format, expected '{json_format}' got {type(events)}")
+                            f"wrong json format, expected '{json_format}' got {type(events)}"
+                        )
                         return GulpRequestStatus.FAILED
 
                     try:
                         j = json_s.load(file)
                         await self.process_record(
-                            j, doc_idx, flt=flt, line=json.dumps(j), timestamp_filed=timestamp_field, date_format=date_format
+                            j,
+                            doc_idx,
+                            flt=flt,
+                            line=json.dumps(j),
+                            timestamp_filed=timestamp_field,
+                            date_format=date_format,
                         )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
@@ -227,7 +251,12 @@ class Plugin(GulpPluginBase):
                             parsed = json.loads(line)
 
                             await self.process_record(
-                                parsed, doc_idx, flt=flt, line=line, timestamp_filed=timestamp_field, date_format=date_format
+                                parsed,
+                                doc_idx,
+                                flt=flt,
+                                line=line,
+                                timestamp_filed=timestamp_field,
+                                date_format=date_format,
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
@@ -242,4 +271,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

@@ -1,17 +1,33 @@
+"""
+API Routes for Ingestion Operations in the Gulp Framework
+
+This module defines FastAPI routes that handle various ingestion operations:
+- Single file ingestion (`ingest_file_handler`)
+- Raw document ingestion (`ingest_raw_handler`)
+- ZIP file ingestion with metadata (`ingest_zip_handler`)
+
+Each handler implements a different ingestion strategy:
+- File ingestion processes individual files through specified plugins
+- Raw ingestion processes pre-structured document chunks
+- ZIP ingestion extracts and processes multiple files based on metadata
+
+The module also includes internal helper functions:
+- `_ingest_file_internal`: Worker process function for file ingestion
+- `_ingest_raw_internal`: Worker process function for raw data ingestion
+- `_process_metadata_json`: Extracts file information from ZIP metadata
+
+All handlers support resumable uploads, progress tracking via websocket,
+and preview mode for testing without persistence.
+
+"""
+
 import json
 import os
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
-import muty.crypto
 import muty.file
-import muty.jsend
-import muty.list
-import muty.log
-import muty.os
 import muty.pydantic
-import muty.string
-import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -233,15 +249,18 @@ async def _ingest_file_internal(
                 "PREVIEW MODE, no stats is created on the collab database."
             )
         else:
-            stats: GulpRequestStats = await GulpRequestStats.create(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
+             stats = await GulpRequestStats.create(
+                token=None,
                 ws_id=ws_id,
+                req_id=req_id,
+                object_data={
+                    "source_total": file_total,
+                    "source_id": source_id,
+                    "context_id": context_id,
+                },
                 operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                source_total=file_total,
+                sess=sess,
+                user_id=user_id,
             )
 
         try:
@@ -269,11 +288,11 @@ async def _ingest_file_internal(
                 # on preview (sync mode) raise exception
                 raise ex
             else:
-                d = dict(
-                    source_failed=1,
-                    status=status,
-                    error=ex,
-                )
+                d ={
+                    "source_failed":1,
+                    "status":status,
+                    "error":ex,
+                }
                 await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
             if preview_mode:
@@ -563,7 +582,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
         # cleanup
         if file_path:
             await muty.file.delete_file_or_dir_async(file_path)
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 async def _ingest_raw_internal(
@@ -584,14 +603,16 @@ async def _ingest_raw_internal(
 
     async with GulpCollab.get_instance().session() as sess:
         # create a stats that never expire
-        stats: GulpRequestStats = await GulpRequestStats.create(
-            sess,
-            user_id=user_id,
-            req_id=req_id,
+        stats = await GulpRequestStats.create(
+            token=None,
             ws_id=ws_id,
+            req_id=req_id,
+            object_data={
+                "never_expire": True,
+            },
             operation_id=operation_id,
-            context_id=None,
-            never_expire=True,
+            sess=sess,
+            user_id=user_id,
         )
 
         mod: GulpPluginBase = None
@@ -614,9 +635,9 @@ async def _ingest_raw_internal(
             )
         except Exception as ex:
             # just append error
-            d = dict(
-                error=ex,
-            )
+            d = {
+                "error":ex,
+            }
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
             # done
@@ -724,7 +745,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 async def _process_metadata_json(
@@ -882,40 +903,40 @@ async def ingest_zip_handler(
             index = operation.index
             user_id = s.user_id
 
+            # handle multipart request manually
+            file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
+                r=r, operation_id=operation_id, context_name=context_name
+            )
+            if not result.done:
+                # must continue upload with a new chunk
+                d = JSendResponse.error(
+                    req_id=req_id, data=result.model_dump(exclude_none=True)
+                )
+                return JSONResponse(d, status_code=206)
+
+            # ensure payload is valid
+            payload = GulpZipIngestPayload.model_validate(payload)
+
+            # unzip in a temporary directory
+            unzipped = await muty.file.unzip(file_path)
+
+            # read metadata json
+            files: list[GulpIngestPayload] = await _process_metadata_json(unzipped, payload)
+            file_total = len(files)
+
+            # ingest each file in a worker
+            MutyLogger.get_instance().debug(
+                "spawning %d ingestion tasks ..." % (file_total)
+            )
+
             # create (and associate) context on the collab db, if it does not exists
             ctx: GulpContext
             ctx, _ = await operation.add_context(
                 sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
 
-        # handle multipart request manually
-        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_name=context_name
-        )
-        if not result.done:
-            # must continue upload with a new chunk
-            d = JSendResponse.error(
-                req_id=req_id, data=result.model_dump(exclude_none=True)
-            )
-            return JSONResponse(d, status_code=206)
-
-        # ensure payload is valid
-        payload = GulpZipIngestPayload.model_validate(payload)
-
-        # unzip in a temporary directory
-        unzipped = await muty.file.unzip(file_path)
-
-        # read metadata json
-        files: list[GulpIngestPayload] = await _process_metadata_json(unzipped, payload)
-        file_total = len(files)
-
-        # ingest each file in a worker
-        MutyLogger.get_instance().debug(
-            "spawning %d ingestion tasks ..." % (file_total)
-        )
-        for f in files:
-            # add source
-            async with GulpCollab.get_instance().session() as sess:
+            # add each source 
+            for f in files:
                 src: GulpSource
                 src, _ = await ctx.add_source(
                     sess,
@@ -925,33 +946,33 @@ async def ingest_zip_handler(
                     req_id=req_id,
                 )
 
-            kwds = dict(
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                operation_id=operation_id,
-                context_id=ctx.id,
-                source_id=src.id,
-                index=index,
-                plugin=f.model_extra.get("plugin"),
-                file_path=f.model_extra.get("local_file_path"),
-                file_total=file_total,
-                payload=f,
-            )
-
-            # spawn a task which runs the ingestion in a worker process's task
-            async def worker_coro(kwds: dict):
-                await GulpProcess.get_instance().process_pool.apply(
-                    _ingest_file_internal, kwds=kwds
+                kwds = dict(
+                    user_id=user_id,
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
+                    context_id=ctx.id,
+                    source_id=src.id,
+                    index=index,
+                    plugin=f.model_extra.get("plugin"),
+                    file_path=f.model_extra.get("local_file_path"),
+                    file_total=file_total,
+                    payload=f,
                 )
 
-            await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+                # for each source, spawn a task which runs the ingestion in a worker process's task
+                async def worker_coro(kwds: dict):
+                    await GulpProcess.get_instance().process_pool.apply(
+                        _ingest_file_internal, kwds=kwds
+                    )
 
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+                await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
 
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
     finally:
         # cleanup
         await muty.file.delete_file_or_dir_async(file_path)

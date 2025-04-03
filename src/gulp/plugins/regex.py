@@ -1,3 +1,15 @@
+"""
+A Gulp plugin for processing files using regular expressions.
+
+This plugin processes files by applying a regex pattern with named groups
+to each line. It extracts the matched groups into a GulpDocument.
+
+Key features:
+- Uses regex with named capture groups to extract data
+- Requires a 'timestamp' named group in the regex pattern
+- Normalizes timestamps to nanoseconds from Unix epoch
+- Maps extracted fields according to configured mappings
+"""
 import os
 import re
 from typing import Any, override
@@ -102,8 +114,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs
     ) -> GulpRequestStatus:
         try:
@@ -196,4 +208,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

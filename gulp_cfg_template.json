@@ -27,8 +27,6 @@
   "index_template_default_refresh_interval": "5s",
   // failed events in a file to consider the file ABORTED (0=disabled)
   "ingestion_evt_failure_threshold": 5000,
-  // how many seconds to wait for a connection during ingestion (default=60, tune up if you have request timeouts during ingestion)
-  "ingestion_request_timeout": 180,
   // how many times to retry ingestion on error (default=3)
   "ingestion_retry_max": 3,
   // how many seconds between ingestion retries on error (default=1)
@@ -37,6 +35,8 @@
   "opensearch_client_cert_password": null,
   // this is the default, set to true only if your opensearch cluster has multiple nodes
   "opensearch_multiple_nodes": false,
+  // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
+  "opensearch_request_timeout": 180,
   // opensearch url (may be overridden by OPENSEARCH_URL environment variable)
   "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
   // set to false to skip server certificate verification

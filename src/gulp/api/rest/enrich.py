@@ -1,3 +1,17 @@
+"""
+Module for handling document enrichment operations in the Gulp REST API.
+
+This module provides endpoints for enriching documents with new data and adding tags to documents.
+Key functionalities include:
+
+1. Enriching multiple documents using a specified plugin.
+2. Enriching a single document and returning the result directly.
+3. Adding tags to documents to facilitate future queries.
+
+Each operation updates the documents in OpenSearch and can be tracked through
+websocket communication for asynchronous operations.
+"""
+
 from typing import Annotated
 
 import muty.log
@@ -39,7 +53,7 @@ async def _tag_documents_internal(
     runs in a worker to tag the given documents
     """
 
-    async def _tag_documents_chunk_wrapper(self, docs: list[dict], **kwargs):
+    async def _tag_documents_chunk_wrapper(docs: list[dict], **kwargs):
         """
         tags a chunk of documents, called by GulpOpenSearch.search_dsl during loop over chunks
 
@@ -51,6 +65,10 @@ async def _tag_documents_internal(
         tags = kwargs["tags"]
         last = kwargs.get("last", False)
         flt = kwargs["flt"]
+        req_id = kwargs["req_id"]
+        ws_id = kwargs["ws_id"]
+        user_id = kwargs["user_id"]
+        index = kwargs["index"]
 
         MutyLogger.get_instance().debug(
             "---> _tagging chunk of %d documents with tags=%s, kwargs=%s ..."
@@ -58,12 +76,13 @@ async def _tag_documents_internal(
         )
 
         # add tags to documents
-        [d.update({"gulp.tags": tags}) for d in docs]
+        for d in docs:
+            d.update({"gulp.tags": tags})
 
         # update the documents
         last = kwargs.get("last", False)
         await GulpOpenSearch.get_instance().update_documents(
-            self._enrich_index, docs, wait_for_refresh=last
+            index, docs, wait_for_refresh=last
         )
 
         if last:
@@ -74,9 +93,9 @@ async def _tag_documents_internal(
             )
             GulpWsSharedQueue.get_instance().put(
                 type=GulpWsQueueDataType.ENRICH_DONE,
-                ws_id=self._ws_id,
-                user_id=self._user_id,
-                req_id=self._req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
                 data=p.model_dump(exclude_none=True),
             )
 
@@ -120,6 +139,10 @@ async def _tag_documents_internal(
                 callback_chunk_args={
                     "tags": tags,
                     "flt": flt,
+                    "req_id": req_id,
+                    "ws_id": ws_id,
+                    "user_id": user_id,
+                    "index": index,
                 },
             )
         except Exception as ex:
@@ -265,12 +288,13 @@ async def enrich_documents_handler(
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
+                token=None,
                 ws_id=ws_id,
+                req_id=req_id,
+                object_data=None, # uses default
                 operation_id=operation_id,
-                context_id=None,
+                sess=sess,
+                user_id=user_id,
             )
 
         # spawn a task which runs the enrichment in a worker process
@@ -298,7 +322,7 @@ async def enrich_documents_handler(
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -378,7 +402,7 @@ async def enrich_single_id_handler(
         return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
     finally:
         if mod:
             await mod.unload()
@@ -437,11 +461,13 @@ async def tag_documents_handler(
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
+                token=None,
                 ws_id=ws_id,
+                req_id=req_id,
+                object_data=None,  # uses default
                 operation_id=operation_id,
+                sess=sess,
+                user_id=user_id,
             )
 
         # spawn a task which runs the enrichment in a worker process
@@ -467,4 +493,4 @@ async def tag_documents_handler(
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex

@@ -9,22 +9,18 @@ implements "least privilege" principle on all the gulp objects:
 - all other objects must be added explicit grants (users or groups) to be accessed: i.e. an operation must be granted to a user or group before being "seen".
 """
 
-from muty.jsend import JSendException, JSendResponse
 from typing import Annotated
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from gulp.api.collab.structs import (
-    GulpCollabBase,
-    GulpCollabType,
-    MissingPermission,
-)
+from muty.jsend import JSendException, JSendResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.structs import ObjectNotFound
 
@@ -33,8 +29,8 @@ router: APIRouter = APIRouter()
 
 async def _modify_grants(
     sess: AsyncSession,
-    object_id: str,
-    object_type: GulpCollabType,
+    obj_id: str,
+    obj_type: GulpCollabType,
     token: str,
     user_id: str,
     add: bool,
@@ -45,8 +41,8 @@ async def _modify_grants(
 
     Args:
         sess (AsyncSession): the session
-        object_id (str): the object id to modify
-        object_type (GulpCollabType): the object type
+        obj_id (str): the object id to modify
+        obj_type (GulpCollabType): the object type
         token (str): the token of the user
         user_id (str): the user id to add or remove
         add (bool): add or remove
@@ -56,20 +52,11 @@ async def _modify_grants(
         GulpCollabBase: the modified object
     """
     # map object type to class
-    obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(object_type)
-    obj: GulpCollabBase = await obj_class.get_by_id(
-        sess, object_id, with_for_update=True
-    )
-    if not obj:
-        raise ObjectNotFound(f"Object with id {object_id} not found")
+    obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
+    obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
 
     # get token session
-    await GulpUserSession.check_token(
-        sess,
-        token,
-        obj=obj,
-        enforce_owner=True
-    )
+    await GulpUserSession.check_token(sess, token, obj=obj, enforce_owner=True)
 
     if add:
         # add grant
@@ -88,8 +75,8 @@ async def _modify_grants(
 
 async def _make_public_or_private(
     sess: AsyncSession,
-    object_id: str,
-    object_type: GulpCollabType,
+    obj_id: str,
+    obj_type: GulpCollabType,
     token: str,
     private: bool,
 ) -> GulpCollabBase:
@@ -98,8 +85,8 @@ async def _make_public_or_private(
 
     Args:
         sess (AsyncSession): the session
-        object_id (str): the object id to modify
-        object_type (GulpCollabType): the object type
+        obj_id (str): the object id to modify
+        obj_type (GulpCollabType): the object type
         token (str): the token of the user
         private (bool): make object private or public
 
@@ -107,15 +94,11 @@ async def _make_public_or_private(
         GulpCollabBase: the modified object
     """
     # map object type to class
-    obj_class = GulpCollabBase.object_type_to_class(object_type)
+    obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
 
-    obj: GulpCollabBase = await obj_class.get_by_id(
-        sess, object_id, with_for_update=True
-    )
-    if not obj:
-        raise ObjectNotFound(f"Object with id {object_id} not found")
+    obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
 
-    # get token session
+    # check token on object
     await GulpUserSession.check_token(
         sess,
         token,
@@ -154,13 +137,13 @@ async def _make_public_or_private(
     },
     summary="adds `user_id` to the object's grants, allowing object access.",
     description="""
-- `token` needs to be the owner of `object_id` or have `admin` permission.
+- `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )
 async def object_add_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    type: Annotated[
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_type: Annotated[
         GulpCollabType,
         Query(..., description="the object type.", example=GulpCollabType.NOTE),
     ],
@@ -171,13 +154,13 @@ async def object_add_granted_user_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
-                sess, object_id, type, token, user_id, add=True, group=False
+                sess, obj_id, obj_type, token, user_id, add=True, group=False
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -203,13 +186,13 @@ async def object_add_granted_user_handler(
     },
     summary="remove `user_id` from the object's grant.",
     description="""
-- `token` needs to be the owner of `object_id` or have `admin` permission.
+- `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )
 async def object_remove_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    type: Annotated[
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_type: Annotated[
         GulpCollabType,
         Query(..., description="the object type.", example=GulpCollabType.NOTE),
     ],
@@ -220,13 +203,13 @@ async def object_remove_granted_user_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
-                sess, object_id, type, token, user_id, add=False, group=False
+                sess, obj_id, obj_type, token, user_id, add=False, group=False
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -252,13 +235,13 @@ async def object_remove_granted_user_handler(
     },
     summary="adds `group_id` to the object's grants, allowing object access.",
     description="""
-- `token` needs to be the owner of `object_id` or have `admin` permission.
+- `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )
 async def object_add_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    type: Annotated[
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_type: Annotated[
         GulpCollabType,
         Query(..., description="the object type.", example=GulpCollabType.NOTE),
     ],
@@ -269,13 +252,13 @@ async def object_add_granted_group_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
-                sess, object_id, type, token, group_id, add=True, group=True
+                sess, obj_id, obj_type, token, group_id, add=True, group=True
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -301,13 +284,13 @@ async def object_add_granted_group_handler(
     },
     summary="remove `group_id` from the object's grant.",
     description="""
-- `token` needs to be the owner of `object_id` or have `admin` permission.
+- `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )
 async def object_remove_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    type: Annotated[
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_type: Annotated[
         GulpCollabType,
         Query(..., description="the object type.", example=GulpCollabType.NOTE),
     ],
@@ -318,13 +301,13 @@ async def object_remove_granted_group_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
-                sess, object_id, type, token, group_id, add=False, group=True
+                sess, obj_id, obj_type, token, group_id, add=False, group=True
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -352,13 +335,13 @@ async def object_remove_granted_group_handler(
     description="""
 a private object is only accessible by the owner or by administrators.
 
-- `token` needs to be the owner of `object_id` or have `admin` permission.
+- `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )
 async def object_make_private_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    type: Annotated[
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_type: Annotated[
         GulpCollabType,
         Query(..., description="the object type.", example=GulpCollabType.NOTE),
     ],
@@ -368,13 +351,17 @@ async def object_make_private_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _make_public_or_private(
-                sess, object_id=object_id, object_type=type, token=token, private=True
+                sess,
+                obj_id=obj_id,
+                obj_type=obj_type,
+                token=token,
+                private=True,
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -403,13 +390,13 @@ async def object_make_private_handler(
 a public object is accessible by anyone.
 
 - by default, objects are accessible only by the owner or by administrators (`private` objects)
-- `token` needs to be the owner of `object_id` or have `admin` permission.
+- `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )
 async def object_make_public_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    type: Annotated[
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_type: Annotated[
         GulpCollabType,
         Query(..., description="the object type.", example=GulpCollabType.NOTE),
     ],
@@ -419,10 +406,14 @@ async def object_make_public_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _make_public_or_private(
-                sess, object_id=object_id, object_type=type, token=token, private=False
+                sess,
+                obj_id=obj_id,
+                obj_type=obj_type,
+                token=token,
+                private=False,
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

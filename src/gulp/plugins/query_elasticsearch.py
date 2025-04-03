@@ -1,3 +1,15 @@
+"""
+A Gulp external plugin for querying Elasticsearch or OpenSearch.
+
+This plugin allows querying and/or extracting data from Elasticsearch/OpenSearch indices,
+transforming the results into GulpDocument objects with proper timestamp
+handling, context, and source information.
+
+Supports authentication, custom field mapping, timestamp adjustments,
+and works with both Elasticsearch and OpenSearch backends.
+
+"""
+
 from typing import Any, override
 
 import muty.dict
@@ -7,23 +19,21 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from muty.log import MutyLogger
+from opensearchpy import AsyncOpenSearch
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import PreviewDone
+from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
+from gulp.api.opensearch.structs import GulpDocument
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 try:
     from elasticsearch import AsyncElasticsearch
 except ImportError:
     muty.os.check_and_install_package("elasticsearch", ">=8.1.5, <9")
     from elasticsearch import AsyncElasticsearch
-
-from muty.log import MutyLogger
-from opensearchpy import AsyncOpenSearch
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.structs import GulpDocument
-from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -131,7 +141,6 @@ class Plugin(GulpPluginBase):
         # MutyLogger.get_instance().debug(f"ctx_id={self._context_id}, src_id={self._source_id}")
 
         # convert timestamp to nanoseconds
-        mapping = self.selected_mapping()
         _, ts_nsec, _ = GulpDocument.ensure_timestamp(
             doc[timestamp_field], mapping.time_format_string
         )
@@ -145,17 +154,15 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        """
-        MutyLogger.get_instance().debug(
-            "operation_id=%s, context_id=%s, source_id=%s, doc=\n%s"
-            % (
-                self._operation_id,
-                self._context_id,
-                self._source_id,
-                json.dumps(d, indent=2),
-            )
-        )
-        """
+        # MutyLogger.get_instance().debug(
+        #     "operation_id=%s, context_id=%s, source_id=%s, doc=\n%s"
+        #     % (
+        #         self._operation_id,
+        #         self._context_id,
+        #         self._source_id,
+        #         json.dumps(d, indent=2),
+        #     )
+        # )
 
         # create a gulp document
         d = GulpDocument(
@@ -183,7 +190,7 @@ class Plugin(GulpPluginBase):
         operation_id: str,
         q: Any,
         plugin_params: GulpPluginParameters,
-        q_options: GulpQueryParameters,
+        q_options: GulpQueryParameters = None,
         index: str = None,
         **kwargs,
     ) -> tuple[int, int, str] | tuple[int, list[dict]]:

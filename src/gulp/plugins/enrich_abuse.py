@@ -1,21 +1,28 @@
-import json
-import socket
-from typing import Any, Optional, override
+"""
+An abuse.ch URL enrichment plugin for GULP.
+
+This plugin queries the abuse.ch API to enrich documents containing URLs with
+information about whether those URLs are known to be malicious or have been
+reported to abuse.ch (in the last 30 days).
+
+The plugin supports:
+- Checking URLs against the abuse.ch URLhaus database
+- Enriching documents with abuse.ch data for matching URLs
+- Configurable URL field targeting
+
+Authentication is required through an abuse.ch auth key, which can be provided
+either as a plugin parameter or in the GULP configuration.
+
+TODO: abuse.ch DB enrichment plugin
+"""
+
+from typing import Optional, override
 from urllib.parse import urlparse
 
 import aiohttp
-import muty.file
-import muty.json
-import muty.log
-import muty.os
-import muty.string
-import muty.time
-import muty.xml
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
@@ -25,16 +32,10 @@ class Plugin(GulpPluginBase):
     """
     abuse.ch API enrichment plugin
 
-    TODO: abuse.ch DB enrichment plugin
-
-    get last 30 days reported URLs:
-
-    https://urlhaus.abuse.ch/downloads/csv_recent/
-    https://urlhaus.abuse.ch/downloads/json_recent/
-
     """
+
     class MissingAuthKey(Exception):
-        def __init__(self, message, errors):
+        def __init__(self, message):
             # Call the base class constructor with the parameters it needs
             super().__init__(message)
 
@@ -64,21 +65,20 @@ class Plugin(GulpPluginBase):
                 name="url_fields",
                 type="list",
                 desc="a list of url fields to enrich.",
-                default_value=["url.full", "url.original",
-                               "http.request.referrer"],
+                default_value=["url.full", "url.original", "http.request.referrer"],
             ),
             GulpPluginCustomParameter(
                 name="auth_key",
                 type="str",
                 desc="abuse.ch auth-key (if not provided, the config file is checked for it)",
                 default_value=None,
-                required=False
-            )
+                required=False,
+            ),
         ]
 
     async def _get_abuse(self, url: str, auth_key: str) -> Optional[dict]:
         """
-            Given an url checks it against abuse.ch APIs
+        Given an url checks it against abuse.ch APIs
         """
         if not self._is_valid_url(url):
             return None
@@ -87,7 +87,9 @@ class Plugin(GulpPluginBase):
         headers = {"Auth-Key": auth_key}
 
         async with aiohttp.ClientSession(headers=headers) as sess:
-            async with sess.post("https://urlhaus-api.abuse.ch/v1/url", data=data) as resp:
+            async with sess.post(
+                "https://urlhaus-api.abuse.ch/v1/url", data=data
+            ) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 else:
@@ -95,7 +97,8 @@ class Plugin(GulpPluginBase):
 
     def _is_valid_url(self, u: str):
         try:
-            result = urlparse(u)
+            # TODO: c optimization ?
+            _ = urlparse(u)
             return u
         except AttributeError:
             return False
@@ -103,8 +106,7 @@ class Plugin(GulpPluginBase):
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         auth_key = self._plugin_params.custom_parameters.get("auth_key")
         dd = []
-        url_fields = self._plugin_params.custom_parameters.get(
-            "url_fields", [])
+        url_fields = self._plugin_params.custom_parameters.get("url_fields", [])
         for doc in docs:
             for url_field in url_fields:
                 f = doc.get(url_field)
@@ -137,7 +139,8 @@ class Plugin(GulpPluginBase):
 
             if not auth_key:
                 raise self.MissingAuthKey(
-                    "no auth_key provided for %s" % (self.display_name()))
+                    "no auth_key provided for %s" % (self.display_name())
+                )
 
         self._plugin_params.custom_parameters["auth_key"] = auth_key
 
@@ -158,8 +161,7 @@ class Plugin(GulpPluginBase):
         self._initialize(plugin_params)
         self._get_auth_key()
 
-        url_fields = self._plugin_params.custom_parameters.get(
-            "url_fields", [])
+        url_fields = self._plugin_params.custom_parameters.get("url_fields", [])
         qq = {
             "query": {
                 "bool": {
@@ -199,4 +201,6 @@ class Plugin(GulpPluginBase):
         self._initialize(plugin_params)
         self._get_auth_key()
 
-        return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)
+        return await super().enrich_single_document(
+            sess, doc_id, operation_id, index, plugin_params
+        )

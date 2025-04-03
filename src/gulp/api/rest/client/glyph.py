@@ -44,7 +44,7 @@ class GulpAPIGlyph:
     @staticmethod
     async def glyph_update(
         token: str,
-        object_id: str,
+        obj_id: str,
         img_path: str = None,
         name: str = None,
         req_id: str = None,
@@ -60,7 +60,7 @@ class GulpAPIGlyph:
 
         params = {
             "name": name,
-            "object_id": object_id,
+            "obj_id": obj_id,
             "req_id": req_id or api_common.req_id,
         }
 
@@ -77,7 +77,7 @@ class GulpAPIGlyph:
     @staticmethod
     async def glyph_delete(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         ws_id: str = None,
         expected_status: int = 200,
@@ -85,7 +85,7 @@ class GulpAPIGlyph:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_delete(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             api="glyph_delete",
             req_id=req_id,
             ws_id=ws_id,
@@ -95,14 +95,14 @@ class GulpAPIGlyph:
     @staticmethod
     async def glyph_get_by_id(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             api="glyph_get_by_id",
             req_id=req_id,
             expected_status=expected_status,

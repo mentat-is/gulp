@@ -1,16 +1,22 @@
+
+"""
+Module for representing and manipulating glyphs in the Gulp collaboration system.
+
+This module defines the GulpGlyph class which represents a glyph object in the system.
+Glyphs are stored with their binary image data and can be converted to dictionaries
+with base64-encoded image data for serialization purposes.
+
+Classes:
+    GulpGlyph: A class representing a glyph with image data.
+"""
+
 import base64
 from typing import override
 
-import muty.file
-from sqlalchemy import LargeBinary, String
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import (
-    GulpCollabBase,
-    GulpCollabType,
-    T,
-)
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 
 
 class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
@@ -34,6 +40,7 @@ class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
         return super().__repr__() + f" img={self.img[:10]}[...]"
 
     @override
+    # pylint: disable=W0221
     def to_dict(self, **kwargs) -> dict:
         """
         Convert the object to a dictionary representation.

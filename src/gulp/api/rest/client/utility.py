@@ -67,7 +67,7 @@ class GulpAPIUtility:
     @staticmethod
     async def request_get_by_id(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -75,7 +75,7 @@ class GulpAPIUtility:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             req_id=req_id,
             api="request_get_by_id",
             expected_status=expected_status,

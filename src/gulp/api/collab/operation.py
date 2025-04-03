@@ -1,7 +1,23 @@
+"""
+This module defines the `GulpOperation` class, which represents operations in the gulp system.
+
+An operation is a core entity in the gulp collaboration framework that manages contexts and
+their associated sources. Operations provide a hierarchical structure to organize data and
+control access permissions across multiple contexts.
+
+Key features:
+- Each operation is associated with an opensearch index
+- Operations can contain multiple contexts (GulpContext objects)
+- Operations enforce permission inheritance to all child contexts and sources
+- Support for adding and managing user and group grants throughout the hierarchy
+
+The module provides methods for creating, retrieving, and manipulating operations,
+including the ability to add contexts and manage access permissions.
+"""
+
 from typing import Optional, override
 
 import muty.crypto
-import muty.string
 from muty.log import MutyLogger
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -12,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 from gulp.api.ws_api import GulpWsQueueDataType
+
 
 class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
     """
@@ -31,7 +48,9 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         doc="The context/s associated with the operation.",
     )
     operation_data: Mapped[Optional[dict]] = mapped_column(
-        MutableDict.as_mutable(JSONB), default_factory=dict, doc="Arbitrary operation data."
+        MutableDict.as_mutable(JSONB),
+        default_factory=dict,
+        doc="Arbitrary operation data.",
     )
 
     @override
@@ -43,6 +62,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         return d
 
     @override
+    # pylint: disable=arguments-differ
     def to_dict(self, nested=False, **kwargs) -> dict:
         d = super().to_dict(nested=nested, **kwargs)
         if nested:
@@ -55,8 +75,12 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         return d
 
     async def add_context(
-        self, sess: AsyncSession, user_id: str, name: str, ws_id: str = None, req_id: str = None
-
+        self,
+        sess: AsyncSession,
+        user_id: str,
+        name: str,
+        ws_id: str = None,
+        req_id: str = None,
     ) -> tuple[GulpContext, bool]:
         """
         Add a context to the operation, or return the context if already added.
@@ -71,49 +95,49 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         Returns:
             tuple(GulpContext, bool): The context added (or already existing) and a flag indicating if the context was added
         """
-        id = GulpContext.make_context_id_key(self.id, name)
+        obj_id = GulpContext.make_context_id_key(self.id, name)
 
-        # acquire lock first
-        lock_id = muty.crypto.hash_xxh64_int(id)
-        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
+        try:
+            await GulpContext.acquire_advisory_lock(sess, obj_id)
 
-        # check if context exists
-        ctx: GulpContext = await GulpContext.get_by_id(
-            sess, id=id, throw_if_not_found=False
-        )
-        if ctx:
-            MutyLogger.get_instance().debug(
-                f"context {name} already added to operation {self.id}."
+            # check if context exists
+            ctx: GulpContext = await GulpContext.get_by_id(
+                sess, obj_id=obj_id, throw_if_not_found=False
             )
-            return ctx, False
+            if ctx:
+                MutyLogger.get_instance().debug(
+                    f"context {name} already added to operation {self.id}."
+                )
+                return ctx, False
 
-        # create new context and link it to operation
-        object_data = {
-            "operation_id": self.id,
-            "name": name,
-            "color": "white",
-        }
-        ctx = await GulpContext._create(
-            sess,
-            object_data,
-            id=id,
-            owner_id=user_id,
-            ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
-            ws_id=ws_id,
-            req_id=req_id,
-        )
+            # create new context and link it to operation
+            object_data = {
+                "operation_id": self.id,
+                "name": name,
+                "color": "white",
+            }
+            # pylint: disable=protected-access
+            ctx = await GulpContext._create_internal(
+                sess,
+                object_data,
+                obj_id=obj_id,
+                owner_id=user_id,
+                ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
+                ws_id=ws_id,
+                req_id=req_id,
+            )
 
-        # add same grants to the context as the operation
-        for u in self.granted_user_ids:
-            await ctx.add_user_grant(sess, u)
-        for g in self.granted_user_group_ids:
-            await ctx.add_group_grant(sess, g)
+            # add same grants to the context as the operation
+            for u in self.granted_user_ids:
+                await ctx.add_user_grant(sess, u)
+            for g in self.granted_user_group_ids:
+                await ctx.add_group_grant(sess, g)
 
-        await sess.refresh(self)
-
-        MutyLogger.get_instance().info(
-            f"context {name} added to operation {self.id}.")
-        return ctx, True
+            await sess.refresh(self)            
+            MutyLogger.get_instance().info(f"context {name} added to operation {self.id}.")
+            return ctx, True
+        finally:
+            await GulpContext.release_advisory_lock(sess, obj_id)
 
     @override
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:

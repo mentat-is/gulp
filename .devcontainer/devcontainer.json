@@ -6,7 +6,6 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "alexcvzz.vscode-sqlite",
         "bierner.markdown-mermaid",
         "codezombiech.gitignore",
         "DavidAnson.vscode-markdownlint",
@@ -26,9 +25,9 @@
         "ms-python.pylint",
         "ms-python.python",
         "ms-python.vscode-python-envs",
-        "npxms.hide-gitignored",
-        "roonie007.hide-files",
-        "shivaprasanth.vscode-always-sidebar",
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "oderwat.indent-rainbow",
         "tamasfe.even-better-toml",
         "Tyriar.sort-lines",
         "yzhang.markdown-all-in-one",

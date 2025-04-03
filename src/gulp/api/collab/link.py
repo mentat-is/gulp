@@ -1,7 +1,19 @@
+"""
+Link module for the gulp collaboration system.
+
+This module defines the GulpLink class, which represents a link between documents
+in the collaboration system. A link connects a source document to one or more target
+documents, enabling relationships and references between content.
+
+Links are fundamental to establishing connections in the collaboration graph, allowing
+users to create associations between related pieces of information.
+"""
 from typing import override
+
 from sqlalchemy import ARRAY, String
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableList
+from sqlalchemy.orm import Mapped, mapped_column
+
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
 
 

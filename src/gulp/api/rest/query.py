@@ -1,13 +1,29 @@
+"""
+Query API endpoints for Gulp providing various query capabilities.
+
+This module contains FastAPI router endpoints for different types of queries:
+- Raw OpenSearch DSL queries
+- Simplified Gulp queries with filters
+- External data source queries
+- Sigma rule queries (single and batch via ZIP)
+- Single document queries
+- Field mapping and aggregate operations
+
+Each endpoint handles authentication, authorization, and supports both direct responses
+and asynchronous processing with results streamed to websockets.
+
+"""
+
+# pylint: disable=too-many-lines
+
 import asyncio
-from asyncio import Task
 from copy import deepcopy
-from typing import Annotated, Any, Optional, Union
+from typing import Annotated, Any, Optional
 
 import muty.file
 import muty.log
 import muty.pydantic
-import muty.uploadfile
-from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -155,16 +171,15 @@ async def _query_internal(
 
 
 async def _prepare_query_options(
-    gq: GulpQuery, 
-    base_options: GulpQueryParameters
+    gq: GulpQuery, base_options: GulpQueryParameters
 ) -> GulpQueryParameters:
     """
     prepare customized query options for a specific query.
-    
+
     Args:
         gq (GulpQuery): the query for which to prepare options
         base_options (GulpQueryParameters): base query options to customize
-        
+
     Returns:
         GulpQueryParameters: customized query options for this specific query
     """
@@ -180,7 +195,7 @@ async def _prepare_query_options(
     if gq.name not in q_opt.note_parameters.note_tags:
         # query name in note tags (this will allow to identify the results in the end)
         q_opt.note_parameters.note_tags.append(gq.name)
-        
+
     return q_opt
 
 
@@ -188,26 +203,26 @@ async def _process_batch_results(
     batch_results: list[tuple[int, Exception, str]],
     user_id: str,
     req_id: str,
-    ws_id: str
+    ws_id: str,
 ) -> tuple[int, int, list[str], list[str]]:
     """
     process batch results and send query_done packets for each result.
-    
+
     Args:
         batch_results (list[tuple[int, Exception, str]]): results from batch processing
         user_id (str): the user id
         req_id (str): request id
         ws_id (str): websocket id
-        
+
     Returns:
-        tuple[int, int, list[str], list[str]]: matched queries count, total document matches, 
+        tuple[int, int, list[str], list[str]]: matched queries count, total document matches,
                                               query names that matched, errors encountered
     """
     query_matched: int = 0
     total_doc_matches: int = 0
     query_names: list[str] = []
     errors: list[str] = []
-    
+
     # process each result in the batch
     for r in batch_results:
         # res is a tuple (hits, exception, query_name)
@@ -216,18 +231,18 @@ async def _process_batch_results(
         q_name: str = None
         err: str = None
         hits, ex, q_name = r
-        
+
         MutyLogger.get_instance().debug(
             "query %s matched %d hits, ex=%s" % (q_name, hits, ex)
         )
-        
+
         # track stats
         if hits > 0:
             # we have a match
             query_matched += 1
             query_names.append(q_name)
             total_doc_matches += hits
-            
+
         if ex:
             # we have an error
             err = muty.log.exception_to_string(ex, with_full_traceback=True)
@@ -247,7 +262,7 @@ async def _process_batch_results(
             req_id=req_id,
             data=p.model_dump(exclude_none=True),
         )
-        
+
     return query_matched, total_doc_matches, query_names, errors
 
 
@@ -259,12 +274,10 @@ async def _handle_query_group_match(
     q_options: GulpQueryParameters,
     query_names: list[str],
     total_doc_matches: int,
-    user_is_admin: bool,
-    user_group_ids: list[str]
 ) -> None:
     """
     handle query group matching - update note tags with group name and signal websocket.
-    
+
     Args:
         operation_id (str): operation id
         user_id (str): user id
@@ -273,14 +286,12 @@ async def _handle_query_group_match(
         q_options (GulpQueryParameters): query options
         query_names (list[str]): list of query names that matched
         total_doc_matches (int): total number of document matches across all queries
-        user_is_admin (bool): whether the user is an admin
-        user_group_ids (list[str]): list of group ids the user belongs to
     """
     # all queries in the group matched, update note tags with group name
     MutyLogger.get_instance().info(
         "query group '%s' matched, updating notes!" % (q_options.group)
     )
-    
+
     if q_options.note_parameters.create_notes:
         async with GulpCollab.get_instance().session() as sess:
             # look for tags = query name and update them with the group name
@@ -290,14 +301,10 @@ async def _handle_query_group_match(
                 [q_options.group],
                 operation_id=operation_id,
                 user_id=user_id,
-                user_id_is_admin=user_is_admin,
-                user_group_ids=user_group_ids,
             )
-    
+
     # and signal websocket
-    p = GulpQueryGroupMatchPacket(
-        name=q_options.group, total_hits=total_doc_matches
-    )
+    p = GulpQueryGroupMatchPacket(name=q_options.group, total_hits=total_doc_matches)
     GulpWsSharedQueue.get_instance().put(
         type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
         ws_id=ws_id,
@@ -319,11 +326,11 @@ async def _process_query_batch(
     plugin_params: GulpPluginParameters,
     flt: GulpQueryFilter,
     current_batch: int,
-    num_batches: int
+    num_batches: int,
 ) -> tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
     """
     process a single batch of queries.
-    
+
     Args:
         batch (list[GulpQuery]): batch of queries to process
         user_id (str): user id
@@ -337,9 +344,9 @@ async def _process_query_batch(
         flt (GulpQueryFilter): query filter
         current_batch (int): current batch number
         num_batches (int): total number of batches
-        
+
     Returns:
-        tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]: 
+        tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
             batch results, matched queries count, total document matches, query names that matched, errors
     """
     batch_tasks = []
@@ -363,14 +370,13 @@ async def _process_query_batch(
         )
 
         batch_tasks.append(
-            GulpProcess.get_instance().process_pool.apply(
-                _query_internal, kwds=d
-            )
+            GulpProcess.get_instance().process_pool.apply(_query_internal, kwds=d)
         )
 
     # run the queries and wait to complete
     MutyLogger.get_instance().debug(
-        "waiting for queries batch %d/%d, size of batch=%d" % (current_batch, num_batches, len(batch_tasks))
+        "waiting for queries batch %d/%d, size of batch=%d"
+        % (current_batch, num_batches, len(batch_tasks))
     )
     batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
 
@@ -378,18 +384,18 @@ async def _process_query_batch(
     query_matched, total_matches, names, errors = await _process_batch_results(
         batch_results, user_id, req_id, ws_id
     )
-    
+
     return batch_results, query_matched, total_matches, names, errors
 
 
 async def _worker_coro(kwds: dict) -> None:
     """
     runs in background and processes queries in batches.
-    
+
     1. processes queries in batches to limit resource usage
     2. sends query_done packets immediately after each result
     3. if all queries in a group match, updates note tags and signals websocket
-    
+
     Args:
         kwds (dict): dictionary containing all parameters for query processing
     """
@@ -425,23 +431,25 @@ async def _worker_coro(kwds: dict) -> None:
         for i in range(0, num_queries, batch_size):
             current_batch = i // batch_size + 1
             batch = queries[i : i + batch_size]
-            
+
             # process this batch
-            batch_results, batch_matched, batch_matches, batch_names, batch_errors = await _process_query_batch(
-                batch=batch,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                operation_id=operation_id,
-                index=index,
-                q_options=q_options,
-                plugin=plugin,
-                plugin_params=plugin_params,
-                flt=flt,
-                current_batch=current_batch,
-                num_batches=num_batches
+            batch_results, batch_matched, batch_matches, batch_names, batch_errors = (
+                await _process_query_batch(
+                    batch=batch,
+                    user_id=user_id,
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
+                    index=index,
+                    q_options=q_options,
+                    plugin=plugin,
+                    plugin_params=plugin_params,
+                    flt=flt,
+                    current_batch=current_batch,
+                    num_batches=num_batches,
+                )
             )
-            
+
             # accumulate results for later processing if needed
             all_results.extend(batch_results)
             query_matched_total += batch_matched
@@ -449,18 +457,12 @@ async def _worker_coro(kwds: dict) -> None:
             all_query_names.extend(batch_names)
             all_errors.extend(batch_errors)
 
-        # get user info (is admin, groups)
-        async with GulpCollab.get_instance().session() as sess:
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            user_is_admin = u.is_admin()
-            user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
-
         # log summary of query group results
         MutyLogger.get_instance().info(
             "query group=%s matched %d/%d queries, total hits=%d"
             % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
-        
+
         # if all queries in the group matched, update note tags and send notification
         if num_queries > 1 and query_matched_total == num_queries:
             await _handle_query_group_match(
@@ -471,8 +473,6 @@ async def _worker_coro(kwds: dict) -> None:
                 q_options=q_options,
                 query_names=all_query_names,
                 total_doc_matches=total_doc_matches,
-                user_is_admin=user_is_admin,
-                user_group_ids=user_group_ids
             )
 
         # also update stats
@@ -492,6 +492,7 @@ async def _worker_coro(kwds: dict) -> None:
         all_results.clear()
         all_errors.clear()
         all_query_names.clear()
+
 
 async def _preview_query(
     operation_id: str,
@@ -531,7 +532,6 @@ async def _preview_query(
             # load plugin (common for all)
             mod = await GulpPluginBase.load(plugin)
 
-        if plugin:
             # external query
             total, docs = await mod.query_external(
                 sess=sess,
@@ -587,13 +587,15 @@ async def _spawn_query_group_workers(
     # create a stats, just to allow request canceling
     async with GulpCollab.get_instance().session() as sess:
         await GulpRequestStats.create(
-            sess,
-            user_id=user_id,
-            req_id=req_id,
+            token=None,
             ws_id=ws_id,
+            req_id=req_id,
+            object_data=None,  # uses default
             operation_id=operation_id,
-            context_id=None,
+            sess=sess,
+            user_id=user_id,
         )
+        
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
@@ -724,7 +726,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -842,7 +844,7 @@ async def query_gulp_handler(
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -991,7 +993,7 @@ async def query_external_handler(
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -1100,7 +1102,10 @@ async def query_sigma_handler(
 
         if q_options.note_parameters.create_notes is None:
             # activate notes on match, default
-            q_options.note_parameters.create_notes = True
+            # create a new note_parameters object with create_notes=True
+            q_options.note_parameters = q_options.note_parameters.model_copy(
+                update={"create_notes": True}
+            )
 
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
@@ -1153,7 +1158,7 @@ async def query_sigma_handler(
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
     finally:
         if mod:
             await mod.unload()
@@ -1275,7 +1280,10 @@ async def query_sigma_zip_handler(
 
         if q_options.note_parameters.create_notes is None:
             # activate notes on match, default
-            q_options.note_parameters.create_notes = True
+            # create a new note_parameters object with create_notes=True
+            q_options.note_parameters = q_options.note_parameters.model_copy(
+                update={"create_notes": True}
+            )
 
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
@@ -1291,10 +1299,12 @@ async def query_sigma_zip_handler(
         for f in files:
             if f.lower().endswith(".yml") or f.lower().endswith(".yaml"):
                 try:
-                    with open(f, "r") as ff:
+                    with open(f, "r", encoding="utf-8") as ff:
                         sigmas.append(ff.read())
                 except Exception as ex:
-                    MutyLogger.get_instance().error("error reading sigma file %s" % (f))
+                    MutyLogger.get_instance().error(
+                        "error reading sigma file %s (%s)" % (f, str(ex))
+                    )
 
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
@@ -1321,7 +1331,7 @@ async def query_sigma_zip_handler(
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
     finally:
         if mod:
             await mod.unload()
@@ -1406,7 +1416,7 @@ async def sigma_convert_handler(
     mod = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            s = await GulpUserSession.check_token(sess, token)
+            _ = await GulpUserSession.check_token(sess, token)
 
         # convert sigma rule/s using pysigma
         mod = await GulpPluginBase.load(plugin)
@@ -1418,7 +1428,7 @@ async def sigma_convert_handler(
 
         return JSONResponse(JSendResponse.success(req_id, data=l))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
     finally:
         if mod:
             await mod.unload()
@@ -1469,7 +1479,7 @@ async def query_single_id_handler(
         d = await GulpQueryHelpers.query_single(index, doc_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -1542,7 +1552,7 @@ async def query_max_min_per_field(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -1621,7 +1631,7 @@ async def query_operations(
 
         # check token and get its accessible operations
         ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
-            token, GulpCollabFilter()
+            token, GulpCollabFilter(), 
         )
         operations: list[dict] = []
         for o in ops:
@@ -1633,7 +1643,7 @@ async def query_operations(
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
     except Exception as ex:
-        raise JSendException(ex=ex, req_id=req_id)
+        raise JSendException(req_id=req_id) from ex
 
 
 async def _create_mapping_by_src_internal(
@@ -1728,10 +1738,6 @@ async def query_fields_by_source_handler(
             s: GulpUserSession = await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
             user_id = s.user_id
-            user_id_is_admin = s.user.is_admin()
-            user_group_ids: list[str] = (
-                [g.id for g in s.user.groups] if s.user.groups else []
-            )
 
             # check if there is at least one document with operation_id, context_id and source_id
             await GulpOpenSearch.get_instance().search_dsl_sync(
@@ -1756,8 +1762,6 @@ async def query_fields_by_source_handler(
                 context_id=context_id,
                 source_id=source_id,
                 user_id=user_id,
-                user_id_is_admin=user_id_is_admin,
-                user_group_ids=user_group_ids,
             )
             if m:
                 # return immediately
@@ -1784,4 +1788,4 @@ async def query_fields_by_source_handler(
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

@@ -1,14 +1,19 @@
+"""
+Plugin for processing MySQL error logs.
+
+This module provides the Plugin class, which is a Gulp plugin for ingesting and processing
+MySQL error log files. It parses log entries, extracts fields like timestamp, thread, log level,
+and message, and converts them into GulpDocument objects for indexing.
+
+The plugin uses regex patterns to match log entries that may span multiple lines, handling the
+multi-line nature of MySQL error logs appropriately.
+"""
 import datetime
 import os
 import re
 from typing import Any, override
-from urllib.parse import parse_qs, urlparse
 
 import aiofiles
-import dateutil
-import muty.string
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +31,6 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    mysql error logs file processor.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -87,8 +88,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
          **kwargs
    ) -> GulpRequestStatus:
         try:
@@ -165,4 +166,4 @@ class Plugin(GulpPluginBase):
             await self._source_failed(ex)
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+        return self._stats_status()

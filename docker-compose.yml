@@ -12,7 +12,7 @@ services:
       node.name: "os01"
       #index.codec: "zstd_no_dict"
       bootstrap.memory_lock: true
-      #OPENSEARCH_JAVA_OPTS: "-Xms16g -Xmx16g"
+      # OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx1g"
       OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
       OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
       DISABLE_SECURITY_PLUGIN: true
@@ -20,6 +20,21 @@ services:
       http.cors.enabled: true
       http.cors.allow-origin: "*"
       http.cors.allow-headers: "*"
+
+      # log settings
+      # logger.level: DEBUG                            # sets the root logger level (default is INFO)
+      # logger.org.opensearch: DEBUG                   # sets opensearch core logger level
+      # logger.org.opensearch.bootstrap: TRACE         # more detailed bootstrap logging
+      # logger.org.opensearch.cluster.service: DEBUG   # cluster service logs
+      # logger.org.opensearch.index.engine: DEBUG      # engine operations logs
+      # logger.org.opensearch.transport: DEBUG         # transport layer logs
+      # logger.org.opensearch.discovery: TRACE         # very detailed discovery logs
+      # logger.action: DEBUG                           # action execution logs
+      # logger.org.opensearch.index.indexing: DEBUG    # indexing operations logs
+      # logger.org.opensearch.indices: DEBUG           # indices operations logs
+      # # memory monitoring logs (helpful for OOM issues)
+      # logger.org.opensearch.monitor.jvm: DEBUG       # detailed JVM monitoring
+
       #deploy:
       #resources:
       #limits:

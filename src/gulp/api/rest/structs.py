@@ -1,11 +1,25 @@
+"""
+This module defines the API structures and dependencies for the Gulp REST API.
+
+It includes:
+- Response models for API endpoints
+- Regex patterns for validation
+- API dependency helpers for FastAPI
+- Parameter validation and processing functions
+
+The APIDependencies class provides static methods that can be used with FastAPI's
+Depends to process and validate common API parameters like tokens, IDs, filters,
+and user credentials. These methods ensure consistent parameter handling across
+the API endpoints.
+"""
+
 import re
 from typing import Annotated, Optional
 
 import muty.string
-from fastapi import Body, Depends, Header, Query
+from fastapi import Body, Header, Query
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
@@ -134,7 +148,7 @@ class APIDependencies:
             Query(
                 description="sets the object as private, so only the *owner* `user_id` and administrators can access it.",
             ),
-        ] = False
+        ] = False,
     ) -> bool:
         """
         used with fastapi Depends to provide API parameter
@@ -155,7 +169,7 @@ class APIDependencies:
                 description="the object description.",
                 examples=["this is a description"],
             ),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -178,7 +192,7 @@ class APIDependencies:
             Query(
                 description=_DESC_OBJ_DISPLAY_NAME, example=_EXAMPLE_OBJ_DISPLAY_NAME
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -198,7 +212,7 @@ class APIDependencies:
             Query(
                 description=_DESC_OBJ_DISPLAY_NAME, example=_EXAMPLE_OBJ_DISPLAY_NAME
             ),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -219,7 +233,7 @@ class APIDependencies:
                 description="tags to be assigned to the object.",
                 example='["tag1","tag2"]',
             ),
-        ] = None
+        ] = None,
     ) -> list[str]:
         """
         used with fastapi Depends to provide API parameter
@@ -243,7 +257,7 @@ class APIDependencies:
             Query(
                 description="the color in #rrggbb or css-name format.", example="yellow"
             ),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -269,7 +283,7 @@ the user password.
             str,
             Query(description=_DESC_PASSWORD, example=_EXAMPLE_PASSWORD),
             AfterValidator(_pwd_regex_validator),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -288,7 +302,7 @@ the user password.
             Optional[str],
             Query(description=_DESC_PASSWORD, example=_EXAMPLE_PASSWORD),
             AfterValidator(_pwd_regex_validator),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -312,11 +326,12 @@ one or more user permission.
 """
     _EXAMPLE_PERMISSION = '["read","edit"]'
 
+    @staticmethod
     def param_permission_optional(
         permission: Annotated[
             Optional[list[GulpUserPermission]],
             Body(description=_DESC_PERMISSION, example=_EXAMPLE_PERMISSION),
-        ] = None
+        ] = None,
     ) -> list[GulpUserPermission]:
         """
         used with fastapi Depends to provide API parameter
@@ -329,11 +344,12 @@ one or more user permission.
         """
         return permission
 
+    @staticmethod
     def param_permission(
         permission: Annotated[
             list[GulpUserPermission],
             Body(description=_DESC_PERMISSION, example=_EXAMPLE_PERMISSION),
-        ] = None
+        ] = None,
     ) -> list[GulpUserPermission]:
         """
         used with fastapi Depends to provide API parameter
@@ -346,12 +362,13 @@ one or more user permission.
         """
         return permission
 
+    @staticmethod
     def param_email_optional(
         email: Annotated[
             Optional[str],
             Query(description="the user email.", example="user@mail.com"),
             AfterValidator(_email_regex_validator),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -382,7 +399,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 """,
                 example="token_admin",
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -402,7 +419,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
             Query(
                 description="id of a `glyph` in the collab database.",
             ),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -416,32 +433,32 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
         return APIDependencies._strip_or_none(glyph_id)
 
     _DESC_OBJ_ID = "id of an object in the collab database."
-    _EXAMPLE_OBJ_ID = "object_id"
+    _EXAMPLE_OBJ_ID = "obj_id"
 
     @staticmethod
     def param_object_id(
-        object_id: Annotated[
+        obj_id: Annotated[
             str,
             Query(description=_DESC_OBJ_ID, example=_EXAMPLE_OBJ_ID),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
 
         Args:
-            object_id (str, Query): The object ID.
+            obj_id (str, Query): The object ID.
 
         Returns:
             str: The object ID.
         """
-        return APIDependencies._strip_or_none(object_id)
+        return APIDependencies._strip_or_none(obj_id)
 
     @staticmethod
     def param_group_id(
         group_id: Annotated[
             str,
             Query(description="the usergroup ID", example=ADMINISTRATORS_GROUP_ID),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -456,21 +473,21 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 
     @staticmethod
     def param_object_id_optional(
-        object_id: Annotated[
+        obj_id: Annotated[
             Optional[str],
             Query(description=_DESC_OBJ_ID, example=_EXAMPLE_OBJ_ID),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
 
         Args:
-            object_id (str, optional, Query): The object ID. Defaults to None.
+            obj_id (str, optional, Query): The object ID. Defaults to None.
 
         Returns:
             str: The object ID.
         """
-        return APIDependencies._strip_or_none(object_id)
+        return APIDependencies._strip_or_none(obj_id)
 
     @staticmethod
     def param_user_id(
@@ -480,7 +497,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
                 description="id of an user in the collab database.",
                 example="admin",
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -496,11 +513,12 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
     _DESC_INDEX = "the gulp's opensearch index/datastream name."
     _EXAMPLE_INDEX = TEST_INDEX
 
+    @staticmethod
     def param_index(
         index: Annotated[
             str,
             Query(description=_DESC_INDEX, example=TEST_INDEX),
-        ]
+        ],
     ) -> int:
         """
         used with fastapi Depends to provide API parameter
@@ -513,11 +531,12 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
         """
         return APIDependencies._strip_or_none(index)
 
+    @staticmethod
     def param_index_optional(
         index: Annotated[
             Optional[str],
             Query(description=_DESC_INDEX, example=TEST_INDEX),
-        ] = None
+        ] = None,
     ) -> int:
         """
         used with fastapi Depends to provide API parameter
@@ -538,7 +557,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
                 description="id of an `operation` in the collab database.",
                 example=TEST_OPERATION_ID,
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -561,7 +580,7 @@ id of a `context` object on the collab database.
 """,
                 example=TEST_CONTEXT_ID,
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -584,7 +603,7 @@ id of a `source` object on the collab database.
 """,
                 example=TEST_SOURCE_ID,
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -610,7 +629,7 @@ it must be the `bare filename` of the plugin (`.py`,`.pyc` extension may be omit
         plugin: Annotated[
             Optional[str],
             Query(description=_DESC_PLUGIN, example=_EXAMPLE_PLUGIN),
-        ] = None
+        ] = None,
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -628,7 +647,7 @@ it must be the `bare filename` of the plugin (`.py`,`.pyc` extension may be omit
         plugin: Annotated[
             str,
             Query(description=_DESC_PLUGIN, example=_EXAMPLE_PLUGIN),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -651,7 +670,7 @@ id of the websocket to send progress and results during the processing of a requ
 """,
                 example=TEST_WS_ID,
             ),
-        ]
+        ],
     ) -> str:
         """
         used with fastapi Depends to provide API parameter
@@ -664,6 +683,7 @@ id of the websocket to send progress and results during the processing of a requ
         """
         return APIDependencies._strip_or_none(ws_id)
 
+    @staticmethod
     def param_ingestion_flt_optional(
         flt: Annotated[
             Optional[GulpIngestionFilter],
@@ -672,7 +692,7 @@ id of the websocket to send progress and results during the processing of a requ
 to filter documents by `time_range` during `ingestion`.
 """
             ),
-        ] = None
+        ] = None,
     ) -> GulpIngestionFilter:
         """
         used with fastapi Depends to provide API parameter
@@ -685,6 +705,7 @@ to filter documents by `time_range` during `ingestion`.
         """
         return flt or GulpIngestionFilter()
 
+    @staticmethod
     def param_plugin_params_optional(
         plugin_params: Annotated[
             Optional[GulpPluginParameters],
@@ -693,7 +714,7 @@ to filter documents by `time_range` during `ingestion`.
 to customize `mapping` and specific `plugin` parameters.
 """
             ),
-        ] = None
+        ] = None,
     ) -> GulpPluginParameters:
         """
         used with fastapi Depends to provide API parameter
@@ -706,6 +727,7 @@ to customize `mapping` and specific `plugin` parameters.
         """
         return plugin_params or GulpPluginParameters()
 
+    @staticmethod
     def param_query_flt_optional(
         flt: Annotated[
             Optional[GulpQueryFilter],
@@ -720,7 +742,7 @@ the query filter, to filter for common fields, including:
 > any extra `key: value` field may be applied too in the filter `dict`.
 """
             ),
-        ] = None
+        ] = None,
     ) -> GulpQueryFilter:
         """
         used with fastapi Depends to provide API parameter
@@ -733,6 +755,7 @@ the query filter, to filter for common fields, including:
         """
         return flt or GulpQueryFilter()
 
+    @staticmethod
     def param_q_options(
         q_options: Annotated[
             Optional[GulpQueryParameters],
@@ -745,7 +768,7 @@ additional parameters for querying, including:
 - `sort` for sorting
 """
             ),
-        ] = None
+        ] = None,
     ) -> dict:
         """
         used with fastapi Depends to provide API parameter
@@ -758,13 +781,14 @@ additional parameters for querying, including:
         """
         return q_options or GulpQueryParameters()
 
+    @staticmethod
     def param_collab_flt_optional(
         flt: Annotated[
             Optional[GulpCollabFilter],
             Body(
                 description="the collab filter.",
             ),
-        ] = None
+        ] = None,
     ) -> GulpCollabFilter:
         """
         used with fastapi Depends to provide API parameter
@@ -789,7 +813,7 @@ id of a request, will be replicated in the response `req_id`.
 """,
                 example=TEST_REQ_ID,
             ),
-        ] = None
+        ] = None,
     ) -> str:
         """
         Ensures a request ID is set, either generates it.

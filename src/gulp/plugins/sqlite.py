@@ -1,3 +1,15 @@
+"""
+sqlite plugin for processing and ingesting sqlite database files.
+
+this module provides functionality to ingest and process sqlite database files,
+supporting both standalone mode and as a base for stacked plugins.
+
+it can handle encrypted databases and custom queries for specific tables.
+
+in standalone mode, it is advised that a mapping file is provided to ensure the `@timestamp`
+field is mapped correctly.
+"""
+
 import os
 import string
 from typing import Any, override
@@ -27,39 +39,6 @@ muty.os.check_and_install_package("aiosqlite", ">=0.20.0")
 
 
 class Plugin(GulpPluginBase):
-    """
-    SQLITE generic file processor
-
-    the sqlite plugin may ingest any SQLITE db file, but it is also used as a base plugin for other plugins (in "stacked" mode).
-
-    ### standalone mode
-
-    when used by itself, it is sufficient to ingest a SQLITE file with the default settings (no extra parameters needed).
-
-    NOTE: since each document must have a "@timestamp", a mapping file with "@timestamp" field mapped is advised.
-
-    ### stacked mode
-
-    in stacked mode, we simply run the stacked plugin, which in turn use the SQLITE plugin to parse the data.
-
-    ~~~bash
-    TEST_PLUGIN=stacked_example ./test_scripts/test_ingest.sh -p ./samples/chrome/sample_j.db
-    ~~~
-
-    see the example in [stacked_example.py](stacked_example.py)
-
-    ### parameters
-
-    SQLITE plugin support the following custom parameters in the plugin_params.extra dictionary:
-
-    - `delimiter`: set the delimiter for the CSV file (default=",")
-
-    ~~~
-
-
-    chorme: cookie, file downloaded, autofill forms, history, searches, account and usernames.
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -119,21 +98,20 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=str(record),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
     @staticmethod
     def _dict_factory(cursor: aiosqlite.Cursor, row: aiosqlite.Row):
-        """Helper function to convert a sqlite row to dict
+        """helper function to convert a sqlite row to dict
 
         Args:
             cursor (aiosqlite.Cursor): SQLite cursor
             row (aiosqlite.Row): row to convert
 
         Returns:
-            d (dict): row converted to dictionary
+            dict: row converted to dictionary
         """
         d = {}
         for idx, col in enumerate(cursor.description):
@@ -145,19 +123,27 @@ class Plugin(GulpPluginBase):
         return d
 
     def _table_exists(self, db: aiosqlite.Connection, name: str):
-        """Checks if a given table exists
+        """checks if a given table exists
 
         Args:
             db (aiosqlite.Connection): database connection
             name (str): name of table to check
 
         Returns:
-            _type_: _description_
+            bool: true if table exists, false otherwise
         """
         query = "SELECT 1 FROM sqlite_master WHERE type='table' and name = ?"
         return db.execute(query, (name,)).fetchone() is not None
 
     def _sanitize_value(self, value: str) -> str:
+        """sanitizes a value to ensure it contains only allowed characters
+
+        Args:
+            value (str): value to sanitize
+
+        Returns:
+            str: sanitized value
+        """
         # allowed charset: A-Za-z0-9_-
         charset = string.ascii_lowercase + string.ascii_uppercase + string.digits + "_-"
         for c in value:
@@ -180,10 +166,10 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
                 sess=sess,
@@ -197,8 +183,8 @@ class Plugin(GulpPluginBase):
                 source_id=source_id,
                 file_path=file_path,
                 original_file_path=original_file_path,
-                plugin_params=plugin_params,
                 flt=flt,
+                plugin_params=plugin_params,
                 **kwargs,
             )
 
@@ -210,17 +196,15 @@ class Plugin(GulpPluginBase):
 
             # get custom parameters
             encryption_key: str = self._plugin_params.custom_parameters.get(
-                "encryption_key")
-            key_type: str = self._plugin_params.custom_parameters.get(
-                "key_type")
-            queries: dict = self._plugin_params.custom_parameters.get(
-                "queries")
+                "encryption_key"
+            )
+            key_type: str = self._plugin_params.custom_parameters.get("key_type")
+            queries: dict = self._plugin_params.custom_parameters.get("queries")
 
             # check if key_type is supported
             if key_type.lower() not in ["key", "textkey", "hexkey"]:
                 MutyLogger.get_instance().warning(
-                    "unsupported key type %s, defaulting to 'key'" % (
-                        key_type,)
+                    "unsupported key type %s, defaulting to 'key'" % (key_type,)
                 )
                 key_type = "key"
 
@@ -260,7 +244,7 @@ class Plugin(GulpPluginBase):
                     for table in await cur.fetchall():
                         if (
                             table["name"] in mapping_ids
-                        ):  # ONLY MAP TABLES THAT HAVE A MAPPING
+                        ):  # only map tables that have a mapping
                             tables_to_process.append(table["name"])
 
                 for table in tables_to_process:
@@ -286,24 +270,22 @@ class Plugin(GulpPluginBase):
                         for row in await cur.fetchall():
                             # print(f"gulp.sqlite.{db_name}.{table}.{column} = {value}")
                             d: dict = {}
-                            d["gulp.sqlite.db.name"] = os.path.basename(
-                                file_path)
+                            d["gulp.sqlite.db.name"] = os.path.basename(file_path)
                             d["gulp.sqlite.db.table.name"] = table
 
                             # use this mapping id
                             self._mapping_id = table
 
-                            """
-                            # get record's original id
-                            original_id = None
-                            async with db.execute(metadata_query) as cur_tmp:
-                                r = await cur_tmp.fetchone()
-                                for _, v in r.items():
-                                    if v:
-                                        original_id = v
-                                        break
-                            d["original_id"] = row[original_id]
-                            """
+                            # # get record's original id
+                            # original_id = None
+                            # async with db.execute(metadata_query) as cur_tmp:
+                            #     r = await cur_tmp.fetchone()
+                            #     for _, v in r.items():
+                            #         if v:
+                            #             original_id = v
+                            #             break
+                            # d["original_id"] = row[original_id]
+
                             try:
                                 await self.process_record(row, doc_idx, flt=flt, data=d)
                             except (RequestCanceledError, SourceCanceledError) as ex:
@@ -320,6 +302,9 @@ class Plugin(GulpPluginBase):
 
         except Exception as ex:
             await self._source_failed(ex)
+
         finally:
             await self._source_done(flt)
-            return self._stats_status()
+
+        return self._stats_status()
+

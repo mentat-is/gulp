@@ -1,8 +1,22 @@
+"""
+This module defines the `GulpSourceFields` class, which represents the fields mapping for a data source.
+
+The `GulpSourceFields` class inherits from `GulpCollabBase` and is used to store and manage
+field mappings as returned by GulpOpenSearch.datastream_get_mapping_by_src. It maintains relationships
+with operations, contexts, and sources through foreign keys.
+
+Classes:
+    GulpSourceFields: SQLAlchemy model representing field mappings for a source.
+
+The module implements functionality for:
+- Creating and updating field mappings
+- Converting field mappings to dictionaries with "gulpesque" keys
+- Acquiring advisory locks to prevent race conditions during creation
+"""
+
 from typing import override
 
 import muty.crypto
-import muty.log
-import muty.time
 from muty.log import MutyLogger
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
@@ -50,7 +64,9 @@ class GulpSourceFields(GulpCollabBase, type=GulpCollabType.SOURCE_FIELDS):
             d["gulp.source_id"] = d.pop("source_id")
         return d
 
+    @override
     @classmethod
+    # pylint: disable=arguments-differ
     async def create(
         cls,
         sess: AsyncSession,
@@ -61,10 +77,25 @@ class GulpSourceFields(GulpCollabBase, type=GulpCollabType.SOURCE_FIELDS):
         fields: dict = None,
     ) -> T:
         """
+        Create a new GulpSourceFields object.
+
+        If an object with the same operation_id, context_id, and source_id already exists,
+        it will be updated instead.
+
+        Args:
+            sess (AsyncSession): The SQLAlchemy session.
+            user_id (str): The ID of the user creating the object.
+            operation_id (str): The ID of the operation.
+            context_id (str): The ID of the context.
+            source_id (str): The ID of the source.
+            fields (dict, optional): The fields mapping. Defaults to None.
+
+        Returns:
+            GulpSourceFields: The created or updated GulpSourceFields object.
+        Raises:
+            Exception: If the object cannot be created or updated.
         """
-        obj_id = muty.crypto.hash_xxh128(
-            f"{operation_id}{context_id}{source_id}"
-        )
+        obj_id = muty.crypto.hash_xxh128(f"{operation_id}{context_id}{source_id}")
 
         MutyLogger.get_instance().debug(
             "---> create: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
@@ -75,38 +106,40 @@ class GulpSourceFields(GulpCollabBase, type=GulpCollabType.SOURCE_FIELDS):
             len(fields),
         )
 
-        # acquire an advisory lock
-        lock_id = muty.crypto.hash_xxh64_int(obj_id)
-        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
+        try:
+            await GulpSourceFields.acquire_advisory_lock(sess, obj_id)
 
-        # check if the stats already exist
-        s: GulpSourceFields = await cls.get_by_id(
-            sess, id=obj_id, throw_if_not_found=False
-        )
-        if s:
-            # update existing
-            MutyLogger.get_instance().debug(
-                "---> update: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
-                obj_id,
-                operation_id,
-                context_id,
-                source_id,
-                len(fields),
+            # check if the the source fields entry already exists
+            s: GulpSourceFields = await cls.get_by_id(
+                sess, obj_id=obj_id, throw_if_not_found=False
             )
-            s.fields = fields
-            await sess.commit()
-            return s
+            if s:
+                # update existing
+                MutyLogger.get_instance().debug(
+                    "---> create source fields, update: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
+                    obj_id,
+                    operation_id,
+                    context_id,
+                    source_id,
+                    len(fields),
+                )
+                s.fields = fields
+                await sess.commit()
+                return s
 
-        object_data = {
-            "operation_id": operation_id,
-            "context_id": context_id,
-            "source_id": source_id,
-            "fields": fields,
-        }
-        return await super()._create(
-            sess,
-            object_data=object_data,
-            id=obj_id,
-            owner_id=user_id,
-            private=False
-        )
+            # create new
+            object_data = {
+                "operation_id": operation_id,
+                "context_id": context_id,
+                "source_id": source_id,
+                "fields": fields,
+            }
+            return await super()._create_internal(
+                sess,
+                object_data=object_data,
+                obj_id=obj_id,
+                owner_id=user_id,
+                private=False,
+            )
+        finally:
+            await GulpSourceFields.release_advisory_lock(sess, obj_id)

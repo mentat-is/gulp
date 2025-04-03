@@ -1,19 +1,31 @@
 """
-gulp glyphs management rest api
+This module provides FastAPI endpoints for glyph operations in the GULP API.
+
+It handles the creation, updating, deletion, retrieval, and listing of glyphs
+with appropriate authorization checks. Glyphs are images with metadata that can
+be stored and managed through this API.
+
+The module includes handlers for:
+- Creating new glyphs with images (limited to 16kb)
+- Updating existing glyphs
+- Deleting glyphs
+- Retrieving glyphs by ID
+- Listing glyphs with optional filtering
+
+Each endpoint enforces permission checking based on user tokens and
+follows JSend response formatting standards.
+
 """
 
-from muty.jsend import JSendException, JSendResponse
-from typing import Annotated, Optional, Union
+from typing import Annotated, Union
+
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
+from muty.jsend import JSendException, JSendResponse
+
 from gulp.api.collab.glyph import GulpGlyph
-from gulp.api.collab.structs import (
-    GulpCollabFilter,
-    GulpUserPermission,
-)
-from gulp.api.rest.server_utils import (
-    ServerUtils,
-)
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
 router: APIRouter = APIRouter()
@@ -35,6 +47,7 @@ def _read_img_file(file: UploadFile) -> bytes:
     if len(data) > 16 * 1024:
         raise ValueError("The file size must be less than 16kb.")
     return data
+
 
 @router.post(
     "/glyph_create",
@@ -68,9 +81,7 @@ async def glyph_create_handler(
         str,
         Depends(APIDependencies.param_display_name_optional),
     ] = None,
-    private: Annotated[
-        bool, Depends(APIDependencies.param_private_optional)
-    ] = False,
+    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -93,7 +104,7 @@ async def glyph_create_handler(
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -123,7 +134,7 @@ async def glyph_create_handler(
 )
 async def glyph_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
     img: Annotated[Union[UploadFile, str], File(description="an image file.")] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -142,14 +153,14 @@ async def glyph_update_handler(
             d["img"] = data
         d = await GulpGlyph.update_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
             d=d,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -178,20 +189,20 @@ async def glyph_update_handler(
 )
 async def glyph_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         await GulpGlyph.delete_by_id(
             token,
-            object_id,
+            obj_id,
             ws_id=None,  # do not propagate on the websocket
             req_id=req_id,
         )
-        return JSendResponse.success(req_id=req_id, data={"id": object_id})
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -217,18 +228,18 @@ async def glyph_delete_handler(
 )
 async def glyph_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    object_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         d = await GulpGlyph.get_by_id_wrapper(
             token,
-            object_id,
+            obj_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -272,4 +283,4 @@ async def glyph_list_handler(
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

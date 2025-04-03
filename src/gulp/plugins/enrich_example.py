@@ -1,5 +1,9 @@
-from typing import Any, override
+"""
+this is an example enrichment plugin.
 
+it processes every provided documents and adds a bunch of fields, including "enriched": true
+"""
+from typing import override
 import muty.file
 import muty.log
 import muty.os
@@ -8,9 +12,6 @@ import muty.time
 import muty.xml
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import (
-    GulpQueryParameters,
-)
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
     GulpPluginParameters,

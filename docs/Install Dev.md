@@ -12,6 +12,8 @@
   - [install using the setup script](#install-using-the-setup-script)
   - [install the client](#install-the-client)
   - [troubleshoot](#troubleshoot)
+  - [extras](#extras)
+    - [coding style tips](#coding-style-tips)
 
 # install from sources
 
@@ -29,7 +31,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   mkdir ./repos && cd ./repos
   git clone https://github.com/mentat-is/muty-python.git
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
-  # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...  
+  # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
   git clone https://github.com/mentat-is/gulp-paid-plugins
   ~~~
 
@@ -134,3 +136,46 @@ follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/RE
 ## troubleshoot
 
 [troubleshoot](./Troubleshooting.md)
+
+## extras
+
+### coding style tips
+
+- use `black`formatter with default options
+- use the following settings for `pylint`
+
+  vscode `settings.json`
+
+  ~~~json
+  {
+      "pylint.args": [
+      "--jobs=0",
+      "--disable=useless-parent-delegation",
+      "--disable=no-member",
+      "--disable=no-name-in-module",
+      "--disable=import-error",
+      "--disable=logging-not-lazy",
+      "--disable=consider-using-f-string",
+      "--disable=line-too-long",
+      "--disable=invalid-name",
+      "--disable=global-statement",
+      "--disable=broad-exception-raised",
+      "--disable=broad-exception-caught",
+      "--disable=missing-function-docstring",
+      "--disable=broad-except",
+      "--disable=no-name-in-module",
+      "--disable=global-variable-not-assigned",
+      "--disable=bare-except",
+      "--disable=too-many-arguments",
+      "--disable=unused-argument",
+      "--disable=import-outside-toplevel",
+      "--extension-pkg-whitelist=lxml",
+      "--disable=fixme",
+      "--disable=too-many-positional-arguments",
+      "--disable=too-many-locals",
+      "--disable=missing-class-docstring",
+      "--disable=logging-fstring-interpolation",
+      "--disable=wrong-import-position"
+    ]
+  }
+~~~

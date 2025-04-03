@@ -1,7 +1,19 @@
+"""
+Module for handling story objects in the GULP collaborative system.
+
+A story in GULP represents a collection of document references, providing
+a way to group and organize related documents within the collaboration system.
+
+This module defines the GulpStory class which inherits from GulpCollabObject
+and is specifically typed as a STORY in the collaboration type system.
+
+"""
 from typing import override
+
 from sqlalchemy import ARRAY, String
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableList
+from sqlalchemy.orm import Mapped, mapped_column
+
 from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
 
 

@@ -1,23 +1,40 @@
+"""
+A plugin for processing Chrome-based browser web data SQLite files.
+
+This plugin is stacked over the SQLite plugin and handles the ingestion of Chrome browser's
+web data stored in SQLite format. It processes various tables containing browser data such as
+autofill information, credit cards, addresses, and other web-related data.
+
+Attributes:
+    ChromeWebdataTables (Enum): Enumeration of Chrome web data table mappings.
+
+Usage:
+    Can be used with the ingest.py script:
+
+    ./test_scripts/ingest.py --plugin chrome_webdata_sqlite_stacked --path ~/Downloads/webdata.sqlite
+
+Dependencies:
+    - sqlite plugin
+
+Note:
+    This plugin acts as a wrapper around the SQLite plugin, providing specific handling
+    for Chrome web data structure while delegating the actual SQLite operations to the
+    base SQLite plugin.
+"""
+
 from enum import Enum
-from typing import Any, override
+from typing import override
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.structs import GulpDocument
-from gulp.plugin import GulpPluginType
-from gulp.plugin import GulpPluginBase
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    """
-    chrome based browser web data plugin stacked over the SQLITE plugin
-
-    ./test_scripts/ingest.py --plugin chrome_webdata_sqlite_stacked --path ~/Downloads/webdata.sqlite
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -33,6 +50,9 @@ class Plugin(GulpPluginBase):
         return ["sqlite"]
 
     class ChromeWebdataTables(Enum):
+        """
+        Chrome Webdata tables int mapping
+        """
         autofill = 0
         autofill_model_type_state = 1
         autofill_sync_metadata = 2
@@ -88,8 +108,8 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        plugin_params: GulpPluginParameters = None,
         **kwargs
     ) -> GulpRequestStatus:
 
@@ -117,8 +137,9 @@ class Plugin(GulpPluginBase):
             source_id=source_id,
             file_path=file_path,
             original_file_path=original_file_path,
-            plugin_params=plugin_params,
             flt=flt,
+            plugin_params=plugin_params,
+            **kwargs,
         )
         await lower.unload()
         return res

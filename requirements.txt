@@ -105,7 +105,7 @@ sqlalchemy-mixins==2.0.5
 SQLAlchemy-Utils==0.41.2
 starlette==0.41.2
 stumpy==1.13.0
-systemd-python==235
+systemd-python==235; sys_platform == "linux"
 tenacity==9.0.0
 typing_extensions==4.12.2
 urllib3==2.2.3

@@ -63,7 +63,7 @@ class GulpAPINote:
     @staticmethod
     async def note_update(
         token: str,
-        object_id: str,
+        obj_id: str,
         text: str = None,
         time_pin: int = None,
         docs: list = None,
@@ -77,7 +77,7 @@ class GulpAPINote:
 
         api_common = GulpAPICommon.get_instance()
         params = {
-            "object_id": object_id,
+            "obj_id": obj_id,
             "time_pin": time_pin,
             "color": color,
             "name": name,
@@ -104,7 +104,7 @@ class GulpAPINote:
     @staticmethod
     async def note_delete(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         ws_id: str = None,
         expected_status: int = 200,
@@ -112,7 +112,7 @@ class GulpAPINote:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_delete(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             req_id=req_id,
             ws_id=ws_id,
             api="note_delete",
@@ -122,14 +122,14 @@ class GulpAPINote:
     @staticmethod
     async def note_get_by_id(
         token: str,
-        object_id: str,
+        obj_id: str,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         return await api_common.object_get_by_id(
             token=token,
-            object_id=object_id,
+            obj_id=obj_id,
             req_id=req_id,
             api="note_get_by_id",
             expected_status=expected_status,

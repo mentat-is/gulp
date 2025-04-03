@@ -1,4 +1,14 @@
-from typing import Any, override
+"""
+TeamViewer connections_incoming.txt regex stacked plugin for GULP.
+
+This plugin processes TeamViewer connection logs by stacking over the base `regex` plugin.
+It extracts structured data from TeamViewer's connections_incoming.txt files, including
+user information, connection times, session details, and GUIDs.
+
+The plugin calculates connection durations and sets appropriate event metadata.
+"""
+
+from typing import override
 
 import muty.os
 import muty.string
@@ -8,17 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 from gulp.libgulp import c_string_to_nanos_from_unix_epoch
 
 class Plugin(GulpPluginBase):
-    """
-    teamviewer connections_incoming.txt plugin stacked over the REGEX plugin
-    """
-
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
@@ -62,9 +67,9 @@ class Plugin(GulpPluginBase):
         source_id: str,
         file_path: str,
         original_file_path: str = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
-        **kwargs
+        plugin_params: GulpPluginParameters = None,
+        **kwargs,
     ) -> GulpRequestStatus:
 
         # set as stacked

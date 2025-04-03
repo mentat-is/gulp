@@ -1,3 +1,20 @@
+"""
+This module provides filtering functionality for OpenSearch queries in the Gulp API.
+
+It defines classes for filtering documents during ingestion and queries, with support
+for various criteria such as time ranges, document IDs, operation IDs, etc.
+
+The main classes include:
+- GulpBaseDocumentFilter: Base class for all document filters
+- GulpDocumentFilterResult: Enum for filter results (ACCEPT/SKIP)
+- GulpIngestionFilter: Filter for document ingestion
+- GulpQueryFilter: Filter for document queries with OpenSearch DSL conversions
+
+The module also defines constants like QUERY_DEFAULT_FIELDS which specifies mandatory
+fields to include in query results.
+
+"""
+
 from enum import IntEnum
 from typing import Optional, override
 
@@ -212,13 +229,12 @@ include documents matching the given `gulp.source_id`/s.
 
         qs = "("
         for v in values:
-            """
-            if isinstance(v, str):
-                # only enclose if there is a space in the value
-                vv = muty.string.enclose(v) if " " in v else v
-            else:
-                vv = v
-            """
+            # if isinstance(v, str):
+            #     # only enclose if there is a space in the value
+            #     vv = muty.string.enclose(v) if " " in v else v
+            # else:
+            #     vv = v
+
             qs += f"{field}: {v} OR "
 
         qs = qs[:-4]  # remove last " OR "
@@ -266,6 +282,9 @@ include documents matching the given `gulp.source_id`/s.
         """
 
         def _build_clauses():
+            # disable not-an-iterable and non-subscribtable:
+            # checks are in place and the pydantic model enforces the type
+            # pylint: disable=E1133,E1136
             clauses: list[str] = []
 
             if self.agent_types:

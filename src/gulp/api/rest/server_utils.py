@@ -1,3 +1,15 @@
+"""
+Server utility functions for the GULP REST API.
+
+This module provides utility functions for the GULP server, including:
+- Parameter dumping for debugging
+- Email sending functionality
+- Handling of chunked file uploads with resume capability
+
+These utilities support the server-side operations of the GULP API by providing
+common functionality needed across different endpoints and request handlers.
+"""
+
 import inspect
 import json
 import os
@@ -10,13 +22,11 @@ import aiofiles
 import aiosmtplib
 import muty.crypto
 import muty.file
-import muty.string
 from fastapi import Request
 from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
 
 from gulp.api.collab.context import GulpContext
-from gulp.api.collab.operation import GulpOperation
 from gulp.api.rest.structs import GulpUploadResponse
 from gulp.config import GulpConfig
 

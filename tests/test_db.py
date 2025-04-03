@@ -57,7 +57,7 @@ async def _ws_loop(total: int = None):
                         test_completed = True
                     else:
                         raise ValueError(
-                            f"unexpected total hits: {q_done_packet.total_hits}"
+                            f"unexpected total hits: {q_done_packet.total_hits}, requested_total={total}"
                         )
                     break
                 # ws delay

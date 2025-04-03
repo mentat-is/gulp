@@ -1,13 +1,29 @@
-import json
-from typing import Optional, TypeVar, Union, override
+"""Gulp OpenSearch data structures.
+
+This module defines the data structures for representing Gulp documents in OpenSearch.
+Key classes include:
+
+- GulpBasicDocument: Base model for Gulp documents with essential fields such as ID,
+    timestamp, operation, context, and source information.
+
+- GulpDocument: Extended document model with additional fields for event data,
+    providing methods for initialization and timestamp validation.
+
+- GulpDocumentFieldAliasHelper: Helper class for managing field aliases in document properties.
+
+- GulpRawDocumentBaseFields: Defines mandatory fields for raw Gulp document records.
+
+- GulpRawDocument: Represents a raw Gulp document with base fields and additional document data.
+
+These structures form the foundation for document handling in the Gulp OpenSearch API.
+"""
+
+from typing import Optional, TypeVar, override
 
 import muty.crypto
-import muty.dict
-import muty.string
 import muty.time
-from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
@@ -18,7 +34,7 @@ from gulp.libgulp import (
     c_string_to_nanos_from_unix_epoch,
 )
 
-T = TypeVar("T", bound="GulpBaseDocumentFilter")
+T = TypeVar("T", bound=GulpBaseDocumentFilter)
 
 
 class GulpBasicDocument(BaseModel):
@@ -219,8 +235,7 @@ class GulpDocument(GulpBasicDocument):
                 kwargs)
 
         # this is internal, set by _finalize_process_record() in the mapping engine
-        ignore_default_event_code = kwargs.pop(
-            "__ignore_default_event_code__", False)
+        ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
 
         # build initial data dict
         mapping: GulpMapping = plugin_instance.selected_mapping()
