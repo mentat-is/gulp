@@ -159,9 +159,9 @@ class GulpRestServer:
             if ex.status_code is not None:
                 status_code = ex.status_code
 
-            if ex.ex is not None:
+            if ex.__cause__ is not None:
                 # use the inner exception
-                ex = ex.ex
+                ex = ex.__cause__
                 name = ex.__class__.__name__
 
         if isinstance(ex, RequestValidationError):
@@ -405,7 +405,7 @@ class GulpRestServer:
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
-            MutyLogger.get_instance().debug("future %s completed!" % (future))
+            MutyLogger.get_instance().debug("future completed!")
 
     async def spawn_bg_task(self, coro: Coroutine) -> None:
         """

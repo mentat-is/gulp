@@ -54,8 +54,6 @@ async def _modify_grants(
     # map object type to class
     obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
     obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
-    if not obj:
-        raise ObjectNotFound(f"Object with id {obj_id} not found")
 
     # get token session
     await GulpUserSession.check_token(sess, token, obj=obj, enforce_owner=True)
@@ -96,13 +94,11 @@ async def _make_public_or_private(
         GulpCollabBase: the modified object
     """
     # map object type to class
-    obj_class = GulpCollabBase.object_type_to_class(obj_type)
+    obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
 
     obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
-    if not obj:
-        raise ObjectNotFound(f"Object with id {obj_id} not found")
 
-    # get token session
+    # check token on object
     await GulpUserSession.check_token(
         sess,
         token,

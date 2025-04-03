@@ -105,13 +105,15 @@ class WsIngestRawWorker:
                 if not stats:
                     # create a stats that never expire
                     stats: GulpRequestStats = await GulpRequestStats.create(
-                        sess,
-                        user_id=packet.user_id,
-                        req_id=packet.data.req_id,
+                        token=None,
                         ws_id=packet.data.ws_id,
+                        req_id=packet.data.req_id,
+                        object_data={
+                            "never_expire": True,
+                        },
                         operation_id=packet.data.operation_id,
-                        context_id=None,
-                        never_expire=True,
+                        sess=sess,
+                        user_id=packet.user_id,
                     )
 
                 try:
@@ -140,9 +142,9 @@ class WsIngestRawWorker:
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)
                     # just append error
-                    d = dict(
-                        error=ex,
-                    )
+                    d = {
+                        "error":ex,
+                    }
                     await stats.update(
                         sess, d, ws_id=packet.data.ws_id, user_id=packet.user_id
                     )

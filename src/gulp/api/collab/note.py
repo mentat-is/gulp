@@ -15,7 +15,7 @@ Main functionalities:
 - Associating notes with contexts, sources, and documents
 """
 
-from typing import Optional, override
+from typing import List, Optional, override
 
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
@@ -115,6 +115,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             }
         )
         return d
+
 
     @override
     @classmethod
@@ -281,8 +282,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         new_tags: list[str],
         operation_id: str,
         user_id: str,
-        user_id_is_admin: bool = False,
-        user_group_ids: list[str] = None,
     ) -> None:
         """
         get tags from notes and update them with new tags
@@ -297,7 +296,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
             user_group_ids (list[str], optional): the user groups ids. Defaults to None.
         """
         MutyLogger.get_instance().debug(
-            f"updating notes tags from {tags} to {new_tags}, user_id_is_admin={user_id_is_admin} ..."
+            f"updating notes tags from {tags} to {new_tags} ..."
         )
         offset = 0
         chunk_size = 1000
@@ -323,8 +322,6 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
                 sess,
                 flt,
                 user_id=user_id,
-                user_id_is_admin=user_id_is_admin,
-                user_group_ids=user_group_ids,
                 throw_if_not_found=False,
             )
             if not notes:

@@ -107,14 +107,17 @@ class Plugin(GulpPluginBase):
         async with GulpCollab.get_instance().session() as sess:
             try:
                 await GulpRequestStats.create(
-                    sess,
-                    user_id,
-                    req_id,
+                    token=None,
                     ws_id=ws_id,
+                    req_id=req_id,
+                    object_data={
+                        "source_total": 33,
+                    },
                     operation_id=operation_id,
-                    context_id=context_id,
-                    source_total=33,
+                    sess=sess,
+                    user_id=user_id,
                 )
+
             except Exception as ex:
                 raise JSendException(req_id=req_id) from ex
 

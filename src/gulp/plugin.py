@@ -584,11 +584,9 @@ class GulpPluginBase(ABC):
             )
             self._chunks_ingested += 1
 
-        # check if the request is cancelled ()
-        stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-            self._sess, self._req_id, throw_if_not_found=False
-        )
-        if stats and stats.status == GulpRequestStatus.CANCELED:
+        # check if the request is cancelled
+        canceled = await GulpRequestStats.is_canceled(self._sess, self._req_id)
+        if canceled:
             self._req_canceled = True
             MutyLogger.get_instance().warning(
                 "_process_docs_chunk: request %s cancelled" % (self._req_id)
@@ -1494,13 +1492,13 @@ class GulpPluginBase(ABC):
                     self._tot_skipped_in_source,
                 )
             )
-            d = dict(
-                source_id=self._source_id,
-                records_skipped=skipped,
-                records_ingested=ingested,
-                records_processed=self._records_processed_per_chunk,
-                records_failed=self._records_failed_per_chunk,
-            )
+            d = {
+                "source_id": self._source_id,
+                "records_skipped": skipped,
+                "records_ingested": ingested,
+                "records_processed": self._records_processed_per_chunk,
+                "records_failed": self._records_failed_per_chunk,
+                }
             await self._stats.update(
                 self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
             )
@@ -2002,9 +2000,8 @@ class GulpPluginBase(ABC):
         else:
             # it's an error
             self._is_source_failed = True
-            if self._stats:
-                # also update status
-                self._stats.status = GulpRequestStatus.FAILED
+            # if self._stats:
+            #     self._stats.status = GulpRequestStatus.FAILED
 
         if not isinstance(err, str):
             # exception to string
@@ -2088,18 +2085,17 @@ class GulpPluginBase(ABC):
             )
 
         if self._stats:
-            d = dict(
-                source_failed=(
-                    1 if (self._is_source_failed and not self._raw_ingestion) else 0
-                ),
-                source_processed=1 if not self._raw_ingestion else 0,
-                source_id=self._source_id,
-                records_ingested=ingested,
-                records_skipped=skipped,
-                records_failed=self._records_failed_per_chunk,
-                records_processed=self._records_processed_per_chunk,
-                error=self._source_error,
-            )
+
+            d = {
+                "source_failed":1 if (self._is_source_failed and not self._raw_ingestion) else 0,
+                "source_processed":1 if not self._raw_ingestion else 0,
+                "source_id":self._source_id,
+                "records_ingested":ingested,
+                "records_skipped":skipped,
+                "records_failed":self._records_failed_per_chunk,
+                "records_processed":self._records_processed_per_chunk,
+                "error":self._source_error,
+            }
             if self._raw_ingestion and not self._req_canceled:
                 # force status update, keep status as ongoing
                 d["status"] = GulpRequestStatus.ONGOING

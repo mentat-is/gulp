@@ -106,38 +106,40 @@ class GulpSourceFields(GulpCollabBase, type=GulpCollabType.SOURCE_FIELDS):
             len(fields),
         )
 
-        # acquire an advisory lock
-        lock_id = muty.crypto.hash_xxh64_int(obj_id)
-        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
+        try:
+            await GulpSourceFields.acquire_advisory_lock(sess, obj_id)
 
-        # check if the stats already exist
-        s: GulpSourceFields = await cls.get_by_id(
-            sess, obj_id=obj_id, throw_if_not_found=False
-        )
-        if s:
-            # update existing
-            MutyLogger.get_instance().debug(
-                "---> update: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
-                obj_id,
-                operation_id,
-                context_id,
-                source_id,
-                len(fields),
+            # check if the the source fields entry already exists
+            s: GulpSourceFields = await cls.get_by_id(
+                sess, obj_id=obj_id, throw_if_not_found=False
             )
-            s.fields = fields
-            await sess.commit()
-            return s
+            if s:
+                # update existing
+                MutyLogger.get_instance().debug(
+                    "---> create source fields, update: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
+                    obj_id,
+                    operation_id,
+                    context_id,
+                    source_id,
+                    len(fields),
+                )
+                s.fields = fields
+                await sess.commit()
+                return s
 
-        object_data = {
-            "operation_id": operation_id,
-            "context_id": context_id,
-            "source_id": source_id,
-            "fields": fields,
-        }
-        return await super()._create_internal(
-            sess,
-            object_data=object_data,
-            obj_id=obj_id,
-            owner_id=user_id,
-            private=False,
-        )
+            # create new
+            object_data = {
+                "operation_id": operation_id,
+                "context_id": context_id,
+                "source_id": source_id,
+                "fields": fields,
+            }
+            return await super()._create_internal(
+                sess,
+                object_data=object_data,
+                obj_id=obj_id,
+                owner_id=user_id,
+                private=False,
+            )
+        finally:
+            await GulpSourceFields.release_advisory_lock(sess, obj_id)

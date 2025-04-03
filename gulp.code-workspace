@@ -5,23 +5,48 @@
 		}
 	],
 	"settings": {
-		"workbench.colorCustomizations": {
-			"activityBar.background": "#301957",
-			"titleBar.activeBackground": "#432379",
-			"titleBar.activeForeground": "#FBFAFD"
-		},
-		"hide-files.files": [
-			".github",
-			".images",
-			".pytest_cache",
-			".VSCodeCounter",
-			".venv",
-			"doxygen-awesome-css"
+		"python.languageServer": "Pylance",
+		"pylint.args": [
+			"--jobs=0",
+			"--disable=C0209",
+			"--disable=useless-parent-delegation",
+			"--disable=no-member",
+			"--disable=no-name-in-module",
+			"--disable=import-error",
+			"--disable=logging-not-lazy",
+			"--disable=consider-using-f-string",
+			"--disable=line-too-long",
+			"--disable=invalid-name",
+			"--disable=global-statement",
+			"--disable=broad-exception-raised",
+			"--disable=broad-exception-caught",
+			"--disable=missing-function-docstring",
+			"--disable=broad-except",
+			"--disable=no-name-in-module",
+			"--disable=global-variable-not-assigned",
+			"--disable=bare-except",
+			"--disable=too-many-arguments",
+			"--disable=unused-argument",
+			"--disable=import-outside-toplevel",
+			"--extension-pkg-whitelist=lxml",
+			"--disable=fixme",
+			"--disable=too-many-positional-arguments",
+			"--disable=too-many-locals",
+			"--disable=missing-class-docstring",
+			"--disable=logging-fstring-interpolation",
+			"--disable=wrong-import-position",
+			"--disable=too-many-ancestors",
 		],
-		"editor.tokenColorCustomizations": {
-			"comments": "",
-			"textMateRules": []
-		},
-		"makefile.configureOnOpen": false
+		"editor.minimap.enabled": true,
+		"pylint.interpreter": [
+			"python"
+		],
+		"python.autoComplete.extraPaths": [
+			"${workspaceFolder}/muty-python",
+		],
+		"workbench.colorTheme": "Dracula Theme",
+		"files.autoSave": "afterDelay",
+		"terminal.integrated.scrollback": 1000000
 	}
+	
 }

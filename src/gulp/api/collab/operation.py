@@ -97,47 +97,47 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         """
         obj_id = GulpContext.make_context_id_key(self.id, name)
 
-        # acquire lock first
-        lock_id = muty.crypto.hash_xxh64_int(obj_id)
-        await GulpCollabBase.acquire_advisory_lock(sess, lock_id)
+        try:
+            await GulpContext.acquire_advisory_lock(sess, obj_id)
 
-        # check if context exists
-        ctx: GulpContext = await GulpContext.get_by_id(
-            sess, obj_id=obj_id, throw_if_not_found=False
-        )
-        if ctx:
-            MutyLogger.get_instance().debug(
-                f"context {name} already added to operation {self.id}."
+            # check if context exists
+            ctx: GulpContext = await GulpContext.get_by_id(
+                sess, obj_id=obj_id, throw_if_not_found=False
             )
-            return ctx, False
+            if ctx:
+                MutyLogger.get_instance().debug(
+                    f"context {name} already added to operation {self.id}."
+                )
+                return ctx, False
 
-        # create new context and link it to operation
-        object_data = {
-            "operation_id": self.id,
-            "name": name,
-            "color": "white",
-        }
-        # pylint: disable=protected-access
-        ctx = await GulpContext._create_internal(
-            sess,
-            object_data,
-            obj_id=obj_id,
-            owner_id=user_id,
-            ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
-            ws_id=ws_id,
-            req_id=req_id,
-        )
+            # create new context and link it to operation
+            object_data = {
+                "operation_id": self.id,
+                "name": name,
+                "color": "white",
+            }
+            # pylint: disable=protected-access
+            ctx = await GulpContext._create_internal(
+                sess,
+                object_data,
+                obj_id=obj_id,
+                owner_id=user_id,
+                ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
+                ws_id=ws_id,
+                req_id=req_id,
+            )
 
-        # add same grants to the context as the operation
-        for u in self.granted_user_ids:
-            await ctx.add_user_grant(sess, u)
-        for g in self.granted_user_group_ids:
-            await ctx.add_group_grant(sess, g)
+            # add same grants to the context as the operation
+            for u in self.granted_user_ids:
+                await ctx.add_user_grant(sess, u)
+            for g in self.granted_user_group_ids:
+                await ctx.add_group_grant(sess, g)
 
-        await sess.refresh(self)
-
-        MutyLogger.get_instance().info(f"context {name} added to operation {self.id}.")
-        return ctx, True
+            await sess.refresh(self)            
+            MutyLogger.get_instance().info(f"context {name} added to operation {self.id}.")
+            return ctx, True
+        finally:
+            await GulpContext.release_advisory_lock(sess, obj_id)
 
     @override
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:

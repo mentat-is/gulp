@@ -289,7 +289,7 @@ async def user_group_get_by_id_handler(
         d = await GulpUserGroup.get_by_id_wrapper(
             token,
             group_id,
-            nested=True,
+            recursive=True,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data=d)
@@ -337,7 +337,7 @@ async def user_group_list_handler(
         d = await GulpUserGroup.get_by_filter_wrapper(
             token,
             flt,
-            nested=True,
+            recursive=True,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data=d)

@@ -37,3 +37,7 @@ gulp-paid-plugins
 #auto generated docs
 docs/html
 .VSCodeCounter
+
+# native
+src/gulp/libgulp
+*.so

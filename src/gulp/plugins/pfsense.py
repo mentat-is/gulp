@@ -67,24 +67,24 @@ class Plugin(GulpPluginBase):
             "direction",
             "version",
         ]
-        for _, f in enumerate(fields):
+        for i, f in enumerate(fields):
             # interface is realint converted to a friendlier format
             # since we can't convert the interface, we assing it the same value as realint'
-            if fields[f] == "interface":
-                flent[fields[f]] = rule_data[field - 1]
+            if fields[i] == "interface":
+                flent[fields[i]] = rule_data[field - 1]
                 continue
-            flent[fields[f]] = rule_data[field]
+            flent[fields[i]] = rule_data[field]
             field += 1
 
         if flent["version"] == "4":
             fields = ["tos", "ecn", "ttl", "id", "offset", "flags", "protoid", "proto"]
-            for _, f in enumerate(fields):
-                flent[fields[f]] = rule_data[field]
+            for j, f in enumerate(fields):
+                flent[fields[j]] = rule_data[field]
                 field += 1
         elif flent["version"] == "6":
             fields = ["class", "flowlabel", "hlim", "proto", "protoid"]
-            for _, f in enumerate(fields):
-                flent[fields[f]] = rule_data[field]
+            for k, f in enumerate(fields):
+                flent[fields[k]] = rule_data[field]
                 field += 1
         else:
             # unknown IP version
@@ -183,9 +183,9 @@ class Plugin(GulpPluginBase):
 
         elif flent["protoid"] == "112":
             fields = ["type", "ttl", "vhid", "version", "advskew", "advbase"]
-            for _, f in enumerate(fields):
+            for l, f in enumerate(fields):
                 field += 1
-                flent[fields[f]] = rule_data[field]
+                flent[fields[l]] = rule_data[field]
 
             flent["src"] = flent["srcip"]
             flent["dst"] = flent["dstip"]

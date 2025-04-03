@@ -93,23 +93,27 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
         """
         from gulp.api.collab.user import GulpUser
 
-        user = await GulpUser.get_by_id(sess, obj_id=user_id)
-        existing_users = [u.id for u in self.users]
-        if user_id not in existing_users:
-            self.users.append(user)
-            await sess.commit()
-            await sess.refresh(user)
-            MutyLogger.get_instance().info(
-                "Adding user %s to group %s" % (user_id, self.id)
-            )
-        else:
-            MutyLogger.get_instance().info(
-                "User %s already in group %s" % (user_id, self.id)
-            )
-            if raise_if_already_exists:
-                raise ObjectAlreadyExists(
-                    "User %s already in group %s" % (user_id, self.id)
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            user = await GulpUser.get_by_id(sess, obj_id=user_id)
+            existing_users = [u.id for u in self.users]
+            if user_id not in existing_users:
+                # add user to the group
+                self.users.append(user)
+                await sess.commit()
+                MutyLogger.get_instance().info(
+                    "adding user %s to group %s" % (user_id, self.id)
                 )
+            else:
+                MutyLogger.get_instance().info(
+                    "user %s already in group %s" % (user_id, self.id)
+                )
+                if raise_if_already_exists:
+                    raise ObjectAlreadyExists(
+                        "user %s already in group %s" % (user_id, self.id)
+                    )
+        finally:
+            await self.__class__.release_advisory_lock(sess, self.id)
 
     async def remove_user(
         self, sess: AsyncSession, user_id: str, raise_if_not_found: bool = True
@@ -123,22 +127,24 @@ class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
             raise_if_not_found (bool): If True, raises an error if the user is not in the group.
         """
         from gulp.api.collab.user import GulpUser
-
-        user = await GulpUser.get_by_id(sess, obj_id=user_id)
-        existing_users = [u.id for u in self.users]
-        if user_id in existing_users:
-            self.users.remove(user)
-            await sess.commit()
-            await sess.refresh(self)
-            MutyLogger.get_instance().info(
-                "Removing user %s from group %s" % (user_id, self.id)
-            )
-        else:
-            MutyLogger.get_instance().info(
-                "User %s not in group %s" % (user_id, self.id)
-            )
-            if raise_if_not_found:
-                raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            user = await GulpUser.get_by_id(sess, obj_id=user_id)
+            existing_users = [u.id for u in self.users]
+            if user_id in existing_users:
+                # remove user from the group
+                self.users.remove(user)
+                MutyLogger.get_instance().info(
+                    "removing user %s from group %s" % (user_id, self.id)
+                )
+            else:
+                MutyLogger.get_instance().info(
+                    "user %s not in group %s" % (user_id, self.id)
+                )
+                if raise_if_not_found:
+                    raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))
+        finally:
+            await self.__class__.release_advisory_lock(sess, self.id)
 
     def is_admin(self) -> bool:
         """

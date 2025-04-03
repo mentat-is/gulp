@@ -194,7 +194,8 @@ async def note_update_handler(
             )
         async with GulpCollab.get_instance().session() as sess:
             n: GulpNote = await GulpNote.get_by_id(sess, obj_id)
-
+            print("---> existing note: %s" % (n))
+            
             s = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.EDIT, obj=n
             )
@@ -228,28 +229,10 @@ async def note_update_handler(
             p = GulpNoteEdit(
                 user_id=s.user_id, text=text, timestamp=time_updated
             )
-
-            n.edits.append(p)
-            await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
-
-            # get the note again and add the edit info
-            p = GulpNoteEdit(
-                user_id=n.last_editor_id, text=n.text, timestamp=n.time_updated
-            )
-            n.edits.append(p.model_dump(exclude_none=True))
-
-            # update again
-            await n.update(
-                sess,
-                d=None,
-                ws_id=ws_id,
-                user_id=s.user_id,
-                req_id=req_id,
-                updated_instance=n,
-            )
-            d = n.to_dict(exclude_none=True)
-
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+            d["edits"] = n.edits or []
+            d["edits"].append(p.model_dump(exclude_none=True))
+            dd: dict = await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

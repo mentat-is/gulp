@@ -274,8 +274,6 @@ async def _handle_query_group_match(
     q_options: GulpQueryParameters,
     query_names: list[str],
     total_doc_matches: int,
-    user_is_admin: bool,
-    user_group_ids: list[str],
 ) -> None:
     """
     handle query group matching - update note tags with group name and signal websocket.
@@ -288,8 +286,6 @@ async def _handle_query_group_match(
         q_options (GulpQueryParameters): query options
         query_names (list[str]): list of query names that matched
         total_doc_matches (int): total number of document matches across all queries
-        user_is_admin (bool): whether the user is an admin
-        user_group_ids (list[str]): list of group ids the user belongs to
     """
     # all queries in the group matched, update note tags with group name
     MutyLogger.get_instance().info(
@@ -305,8 +301,6 @@ async def _handle_query_group_match(
                 [q_options.group],
                 operation_id=operation_id,
                 user_id=user_id,
-                user_id_is_admin=user_is_admin,
-                user_group_ids=user_group_ids,
             )
 
     # and signal websocket
@@ -463,12 +457,6 @@ async def _worker_coro(kwds: dict) -> None:
             all_query_names.extend(batch_names)
             all_errors.extend(batch_errors)
 
-        # get user info (is admin, groups)
-        async with GulpCollab.get_instance().session() as sess:
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            user_is_admin = u.is_admin()
-            user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
-
         # log summary of query group results
         MutyLogger.get_instance().info(
             "query group=%s matched %d/%d queries, total hits=%d"
@@ -485,8 +473,6 @@ async def _worker_coro(kwds: dict) -> None:
                 q_options=q_options,
                 query_names=all_query_names,
                 total_doc_matches=total_doc_matches,
-                user_is_admin=user_is_admin,
-                user_group_ids=user_group_ids,
             )
 
         # also update stats
@@ -601,13 +587,15 @@ async def _spawn_query_group_workers(
     # create a stats, just to allow request canceling
     async with GulpCollab.get_instance().session() as sess:
         await GulpRequestStats.create(
-            sess,
-            user_id=user_id,
-            req_id=req_id,
+            token=None,
             ws_id=ws_id,
+            req_id=req_id,
+            object_data=None,  # uses default
             operation_id=operation_id,
-            context_id=None,
+            sess=sess,
+            user_id=user_id,
         )
+        
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
@@ -1643,7 +1631,7 @@ async def query_operations(
 
         # check token and get its accessible operations
         ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
-            token, GulpCollabFilter()
+            token, GulpCollabFilter(), 
         )
         operations: list[dict] = []
         for o in ops:
@@ -1750,10 +1738,6 @@ async def query_fields_by_source_handler(
             s: GulpUserSession = await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
             user_id = s.user_id
-            user_id_is_admin = s.user.is_admin()
-            user_group_ids: list[str] = (
-                [g.id for g in s.user.groups] if s.user.groups else []
-            )
 
             # check if there is at least one document with operation_id, context_id and source_id
             await GulpOpenSearch.get_instance().search_dsl_sync(
@@ -1778,8 +1762,6 @@ async def query_fields_by_source_handler(
                 context_id=context_id,
                 source_id=source_id,
                 user_id=user_id,
-                user_id_is_admin=user_id_is_admin,
-                user_group_ids=user_group_ids,
             )
             if m:
                 # return immediately

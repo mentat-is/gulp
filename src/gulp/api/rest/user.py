@@ -565,7 +565,7 @@ async def user_list_handler(
             token,
             flt=GulpCollabFilter(),
             permission=[GulpUserPermission.ADMIN],
-            nested=True,
+            recursive=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
@@ -604,7 +604,7 @@ async def user_get_by_id(
     ServerUtils.dump_params(locals())
     try:
         d = await GulpUser.get_by_id_wrapper(
-            token, user_id, nested=True, enforce_owner=True
+            token, user_id, recursive=True, enforce_owner=True
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:

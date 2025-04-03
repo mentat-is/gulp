@@ -288,12 +288,13 @@ async def enrich_documents_handler(
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
+                token=None,
                 ws_id=ws_id,
+                req_id=req_id,
+                object_data=None, # uses default
                 operation_id=operation_id,
-                context_id=None,
+                sess=sess,
+                user_id=user_id,
             )
 
         # spawn a task which runs the enrichment in a worker process
@@ -460,12 +461,13 @@ async def tag_documents_handler(
 
             # create a stats, just to allow request canceling
             await GulpRequestStats.create(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
+                token=None,
                 ws_id=ws_id,
+                req_id=req_id,
+                object_data=None,  # uses default
                 operation_id=operation_id,
-                context_id=None,
+                sess=sess,
+                user_id=user_id,
             )
 
         # spawn a task which runs the enrichment in a worker process

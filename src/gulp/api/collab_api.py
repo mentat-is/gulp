@@ -398,7 +398,6 @@ class GulpCollab:
                 sess,
                 GulpCollabFilter(names=["test_operation_icon"]),
                 user_id="admin",
-                user_id_is_admin=True,
                 throw_if_not_found=False,
             )
 
@@ -428,7 +427,7 @@ class GulpCollab:
             await operation.add_default_grants(sess)
 
             operations: list[GulpOperation] = await GulpOperation.get_by_filter(
-                sess, user_id="admin", user_id_is_admin=True
+                sess, user_id="admin"
             )
             for op in operations:
                 MutyLogger.get_instance().debug(
@@ -452,6 +451,9 @@ class GulpCollab:
         from gulp.api.collab.user_group import GulpUserGroup
 
         async with self._collab_sessionmaker() as sess:
+            # create user groups
+            from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+
             # create admin user, which is the root of everything else
             admin_user: GulpUser = await GulpUser.create(
                 sess,
@@ -488,15 +490,12 @@ class GulpCollab:
                 permission=PERMISSION_MASK_DELETE,
             )
 
-            # create user groups
-            from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
-
             # pylint: disable=protected-access
             group: GulpUserGroup = await GulpUserGroup._create_internal(
                 sess,
                 obj_id=ADMINISTRATORS_GROUP_ID,
                 object_data={
-                    "name": "example group",
+                    "name": ADMINISTRATORS_GROUP_ID,
                     "permission": [GulpUserPermission.ADMIN],
                 },
                 owner_id=admin_user.id,
@@ -505,10 +504,12 @@ class GulpCollab:
 
             # add admin to administrators group
             await group.add_user(sess, admin_user.id)
+            await sess.refresh(admin_user)
 
             # dump groups
+            MutyLogger.get_instance().debug("---> groups:")
             groups: list[GulpUserGroup] = await GulpUserGroup.get_by_filter(
-                sess, user_id="admin", user_id_is_admin=True
+                sess, user_id="admin"
             )
             for group in groups:
                 MutyLogger.get_instance().debug(
@@ -516,6 +517,7 @@ class GulpCollab:
                 )
 
             # dump admin user
+            MutyLogger.get_instance().debug("---> admin user:")
             MutyLogger.get_instance().debug(
                 json.dumps(admin_user.to_dict(nested=True), indent=4)
             )

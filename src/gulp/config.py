@@ -262,11 +262,11 @@ class GulpConfig:
             )
         return n
 
-    def ingestion_request_timeout(self) -> int:
+    def opensearch_request_timeout(self) -> int:
         """
-        Returns the ingestion request timeout in seconds.
+        Returns the requests timeout for opensearch (default: 60 seconds, use 0 for no timeout).
         """
-        n = self._config.get("ingestion_request_timeout", 60)
+        n = self._config.get("opensearch_request_timeout", 60)
         return n
 
     def config_dir(self) -> str:

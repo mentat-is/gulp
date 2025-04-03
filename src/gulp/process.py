@@ -120,7 +120,8 @@ class GulpProcess:
         """
         for debugging purposes only, to catch exception eaten by the aiomultiprocess pool (they're critical exceptions, the process dies) ...
         """
-        MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
+        # MutyLogger.get_instance().exception("WORKER EXCEPTION: %s" % (ex))
+        return
 
     @staticmethod
     def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):  # type: ignore

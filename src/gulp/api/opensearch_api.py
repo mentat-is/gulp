@@ -245,8 +245,6 @@ class GulpOpenSearch:
         context_id: str,
         source_id: str,
         user_id: str,
-        user_id_is_admin: bool = False,
-        user_group_ids: list[str] = None,
     ) -> dict:
         """
         get source->fields mappings from the collab database
@@ -257,8 +255,6 @@ class GulpOpenSearch:
             context_id (str): The context ID.
             source_id (str): The source ID.
             user_id (str): The user ID.
-            user_id_is_admin (bool, optional): Whether the user is an admin. Defaults to False.
-            user_group_ids (list[str], optional): The user group IDs. Defaults to None.
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
 
@@ -274,8 +270,6 @@ class GulpOpenSearch:
             flt,
             throw_if_not_found=False,
             user_id=user_id,
-            user_id_is_admin=user_id_is_admin,
-            user_group_ids=user_group_ids,
         )
         if fields:
             # cache hit!
@@ -1118,8 +1112,12 @@ class GulpOpenSearch:
             bulk_docs.append({k: v for k, v in doc.items() if k != "_id"})
 
         # Set request parameters
-        timeout = GulpConfig.get_instance().ingestion_request_timeout()
-        params = {"timeout": timeout}
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        if timeout > 0:
+            params = {"timeout": timeout}
+        else:
+            params = {}
+
         if wait_for_refresh:
             params["refresh"] = "wait_for"
 
@@ -1548,13 +1546,9 @@ class GulpOpenSearch:
         # get all operations from collab db
         # MutyLogger.get_instance().debug(f"parsing operations aggregations: {json.dumps(aggregations, indent=2)}")
         async with GulpCollab.get_instance().session() as sess:
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            user_group_ids: list[str] = [g.id for g in u.groups] if u.groups else []
             all_operations = await GulpOperation.get_by_filter(
                 sess,
-                user_id=user_id,
-                user_id_is_admin=u.is_admin(),
-                user_group_ids=user_group_ids,
+                user_id=user_id,                
             )
 
         # create operation lookup map
@@ -1790,6 +1784,11 @@ class GulpOpenSearch:
         headers = {
             "content-type": "application/json",
         }
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        params: dict={}
+        if timeout > 0:
+            # set timeout in seconds
+            params["timeout"] = timeout
 
         if el:
             if isinstance(el, AsyncElasticsearch):
@@ -1803,21 +1802,21 @@ class GulpOpenSearch:
                     search_after=parsed_options["search_after"],
                     source=parsed_options["_source"],
                     highlight=q.get("highlight", None),
+                    timeout=timeout if timeout else None,
                 )
             else:
                 # external opensearch
-                res = await el.search(body=body, index=index, headers=headers)
+                res = await el.search(body=body, index=index, headers=headers, params=params)
         else:
             # use the OpenSearch client (default)
-            res = await self._opensearch.search(body=body, index=index, headers=headers)
+            res = await self._opensearch.search(body=body, index=index, headers=headers, params=params)
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (json.dumps(res, indent=2)))
         hits = res["hits"]["hits"]
         if not hits:
             if raise_on_error:
                 raise ObjectNotFound("no more hits")
-            else:
-                return 0, [], []
+            return 0, [], []
 
         # get data
         total_hits = res["hits"]["total"]["value"]
@@ -1964,15 +1963,11 @@ class GulpOpenSearch:
                 if check_canceled_count >= 10:
                     # every 10 chunk, check for request cancelation
                     check_canceled_count = 0
-                    stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                        sess, req_id, throw_if_not_found=False
-                    )
+                    canceled = await GulpRequestStats.is_canceled(sess, req_id)
                     # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s" % (req_id, stats))
-                    if stats and stats.status == GulpRequestStatus.CANCELED:
+                    if canceled:
                         last = True
-                        MutyLogger.get_instance().warning(
-                            "search_dsl: request %s cancelled!" % (req_id)
-                        )
+                        MutyLogger.get_instance().warning("search_dsl: request %s canceled!" % (req_id))
 
                 if callback:
                     # call the callback for each document
@@ -1997,9 +1992,8 @@ class GulpOpenSearch:
                 if processed == 0 and ws_id:
                     # no results
                     return 0, 0
-                else:
-                    # indicates the last result
-                    last = True
+                # indicates the last result
+                last = True
             except Exception as ex:
                 # something went wrong
                 MutyLogger.get_instance().exception(ex)

@@ -104,7 +104,6 @@ async def opensearch_delete_index_handler(
                     GulpCollabFilter(index=[index]),
                     throw_if_not_found=False,
                     user_id=user_id,
-                    user_id_is_admin=True,
                 )
                 if op:
                     # delete the operation on collab
@@ -383,7 +382,6 @@ async def postgres_reset_collab_handler(
                     sess,
                     throw_if_not_found=False,
                     user_id=user_id,
-                    user_id_is_admin=True,  # user can't be other than admin here
                 )
                 if ops:
                     # delete all indexes
@@ -502,13 +500,13 @@ async def _rebase_internal(
             d = {
                 "index": dest_index,
             }
-        await op.update(
-            sess,
-            d,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            user_id=user_id,
-        )
+            await op.update(
+                sess,
+                d,
+                ws_id=None,  # do not propagate on the websocket
+                req_id=req_id,
+                user_id=user_id,
+            )
 
     except Exception as ex:
         # signal failure on the websocket

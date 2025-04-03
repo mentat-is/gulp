@@ -125,8 +125,6 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 "setting default grants for operation=%s" % (name)
             )
             d["granted_user_ids"] = ["admin", "guest", "ingest", "power", "editor"]
-            from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
-
             d["granted_user_group_ids"] = [ADMINISTRATORS_GROUP_ID]
         try:
             dd = await GulpOperation.create(
@@ -144,7 +142,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.patch(
@@ -198,7 +196,6 @@ async def operation_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
-    from gulp.api.collab.user_session import GulpUserSession
 
     try:
         if not any([index, description, glyph_id, operation_data]):
@@ -236,18 +233,16 @@ async def operation_update_handler(
                     d["operation_data"] = operation_data
 
             # update
-            await op.update(
+            dd: dict = await op.update(
                 sess,
                 d,
                 ws_id=None,  # do not propagate on the websocket
                 req_id=req_id,
                 user_id=user_id,
             )
-
-            d = op.to_dict(nested=True)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 async def operation_reset_internal(operation_id: str, owner_id: str = None) -> None:
@@ -263,70 +258,75 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
     """
 
     async with GulpCollab.get_instance().session() as sess:
-        # get operation if exists
-        op: GulpOperation = await GulpOperation.get_by_id(
-            sess, operation_id, throw_if_not_found=False
-        )
+        try:
+            await GulpOperation.acquire_advisory_lock(sess, operation_id)
 
-        if op:
-            # operation exists
-            index = op.index
-            description = op.description
-            glyph_id = op.glyph_id
-            user_grants = op.granted_user_ids
-            group_grants = op.granted_user_group_ids
-            operation_data = op.operation_data
-            owner_id = op.owner_user_id
-            MutyLogger.get_instance().warning(
-                "operation=%s exists: %s" % (operation_id, op)
-            )
-            # delete data by operation
-            await GulpOpenSearch.get_instance().delete_data_by_operation(
-                index, operation_id
+            # get operation if exists
+            op: GulpOperation = await GulpOperation.get_by_id(
+                sess, operation_id, throw_if_not_found=False
             )
 
-            # delete operation (cascading delete of all related data)
-            await op.delete(sess)
-            await sess.commit()
-        else:
-            # operation must be created anew
-            index = operation_id
-            description = None
-            glyph_id = None
-            user_grants = ["admin", "guest", "ingest", "power", "editor"]
-            group_grants = [ADMINISTRATORS_GROUP_ID]
-            operation_data = {}
-            MutyLogger.get_instance().debug(
-                "operation_reset, creating new operation=%s, index=%s!"
+            if op:
+                # operation exists
+                index = op.index
+                description = op.description
+                glyph_id = op.glyph_id
+                user_grants = op.granted_user_ids
+                group_grants = op.granted_user_group_ids
+                operation_data = op.operation_data
+                owner_id = op.owner_user_id
+                MutyLogger.get_instance().warning(
+                    "operation=%s exists: %s" % (operation_id, op)
+                )
+                # delete data by operation
+                await GulpOpenSearch.get_instance().delete_data_by_operation(
+                    index, operation_id
+                )
+
+                # delete operation (cascading delete of all related data)
+                await op.delete(sess)
+                await sess.commit()
+            else:
+                # operation must be created anew
+                index = operation_id
+                description = None
+                glyph_id = None
+                user_grants = ["admin", "guest", "ingest", "power", "editor"]
+                group_grants = [ADMINISTRATORS_GROUP_ID]
+                operation_data = {}
+                MutyLogger.get_instance().debug(
+                    "operation_reset, creating new operation=%s, index=%s!"
+                    % (operation_id, index)
+                )
+                # create index
+                await GulpOpenSearch.get_instance().datastream_create(index)
+
+            # recreate operation
+            MutyLogger.get_instance().info(
+                "operation_reset, re/creating collab operation=%s, index=%s"
                 % (operation_id, index)
             )
-            # create index
-            await GulpOpenSearch.get_instance().datastream_create(index)
 
-        # recreate operation
-        MutyLogger.get_instance().info(
-            "operation_reset, re/creating collab operation=%s, index=%s"
-            % (operation_id, index)
-        )
-
-        d = {
-            "index": index,
-            "name": operation_id,
-            "description": description,
-            "glyph_id": glyph_id,
-            "operation_data": operation_data,
-            "granted_user_ids": user_grants,
-            "granted_user_group_ids": group_grants,
-        }
-        await GulpOperation._create_internal(
-            sess,
-            d,
-            obj_id=operation_id,
-            owner_id=owner_id or "admin",
-            ws_id=None,
-            private=False,
-        )
-
+            d = {
+                "index": index,
+                "name": operation_id,
+                "description": description,
+                "glyph_id": glyph_id,
+                "operation_data": operation_data,
+                "granted_user_ids": user_grants,
+                "granted_user_group_ids": group_grants,
+            }
+            # pylint: disable=protected-access
+            await GulpOperation._create_internal(
+                sess,
+                d,
+                obj_id=operation_id,
+                owner_id=owner_id or "admin",
+                ws_id=None,
+                private=False,
+            )
+        finally:
+            await GulpOperation.release_advisory_lock(sess, operation_id)
 
 @router.delete(
     "/operation_delete",
@@ -392,7 +392,7 @@ async def operation_delete_handler(
 
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -459,7 +459,7 @@ async def operation_reset_handler(
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
 
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -499,7 +499,7 @@ async def operation_get_by_id_handler(
         d = await GulpOperation.get_by_id_wrapper(
             token,
             operation_id,
-            nested=True,
+            recursive=True,
         )
         if get_count:
             # also get count
@@ -509,7 +509,7 @@ async def operation_get_by_id_handler(
 
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -551,11 +551,11 @@ async def operation_list_handler(
         d = await GulpOperation.get_by_filter_wrapper(
             token,
             flt,
-            nested=True,
+            recursive=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -595,11 +595,11 @@ async def context_list_handler(
         d = await GulpContext.get_by_filter_wrapper(
             token,
             flt,
-            nested=True,
+            recursive=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -664,7 +664,7 @@ async def context_delete_handler(
 
         return JSendResponse.success(req_id=req_id, data={"id": context_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.get(
@@ -704,7 +704,7 @@ async def source_list_handler(
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.delete(
@@ -770,4 +770,4 @@ async def source_delete_handler(
 
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
     except Exception as ex:
-        raise JSendException(req_id=req_id, ex=ex) from ex
+        raise JSendException(req_id=req_id) from ex

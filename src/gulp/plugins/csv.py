@@ -144,11 +144,6 @@ class Plugin(GulpPluginBase):
                 **kwargs,
             )
 
-            # stats must be created by the caller, get it
-            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                sess, obj_id=req_id
-            )
-
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)
