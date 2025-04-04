@@ -1353,6 +1353,42 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
+    def _try_map_ecs(
+        self, fields_mapping: GulpMappingField, d: dict, source_key: str, source_value: Any
+    ) -> dict:
+        """
+        tries to map a source key to an ECS key.
+
+        Args:
+            fields_mapping (GulpMappingField): The mapping field.
+            d (dict): The document to update.
+            source_key (str): The source key to map.
+            source_value (any): The source value to map.
+        Returns:
+            dict: a dict with the mapped key and value.
+        """
+
+        # print(fields_mapping)
+        mapping = fields_mapping.ecs
+        if isinstance(mapping, str):
+            # single mapping
+            mapping = [mapping]
+
+        force_type = fields_mapping.force_type is not None
+        if mapping:
+            # source key is mapped, add the mapped key to the document
+            for k in mapping:
+                kk, vv = self._type_checks(
+                    k, source_value, force_type_set=force_type
+                )
+                if vv:
+                    d[kk] = vv
+        else:
+            # unmapped key
+            d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
+
+        return d
+
     def _process_key(self, source_key: str, source_value: Any) -> dict:
         """
         Maps the source key, generating a dictionary to be merged in the final gulp document.
@@ -1366,35 +1402,6 @@ class GulpPluginBase(ABC):
         Returns:
             a dictionary to be merged in the final gulp document
         """
-
-        def _try_map_ecs(
-            fields_mapping: GulpMappingField, d: dict, source_value: Any
-        ) -> dict:
-            # fields are added to d if found
-
-            # print(fields_mapping)
-            mapping = fields_mapping.ecs
-            if isinstance(mapping, str):
-                # single mapping
-                mapping = [mapping]
-
-            force_type = fields_mapping.force_type is not None
-            if mapping:
-                # source key is mapped, add the mapped key to the document
-                for k in mapping:
-                    kk, vv = self._type_checks(
-                        k, source_value, force_type_set=force_type
-                    )
-                    if vv:
-                        d[kk] = vv
-            else:
-                # unmapped key
-                d[
-                    f"{GulpOpenSearch.UNMAPPED_PREFIX}.{
-                        source_key}"
-                ] = source_value
-
-            return d
 
         if not source_value:
             return {}
@@ -1415,7 +1422,9 @@ class GulpPluginBase(ABC):
         fields_mapping = mapping.fields.get(source_key)
         if not fields_mapping:
             # missing mapping at all (no ecs and no timestamp field)
-            return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
+            return {
+                f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value
+            }
 
         d = {}
         if fields_mapping.force_type:
@@ -1459,7 +1468,7 @@ class GulpPluginBase(ABC):
 
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
-            mapped = _try_map_ecs(fields_mapping, d, source_value)
+            mapped = self._try_map_ecs(fields_mapping, d, source_key, source_value)
             for k, _ in mapped.items():
                 extra[k] = None
 
@@ -1468,7 +1477,7 @@ class GulpPluginBase(ABC):
             # we also add this key to the main document
             return mapped
 
-        m = _try_map_ecs(fields_mapping, d, source_value)
+        m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
         return m
 
     async def _update_ingestion_stats(self, ingested: int, skipped: int) -> None:
