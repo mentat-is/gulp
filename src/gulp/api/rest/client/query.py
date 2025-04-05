@@ -90,9 +90,8 @@ class GulpAPIQuery:
         token: str,
         zip_file_path: str,
         operation_id: str,
-        plugin: str,
+        plugin_params: Optional[GulpPluginParameters],
         q_options: Optional[GulpQueryParameters] = None,
-        plugin_params: Optional[GulpPluginParameters] = None,
         flt: Optional[GulpQueryFilter] = None,
         ws_id: str = None,
         req_id: str = None,
@@ -111,7 +110,6 @@ class GulpAPIQuery:
 
         params = {
             "operation_id": operation_id,
-            "plugin": plugin,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }
@@ -158,10 +156,9 @@ class GulpAPIQuery:
     async def query_sigma(
         token: str,
         operation_id: str,
-        plugin: str,
         sigmas: list[str],
+        plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
-        plugin_params: GulpPluginParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
         req_id: str = None,
@@ -170,7 +167,6 @@ class GulpAPIQuery:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
-            "plugin": plugin,
             "req_id": req_id or api_common.req_id,
             "ws_id": ws_id or api_common.ws_id,
         }
@@ -211,15 +207,15 @@ class GulpAPIQuery:
     async def sigma_convert(
         token: str,
         sigma: str,
-        plugin: str,
-        plugin_params: GulpPluginParameters = None,
+        plugin_params: GulpPluginParameters,
+        plugin: str = None,
         expected_status: int = 200,
         req_id: str = None,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         params = {
-            "plugin": plugin,
             "req_id": req_id or api_common.req_id,
+            "plugin": plugin,
         }
         body = {
             "sigma": sigma,
@@ -227,9 +223,7 @@ class GulpAPIQuery:
                 plugin_params.model_dump(
                     by_alias=True, exclude_none=True, exclude_defaults=True
                 )
-                if plugin_params
-                else None
-            ),
+            )
         }
 
         res = await api_common.make_request(
@@ -241,6 +235,7 @@ class GulpAPIQuery:
             expected_status=expected_status,
         )
         return res
+
 
     @staticmethod
     async def query_single_id(

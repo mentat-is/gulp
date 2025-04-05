@@ -138,17 +138,27 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 ws_queue_datatype=GulpWsQueueDataType.NEW_SOURCE if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
+                commit=False
             )
 
             # add same grants to the source as the context
+            MutyLogger.get_instance().debug(
+                "context %s granted_user_ids=%s, granted_group_ids=%s" % (
+                    self.id,
+                    self.granted_user_ids,
+                    self.granted_user_group_ids,
+                )
+            )
             for u in self.granted_user_ids:
-                await src.add_user_grant(sess, u)
+                await src.add_user_grant(sess, u, commit=False)
             for g in self.granted_user_group_ids:
-                await src.add_group_grant(sess, g)
-    
+                await src.add_group_grant(sess, g, commit=False)
+            
+            # finally commit the session
+            await sess.commit()
             await sess.refresh(self)
             MutyLogger.get_instance().info(
-                f"source {src.id}, name={name} added to context {self.id}."
+                f"source {src.id}, name={name} added to context {self.id}, src={src}"
             )
             return src, True
         

@@ -34,6 +34,7 @@ from gulp.api.ws_api import (
     GulpQueryGroupMatchPacket,
     GulpWsAuthPacket,
 )
+from gulp.structs import GulpPluginParameters
 
 TEST_QUERY_RAW = {
     "query": {
@@ -619,3 +620,18 @@ async def test_sigma_zip():
     # sigma zip test
     await test_win_evtx_multiple()
     await _test_sigma_zip(guest_token)
+
+@pytest.mark.asyncio
+async def test_sigma_convert():
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+
+    sigma_path="/gulp/rules/process_creation/proc_creation_win_rundll32_parent_explorer.yml"
+    sigma: bytes = await muty.file.read_file_async(sigma_path)
+    plugin_params=GulpPluginParameters(mapping_file="windows.json")
+    s = await GulpAPIQuery.sigma_convert(
+        guest_token, sigma.decode(), plugin_params
+    )
+    print(s)
+    
+

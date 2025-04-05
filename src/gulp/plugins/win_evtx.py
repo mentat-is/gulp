@@ -272,14 +272,3 @@ class Plugin(GulpPluginBase):
         finally:
             await self._source_done(flt)
         return self._stats_status()
-
-    @override
-    def sigma_convert(
-        self,
-        sigma: str,
-        plugin_params: GulpPluginParameters = None,
-    ) -> list[GulpQuery]:
-
-        backend = OpensearchLuceneBackend(processing_pipeline=ecs_windows())
-        output_format = "dsl_lucene"
-        return to_gulp_query_struct(sigma, backend, output_format=output_format)

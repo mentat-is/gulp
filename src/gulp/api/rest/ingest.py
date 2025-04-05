@@ -249,6 +249,7 @@ async def _ingest_file_internal(
                 "PREVIEW MODE, no stats is created on the collab database."
             )
         else:
+             # create stats
              stats = await GulpRequestStats.create(
                 token=None,
                 ws_id=ws_id,
@@ -262,7 +263,6 @@ async def _ingest_file_internal(
                 sess=sess,
                 user_id=user_id,
             )
-
         try:
             # run plugin
             mod = await GulpPluginBase.load(plugin)
@@ -317,6 +317,14 @@ async def _ingest_file_internal(
 
             # done
             if mod:
+                # update source ingestion info (plugin, plugin_params)
+                d = {
+                    "plugin": plugin,
+                    "plugin_params": mod.plugin_params().model_dump(
+                        exclude_none=True
+                    ) if mod.plugin_params else None
+                }
+                await GulpSource.update_by_id(None, source_id, d=d, ws_id=None, req_id=None)
                 await mod.unload()
 
         return status, preview_chunk
@@ -524,7 +532,9 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx, _ = await operation.add_context(
                     sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
                 )
-
+                MutyLogger.get_instance().debug(
+                    f"context in operation {operation.id}:  {ctx}"
+                )
                 src, _ = await ctx.add_source(
                     sess,
                     user_id=user_id,

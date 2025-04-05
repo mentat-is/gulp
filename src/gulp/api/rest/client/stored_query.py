@@ -13,7 +13,6 @@ class GulpAPIStoredQuery:
         name: str,
         q: str,
         q_groups: list[str] = None,
-        plugin: str = None,
         plugin_params: dict = None,
         tags: list[str] = None,
         description: str = None,
@@ -28,7 +27,6 @@ class GulpAPIStoredQuery:
         params = {
             "name": name,
             "req_id": req_id or api_common.req_id,
-            "plugin": plugin,
             "glyph_id": glyph_id,
             "private": private,
         }
@@ -58,7 +56,6 @@ class GulpAPIStoredQuery:
         name: str = None,
         q: str = None,
         q_groups: list[str] = None,
-        plugin: str = None,
         plugin_params: dict = None,
         tags: list[str] = None,
         description: str = None,
@@ -71,7 +68,6 @@ class GulpAPIStoredQuery:
         params = {
             "obj_id": obj_id,
             "name": name,
-            "plugin": plugin,
             "req_id": req_id or api_common.req_id,
             "glyph_id": glyph_id,
         }

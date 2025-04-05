@@ -98,7 +98,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         obj_id = GulpContext.make_context_id_key(self.id, name)
 
         try:
-            await GulpContext.acquire_advisory_lock(sess, obj_id)
+            await GulpContext.acquire_advisory_lock(sess, self.id)
 
             # check if context exists
             ctx: GulpContext = await GulpContext.get_by_id(
@@ -125,19 +125,23 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
+                commit=False,
             )
 
             # add same grants to the context as the operation
             for u in self.granted_user_ids:
-                await ctx.add_user_grant(sess, u)
+                await ctx.add_user_grant(sess, u, commit=False)
             for g in self.granted_user_group_ids:
-                await ctx.add_group_grant(sess, g)
+                await ctx.add_group_grant(sess, g, commit=False)
 
-            await sess.refresh(self)            
-            MutyLogger.get_instance().info(f"context {name} added to operation {self.id}.")
+            # finally commit the session
+            await sess.commit()
+            await sess.refresh(self)
+
+            MutyLogger.get_instance().info(f"context {name} added to operation {self.id}: {self}")
             return ctx, True
         finally:
-            await GulpContext.release_advisory_lock(sess, obj_id)
+            await GulpContext.release_advisory_lock(sess, self.id)
 
     @override
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:

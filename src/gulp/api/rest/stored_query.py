@@ -77,16 +77,10 @@ async def stored_query_create_handler(
             description="if set, one or more `query groups` to associate with this query.",
         ),
     ] = None,
-    plugin: Annotated[
-        str,
-        Query(
-            description="If `q` is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion."
-        ),
-    ] = None,
     plugin_params: Annotated[
         Optional[GulpPluginParameters],
         Body(
-            description="if set, a dictionary of parameters to be passed to the plugin."
+            description="if set, `q` is a sigma rule and this holds the needed parameters for mapping."
         ),
     ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
@@ -103,9 +97,9 @@ async def stored_query_create_handler(
     )
     ServerUtils.dump_params(params)
 
-    if plugin:
-        # it's a sigma rule, get tags
-        sigma_tags = await sigma_to_tags(plugin, q, plugin_params)
+    if plugin_params:
+        # q is a sigma rule, get tags
+        sigma_tags = await sigma_to_tags(q)
         if tags:
             # add to provided tags
             for tt in sigma_tags:
@@ -119,7 +113,6 @@ async def stored_query_create_handler(
             "name": name,
             "q": q,
             "q_groups": q_groups,
-            "plugin": plugin,
             "plugin_params": (
                 plugin_params.model_dump(exclude_none=True) if plugin_params else None
             ),
@@ -180,16 +173,10 @@ async def stored_query_update_handler(
             description="if set, one or more `query groups` to associate with this query.",
         ),
     ] = None,
-    plugin: Annotated[
-        str,
-        Query(
-            description="If `q` is a sigma YAML, this is the plugin implementing `sigma_convert` to be used for conversion."
-        ),
-    ] = None,
     plugin_params: Annotated[
         Optional[GulpPluginParameters],
         Body(
-            description="if set, a dictionary of parameters to be passed to the plugin."
+            description="if set, `q` is a sigma rule and this holds the needed parameters for mapping."
         ),
     ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
@@ -205,7 +192,7 @@ async def stored_query_update_handler(
     )
     ServerUtils.dump_params(params)
     try:
-        if not any([q, q_groups, tags, description, glyph_id, plugin]):
+        if not any([q, q_groups, tags, description, glyph_id, plugin_params]):
             raise ValueError(
                 "At least one of q, q_groups, tags, description, glyph_id, plugin must be provided."
             )
@@ -216,20 +203,15 @@ async def stored_query_update_handler(
             obj_id,
             permission=[GulpUserPermission.EDIT],
         )
-        if plugin and not r.get("plugin"):
+        if plugin_params and not r.get("plugin_params"):
             raise ValueError(
-                "Cannot set plugin for a stored raw query, delete rule and recreate instead."
+                "Cannot set plugin_params for a stored raw query (only for sigma rules): delete rule and recreate instead."
             )
-        if plugin and r.get("plugin") != plugin:
-            raise ValueError(
-                "Cannot change plugin for a stored sigma query, delete query and recreate instead."
-            )
-
         # handle tags if q is a sigma rule
         existing_tags = []
-        if q and plugin:
+        if q and plugin_params:
             # it's a sigma rule, get tags and replace
-            sigma_tags = await sigma_to_tags(plugin, q, plugin_params)
+            sigma_tags = await sigma_to_tags(q)
             existing_tags = sigma_tags
         else:
             if tags:
@@ -248,8 +230,6 @@ async def stored_query_update_handler(
             d["description"] = description
         if glyph_id:
             d["glyph_id"] = glyph_id
-        if plugin:
-            d["plugin"] = plugin
         if plugin_params:
             d["plugin_params"] = plugin_params.model_dump(exclude_none=True)
 

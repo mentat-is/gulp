@@ -12,7 +12,8 @@ from typing import Optional
 
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
-
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict
 from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 
 
@@ -35,4 +36,14 @@ class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
     )
     color: Mapped[Optional[str]] = mapped_column(
         String, default="purple", doc="The color of the context."
+    )
+    plugin: Mapped[Optional[str]] = mapped_column(
+        String,
+        default=None,
+        doc="plugin used for ingestion.",
+    )
+    plugin_params: Mapped[Optional[dict]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        default_factory=dict,
+        doc="plugin parameters used for ingestion (mapping, ...).",
     )

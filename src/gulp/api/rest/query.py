@@ -17,13 +17,16 @@ and asynchronous processing with results streamed to websockets.
 # pylint: disable=too-many-lines
 
 import asyncio
+import re
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
 import muty.file
+import muty.uploadfile
 import muty.log
 import muty.pydantic
-from fastapi import APIRouter, Body, Depends, Query, Request
+from pydantic import BeforeValidator
+from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -38,7 +41,6 @@ from gulp.api.collab.structs import (
     GulpRequestStatus,
     GulpUserPermission,
 )
-from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
@@ -58,7 +60,7 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
-
+from gulp.api.opensearch.sigma import sigma_convert
 router: APIRouter = APIRouter()
 
 EXAMPLE_SIGMA_RULE = """title: Match All Events
@@ -98,7 +100,6 @@ EXAMPLE_QUERY_RAW = {
         }
     }
 }
-
 
 async def _query_internal(
     user_id: str,
@@ -1046,10 +1047,9 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 - if more than one query is provided, `q_options.group` must be set.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `sigmas` array and the data is returned directly without using the websocket.
 
-### plugin, plugin_params
+### plugin_params
 
-- all sigma rules must use the same `plugin`
-- usually `plugin_params` is None/empty, unless the plugin requires specific parameters.
+- all the provided sigma rules must use the same `plugin_params` for mapping.
 """,
 )
 async def query_sigma_handler(
@@ -1069,13 +1069,13 @@ async def query_sigma_handler(
             examples=[[EXAMPLE_SIGMA_RULE]],
         ),
     ],
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Body(
+            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`.")],
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
-    ] = None,
-    plugin_params: Annotated[
-        GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params_optional),
     ] = None,
     flt: Annotated[
         GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
@@ -1093,7 +1093,6 @@ async def query_sigma_handler(
         flt = GulpQueryFilter()
     flt.operation_ids = [operation_id]
 
-    mod: GulpPluginBase = None
     try:
         if len(sigmas) > 1 and not q_options.group:
             raise ValueError(
@@ -1115,11 +1114,9 @@ async def query_sigma_handler(
             index = op.index
 
         # convert sigma rule/s using pysigma
-        mod = await GulpPluginBase.load(plugin)
-
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(s, plugin_params)
+            q: list[GulpQuery] = sigma_convert(s, plugin_params)
             queries.extend(q)
 
         if q_options.preview_mode:
@@ -1159,10 +1156,6 @@ async def query_sigma_handler(
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    finally:
-        if mod:
-            await mod.unload()
-
 
 @router.post(
     "/query_sigma_zip",
@@ -1209,8 +1202,7 @@ perform queries using [sigma rules](https://github.com/SigmaHQ/sigma) from the p
 
 ### payload
 
-payload may contain optional `q_options`, optional `plugin_params`, optional `flt`
-
+payload may contain `plugin_params` (**mandatory**, for mapping), `q_options` (optional), `flt` (optional)
 
 #### q_options
 
@@ -1222,10 +1214,9 @@ payload may contain optional `q_options`, optional `plugin_params`, optional `fl
 
 - `flt` may be used to restrict the query (flt.operation_ids is enforced to the provided `operation_id`).
 
-#### plugin, plugin_params
+#### plugin_params
 
-- all sigma rules must use the same `plugin`
-- usually `plugin_params` is None/empty, unless the plugin requires specific parameters.
+- all the provided sigma rules must use the same `plugin_params` for mapping.
 """,
 )
 async def query_sigma_zip_handler(
@@ -1233,19 +1224,12 @@ async def query_sigma_zip_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    plugin: Annotated[
-        str,
-        Query(
-            description="the plugin implementing `sigma_convert` to convert the sigma rule."
-        ),
-    ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params.pop("r")
     ServerUtils.dump_params(params)
 
-    mod: GulpPluginBase = None
     files_path: str = None
     zip_path: str = None
     try:
@@ -1262,7 +1246,10 @@ async def query_sigma_zip_handler(
 
         # get optionals from payload
         q_options = GulpQueryParameters(**payload.get("q_options", {}))
-        plugin_params = GulpPluginParameters(**payload.get("plugin_params", {}))
+        plugin_params = GulpPluginParameters(**payload.get("plugin_params", None))
+        if not plugin_params:
+            raise ValueError("plugin_params is required for sigma_convert (mapping must be specified) !")
+        
         flt = GulpQueryFilter(**payload.get("flt", {}))
         flt.operation_ids = [operation_id]
         MutyLogger.get_instance().debug(
@@ -1293,7 +1280,6 @@ async def query_sigma_zip_handler(
             index = op.index
 
         # convert all sigma rule/s using pysigma
-        mod = await GulpPluginBase.load(plugin)
         files = await muty.file.list_directory_async(files_path, recursive=True)
         sigmas = []
         for f in files:
@@ -1313,7 +1299,7 @@ async def query_sigma_zip_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = mod.sigma_convert(s, plugin_params)
+            q: list[GulpQuery] = sigma_convert(s, plugin_params)
             queries.extend(q)
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
@@ -1333,8 +1319,6 @@ async def query_sigma_zip_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
     finally:
-        if mod:
-            await mod.unload()
         if zip_path:
             await muty.file.delete_file_or_dir_async(zip_path)
         if files_path:
@@ -1380,33 +1364,31 @@ async def query_sigma_zip_handler(
             }
         }
     },
-    summary="Convert a sigma rule to raw query for the specific target.",
+    summary="Convert a sigma rule to a gulp raw query.",
     description="""
-to be used to build i.e. raw queries for `query_external` API from [sigma rules](https://github.com/SigmaHQ/sigma).
+manually builds raw query for gulp or external plugin from a sigma rule YAML.
 
-- use `plugin_params.custom_parameters` if needed to customize the conversion, depending on the specific plugin options (i.e. backend, target query language, ...)
+- `plugin_params` is used to specify mapping parameters: `mapping_file` or `mappings` (direct mapping), `mapping_id`, `additional_mapping_files`
 """,
 )
 async def sigma_convert_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    sigma: Annotated[
-        str,
-        Body(
-            description="the sigma rule YAML to be converted.",
+    sigma: Annotated[str, Body(
+            description="a sigma rule YML to be converted.",
             examples=[EXAMPLE_SIGMA_RULE],
-        ),
-    ],
-    plugin: Annotated[
-        str,
-        Query(
-            description="the plugin implementing `sigma_convert` to convert the sigma rule.",
-            example="win_evtx",
+            media_type="text/plain",
         ),
     ],
     plugin_params: Annotated[
         GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params_optional),
-    ] = None,
+        Body(
+            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`.")],
+    plugin: Annotated[
+        str,
+        Query(
+            description="if set, the plugin implementing `sigma_convert` to convert the sigma rule (i.e. using a custom backend). Default=Gulp Opensearch backend outputting lucene DSL raw queries."
+        ),
+    ]=None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -1419,8 +1401,18 @@ async def sigma_convert_handler(
             _ = await GulpUserSession.check_token(sess, token)
 
         # convert sigma rule/s using pysigma
-        mod = await GulpPluginBase.load(plugin)
-        q: list[GulpQuery] = mod.sigma_convert(sigma, plugin_params)
+        MutyLogger.get_instance().debug("sigma rule: %s" % (sigma))
+        if plugin is not None:
+            # load the plugin, use custom backend
+            try:
+                mod = await GulpPluginBase.load(plugin)
+                q: list[GulpQuery] = await mod.sigma_convert(sigma, plugin_params)
+            finally:
+                if mod:
+                    await mod.unload()
+        else:
+            # use gulp's backend
+            q: list[GulpQuery] = await sigma_convert(sigma, plugin_params)
 
         l: list[dict] = []
         for qq in q:

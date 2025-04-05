@@ -296,6 +296,7 @@ the user password.
         """
         return APIDependencies._strip_or_none(password, lower=False)
 
+
     @staticmethod
     def param_password_optional(
         password: Annotated[

@@ -766,6 +766,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_data: dict = None,
         req_id: str = None,
         private: bool = True,
+        commit: bool=True
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -784,6 +785,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
+            commit (bool): Whether to commit the session after creating the object. Defaults to True.
         Returns:
             T: The created instance of the class.
         Raises:
@@ -812,7 +814,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             raise ex
 
         # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
-        await sess.commit()
+        if commit:
+            await sess.commit()
         if not ws_id:
             # no websocket, return the instance
             return instance
@@ -854,24 +857,26 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The session to use.
         """
         # add user grants
-        await self.add_user_grant(sess, "ingest")
-        await self.add_user_grant(sess, "admin")
-        await self.add_user_grant(sess, "editor")
-        await self.add_user_grant(sess, "power")
-        await self.add_user_grant(sess, "guest")
+        await self.add_user_grant(sess, "ingest", commit=False)
+        await self.add_user_grant(sess, "admin", commit=False)
+        await self.add_user_grant(sess, "editor", commit=False)
+        await self.add_user_grant(sess, "power", commit=False)
+        await self.add_user_grant(sess, "guest", commit=False)
 
         # add group grants
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+        await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID, commit=False)
+                
+        await sess.commit()
 
-        await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID)
-
-    async def add_group_grant(self, sess: AsyncSession, group_id: str) -> None:
+    async def add_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
         """
         grant a user group access to the object
 
         Args:
             sess (AsyncSession): The database session to use.
             group_id (str): The ID of the user group to add.
+            commit (bool): Whether to commit the session after adding the group grant. Defaults to True.
         Returns:
             None
         """
@@ -883,7 +888,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             try:
                 await self.__class__.acquire_advisory_lock(sess, self.id)
                 self.granted_user_group_ids.append(group_id)
-                await sess.commit()
+                if commit:
+                    await sess.commit()
             finally:
                 await self.__class__.release_advisory_lock(sess, self.id)
         else:
@@ -891,13 +897,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "user group %s already granted on object %s" % (group_id, self.id)
             )
 
-    async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
+    async def remove_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
         """
         remove a user group access to the object
 
         Args:
             sess (AsyncSession): The database session to use.
             group_id (str): The ID of the user group to remove.
+            commit (bool): Whether to commit the session after removing the group grant. Defaults to True.
         Returns:
             None
         """
@@ -909,7 +916,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             try:
                 await self.__class__.acquire_advisory_lock(sess, self.id)
                 self.granted_user_group_ids.remove(group_id)
-                await sess.commit()
+                if commit:
+                    await sess.commit()
             finally:
                 await self.__class__.release_advisory_lock(sess, self.id)
 
@@ -918,13 +926,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "user group %s not in granted list on object %s" % (group_id, self.id)
             )
 
-    async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
+    async def add_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
         """
         grant a user access to the object
 
         Args:
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to add.
+            commit (bool): Whether to commit the session after adding the user grant. Defaults to True.
         Returns:
             None
         """
@@ -936,7 +945,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             try:
                 await self.__class__.acquire_advisory_lock(sess, self.id)
                 self.granted_user_ids.append(user_id)
-                await sess.commit()
+                if commit:
+                    await sess.commit()
             finally:
                 await self.__class__.release_advisory_lock(sess, self.id)
         else:
@@ -944,7 +954,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "user %s already granted on object %s" % (user_id, self.id)
             )
 
-    async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
+    async def remove_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
         """
         remove a user access to the object
 
@@ -961,7 +971,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             try:
                 await self.__class__.acquire_advisory_lock(sess, self.id)
                 self.granted_user_ids.remove(user_id)
-                await sess.commit()
+                if commit:
+                    await sess.commit()
             finally:
                 await self.__class__.release_advisory_lock(sess, self.id)
 
@@ -1555,7 +1566,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         helper to update an object by ID, handling session
 
         Args:
-            token (str): The user token.
+            token (str): The user token, pass None for internal calls skipping token check.
             obj_id (str): The ID of the object to update.
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
@@ -1577,15 +1588,22 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
 
-            # token needs at least edit permission (or be the owner)
-            s = await GulpUserSession.check_token(
-                sess, token, permission=permission, obj=n
-            )
+            if token is not None:
+                # token needs at least edit permission (or be the owner)
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission, obj=n
+                )
+                user_id = s.user_id
+            else:
+                # internal call, no token check
+                user_id = None
+                ws_id = None
+
             await n.update(
                 sess,
                 d=d,
                 ws_id=ws_id,
-                user_id=s.user_id,
+                user_id=user_id,
                 req_id=req_id,
             )
             return n.to_dict(exclude_none=True)

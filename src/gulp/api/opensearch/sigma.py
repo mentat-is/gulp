@@ -13,48 +13,20 @@ These utilities facilitate the use of Sigma rules for security monitoring and th
 using the Gulp framework.
 """
 from typing import TYPE_CHECKING
-
 import muty.string
 from muty.log import MutyLogger
 from sigma.collection import SigmaCollection
 from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
+import yaml
 
+from gulp.api.mapping.models import GulpMapping
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
+from sigma.backends.opensearch import OpensearchLuceneBackend
 
 if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQuery
-
-
-async def sigma_to_tags(
-    plugin: str, sigma: str, plugin_params: GulpPluginParameters = None
-) -> list[str]:
-    """
-    get tags from a sigma rule.
-
-    Args:
-        plugin (str): the plugin to use
-        sigma (str): the sigma rule YAML
-        plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
-
-    Returns:
-        list[str]: the tags extracted from the sigma rule
-    """
-    mod: GulpPluginBase = None
-    tags: list[str] = []
-    try:
-        mod = await GulpPluginBase.load(plugin)
-        q: list[GulpQuery] = mod.sigma_convert(sigma, plugin_params)
-        for qq in q:
-            if qq.tags:
-                tags.extend(qq.tags)
-    finally:
-        if mod:
-            mod.unload()
-    MutyLogger.get_instance().debug("extracted tags from sigma rule:\n%s", tags)
-    return tags
-
 
 def to_gulp_query_struct(
     sigma: str, backend: Backend, output_format: str = None, tags: list[str] = None
@@ -105,3 +77,158 @@ def to_gulp_query_struct(
         converted_sigmas,
     )
     return converted_sigmas
+
+def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
+    """
+    Replace field names in a sigma rule YAML with their ECS mappings from a GulpMapping.
+    
+    This function takes a sigma rule in YAML format and transforms field names based on
+    the ECS mappings defined in the provided GulpMapping object. For each field in the
+    sigma rule's detection section, if a mapping exists, the field is replaced with its
+    corresponding ECS field(s).
+    
+    Args:
+        sigma_yaml (str): The sigma rule in YAML format
+        mapping (GulpMapping): The mapping containing field-to-ECS transformations
+        
+    Returns:
+        str: The modified sigma rule YAML with fields replaced according to ECS mappings
+        
+    Throws:
+        yaml.YAMLError: If the input YAML is not valid
+    """
+
+    def _map_field(field: str) -> list[str]:
+        """
+        map a field name to its ecs equivalent, preserving any modifiers.
+        
+        Args:
+            field (str): original field name possibly containing modifiers
+            
+        Returns:
+            list[str]: list of mapped field names with preserved modifiers
+        """
+        # split the field name and any modifiers (e.g., "field|modifier")
+        if '|' in field:
+            field_name, modifier = field.split('|', 1)
+            modifier_suffix = f"|{modifier}"
+        else:
+            field_name = field
+            modifier_suffix = ""
+        
+        # check if the base field name has a mapping
+        if field_name in field_mappings:
+            # map to one or more ecs fields
+            return [f"{ecs_field}{modifier_suffix}" for ecs_field in field_mappings[field_name]]
+        else:
+            # keep original field if no mapping exists
+            return [field]
+    
+    def _process_field_conditions(conditions: dict) -> dict:
+        """
+        process a dictionary of field conditions, replacing field names with ecs mappings.
+        
+        Args:
+            conditions (dict): dictionary of field conditions
+            
+        Returns:
+            dict: updated dictionary with mapped field names
+        """
+        new_conditions = {}
+        for field, value in conditions.items():
+            mapped_fields = _map_field(field)
+            for mapped_field in mapped_fields:
+                new_conditions[mapped_field] = value
+        return new_conditions
+    
+    # parse the sigma yaml
+    try:
+        sigma_dict = yaml.safe_load(sigma_yaml)
+    except yaml.YAMLError as e:
+        MutyLogger.get_instance().error("failed to parse sigma yaml: %s", e)
+        raise
+    
+    # create field mapping dictionary from source fields to ecs fields
+    field_mappings = {}
+    for source_field, mapping_field in mapping.fields.items():
+        if mapping_field.ecs:
+            # handle both string and list formats for ecs field mapping
+            if isinstance(mapping_field.ecs, str):
+                field_mappings[source_field] = [mapping_field.ecs]
+            else:  # it's a list
+                field_mappings[source_field] = mapping_field.ecs
+    
+    # process detection section where field names are used
+    if 'detection' not in sigma_dict:
+        MutyLogger.get_instance().warning("sigma rule has no detection section")
+        return sigma_yaml
+    
+    detection = sigma_dict['detection']
+    
+    # process each key in the detection section
+    for key, value in list(detection.items()):
+        if key == 'condition':
+            # skip the condition, it refers to section names, not field names
+            continue
+        
+        if isinstance(value, dict):
+            # direct field-to-value mapping
+            detection[key] = _process_field_conditions(value)
+        elif isinstance(value, list):
+            # list of conditions (could be dicts or strings)
+            for i, item in enumerate(value):
+                if isinstance(item, dict):
+                    # replace field names in this dict
+                    value[i] = _process_field_conditions(item)
+                # leave strings unchanged
+    
+    # convert back to yaml
+    s = yaml.dump(sigma_dict, sort_keys=False)
+    MutyLogger.get_instance().debug("mapped sigma:\n%s", s)
+    return s
+
+async def sigma_convert(
+        sigma: str,
+        plugin_params: GulpPluginParameters
+    ) -> list["GulpQuery"]:
+    """
+    convert a sigma rule to a GulpQuery object.
+    
+    Args:
+        sigma (str): the sigma rule YAML
+        plugin_params (GulpPluginParameters): contains the mapping file (or direct mappings) and mapping ID to use for conversion.
+    Returns:
+        list[GulpQuery]: one or more queries in the format specified by backend/pipeline/output_format.
+    """
+    mappings, mapping_id = await GulpPluginBase.plugin_params_to_mapping(plugin_params)
+
+    # transform the sigma rule using ECS field mappings
+    mapped_sigma = map_sigma_fields_to_ecs(sigma, mappings[mapping_id])    
+    
+    # convert the transformed sigma rule to gulp queries
+    return to_gulp_query_struct(mapped_sigma, backend=OpensearchLuceneBackend(), output_format="dsl_lucene")
+
+async def sigma_to_tags(sigma: str) -> list[str]:
+    """
+    get tags from a sigma rule.
+
+    Args:
+        plugin (str): the plugin to use
+        sigma (str): the sigma rule YAML
+        plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
+
+    Returns:
+        list[str]: the tags extracted from the sigma rule
+    """
+    # just load the sigma and extract the tags
+    q: list[GulpQuery] = to_gulp_query_struct(
+        sigma,
+        backend=OpensearchLuceneBackend(),
+        output_format="dsl_lucene",
+    )
+    tags: list[str] = []
+    for qq in q:
+        if qq.tags:
+            tags.extend(qq.tags)
+    MutyLogger.get_instance().debug("extracted tags from sigma rule:\n%s", tags)
+    return tags

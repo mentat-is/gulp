@@ -472,7 +472,13 @@ class GulpPluginBase(ABC):
         - ...
         """
         return []
-
+    
+    def plugin_params(self) -> GulpPluginParameters:
+        """
+        returns the plugin parameters used
+        """
+        return self._plugin_params
+    
     def preview_chunk(self) -> list[dict]:
         """
         returns the accumulated preview chunk
@@ -601,20 +607,18 @@ class GulpPluginBase(ABC):
         return l, skipped
 
     def sigma_convert(
-        self, sigma: str, plugin_params: GulpPluginParameters = None
+        self, sigma: str, plugin_params: GulpPluginParameters
     ) -> list[GulpQuery]:
         """
-        convert a sigma rule specifically targeted to this plugin into a raw query for gulp's OpenSearch.
+        convert a sigma rule to a specific query format.
 
-        usually, this is implemented in the same `ingestion` or `external` plugin handling a particular data type (i.e. windows, splunk, ...)
+        `sigma_convert` may be used to convert a sigma rule into a raw query to be used then with `query_external` REST API: the plugin must implement a pysigma backend suitable for the external source DSL.
 
-        `sigma_convert` may be used to:
-            - query gulp itself via `query_sigma` REST API (must implement OpenSearch pysigma backend and, possibly, a pysigma pipeline targeting the ECS formatted data ingested in gulp)
-            - convert a sigma rule to generate a raw query to be used then with `query_external` REST API: in this case the plugin must implement a pysigma backend suitable for the external source DSL.
+        NOTE: usually, this is implemented in the same `external` plugin handling a particular external source (i.e. splunk)
 
         Args:
             sigma (str): the sigma rule YAML
-            plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): the plugin parameters specifying the `mapping_file`/`mappings`, `mapping_id`,`additional_mapping_file` to be used.
 
         Returns:
             list[GulpQuery]: one or more queries.
@@ -1129,7 +1133,7 @@ class GulpPluginBase(ABC):
         await self._initialize(plugin_params=plugin_params)
         return GulpRequestStatus.ONGOING
 
-    async def load_plugin(
+    async def load_plugin_direct(
         self,
         plugin: str,
         sess: AsyncSession = None,
@@ -1647,25 +1651,34 @@ class GulpPluginBase(ABC):
                 f"---> found plugin custom parameter: {param_name}={param_value}"
             )
 
-    async def _setup_mapping(self) -> None:
+    @staticmethod
+    async def plugin_params_to_mapping(plugin_params: GulpPluginParameters) -> tuple[dict[str, GulpMapping], str]:
         """
-        setup mapping dictionaries from plugin_params.mappings or mapping files
+        convert plugin parameters to mapping: handle mappings and mapping files.
+        this is used by the engine to load the plugin and set the mapping.
 
-        Raises:
-            ValueError: if mapping file is empty or configuration is invalid
+        Args:
+            plugin_params (GulpPluginParameters): the plugin parameters
+
+        Returns:
+            tuple[dict[str, GulpMapping], str]: a tuple with the mappings and the mapping id
         """
-        if self._plugin_params.mappings:
+        mappings: dict[str, GulpMapping] = None
+        mapping_id: str = None
+
+        # check if mappings or mapping_file is set
+        if plugin_params.mappings:
             # use provided mappings dictionary
-            self._mappings = {
+            mappings = {
                 k: GulpMapping.model_validate(v)
-                for k, v in self._plugin_params.mappings.items()
+                for k, v in plugin_params.mappings.items()
             }
             MutyLogger.get_instance().debug(
-                f'using plugin_params.mappings="{self._plugin_params.mappings}"'
+                f'using plugin_params.mappings="{plugin_params.mappings}"'
             )
-        elif self._plugin_params.mapping_file:
+        elif plugin_params.mapping_file:
             # load from mapping file
-            mapping_file = self._plugin_params.mapping_file
+            mapping_file = plugin_params.mapping_file
             MutyLogger.get_instance().debug(
                 f"using plugin_params.mapping_file={mapping_file}"
             )
@@ -1680,51 +1693,43 @@ class GulpPluginBase(ABC):
                 raise ValueError(f"mapping file {mapping_file_path} is empty!")
 
             mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
-            self._mappings = mapping_file_obj.mappings
+            mappings = mapping_file_obj.mappings
 
         # handle mapping_id
-        if self._plugin_params.mapping_id:
-            self._mapping_id = self._plugin_params.mapping_id
+        if plugin_params.mapping_id:
+            mapping_id = plugin_params.mapping_id
             MutyLogger.get_instance().debug(
-                f"using plugin_params.mapping_id={self._mapping_id}"
+                f"using plugin_params.mapping_id={mapping_id}"
             )
 
         # validation checks
-        if not self._mappings and self._mapping_id:
+        if not mappings and mapping_id:
             raise ValueError("mapping_id is set but mappings/mapping_file is not!")
 
-        if not self._mappings and not self._mapping_id:
+        if not mappings and not mapping_id:
             MutyLogger.get_instance().warning(
                 "mappings/mapping_file and mapping_id are both None/empty!"
             )
-            self._mappings = {"default": GulpMapping(fields={})}
+            mappings = {"default": GulpMapping(fields={})}
 
         # ensure mapping_id is set to first key if not specified
-        self._mapping_id = self._mapping_id or list(self._mappings.keys())[0]
-        MutyLogger.get_instance().debug(f"mapping_id={self._mapping_id}")
+        mapping_id = mapping_id or list(mappings.keys())[0]
+        MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
 
-        # load additional mappings if needed
-        await self._load_additional_mappings()
-
-    async def _load_additional_mappings(self) -> None:
-        """
-        load and merge additional mappings from files
-
-        Raises:
-            ValueError: if additional mapping file is empty
-        """
+        # check for additional mapping
         # skip if using direct mappings or no additional files
         if (
-            self._plugin_params.mappings
-            or not self._plugin_params.additional_mapping_files
+            plugin_params.mappings
+            or not plugin_params.additional_mapping_files
         ):
-            return
+            return mappings, mapping_id
 
         MutyLogger.get_instance().debug(
-            f"loading additional mapping files/id: {self._plugin_params.additional_mapping_files} ..."
+            f"loading additional mapping files/id: {plugin_params.additional_mapping_files} ..."
         )
 
-        for file_info in self._plugin_params.additional_mapping_files:
+        for file_info in plugin_params.additional_mapping_files:
+            # load and merge additional mappings from files
             additional_file_path = GulpConfig.get_instance().build_mapping_file_path(
                 file_info[0]
             )
@@ -1741,18 +1746,19 @@ class GulpPluginBase(ABC):
             additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
 
             # merge mappings
-            main_mapping = self.selected_mapping()
+            main_mapping = mappings.get(mapping_id, GulpMapping())
             add_mapping = additional_mapping_file.mappings[additional_mapping_id]
 
             MutyLogger.get_instance().debug(
-                f"adding additional mappings from {additional_file_path}.{additional_mapping_id} "
-                f"to {self.filename} '{self._mapping_id}' ..."
+                f"adding additional mappings from {additional_file_path}.{additional_mapping_id} to '{mapping_id}' ..."
             )
 
             for key, value in add_mapping.fields.items():
                 main_mapping.fields[key] = value
 
-            self._mappings[self._mapping_id] = main_mapping
+            mappings[mapping_id] = main_mapping
+        
+        return mappings, mapping_id
 
     async def _handle_stacked_mappings(self) -> None:
         """
@@ -1820,7 +1826,7 @@ class GulpPluginBase(ABC):
 
         # setup mappings if needed
         if not self._mappings:
-            await self._setup_mapping()
+            self._mappings, self._mapping_id = await GulpPluginBase.plugin_params_to_mapping(self._plugin_params)
 
         # handle stacked plugin mappings
         await self._handle_stacked_mappings()

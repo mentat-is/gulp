@@ -4,7 +4,7 @@ MBOX Plugin for Gulp
 This module provides a plugin for processing MBOX files (mailbox format) by leveraging the EML plugin to handle individual email messages extracted from the MBOX container.
 
 It acts as a bridge between MBOX files and email processing capabilities, demonstrating how to use another plugin to process
-the data using GulpPluginBase.load_plugin method: this allow to stack one plugin on top of another and process the data calling the lower plugin directly, bypassing the engine.
+the data using GulpPluginBase.load_plugin_direct method: this allow to stack one plugin on top of another and process the data calling the lower plugin directly, bypassing the engine.
 """
 
 import mailbox
@@ -98,7 +98,7 @@ class Plugin(GulpPluginBase):
             )
 
             # load eml plugin
-            eml_parser = await self.load_plugin(
+            eml_parser = await self.load_plugin_direct(
                 "eml",
                 sess=sess,
                 stats=stats,
