@@ -24,6 +24,7 @@ This plugin is registered as a GulpPluginType.INGESTION plugin and depends on th
 Example usage:
   ./test_scripts/ingest.py --plugin chrome_history_sqlite_stacked --path ~/Downloads/history.sqlite
 """
+
 from enum import Enum
 from typing import override
 
@@ -55,6 +56,7 @@ class Plugin(GulpPluginBase):
         """
         Chrome history tables int mapping
         """
+
         cluster_keywords = 0
         cluster_visit_duplicates = 1
         clusters = 2
@@ -105,7 +107,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
+        **kwargs,
     ) -> GulpRequestStatus:
 
         # set as stacked
@@ -118,7 +120,7 @@ class Plugin(GulpPluginBase):
         if not plugin_params:
             plugin_params = GulpPluginParameters()
 
-        plugin_params.mapping_file = "chrome_history.json"
+        plugin_params.mapping_parameters.mapping_file = "chrome_history.json"
         plugin_params.custom_parameters["queries"] = {
             "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
         }

@@ -40,7 +40,7 @@ from gulp.api.opensearch.query import GulpQuery
 from gulp.api.opensearch.sigma import to_gulp_query_struct
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 # needs the following backends for sigma support (add others if needed)
 muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
@@ -228,8 +228,10 @@ class Plugin(GulpPluginBase):
         **kwargs
   ) -> GulpRequestStatus:
         try:
-            if not plugin_params or plugin_params.is_empty():
-                plugin_params = GulpPluginParameters(mapping_file="windows.json")
+            if not plugin_params or plugin_params.mapping_parameters.is_empty():
+                plugin_params = GulpPluginParameters(
+                    mapping_parameters=GulpMappingParameters(mapping_file="windows.json"),
+                )
             await super().ingest_file(
                 sess=sess,
                 stats=stats,

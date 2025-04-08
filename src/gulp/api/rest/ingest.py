@@ -532,9 +532,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx, _ = await operation.add_context(
                     sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
                 )
-                MutyLogger.get_instance().debug(
-                    f"context in operation {operation.id}:  {ctx}"
-                )
+                #MutyLogger.get_instance().debug( f"context in operation {operation.id}:  {ctx}")
                 src, _ = await ctx.add_source(
                     sess,
                     user_id=user_id,
@@ -945,7 +943,7 @@ async def ingest_zip_handler(
                 sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
 
-            # add each source 
+            # add each source
             for f in files:
                 src: GulpSource
                 src, _ = await ctx.add_source(

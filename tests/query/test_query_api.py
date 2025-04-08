@@ -34,7 +34,7 @@ from gulp.api.ws_api import (
     GulpQueryGroupMatchPacket,
     GulpWsAuthPacket,
 )
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 TEST_QUERY_RAW = {
     "query": {
@@ -67,73 +67,6 @@ async def test_queries():
 
     and the gulp server running on http://localhost:8080
     """
-
-    async def _test_sigma_zip(token: str):
-        # read sigmas
-        current_dir = os.path.dirname(os.path.realpath(__file__))
-        sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
-
-        _, host = TEST_HOST.split("://")
-        ws_url = f"ws://{host}/ws"
-        test_completed = False
-
-        async with websockets.connect(
-            ws_url,
-            ping_interval=30,  # less frequent pings (default is 20)
-            ping_timeout=30,  # longer timeout (default is 10)
-            close_timeout=15,  # give more time for close frame
-        ) as ws:
-            # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
-            await ws.send(p.model_dump_json(exclude_none=True))
-            num_done: int = 0
-
-            # receive responses
-            try:
-                while True:
-                    response = await ws.recv()
-                    data = json.loads(response)
-
-                    if data["type"] == "ws_connected":
-                        # run test
-                        q_options = GulpQueryParameters()
-                        q_options.group = "test group"
-                        q_options.note_parameters.create_notes = False
-                        await GulpAPIQuery.query_sigma_zip(
-                            token,
-                            sigma_zip_path,
-                            TEST_OPERATION_ID,
-                            "win_evtx",
-                            q_options,
-                        )
-                    elif data["type"] == "query_done":
-                        # query done
-                        num_done += 1
-                        q_done_packet: GulpQueryDonePacket = (
-                            GulpQueryDonePacket.model_validate(data["data"])
-                        )
-                        MutyLogger.get_instance().debug(
-                            "query done, name=%s, matches=%d, num_done=%d"
-                            % (q_done_packet.name, q_done_packet.total_hits, num_done)
-                        )
-                        if num_done == 1209:
-                            test_completed = True
-                            break
-
-                    # ping the server
-                    if num_done % 100 == 0:
-                        await ws.ping()
-
-                    # ws delay
-                    await asyncio.sleep(0.1)
-
-            except websockets.exceptions.ConnectionClosed as ex:
-                MutyLogger.get_instance().exception(ex)
-            except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
-
-        assert test_completed
-        MutyLogger.get_instance().info(_test_sigma_zip.__name__ + " succeeded!")
 
     async def _test_sigma_group(token: str):
         # read sigmas
@@ -169,12 +102,14 @@ async def test_queries():
                         await GulpAPIQuery.query_sigma(
                             token,
                             TEST_OPERATION_ID,
-                            "win_evtx",
                             [
                                 sigma_match_some.decode(),
                                 sigma_match_some_more.decode(),
                             ],
-                            q_options,
+                            mapping_parameters=GulpMappingParameters(
+                                mapping_file="windows.json"
+                            ),
+                            q_options=q_options,
                         )
                     elif data["type"] == "query_done":
                         # query done
@@ -257,10 +192,12 @@ async def test_queries():
                         await GulpAPIQuery.query_sigma(
                             token,
                             TEST_OPERATION_ID,
-                            plugin="win_evtx",
                             sigmas=[
                                 sigma_match_some.decode(),
                             ],
+                            mapping_parameters=GulpMappingParameters(
+                                mapping_file="windows.json"
+                            ),
                         )
                     elif data["type"] == "query_done":
                         # query done
@@ -487,7 +424,7 @@ async def test_queries():
     assert ingest_token
 
     # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx, test_win_evtx_multiple
+    from tests.ingest.test_ingest import test_win_evtx
 
     await test_win_evtx()
 
@@ -503,7 +440,7 @@ async def test_queries():
 @pytest.mark.asyncio
 async def test_sigma_zip():
 
-    async def _test_sigma_zip(token: str):
+    async def _test_sigma_zip_internal(token: str):
         current_dir = os.path.dirname(os.path.realpath(__file__))
         sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
 
@@ -548,8 +485,10 @@ async def test_sigma_zip():
                             token,
                             sigma_zip_path,
                             TEST_OPERATION_ID,
-                            "win_evtx",
-                            GulpQueryParameters(
+                            mapping_parameters=GulpMappingParameters(
+                                mapping_file="windows.json"
+                            ),
+                            q_options=GulpQueryParameters(
                                 group="test group",
                                 note_parameters={"create_notes": False},
                             ),
@@ -606,7 +545,9 @@ async def test_sigma_zip():
             MutyLogger.get_instance().error(f"Exception: {ex}")
 
         assert test_completed, "Test did not complete successfully"
-        MutyLogger.get_instance().info(_test_sigma_zip.__name__ + " succeeded!")
+        MutyLogger.get_instance().info(
+            _test_sigma_zip_internal.__name__ + " succeeded!"
+        )
 
     # login
     guest_token = await GulpAPIUser.login("guest", "guest")
@@ -619,19 +560,40 @@ async def test_sigma_zip():
 
     # sigma zip test
     await test_win_evtx_multiple()
-    await _test_sigma_zip(guest_token)
+    await _test_sigma_zip_internal(guest_token)
+
 
 @pytest.mark.asyncio
 async def test_sigma_convert():
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
-    sigma_path="/gulp/rules/process_creation/proc_creation_win_rundll32_parent_explorer.yml"
-    sigma: bytes = await muty.file.read_file_async(sigma_path)
-    plugin_params=GulpPluginParameters(mapping_file="windows.json")
-    s = await GulpAPIQuery.sigma_convert(
-        guest_token, sigma.decode(), plugin_params
-    )
-    print(s)
-    
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
+    try:
+        sigma_path = await muty.file.unzip(sigma_zip_path)
+        rule_path = os.path.join(
+            sigma_path,
+            "create_remote_thread/create_remote_thread_win_susp_relevant_source_image.yml",
+        )
+        sigma: bytes = await muty.file.read_file_async(rule_path)
+        mapping_parameters = GulpMappingParameters(mapping_file="windows.json")
+        s = await GulpAPIQuery.sigma_convert(
+            guest_token, sigma.decode(), mapping_parameters=mapping_parameters
+        )
+        # hackish but effective
+        assert "process.executable:" in str(s)
+        print(s)
 
+        # now without mapping
+        s = await GulpAPIQuery.sigma_convert(
+            guest_token, sigma.decode(), mapping_parameters=None
+        )
+        assert "process.executable:" not in str(s)
+        print(s)
+        MutyLogger.get_instance().info(
+            test_sigma_convert.__name__ + " succeeded!"
+        )
+
+    finally:
+        muty.file.delete_file_or_dir(sigma_path)

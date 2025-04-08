@@ -36,11 +36,10 @@
 			"--disable=logging-fstring-interpolation",
 			"--disable=wrong-import-position",
 			"--disable=too-many-ancestors",
+			"--disable=assigning-non-slot",
+			"--unsupported-assignment"
 		],
 		"editor.minimap.enabled": true,
-		"pylint.interpreter": [
-			"python"
-		],
 		"python.autoComplete.extraPaths": [
 			"${workspaceFolder}/muty-python",
 		],
@@ -48,5 +47,5 @@
 		"files.autoSave": "afterDelay",
 		"terminal.integrated.scrollback": 1000000
 	}
-	
+
 }

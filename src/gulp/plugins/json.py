@@ -153,17 +153,17 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 **kwargs,
             )
-            if not plugin_params.mappings:
-                plugin_params.mappings = {}
+            if not plugin_params.mapping_parameters.mappings:
+                plugin_params.mapping_parameters.mappings = {}
 
-            mappings = plugin_params.mappings.get("default")
+            mappings = plugin_params.mapping_parameters.mappings.get("default")
             if not mappings:
                 mappings = {
                     "default": GulpMapping(
                         fields={"timestamp": GulpMappingField(ecs="@timestamp")}
                     )
                 }
-                plugin_params.mappings = mappings
+                plugin_params.mapping_parameters.mappings = mappings
 
         except Exception as ex:
             await self._source_failed(ex)

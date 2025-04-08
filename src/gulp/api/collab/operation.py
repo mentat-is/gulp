@@ -144,58 +144,66 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             await GulpContext.release_advisory_lock(sess, self.id)
 
     @override
-    async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
+    async def add_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
         # add grant to the operation
-        await super().add_user_grant(sess, user_id)
+        await super().add_user_grant(sess, user_id, commit=False)
         if not self.contexts:
+            await sess.commit()
             return
 
         # add grant to all contexts and sources
         for ctx in self.contexts:
-            await ctx.add_user_grant(sess, user_id)
+            await ctx.add_user_grant(sess, user_id, commit=False)
             if ctx.sources:
                 for src in ctx.sources:
-                    await src.add_user_grant(sess, user_id)
-        # await sess.refresh(self)
+                    await src.add_user_grant(sess, user_id, commit=False)
+        await sess.commit()
 
     @override
-    async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
+    async def remove_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
         # remove grant from the operation
-        await super().remove_user_grant(sess, user_id)
+        await super().remove_user_grant(sess, user_id, commit=False)
         if not self.contexts:
+            await sess.commit()
             return
 
         # remove grant from all contexts and sources
         for ctx in self.contexts:
-            await ctx.remove_user_grant(sess, user_id)
+            await ctx.remove_user_grant(sess, user_id, commit=False)
             if ctx.sources:
                 for src in ctx.sources:
-                    await src.remove_user_grant(sess, user_id)
+                    await src.remove_user_grant(sess, user_id, commit=False)
+        await sess.commit()
 
     @override
-    async def add_group_grant(self, sess: AsyncSession, group_id: str):
+    async def add_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
         # add grant to the operation
-        await super().add_group_grant(sess, group_id)
+        await super().add_group_grant(sess, group_id, commit=False)
         if not self.contexts:
+            await sess.commit()
             return
 
         # add grant to all contexts and sources
         for ctx in self.contexts:
-            await ctx.add_group_grant(sess, group_id)
+            await ctx.add_group_grant(sess, group_id, commit=False)
             if ctx.sources:
                 for src in ctx.sources:
-                    await src.add_group_grant(sess, group_id)
+                    await src.add_group_grant(sess, group_id, commit=False)
+
+        await sess.commit()
 
     @override
-    async def remove_group_grant(self, sess: AsyncSession, group_id: str):
+    async def remove_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
         # remove grant from the operation
-        await super().remove_group_grant(sess, group_id)
+        await super().remove_group_grant(sess, group_id, commit=False)
         if not self.contexts:
+            await sess.commit()
             return
 
         # remove grant from all contexts and sources
         for ctx in self.contexts:
-            await ctx.remove_group_grant(sess, group_id)
+            await ctx.remove_group_grant(sess, group_id, commit=False)
             if ctx.sources:
                 for src in ctx.sources:
-                    await src.remove_group_grant(sess, group_id)
+                    await src.remove_group_grant(sess, group_id,commit=False)
+        await sess.commit()

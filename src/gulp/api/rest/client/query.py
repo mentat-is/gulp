@@ -2,13 +2,14 @@ import json
 import os
 from typing import Any, Optional
 
-from muty.log import MutyLogger
-import muty.file
 import muty.crypto
+import muty.file
+from muty.log import MutyLogger
+
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.rest.client.common import GulpAPICommon
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class GulpAPIQuery:
@@ -90,7 +91,7 @@ class GulpAPIQuery:
         token: str,
         zip_file_path: str,
         operation_id: str,
-        plugin_params: Optional[GulpPluginParameters],
+        mapping_parameters: GulpMappingParameters,
         q_options: Optional[GulpQueryParameters] = None,
         flt: Optional[GulpQueryFilter] = None,
         ws_id: str = None,
@@ -116,12 +117,12 @@ class GulpAPIQuery:
 
         payload = {
             "flt": flt.model_dump(exclude_none=True) if flt else {},
-            "q_options": (
-                q_options.model_dump(exclude_none=True) if q_options else {}
-            ),
+            "q_options": (q_options.model_dump(exclude_none=True) if q_options else {}),
             "file_sha1": file_sha1,
-            "plugin_params": (
-                plugin_params.model_dump(exclude_none=True) if plugin_params else {}
+            "mapping_parameters": (
+                mapping_parameters.model_dump(exclude_none=True)
+                if mapping_parameters
+                else {}
             ),
             "original_file_path": zip_file_path,
         }
@@ -157,7 +158,7 @@ class GulpAPIQuery:
         token: str,
         operation_id: str,
         sigmas: list[str],
-        plugin_params: GulpPluginParameters,
+        mapping_parameters: GulpPluginParameters = None,
         q_options: GulpQueryParameters = None,
         flt: GulpQueryFilter = None,
         expected_status: int = 200,
@@ -172,22 +173,14 @@ class GulpAPIQuery:
         }
         body = {
             "sigmas": sigmas,
-            "flt": (
-                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
-                if flt
-                else None
-            ),
-            "plugin_params": (
-                plugin_params.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
-                if plugin_params
+            "flt": (flt.model_dump(by_alias=True, exclude_none=True) if flt else None),
+            "mapping_parameters": (
+                mapping_parameters.model_dump(by_alias=True, exclude_none=True)
+                if mapping_parameters
                 else None
             ),
             "q_options": (
-                q_options.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
+                q_options.model_dump(by_alias=True, exclude_none=True)
                 if q_options
                 else None
             ),
@@ -207,7 +200,7 @@ class GulpAPIQuery:
     async def sigma_convert(
         token: str,
         sigma: str,
-        plugin_params: GulpPluginParameters,
+        mapping_parameters: GulpMappingParameters = None,
         plugin: str = None,
         expected_status: int = 200,
         req_id: str = None,
@@ -219,11 +212,11 @@ class GulpAPIQuery:
         }
         body = {
             "sigma": sigma,
-            "plugin_params": (
-                plugin_params.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
-            )
+            "mapping_parameters": (
+                mapping_parameters.model_dump(by_alias=True, exclude_none=True)
+                if mapping_parameters
+                else None
+            ),
         }
 
         res = await api_common.make_request(
@@ -235,7 +228,6 @@ class GulpAPIQuery:
             expected_status=expected_status,
         )
         return res
-
 
     @staticmethod
     async def query_single_id(
@@ -280,9 +272,7 @@ class GulpAPIQuery:
         body = {
             "q": q,
             "q_options": (
-                q_options.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
+                q_options.model_dump(by_alias=True, exclude_none=True)
                 if q_options
                 else None
             ),
@@ -305,7 +295,7 @@ class GulpAPIQuery:
         q: Any,
         plugin: str,
         q_options: GulpQueryParameters,
-        plugin_params: GulpPluginParameters = None,
+        plugin_params: GulpPluginParameters,
         ingest: bool = False,
         ws_id: str = None,
         req_id: str = None,
@@ -322,16 +312,12 @@ class GulpAPIQuery:
         body = {
             "q": q,
             "q_options": (
-                q_options.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
+                q_options.model_dump(by_alias=True, exclude_none=True)
                 if q_options
                 else None
             ),
             "plugin_params": (
-                plugin_params.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
-                )
+                plugin_params.model_dump(by_alias=True, exclude_none=True)
                 if plugin_params
                 else None
             ),
@@ -340,6 +326,49 @@ class GulpAPIQuery:
         res = await api_common.make_request(
             "POST",
             "query_external",
+            params=params,
+            body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
+    async def query_external_sigma(
+        token: str,
+        operation_id: str,
+        sigmas: list[str],
+        plugin: str,
+        q_options: GulpQueryParameters,
+        plugin_params: GulpPluginParameters,
+        ingest: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "ingest": ingest,
+            "plugin": plugin,
+            "req_id": req_id or api_common.req_id,
+            "ws_id": ws_id or api_common.ws_id,
+        }
+        body = {
+            "sigmas": sigmas,
+            "q_options": (
+                q_options.model_dump(by_alias=True, exclude_none=True)
+                if q_options
+                else None
+            ),
+            "plugin_params": (
+                plugin_params.model_dump(by_alias=True, exclude_none=True)
+            ),
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "query_external_sigma",
             params=params,
             body=body,
             token=token,

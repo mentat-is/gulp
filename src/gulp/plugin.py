@@ -23,32 +23,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    PreviewDone,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
+                                   RequestCanceledError, SourceCanceledError)
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
-from gulp.api.opensearch.filters import (
-    QUERY_DEFAULT_FIELDS,
-    GulpDocumentFilterResult,
-    GulpIngestionFilter,
-    GulpQueryFilter,
-)
-from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
+from gulp.api.mapping.models import (GulpMapping, GulpMappingField,
+                                     GulpMappingFile)
+from gulp.api.opensearch.filters import (QUERY_DEFAULT_FIELDS,
+                                         GulpDocumentFilterResult,
+                                         GulpIngestionFilter, GulpQueryFilter)
+from gulp.api.opensearch.query import (GulpQuery, GulpQueryHelpers,
+                                       GulpQueryParameters)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import (
-    GulpDocumentsChunkPacket,
-    GulpIngestSourceDonePacket,
-    GulpQueryDonePacket,
-    GulpWsQueueDataType,
-    GulpWsSharedQueue,
-)
+from gulp.api.ws_api import (GulpDocumentsChunkPacket,
+                             GulpIngestSourceDonePacket, GulpQueryDonePacket,
+                             GulpWsQueueDataType, GulpWsSharedQueue)
 from gulp.config import GulpConfig
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters, ObjectNotFound
+from gulp.structs import (GulpMappingParameters, GulpPluginCustomParameter,
+                          GulpPluginParameters, ObjectNotFound)
 
 
 class GulpPluginType(StrEnum):
@@ -472,13 +464,13 @@ class GulpPluginBase(ABC):
         - ...
         """
         return []
-    
+
     def plugin_params(self) -> GulpPluginParameters:
         """
         returns the plugin parameters used
         """
         return self._plugin_params
-    
+
     def preview_chunk(self) -> list[dict]:
         """
         returns the accumulated preview chunk
@@ -606,8 +598,8 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
         return l, skipped
 
-    def sigma_convert(
-        self, sigma: str, plugin_params: GulpPluginParameters
+    async def sigma_convert(
+        self, sigma: str, mapping_parameters: GulpMappingParameters = None, **kwargs
     ) -> list[GulpQuery]:
         """
         convert a sigma rule to a specific query format.
@@ -618,7 +610,8 @@ class GulpPluginBase(ABC):
 
         Args:
             sigma (str): the sigma rule YAML
-            plugin_params (GulpPluginParameters, optional): the plugin parameters specifying the `mapping_file`/`mappings`, `mapping_id`,`additional_mapping_file` to be used.
+            mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
+            **kwargs: additional arguments to pass to the conversion function.
 
         Returns:
             list[GulpQuery]: one or more queries.
@@ -974,7 +967,7 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
 
-        #await self._initialize(plugin_params=plugin_params)
+        # await self._initialize(plugin_params=plugin_params)
 
         self._user_id = user_id
         self._req_id = req_id
@@ -1358,7 +1351,11 @@ class GulpPluginBase(ABC):
         return self._mappings.get(self._mapping_id, GulpMapping())
 
     def _try_map_ecs(
-        self, fields_mapping: GulpMappingField, d: dict, source_key: str, source_value: Any
+        self,
+        fields_mapping: GulpMappingField,
+        d: dict,
+        source_key: str,
+        source_value: Any,
     ) -> dict:
         """
         tries to map a source key to an ECS key.
@@ -1382,9 +1379,7 @@ class GulpPluginBase(ABC):
         if mapping:
             # source key is mapped, add the mapped key to the document
             for k in mapping:
-                kk, vv = self._type_checks(
-                    k, source_value, force_type_set=force_type
-                )
+                kk, vv = self._type_checks(k, source_value, force_type_set=force_type)
                 if vv:
                     d[kk] = vv
         else:
@@ -1426,9 +1421,7 @@ class GulpPluginBase(ABC):
         fields_mapping = mapping.fields.get(source_key)
         if not fields_mapping:
             # missing mapping at all (no ecs and no timestamp field)
-            return {
-                f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value
-            }
+            return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
 
         d = {}
         if fields_mapping.force_type:
@@ -1510,7 +1503,7 @@ class GulpPluginBase(ABC):
                 "records_ingested": ingested,
                 "records_processed": self._records_processed_per_chunk,
                 "records_failed": self._records_failed_per_chunk,
-                }
+            }
             await self._stats.update(
                 self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
             )
@@ -1652,35 +1645,49 @@ class GulpPluginBase(ABC):
             )
 
     @staticmethod
-    async def plugin_params_to_mapping(plugin_params: GulpPluginParameters) -> tuple[dict[str, GulpMapping], str]:
+    async def mapping_parameters_to_mapping(
+        mapping_parameters: GulpMappingParameters = None,
+    ) -> tuple[dict[str, GulpMapping], str]:
         """
         convert plugin parameters to mapping: handle mappings and mapping files.
         this is used by the engine to load the plugin and set the mapping.
 
         Args:
-            plugin_params (GulpPluginParameters): the plugin parameters
+            mapping_parameters (GulpMappingParameters, optional): the mapping parameters. if not set, the default (empty) mapping will be used.
 
         Returns:
-            tuple[dict[str, GulpMapping], str]: a tuple with the mappings and the mapping id
+            tuple[dict[str, GulpMapping], str]: a tuple with the mappings (if empty, this is set to an empty mapping with mapping_id="default") and the mapping id
         """
+        if not mapping_parameters:
+            mapping_parameters = GulpMappingParameters()
+
         mappings: dict[str, GulpMapping] = None
         mapping_id: str = None
+        if (
+            not mapping_parameters.mapping_file
+            and not mapping_parameters.mappings
+            and not mapping_parameters.additional_mapping_files
+            and mapping_parameters.mapping_id
+        ):
+            raise ValueError(
+                "mapping_id is set but mappings/mapping_file/additional_mapping_files are not!"
+            )
 
         # check if mappings or mapping_file is set
-        if plugin_params.mappings:
+        if mapping_parameters.mappings:
             # use provided mappings dictionary
             mappings = {
                 k: GulpMapping.model_validate(v)
-                for k, v in plugin_params.mappings.items()
+                for k, v in mapping_parameters.mappings.items()
             }
             MutyLogger.get_instance().debug(
-                f'using plugin_params.mappings="{plugin_params.mappings}"'
+                f'using plugin_params.mapping_parameters.mappings="{mapping_parameters.mappings}"'
             )
-        elif plugin_params.mapping_file:
+        elif mapping_parameters.mapping_file:
             # load from mapping file
-            mapping_file = plugin_params.mapping_file
+            mapping_file = mapping_parameters.mapping_file
             MutyLogger.get_instance().debug(
-                f"using plugin_params.mapping_file={mapping_file}"
+                f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
             )
 
             mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
@@ -1695,40 +1702,30 @@ class GulpPluginBase(ABC):
             mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
             mappings = mapping_file_obj.mappings
 
-        # handle mapping_id
-        if plugin_params.mapping_id:
-            mapping_id = plugin_params.mapping_id
-            MutyLogger.get_instance().debug(
-                f"using plugin_params.mapping_id={mapping_id}"
-            )
-
         # validation checks
-        if not mappings and mapping_id:
-            raise ValueError("mapping_id is set but mappings/mapping_file is not!")
-
-        if not mappings and not mapping_id:
+        if not mappings and not mapping_parameters.mapping_id:
             MutyLogger.get_instance().warning(
                 "mappings/mapping_file and mapping_id are both None/empty!"
             )
             mappings = {"default": GulpMapping(fields={})}
 
         # ensure mapping_id is set to first key if not specified
-        mapping_id = mapping_id or list(mappings.keys())[0]
+        mapping_id = mapping_parameters.mapping_id or list(mappings.keys())[0]
         MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
 
         # check for additional mapping
         # skip if using direct mappings or no additional files
         if (
-            plugin_params.mappings
-            or not plugin_params.additional_mapping_files
+            mapping_parameters.mappings
+            or not mapping_parameters.additional_mapping_files
         ):
             return mappings, mapping_id
 
         MutyLogger.get_instance().debug(
-            f"loading additional mapping files/id: {plugin_params.additional_mapping_files} ..."
+            f"loading additional mapping files/id: {mapping_parameters.additional_mapping_files} ..."
         )
 
-        for file_info in plugin_params.additional_mapping_files:
+        for file_info in mapping_parameters.additional_mapping_files:
             # load and merge additional mappings from files
             additional_file_path = GulpConfig.get_instance().build_mapping_file_path(
                 file_info[0]
@@ -1757,7 +1754,7 @@ class GulpPluginBase(ABC):
                 main_mapping.fields[key] = value
 
             mappings[mapping_id] = main_mapping
-        
+
         return mappings, mapping_id
 
     async def _handle_stacked_mappings(self) -> None:
@@ -1826,7 +1823,11 @@ class GulpPluginBase(ABC):
 
         # setup mappings if needed
         if not self._mappings:
-            self._mappings, self._mapping_id = await GulpPluginBase.plugin_params_to_mapping(self._plugin_params)
+            self._mappings, self._mapping_id = (
+                await GulpPluginBase.mapping_parameters_to_mapping(
+                    self._plugin_params.mapping_parameters
+                )
+            )
 
         # handle stacked plugin mappings
         await self._handle_stacked_mappings()
@@ -1834,7 +1835,7 @@ class GulpPluginBase(ABC):
         # initialize index type mappings
         await self._initialize_index_mappings()
 
-        # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mappings=%s"% (self.filename, self._mappings))
+        # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mapping_id=%s, mappings=%s"% (self.filename, self._mapping_id, self._mappings))
 
     def _type_checks(
         self, k: str, v: Any, force_type_set: bool = False
@@ -2101,14 +2102,16 @@ class GulpPluginBase(ABC):
         if self._stats:
 
             d = {
-                "source_failed":1 if (self._is_source_failed and not self._raw_ingestion) else 0,
-                "source_processed":1 if not self._raw_ingestion else 0,
-                "source_id":self._source_id,
-                "records_ingested":ingested,
-                "records_skipped":skipped,
-                "records_failed":self._records_failed_per_chunk,
-                "records_processed":self._records_processed_per_chunk,
-                "error":self._source_error,
+                "source_failed": (
+                    1 if (self._is_source_failed and not self._raw_ingestion) else 0
+                ),
+                "source_processed": 1 if not self._raw_ingestion else 0,
+                "source_id": self._source_id,
+                "records_ingested": ingested,
+                "records_skipped": skipped,
+                "records_failed": self._records_failed_per_chunk,
+                "records_processed": self._records_processed_per_chunk,
+                "error": self._source_error,
             }
             if self._raw_ingestion and not self._req_canceled:
                 # force status update, keep status as ongoing

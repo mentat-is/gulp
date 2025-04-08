@@ -22,15 +22,15 @@ from copy import deepcopy
 from typing import Annotated, Any, Optional
 
 import muty.file
-import muty.uploadfile
 import muty.log
 import muty.pydantic
-from pydantic import BeforeValidator
+import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
+from pydantic import BeforeValidator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
@@ -45,6 +45,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
+from gulp.api.opensearch.sigma import sigma_convert_default
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -59,8 +60,8 @@ from gulp.api.ws_api import (
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import GulpPluginParameters
-from gulp.api.opensearch.sigma import sigma_convert
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
+
 router: APIRouter = APIRouter()
 
 EXAMPLE_SIGMA_RULE = """title: Match All Events
@@ -100,6 +101,7 @@ EXAMPLE_QUERY_RAW = {
         }
     }
 }
+
 
 async def _query_internal(
     user_id: str,
@@ -169,35 +171,6 @@ async def _query_internal(
         if mod:
             await mod.unload()
     return hits, None, q_name
-
-
-async def _prepare_query_options(
-    gq: GulpQuery, base_options: GulpQueryParameters
-) -> GulpQueryParameters:
-    """
-    prepare customized query options for a specific query.
-
-    Args:
-        gq (GulpQuery): the query for which to prepare options
-        base_options (GulpQueryParameters): base query options to customize
-
-    Returns:
-        GulpQueryParameters: customized query options for this specific query
-    """
-    # create a deep copy to avoid modifying the original
-    q_opt = deepcopy(base_options)
-
-    # set name, i.e. for sigma rules we want the sigma rule name to be used
-    q_opt.name = gq.name
-
-    # note name set to query name
-    q_opt.note_parameters.note_name = gq.name
-
-    if gq.name not in q_opt.note_parameters.note_tags:
-        # query name in note tags (this will allow to identify the results in the end)
-        q_opt.note_parameters.note_tags.append(gq.name)
-
-    return q_opt
 
 
 async def _process_batch_results(
@@ -354,7 +327,17 @@ async def _process_query_batch(
 
     # create a task for each query in the batch
     for gq in batch:
-        q_opt = await _prepare_query_options(gq, q_options)
+        q_opt = deepcopy(q_options)
+
+        # set name, i.e. for sigma rules we want the sigma rule name to be used
+        q_opt.name = gq.name
+
+        # note name set to query name
+        q_opt.note_parameters.note_name = gq.name
+
+        if gq.name not in q_opt.note_parameters.note_tags:
+            # query name in note tags (this will allow to identify the results in the end)
+            q_opt.note_parameters.note_tags.append(gq.name)
 
         # add task
         d = dict(
@@ -596,7 +579,6 @@ async def _spawn_query_group_workers(
             sess=sess,
             user_id=user_id,
         )
-        
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
@@ -890,6 +872,7 @@ async def query_gulp_handler(
 query an external source using the target source query language, and optionally ingest data back into gulp.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
+- `plugin` must implement `query_external` method.
 - `plugin_params.custom_parameters` must include all the parameters needed to connect to the external source.
 - token must have `ingest` permission if `ingest` is set.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array, `ingest` is ignored and the data is returned directly without using the websocket.
@@ -913,8 +896,8 @@ async def query_external_handler(
         ),
     ],
     plugin_params: Annotated[
-        GulpPluginParameters, Depends(APIDependencies.param_plugin_params_optional)
-    ] = None,
+        GulpPluginParameters, Depends(APIDependencies.param_plugin_params)
+    ],
     ingest: Annotated[
         Optional[bool],
         Query(description="set to `True` to ingest data into gulp operation's index."),
@@ -998,6 +981,168 @@ async def query_external_handler(
 
 
 @router.post(
+    "/query_external_sigma",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "default": {
+                            "value": {
+                                "status": "pending",
+                                "timestamp_msec": 1704380570434,
+                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                            }
+                        },
+                        "preview": {
+                            "value": {
+                                "status": "success",
+                                "timestamp_msec": 1704380570434,
+                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                                "data": {
+                                    "total_hits": 1234,
+                                    "docs": [
+                                        muty.pydantic.autogenerate_model_example_by_class(
+                                            GulpDocument
+                                        )
+                                    ],
+                                },
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="Query an external source.",
+    description="""
+query an external source with one or more sigma rules, and optionally ingest data back into gulp.
+
+- this API returns `pending` and results are streamed to the `ws_id` websocket.
+- `plugin_params.custom_parameters` must include all the parameters needed to connect to the external source.
+- `plugin`must implement both `query_external` and `sigma_convert` methods.
+- `plugin_params.mapping_parameters` may include the mapping to use to convert the sigma rule.
+- token must have `ingest` permission if `ingest` is set.
+- if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array, `ingest` is ignored and the data is returned directly without using the websocket.
+""",
+)
+async def query_external_sigma_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    sigmas: Annotated[
+        list[str],
+        Body(
+            description="""one or more sigma rules to be converted to the external DSL.""",
+            examples=[[EXAMPLE_SIGMA_RULE]],
+        ),
+    ],
+    plugin: Annotated[
+        str,
+        Query(
+            description="the plugin implementing `query_external` to handle the external query."
+        ),
+    ],
+    plugin_params: Annotated[
+        GulpPluginParameters, Depends(APIDependencies.param_plugin_params)
+    ],
+    ingest: Annotated[
+        Optional[bool],
+        Query(description="set to `True` to ingest data into gulp operation's index."),
+    ] = False,
+    q_options: Annotated[
+        GulpQueryParameters,
+        Depends(APIDependencies.param_q_options),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["q_options"] = q_options.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    if q_options.preview_mode:
+        # ingest is ignored in preview mode
+        ingest = False
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check token and get caller user id
+            if ingest:
+                # external query with ingest, needs ingest permission
+                permission = GulpUserPermission.INGEST
+            else:
+                # standard external query, read is enough
+                permission = GulpUserPermission.READ
+
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=op
+            )
+            user_id = s.user_id
+            index = op.index
+
+        # load plugin and convert sigma rules to queries
+        queries: list[GulpQuery] = []
+        try:
+            mod: GulpPluginBase = await GulpPluginBase.load(plugin)
+            for s in sigmas:
+                # convert queries, pass the mapping parameters and the custom parameters to the plugin
+                ql = await mod.sigma_convert(
+                    s,
+                    mapping_parameters=plugin_params.mapping_parameters,
+                    **plugin_params.custom_parameters,
+                )
+                queries.extend(ql)
+        finally:
+            if mod:
+                await mod.unload()
+
+        if q_options.preview_mode:
+            if len(sigmas) > 1:
+                raise ValueError(
+                    "if `q_options.preview_mode` is set, only one query is allowed."
+                )
+
+            # preview mode, run the query and return the data
+            total, docs = await _preview_query(
+                operation_id=operation_id,
+                user_id=user_id,
+                req_id=req_id,
+                q=queries[0].q,
+                q_options=q_options,
+                plugin=plugin,
+                plugin_params=plugin_params,
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id, data={"total_hits": total, "docs": docs}
+                )
+            )
+
+        await _spawn_query_group_workers(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            index=index if ingest else None,
+            queries=queries,
+            q_options=q_options,
+            plugin=plugin,
+            plugin_params=plugin_params,
+        )
+
+        # and return pending
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
     "/query_sigma",
     response_model=JSendResponse,
     tags=["query"],
@@ -1047,32 +1192,28 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 - if more than one query is provided, `q_options.group` must be set.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `sigmas` array and the data is returned directly without using the websocket.
 
-### plugin_params
+### mapping_parameters
 
-- all the provided sigma rules must use the same `plugin_params` for mapping.
+- all the provided sigma rules uses the same `mapping_parameters` for mapping.
 """,
 )
 async def query_sigma_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    plugin: Annotated[
-        str,
-        Query(
-            description="the plugin implementing `sigma_convert` to convert the sigma rule."
-        ),
-    ],
     sigmas: Annotated[
         list[str],
         Body(
-            description="one or more sigma rule YAML to create the queries with.",
+            description="one or more sigma rule YAML to be converted into queries to Gulp.",
             examples=[[EXAMPLE_SIGMA_RULE]],
         ),
     ],
-    plugin_params: Annotated[
-        GulpPluginParameters,
+    mapping_parameters: Annotated[
+        GulpMappingParameters,
         Body(
-            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`.")],
+            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`."
+        ),
+    ] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
@@ -1085,7 +1226,9 @@ async def query_sigma_handler(
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    params["mapping_parameters"] = (
+        mapping_parameters.model_dump(exclude_none=True) if mapping_parameters else None
+    )
     ServerUtils.dump_params(params)
 
     # setup flt if not provided, must include operation_id
@@ -1116,7 +1259,7 @@ async def query_sigma_handler(
         # convert sigma rule/s using pysigma
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = sigma_convert(s, plugin_params)
+            q: list[GulpQuery] = await sigma_convert_default(s, mapping_parameters)
             queries.extend(q)
 
         if q_options.preview_mode:
@@ -1157,6 +1300,7 @@ async def query_sigma_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/query_sigma_zip",
     response_model=JSendResponse,
@@ -1196,7 +1340,7 @@ async def query_sigma_handler(
     },
     summary="Query using a ZIP file with sigma rules.",
     description="""
-perform queries using [sigma rules](https://github.com/SigmaHQ/sigma) from the provided zip file.
+perform queries to Gulp using [sigma rules](https://github.com/SigmaHQ/sigma) from the provided zip file.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 
@@ -1214,9 +1358,9 @@ payload may contain `plugin_params` (**mandatory**, for mapping), `q_options` (o
 
 - `flt` may be used to restrict the query (flt.operation_ids is enforced to the provided `operation_id`).
 
-#### plugin_params
+#### mapping_parameters
 
-- all the provided sigma rules must use the same `plugin_params` for mapping.
+- all the provided sigma rules uses the same `mapping_parameters` for mapping.
 """,
 )
 async def query_sigma_zip_handler(
@@ -1246,14 +1390,20 @@ async def query_sigma_zip_handler(
 
         # get optionals from payload
         q_options = GulpQueryParameters(**payload.get("q_options", {}))
-        plugin_params = GulpPluginParameters(**payload.get("plugin_params", None))
-        if not plugin_params:
-            raise ValueError("plugin_params is required for sigma_convert (mapping must be specified) !")
-        
+        mapping_parameters = GulpMappingParameters(
+            **payload.get("mapping_parameters", {})
+        )
+        if not mapping_parameters:
+            MutyLogger.get_instance().warning(
+                "empty/missing mapping_parameters in payload, using empty mapping."
+            )
+            mapping_parameters = GulpMappingParameters()
+
         flt = GulpQueryFilter(**payload.get("flt", {}))
         flt.operation_ids = [operation_id]
         MutyLogger.get_instance().debug(
-            "q_options=%s, plugin_params=%s, flt=%s" % (q_options, plugin_params, flt)
+            "q_options=%s, mapping_parameters=%s, flt=%s"
+            % (q_options, mapping_parameters, flt)
         )
 
         # decompress
@@ -1299,7 +1449,7 @@ async def query_sigma_zip_handler(
 
         queries: list[GulpQuery] = []
         for s in sigmas:
-            q: list[GulpQuery] = sigma_convert(s, plugin_params)
+            q: list[GulpQuery] = await sigma_convert_default(s, mapping_parameters)
             queries.extend(q)
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
@@ -1373,26 +1523,32 @@ manually builds raw query for gulp or external plugin from a sigma rule YAML.
 )
 async def sigma_convert_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    sigma: Annotated[str, Body(
+    sigma: Annotated[
+        str,
+        Body(
             description="a sigma rule YML to be converted.",
             examples=[EXAMPLE_SIGMA_RULE],
             media_type="text/plain",
         ),
     ],
-    plugin_params: Annotated[
-        GulpPluginParameters,
+    mapping_parameters: Annotated[
+        GulpMappingParameters,
         Body(
-            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`.")],
+            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`."
+        ),
+    ] = None,
     plugin: Annotated[
         str,
         Query(
-            description="if set, the plugin implementing `sigma_convert` to convert the sigma rule (i.e. using a custom backend). Default=Gulp Opensearch backend outputting lucene DSL raw queries."
+            description="if set, the plugin implementing `sigma_convert` to convert the sigma rule using a specific backend/pipeline. Default=use Gulp Opensearch backend outputting lucene DSL raw queries."
         ),
-    ]=None,
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    params["mapping_parameters"] = (
+        mapping_parameters.model_dump(exclude_none=True) if mapping_parameters else None
+    )
     ServerUtils.dump_params(params)
 
     mod = None
@@ -1406,13 +1562,13 @@ async def sigma_convert_handler(
             # load the plugin, use custom backend
             try:
                 mod = await GulpPluginBase.load(plugin)
-                q: list[GulpQuery] = await mod.sigma_convert(sigma, plugin_params)
+                q: list[GulpQuery] = await mod.sigma_convert(sigma, mapping_parameters)
             finally:
                 if mod:
                     await mod.unload()
         else:
             # use gulp's backend
-            q: list[GulpQuery] = await sigma_convert(sigma, plugin_params)
+            q: list[GulpQuery] = await sigma_convert_default(sigma, mapping_parameters)
 
         l: list[dict] = []
         for qq in q:
@@ -1623,7 +1779,8 @@ async def query_operations(
 
         # check token and get its accessible operations
         ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
-            token, GulpCollabFilter(), 
+            token,
+            GulpCollabFilter(),
         )
         operations: list[dict] = []
         for o in ops:

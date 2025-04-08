@@ -602,10 +602,10 @@ class GulpCollab:
                 sess,
                 object_data={
                     "name": "win_evtx_sigma_1",
+                    "sigma": True,
                     "tags": ["stored", "sigma"],
                     "q_groups": ["group1"],
                     "q": sigma_match_some.decode("utf-8"),
-                    "plugin": "win_evtx",
                 },
                 obj_id="test_stored_sigma_1",
                 owner_id=admin_user.id,
@@ -617,10 +617,10 @@ class GulpCollab:
                 sess,
                 object_data={
                     "name": "win_evtx_sigma_2",
+                    "sigma": True,
                     "tags": ["stored", "sigma"],
                     "q_groups": ["group1"],
                     "q": sigma_match_some_more.decode("utf-8"),
-                    "plugin": "win_evtx",
                 },
                 obj_id="test_stored_sigma_2",
                 owner_id=admin_user.id,

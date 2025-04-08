@@ -38,7 +38,7 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpWsAuthPacket, GulpWsIngestPacket
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -238,7 +238,9 @@ async def test_raw():
         raw_data=raw_chunk,
         operation_id=TEST_OPERATION_ID,
     )
-    await _test_ingest_ws_loop(check_ingested=6) # plus the 3 above, we're using the same req_id
+    await _test_ingest_ws_loop(
+        check_ingested=6
+    )  # plus the 3 above, we're using the same req_id
 
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
@@ -311,9 +313,7 @@ async def test_ingest_ws_raw():
 
     async with websockets.connect(ws_url) as ws:
         # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(
-            token=ingest_token, ws_id=TEST_WS_ID
-        )
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token=ingest_token, ws_id=TEST_WS_ID)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -391,11 +391,13 @@ async def test_csv_standalone():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/mftecmd/sample_record.csv")]
     plugin_params = GulpPluginParameters(
-        mappings={
-            "test_mapping": GulpMapping(
-                fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
-            )
-        }
+        mapping_parameters=GulpMappingParameters(
+            mappings={
+                "test_mapping": GulpMapping(
+                    fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+                )
+            }
+        )
     )
     await _test_ingest_generic(
         files, "csv", check_ingested=10, plugin_params=plugin_params
@@ -408,7 +410,9 @@ async def test_csv_file_mapping():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/mftecmd/sample_record.csv")]
     plugin_params = GulpPluginParameters(
-        mapping_file="mftecmd_csv.json", mapping_id="record"
+        mapping_parameters=GulpMappingParameters(
+            mapping_file="mftecmd_csv.json", mapping_id="record"
+        )
     )
     await _test_ingest_generic(
         files, "csv", check_ingested=44, check_processed=10, plugin_params=plugin_params
@@ -421,11 +425,13 @@ async def test_csv_stacked():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/mftecmd/sample_record.csv")]
     plugin_params = GulpPluginParameters(
-        mappings={
-            "test_mapping": GulpMapping(
-                fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
-            )
-        }
+        mapping_parameters=GulpMappingParameters(
+            mappings={
+                "test_mapping": GulpMapping(
+                    fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+                )
+            }
+        )
     )
     await _test_ingest_generic(
         files, "stacked_example", check_ingested=10, plugin_params=plugin_params

@@ -26,7 +26,7 @@ gulp is made of plugins, each serving different purposes:
 - `ingestion` plugins for ingesting data from local sources (i.e. log files)
 - `external` plugins to query external sources (i.e. a SIEM), and possibly ingest data into gulp at the same time
 - `extension` plugins to extend the gulp [REST api](../src/gulp/api/rest/)
-  
+
 currently, we have the following plugins:
 
 ## plugin types
@@ -77,19 +77,15 @@ then, different entrypoints may be implemented:
 
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
-  
+
 - `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
-  
-- `sigma_convert`: this may be implemented in both `ingestion` and `external` plugins, and tells wether the plugin supports sigma rules conversion.
-  
-  - to support direct gulp queries through the `query_sigma` REST API, the plugin must support the following:
-    - **pysigma** `opensearch` backend with `dsl_lucene` output format (through i.e. [pysigma-backend-opensearch](https://github.com/SigmaHQ/pySigma-backend-opensearch)): this targets the OpenSearch DSL language, on which gulp is based on.
-    - an optional **pysigma** `pipeline` targeting the ingested gulp data, i.e. a `windows` specific pipeline to query data ingested by the `win_evtx` plugin.
 
-    > 1. for a real use-case example, check the [win_evtx](../src/gulp/plugins/win_evtx.py) plugin, which also uses a pipeline targeting ECS formatted data  
-  
-    > 2. `sigma_convert` plugin entrypoint may also be used through the `sigma_convert` REST API to generate `raw queries` from sigma rules, to be used then with the `query_external` REST API.
+- `sigma_convert`: this may be implemented in a plugin to supports sigma rules conversion to queries for a `target DSL different than gulp (i.e. SPLUNK)`.
+
+  - to support direct gulp queries through the `query_sigma` REST API, there is no need to implement `sigma_convert`, since gulp already implements the opensearch pysigma backend needed.
+  - to query an external source (i.e. SPLUNK) using sigma rules, one may implement `sigma_convert` targeting the pysigma SPLUNK backend in the splunk external plugin.
+  - otherwise, `sigma_convert`is also exposed by the gulp REST API to be used to manually convert sigma rules to target both gulp and, via plugin, an external source.
 
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
@@ -100,7 +96,7 @@ other optional entrypoints are:
 - `custom_parameters`: returned by the `plugin_list` API, this defines each custom parameter the plugin support and may be used by the UI to build a configurator for the plugin.
   - they are passed to the plugin via `GulpPluginParameters.custom_parameters` dict.
   - they are available to the plugin at runtime (after `_initialize` has been called)  via `self._plugin_params.custom_parameters`.
-  
+
 - `tags`: returned by the `plugin_list` API, defines tags to categorize the plugin
 - `version`: the plugin version string
 - `desc`: the plugin description
@@ -143,7 +139,7 @@ this is how the data flows through an `ingestion plugin` when ingesting into gul
 ~~~mermaid
 sequenceDiagram
     participant Engine as Gulp Engine
-    participant Base as GulpPluginBase  
+    participant Base as GulpPluginBase
     participant Plugin as Plugin
     participant Parser as Format parser
     participant Mapper as Field Mapper
@@ -154,20 +150,20 @@ sequenceDiagram
     Base-->>Plugin: Initialize state
     Plugin->>Base: _initialize()
     Base-->>Plugin: Load windows.json mappings
-    
+
     Plugin->>Parser: Initialize source file parser
-    
+
     loop For each record
         Parser-->>Plugin: Get next record
         Plugin->>Plugin: _record_to_gulp_document()
         Plugin->>Plugin: Parse event data
-        
+
         loop For each record element
             Plugin->>Base: _process_key()
             Base->>Mapper: Map fields to ECS
             Mapper-->>Plugin: Return mapped fields
         end
-        
+
         Plugin->>Plugin: _map_evt_code()
         Plugin->>Base: process_record()
         Base->>Base: Buffer records
@@ -180,7 +176,7 @@ sequenceDiagram
             Base-->>Engine: Ingest to OpenSearch
         end
     end
-    
+
     Plugin->>Base: _source_done()
     Base-->>Engine: Send completion status
 ~~~
@@ -201,10 +197,10 @@ sequenceDiagram
     Base-->>Plugin: Initialize state
     Plugin->>Base: _initialize()
     Base-->>Plugin: Load mappings
-    
+
     Plugin->>ExternalSource: Connect & execute query
     ExternalSource-->>Plugin: Stream results
-    
+
     loop For each record
         Plugin->>Plugin: _record_to_gulp_document()
         Plugin->>Base: process_record()
@@ -215,7 +211,7 @@ sequenceDiagram
             Base-->>Engine: Ingest to OpenSearch
         end
     end
-    
+
     Plugin->>Base: _source_done()
     Base-->>Engine: Send completion status
 ~~~
@@ -235,7 +231,7 @@ sequenceDiagram
     Note over Plugin: Plugin Initialization
     Plugin->>Base: Inherit from GulpPluginBase
     Plugin->>Base: super().__init__(path, pickled)
-    
+
     alt Main Process Init
         Plugin->>App: _add_api_routes()
         App-->>Plugin: Register /example_extension endpoint
@@ -247,10 +243,10 @@ sequenceDiagram
     App->>Plugin: example_extension_handler()
     Plugin->>Base: Check user session
     Plugin->>Worker: Spawn _example_task in worker
-    
+
     Worker->>Worker: _run_in_worker()
     Worker->>WS: Send updates via WebSocket
-    
+
     Worker-->>Plugin: Task completion
     Plugin-->>App: Return JSendResponse
 ~~~
@@ -288,7 +284,7 @@ remember, the more standardized the logs we collect are, the easier it will be t
 Here's a commented example, further details in the [model definition source](../src/gulp/api/mapping/models.py)
 
 ```json
-{    
+{
   "metadata": {
     // lists the plugins this mapping file supports: this allows the UI to correlate plugins and mapping files via the `mapping_file_list` API
     "plugin": [
@@ -304,13 +300,13 @@ Here's a commented example, further details in the [model definition source](../
       "event_code": "autofill_date_created",
       // optional: if set, sets `agent.type` for all the documents generated by this mapping. either, it is plugin responsibility to set it.
       "agent_type": "chromium",
-      // optional: if set, matching fields in the source document are ignored and not included in the generated document/s.      
+      // optional: if set, matching fields in the source document are ignored and not included in the generated document/s.
       "exclude": ["field1", "field2"],
-      // optional: if set, only matching fields in the source document are processed and included in the generated document/s.      
+      // optional: if set, only matching fields in the source document are processed and included in the generated document/s.
       "include": ["field1", "field2"],
       // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
       "allow_prefixed": true
-      
+
       // the fields to map: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
         // the field name
@@ -334,17 +330,17 @@ Here's a commented example, further details in the [model definition source](../
           "ecs": "chrome_ts",
           // this is a special flag to indicate the **original** timestamp (prior to gulp's processing) is a `webkit` timestamp from 1601, so gulp will perform the necessary conversions.
           "is_timestamp_chrome": true
-        },        
+        },
         "date_last_used": {
           // if "extra_doc_with_event_code" is set, this field represents a timestamp and a further document will be generated alongside the `main` document.
-          // 
+          //
           // in this example, in the extra document the following will be set:
           //
           // - "@timestamp" will be set to this "date_last_used" value (flags like `multiplier` or `is_timestamp_chrome` are processed as well, if set)
           // - "event.code" will be set to "autofill_date_last_used" (so the mapping's `event_code` flag above is ignored here)
           //
           // for this to work, one main timestamp must be selected as the main and mapped as "@timestamp", i.e.
-          // 
+          //
           // "field_name": {
           //    "ecs": "@timestamp"
           // }

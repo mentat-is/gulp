@@ -10,6 +10,7 @@ Key features:
 - Normalizes timestamps to nanoseconds from Unix epoch
 - Maps extracted fields according to configured mappings
 """
+
 import os
 import re
 from typing import Any, override
@@ -94,8 +95,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=line,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -115,7 +115,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
+        **kwargs,
     ) -> GulpRequestStatus:
         try:
             if not plugin_params:
@@ -137,18 +137,17 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 **kwargs,
             )
-            if not plugin_params.mappings:
-                plugin_params.mappings = {}
+            if not plugin_params.mapping_parameters.mappings:
+                plugin_params.mapping_parameters.mappings = {}
 
-            mappings = plugin_params.mappings.get("default")
+            mappings = plugin_params.mapping_parameters.mappings.get("default")
             if not mappings:
                 mappings = {
                     "default": GulpMapping(
-                        fields={"timestamp": GulpMappingField(
-                            ecs="@timestamp")}
+                        fields={"timestamp": GulpMappingField(ecs="@timestamp")}
                     )
                 }
-                plugin_params.mappings = mappings
+                plugin_params.mapping_parameters.mappings = mappings
 
         except Exception as ex:
             await self._source_failed(ex)
@@ -156,8 +155,7 @@ class Plugin(GulpPluginBase):
             return GulpRequestStatus.FAILED
 
         regex = self._plugin_params.custom_parameters["regex"]
-        regex = re.compile(
-            regex, self._plugin_params.custom_parameters["flags"])
+        regex = re.compile(regex, self._plugin_params.custom_parameters["flags"])
 
         # make sure we have at least 1 named group
         if regex.groups == 0:
@@ -186,9 +184,7 @@ class Plugin(GulpPluginBase):
                     m = regex.match(line)
                     if m:
                         try:
-                            await self.process_record(
-                                m, doc_idx, flt=flt, line=line
-                            )
+                            await self.process_record(m, doc_idx, flt=flt, line=line)
                         except (RequestCanceledError, SourceCanceledError) as ex:
                             MutyLogger.get_instance().exception(ex)
                             await self._source_failed(ex)

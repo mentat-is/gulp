@@ -48,12 +48,9 @@ async def test_stored_query():
         guest_token,
         name="test_query_sigma",
         q=sigma_q,
+        is_sigma=True,
         tags=["test"],
         description="Test stored sigma query",
-        plugin="win_evtx",
-        plugin_params=GulpPluginParameters(
-            custom_parameters={"test": "test"}
-        ).model_dump(),
         expected_status=401,
     )
 
@@ -61,11 +58,8 @@ async def test_stored_query():
         editor_token,
         name="test_query_sigma",
         q=sigma_q,
+        is_sigma=True,
         tags=["test", "sigma"],
-        plugin="win_evtx",
-        plugin_params=GulpPluginParameters(
-            custom_parameters={"test": "test"}
-        ).model_dump(),
         description="Test stored sigma query",
     )
     MutyLogger.get_instance().debug(query_sigma)

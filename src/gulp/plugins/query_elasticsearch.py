@@ -12,28 +12,28 @@ and works with both Elasticsearch and OpenSearch backends.
 
 from typing import Any, override
 
-import muty.dict
-import muty.jsend
-import muty.log
 import muty.os
-import muty.string
 import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import PreviewDone
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
+from gulp.api.opensearch.sigma import sigma_convert_default
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+from gulp.structs import (
+    GulpMappingParameters,
+    GulpPluginCustomParameter,
+    GulpPluginParameters,
+)
 
-try:
-    from elasticsearch import AsyncElasticsearch
-except ImportError:
-    muty.os.check_and_install_package("elasticsearch", ">=8.1.5, <9")
-    from elasticsearch import AsyncElasticsearch
+muty.os.check_and_install_package("elasticsearch", ">=8.1.5, <9")
+muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.5")
+from elasticsearch import AsyncElasticsearch
+from sigma.backends.elasticsearch import LuceneBackend
+from sigma.backends.opensearch import OpensearchLuceneBackend
 
 
 class Plugin(GulpPluginBase):
@@ -123,6 +123,25 @@ class Plugin(GulpPluginBase):
         ]
 
     @override
+    async def sigma_convert(
+        self, sigma: str, mapping_parameters: GulpMappingParameters = None, **kwargs
+    ):
+        # check if we're using elastic or openssearch and select the appropriate backend
+        is_elasticsearch = kwargs.get("is_elasticsearch", False)
+        output_format = "dsl_lucene"
+        if is_elasticsearch:
+            # use elasticsearch backend
+            backend = LuceneBackend()
+        else:
+            # use opensearch backend
+            backend = OpensearchLuceneBackend()
+
+        # call the sigma convert function
+        return await sigma_convert_default(
+            sigma, mapping_parameters, backend=backend, output_format=output_format
+        )
+
+    @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
@@ -141,9 +160,7 @@ class Plugin(GulpPluginBase):
         # MutyLogger.get_instance().debug(f"ctx_id={self._context_id}, src_id={self._source_id}")
 
         # convert timestamp to nanoseconds
-        _, ts_nsec, _ = GulpDocument.ensure_timestamp(
-            doc[timestamp_field]
-        )
+        _, ts_nsec, _ = GulpDocument.ensure_timestamp(doc[timestamp_field])
         # strip timestamp
         doc.pop(timestamp_field, None)
 

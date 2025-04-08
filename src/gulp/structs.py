@@ -13,6 +13,7 @@ Key components:
 from enum import StrEnum
 from typing import Any, Literal, Optional
 
+from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,6 +73,72 @@ class GulpAPIMethod(BaseModel):
     )
 
 
+class GulpMappingParameters(BaseModel):
+    """
+    describes mapping parameters for API methods.
+    - `mapping_file` and `additional_mapping_files` are used to load mappings from files.
+    - `mappings` is used to pass a dictionary of mappings directly.
+    - `mapping_id` is used to select a specific mapping from the file or dictionary.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "mapping_file": "mftecmd_csv.json",
+                    "plugin": "mftecmd",
+                    "mappings": {
+                        "the_mapping_id": autogenerate_model_example_by_class(
+                            GulpMapping
+                        ),
+                    },
+                    "mapping_id": "record",
+                }
+            ]
+        }
+    )
+    mapping_file: Optional[str] = Field(
+        None,
+        description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
+    )
+    mapping_id: Optional[str] = Field(
+        None,
+        description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
+    )
+    mappings: Optional[dict[str, GulpMapping]] = Field(
+        None,
+        description="""
+used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly.
+- `mapping_file` and `additional_mapping_files` are ignored if this is set.
+""",
+    )
+    additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
+        None,
+        description="""
+if this is set, allows to specify further mapping files and mapping IDs with a tuple of (mapping_file, mapping_id) to load and merge additional mappings from another file.
+
+- each mapping loaded from `additional_mapping_files` will be merged with the main `mapping file.mapping_id` fields.
+- ignored if `mappings` is set.
+""",
+    )
+
+    def is_empty(self) -> bool:
+        """
+        check if mapping parameters are empty.
+
+        Returns:
+            bool: True if all parameters are None, False otherwise
+        """
+        if (
+            self.mappings is not None
+            or self.mapping_file is not None
+            or self.additional_mapping_files is not None
+        ):
+            return False
+        MutyLogger.get_instance().warning("mapping parameters are empty")
+        return True
+
+
 class GulpPluginParameters(BaseModel):
     """
     parameters for a plugin, to be passed to ingest and query API.
@@ -84,47 +151,22 @@ class GulpPluginParameters(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "mapping_file": "mftecmd_csv.json",
-                    "mappings": {
-                        "the_mapping_id": autogenerate_model_example_by_class(
-                            GulpMapping
-                        ),
+                    "mapping_parameters": autogenerate_model_example_by_class(
+                        GulpMappingParameters
+                    ),
+                    "override_chunk_size": 1000,
+                    "custom_parameters": {
+                        "some_custom_param": "some_value",
+                        "some_custom_param_2": "some_value_2",
                     },
-                    "mapping_id": "record",
-                    "additional_mapping_files": [
-                        ("mftecmd_csv.json", "record"),
-                        ("mftecmd_csv.json", "file"),
-                    ],
                 }
             ]
         },
     )
-    mapping_file: Optional[str] = Field(
-        None,
-        description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
+    mapping_parameters: Optional[GulpMappingParameters] = Field(
+        GulpMappingParameters(),
+        description="mapping parameters for the plugin.",
     )
-    additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
-        None,
-        description="""
-if this is set, allows to specify further mapping files and mapping IDs with a tuple of (mapping_file, mapping_id) to load and merge additional mappings from another file.
-
-- each mapping loaded from `additional_mapping_files` will be merged with the main `mapping file.mapping_id` fields.
-- ignored if `mappings` is set.
-""",
-    )
-    mappings: Optional[dict[str, GulpMapping]] = Field(
-        None,
-        description="""
-used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly.
-- `mapping_file` and `additional_mapping_files` are ignored if this is set.
-""",
-    )
-
-    mapping_id: Optional[str] = Field(
-        None,
-        description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
-    )
-
     override_chunk_size: Optional[int] = Field(
         None,
         description="this is used to override the websocket chunk size for the request, which is normally taken from configuration 'documents_chunk_size'.",
@@ -134,22 +176,6 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
         {},
         description="additional custom parameters for the plugin.",
     )
-
-    def is_empty(self) -> bool:
-        """
-        a mapping is empty if mappings or mapping_file or mapping_id is empty
-
-        Returns:
-            bool: True if all parameters are None, False otherwise
-        """
-        if (
-            self.mappings is not None
-            or self.mapping_file is not None
-            or self.override_chunk_size is not None
-            or len(self.custom_parameters) > 0
-        ):
-            return False
-        return True
 
 
 class GulpPluginCustomParameter(GulpAPIParameter):

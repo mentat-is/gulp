@@ -6,14 +6,21 @@ import pytest
 import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
-
+import muty.file
+import os
 from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_OPERATION_ID, TEST_WS_ID
+from gulp.api.rest.test_values import (
+    TEST_HOST,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
+    TEST_WS_ID,
+)
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
+from tests.ingest.test_ingest import test_win_evtx_multiple
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -48,9 +55,7 @@ async def test_elasticsearch():
                         plugin_params: GulpPluginParameters = GulpPluginParameters()
                         q_options.name = "test_external_elasticsearch"
                         q_options.group = "test group"
-                        plugin_params.additional_mapping_files = [
-                            ("windows.json", "windows")
-                        ]
+                        plugin_params.mapping_parameters.mapping_file = "windows.json"
                         plugin_params.custom_parameters["uri"] = "http://localhost:9200"
                         plugin_params.custom_parameters["username"] = "admin"
                         plugin_params.custom_parameters["password"] = "Gulp1234!"
@@ -99,7 +104,6 @@ async def test_elasticsearch():
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
-
     await test_win_evtx()
 
     # TODO: better test, this uses gulp's opensearch .... should work, but better to be sure
@@ -108,4 +112,100 @@ async def test_elasticsearch():
     assert guest_token
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
-    await _test_raw_external(token=guest_token) 
+    await _test_raw_external(token=guest_token)
+
+@pytest.mark.asyncio
+async def test_elasticsearch_sigma():
+    async def _test_sigma_external(token: str, ingest: bool = False):
+        # 135 hits
+        # read sigma first
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
+        try:
+            sigma_path = await muty.file.unzip(sigma_zip_path)
+            rule_path = os.path.join(
+                sigma_path,
+                "create_remote_thread/create_remote_thread_win_susp_relevant_source_image.yml"
+            )
+            sigma: bytes = await muty.file.read_file_async(rule_path)
+        finally:
+            muty.file.delete_file_or_dir(sigma_path)
+
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
+
+            # receive responses
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+
+                    if data["type"] == "ws_connected":
+                        # run test
+                        q_options = GulpQueryParameters()
+                        plugin_params: GulpPluginParameters = GulpPluginParameters()
+                        q_options.name = "test_external_elasticsearch_sigma"
+                        q_options.group = "test group"
+                        plugin_params.mapping_parameters.mapping_file = "windows.json"
+                        plugin_params.custom_parameters["uri"] = "http://localhost:9200"
+                        plugin_params.custom_parameters["username"] = "admin"
+                        plugin_params.custom_parameters["password"] = "Gulp1234!"
+                        plugin_params.custom_parameters["index"] = TEST_INDEX
+                        plugin_params.custom_parameters["is_elasticsearch"] = (
+                            False  # we are querying gulp's opensearch
+                        )
+
+                        await GulpAPIQuery.query_external_sigma(
+                            token,
+                            TEST_OPERATION_ID,
+                            sigmas=[sigma.decode()],
+                            plugin="query_elasticsearch",
+                            plugin_params=plugin_params,
+                            q_options=q_options,
+                            ingest=ingest,
+                        )
+                    elif data["type"] == "query_done":
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(data["data"])
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, packet=%s", q_done_packet
+                        )
+
+                        # query name gets replaced by the sigma rule name
+                        if q_done_packet.name == "Rare Remote Thread Creation By Uncommon Source Image":
+                            assert q_done_packet.total_hits == 13
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.name}"
+                            )
+                        break
+
+                    # ws delay
+                    await asyncio.sleep(0.1)
+
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
+
+        assert test_completed
+        MutyLogger.get_instance().info(_test_sigma_external.__name__ + " succeeded!")
+
+    # ingest some data
+    await test_win_evtx_multiple()
+
+    # TODO: better test, this uses gulp's opensearch .... should work, but better to be sure
+    # login
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    await _test_sigma_external(token=guest_token)

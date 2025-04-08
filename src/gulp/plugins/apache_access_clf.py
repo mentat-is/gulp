@@ -43,7 +43,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -160,9 +160,9 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         try:
-            if not plugin_params or plugin_params.is_empty():
+            if not plugin_params or plugin_params.mapping_parameters.is_empty():
                 plugin_params = GulpPluginParameters(
-                    mapping_file="apache_access_clf.json"
+                    mapping_parameters=GulpMappingParameters(mapping_file="apache_access_clf.json"),
                 )
             await super().ingest_file(
                 sess=sess,

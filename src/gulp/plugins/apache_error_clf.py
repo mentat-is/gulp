@@ -13,7 +13,6 @@ Example log format parsed:
 [Fri Sep 09 10:42:29.902022 2011] [core:error] [pid 35708:tid 4328636416] [client 72.15.99.187] File does not exist: /usr/local/apache2/htdocs/favicon.ico
 """
 
-
 import os
 import re
 from typing import Any, override
@@ -28,13 +27,17 @@ import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    PreviewDone,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -105,8 +108,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -126,13 +128,16 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
+        **kwargs,
     ) -> GulpRequestStatus:
         try:
-            if not plugin_params or plugin_params.is_empty():
+            if not plugin_params or plugin_params.mapping_parameters.is_empty():
                 plugin_params = GulpPluginParameters(
-                    mapping_file="apache_error_clf.json"
+                    mapping_parameters=GulpMappingParameters(
+                        mapping_file="apache_error_clf.json"
+                    ),
                 )
+
             await super().ingest_file(
                 sess=sess,
                 stats=stats,

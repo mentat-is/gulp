@@ -53,6 +53,7 @@ class Plugin(GulpPluginBase):
         """
         Chrome Webdata tables int mapping
         """
+
         autofill = 0
         autofill_model_type_state = 1
         autofill_sync_metadata = 2
@@ -110,7 +111,7 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
+        **kwargs,
     ) -> GulpRequestStatus:
 
         # set as stacked
@@ -122,7 +123,7 @@ class Plugin(GulpPluginBase):
 
         if not plugin_params:
             plugin_params = GulpPluginParameters()
-        plugin_params.mapping_file = "chrome_webdata.json"
+        plugin_params.mapping_parameters.mapping_file = "chrome_webdata.json"
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         res = await lower.ingest_file(

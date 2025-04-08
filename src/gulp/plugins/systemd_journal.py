@@ -27,7 +27,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 # not available on macos, will throw exception
 muty.os.check_os(exclude=["windows", "darwin"])
@@ -114,10 +114,11 @@ class Plugin(GulpPluginBase):
    ) -> GulpRequestStatus:
         try:
             # initialize plugin
-            if not plugin_params or plugin_params.is_empty():
+            if not plugin_params or plugin_params.mapping_parameters.is_empty():
                 plugin_params = GulpPluginParameters(
-                    mapping_file="systemd_journal.json"
+                    mapping_parameters=GulpMappingParameters(mapping_file="systemd_journal.json"),
                 )
+
 
             await super().ingest_file(
                 sess=sess,

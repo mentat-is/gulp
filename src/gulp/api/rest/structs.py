@@ -729,6 +729,28 @@ to customize `mapping` and specific `plugin` parameters.
         return plugin_params or GulpPluginParameters()
 
     @staticmethod
+    def param_plugin_params(
+        plugin_params: Annotated[
+            GulpPluginParameters,
+            Body(
+                description="""
+to customize `mapping` and specific `plugin` parameters.
+"""
+            ),
+        ],
+    ) -> GulpPluginParameters:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            plugin_params (GulpPluginParameters, Body): The plugin parameters
+
+        Returns:
+            GulpPluginParameters: The plugin parameters or None if empty
+        """
+        return plugin_params
+
+    @staticmethod
     def param_query_flt_optional(
         flt: Annotated[
             Optional[GulpQueryFilter],

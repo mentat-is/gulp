@@ -58,7 +58,6 @@ a stored query is a *reusable* query which may be shared with other users.
 
 - `token` needs `edit` permission.
 - `q` is either a YAML string if `q` is a `sigma rule` or a `JSON` string if `q` is a `gulp raw query`.
-- if `q` represents a `sigma rule`, `plugin` must be set to the plugin implementing `sigma_convert` to be used for conversion.
 - if `q` is a `sigma rule`, `tags` are extracted from the rule `tags` and `level` (provided `tags` are also added, if any).
 """,
 )
@@ -71,16 +70,13 @@ async def stored_query_create_handler(
             description="a query as string, may be YAML (sigma rule) or JSON string (gulp raw query)."
         ),
     ],
+    is_sigma: Annotated[
+        Optional[bool], Query(description="is the query a sigma rule ?")
+    ] = False,
     q_groups: Annotated[
         Optional[list[str]],
         Body(
             description="if set, one or more `query groups` to associate with this query.",
-        ),
-    ] = None,
-    plugin_params: Annotated[
-        Optional[GulpPluginParameters],
-        Body(
-            description="if set, `q` is a sigma rule and this holds the needed parameters for mapping."
         ),
     ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
@@ -92,12 +88,9 @@ async def stored_query_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["plugin_params"] = (
-        plugin_params.model_dump(exclude_none=True) if plugin_params else None
-    )
     ServerUtils.dump_params(params)
 
-    if plugin_params:
+    if is_sigma:
         # q is a sigma rule, get tags
         sigma_tags = await sigma_to_tags(q)
         if tags:
@@ -112,10 +105,8 @@ async def stored_query_create_handler(
         object_data = {
             "name": name,
             "q": q,
+            "sigma": is_sigma,
             "q_groups": q_groups,
-            "plugin_params": (
-                plugin_params.model_dump(exclude_none=True) if plugin_params else None
-            ),
             "tags": tags,
             "description": description,
             "glyph_id": glyph_id,
@@ -167,16 +158,13 @@ async def stored_query_update_handler(
             description="a query as string, may be YAML (sigma rule) or JSON string (gulp raw query)."
         ),
     ],
+    is_sigma: Annotated[
+        Optional[bool], Query(description="is the query a sigma rule ?")
+    ] = False,
     q_groups: Annotated[
         Optional[list[str]],
         Body(
             description="if set, one or more `query groups` to associate with this query.",
-        ),
-    ] = None,
-    plugin_params: Annotated[
-        Optional[GulpPluginParameters],
-        Body(
-            description="if set, `q` is a sigma rule and this holds the needed parameters for mapping."
         ),
     ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
@@ -187,39 +175,34 @@ async def stored_query_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["plugin_params"] = (
-        plugin_params.model_dump(exclude_none=True) if plugin_params else None
-    )
     ServerUtils.dump_params(params)
     try:
-        if not any([q, q_groups, tags, description, glyph_id, plugin_params]):
+        if not any([q, q_groups, tags, description, glyph_id]):
             raise ValueError(
-                "At least one of q, q_groups, tags, description, glyph_id, plugin must be provided."
+                "At least one of q, q_groups, tags, description, glyph_id, must be provided."
             )
 
-        # get rule
-        r: dict = await GulpStoredQuery.get_by_id_wrapper(
+        # check if rule exists
+        _ = await GulpStoredQuery.get_by_id_wrapper(
             token,
             obj_id,
             permission=[GulpUserPermission.EDIT],
         )
-        if plugin_params and not r.get("plugin_params"):
-            raise ValueError(
-                "Cannot set plugin_params for a stored raw query (only for sigma rules): delete rule and recreate instead."
-            )
+
         # handle tags if q is a sigma rule
-        existing_tags = []
-        if q and plugin_params:
+        t: list[str] = {}
+        if q and is_sigma:
             # it's a sigma rule, get tags and replace
-            sigma_tags = await sigma_to_tags(q)
-            existing_tags = sigma_tags
-        else:
+            t = await sigma_to_tags(q)
+        elif q and not is_sigma:
+            # it's a gulp raw query, get tags and replace
             if tags:
-                existing_tags = tags
+                t = tags
 
         d = {}
-        d["tags"] = existing_tags
 
+        if t:
+            d["tags"] = t
         if name:
             d["name"] = name
         if q:
@@ -230,8 +213,6 @@ async def stored_query_update_handler(
             d["description"] = description
         if glyph_id:
             d["glyph_id"] = glyph_id
-        if plugin_params:
-            d["plugin_params"] = plugin_params.model_dump(exclude_none=True)
 
         d = await GulpStoredQuery.update_by_id(
             token,
