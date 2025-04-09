@@ -249,7 +249,7 @@ async def highlight_get_by_id_handler(
 
 @router.post(
     "/highlight_list",
-    tags=["link"],
+    tags=["highlight"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
