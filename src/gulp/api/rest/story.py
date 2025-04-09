@@ -241,7 +241,7 @@ async def story_get_by_id_handler(
 
 @router.post(
     "/story_list",
-    tags=["link"],
+    tags=["story"],
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
