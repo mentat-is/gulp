@@ -36,11 +36,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.structs import (GulpCollabBase, GulpCollabType,
-                                     GulpRequestStatus, T, GulpUserPermission)
+from gulp.api.collab.structs import (
+    GulpCollabBase,
+    GulpCollabType,
+    GulpRequestStatus,
+    GulpUserPermission,
+    T,
+)
 from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.ws_api import (GulpQueryDonePacket, GulpWsQueueDataType,
-                             GulpWsSharedQueue)
+from gulp.api.ws_api import GulpQueryDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.config import GulpConfig
 
 
@@ -176,7 +180,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         obj_id: str = None,
         private: bool = True,
         operation_id: str = None,
-        **kwargs
+        **kwargs,
     ) -> T:
         """
         Create new (or get an existing) GulpRequestStats object on the collab database.
@@ -242,7 +246,8 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             )
             if s:
                 # update existing stats
-                s.status = GulpRequestStatus.ONGOING
+                if s.status != GulpRequestStatus.CANCELED:
+                    s.status = GulpRequestStatus.ONGOING
                 s.time_updated = time_updated
                 s.time_finished = 0
                 if time_expire > 0:
@@ -271,7 +276,6 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         finally:
             await GulpRequestStats.release_advisory_lock(sess, req_id)
 
-
     async def cancel(
         self,
         sess: AsyncSession,
@@ -291,12 +295,9 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             "time_expire": time_expire,
             "completed": "1",
             "time_finished": muty.time.now_msec(),
-        },
+        }
 
-        await super().update(
-            sess,
-            d=d
-        )
+        await super().update(sess, d=d)
 
     @override
     async def delete(
@@ -319,7 +320,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         req_id: str,
         d: dict = None,
         permission: list[GulpUserPermission] = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         same as base class update_by_id, but without checking token
@@ -334,7 +335,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             **kwargs: Additional keyword arguments.
                 - sess: AsyncSession (mandatory)
                 - user_id: str (mandatory)
-        
+
         Returns:
             dict: The updated object as a dictionary.
         """
@@ -350,17 +351,16 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         finally:
             await GulpRequestStats.release_advisory_lock(sess, obj_id)
 
-
     @override
     async def update(
         self,
         sess: AsyncSession,
         d: dict,
-        ws_id: str=None,
-        user_id: str=None,
-        ws_queue_datatype: "GulpWsQueueDataType" = None,
-        ws_data: dict = None,
-        req_id: str = None,
+        ws_id: str = None,
+        user_id: str = None,
+        ws_queue_datatype: "GulpWsQueueDataType" = GulpWsQueueDataType.STATS_UPDATE, # provide default
+        ws_data: dict = None, # keep for super().update
+        req_id: str = None, # keep for super().update
     ) -> dict:
         """
         update the stats with improved locking strategy to prevent deadlocks.
@@ -368,129 +368,323 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
         Args:
             sess (AsyncSession): the database session to use.
             d (dict): the dictionary of values to update:
-                source_processed (int): the number of sources processed.
-                source_failed (int): the number of sources that failed.
-                records_failed (int): the number of records that failed.
-                records_skipped (int): the number of records that were skipped.
-                records_processed (int): the number of records that were processed.
-                records_ingested (int): the number of records that were ingested.
-                error (str|Exception|list[str]): the error message or exception that occurred.
-                status (GulpRequestStatus): the status of the stats.
-            ws_id (str): the websocket id.
-            user_id (str): the user id updating the stats.
-            ws_queue_datatype (GulpWsQueueDataType): ignored
-            ws_data (dict): ignored
-            req_id (str): ignored
-        
+                source_processed (int, optional): the number of sources processed. defaults to 0.
+                source_failed (int, optional): the number of sources that failed. defaults to 0.
+                records_failed (int, optional): the number of records that failed. defaults to 0.
+                records_skipped (int, optional): the number of records that were skipped. defaults to 0.
+                records_processed (int, optional): the number of records that were processed. defaults to 0.
+                records_ingested (int, optional): the number of records that were ingested. defaults to 0.
+                error (str | Exception | list[str], optional): the error message or exception that occurred. defaults to none.
+                status (GulpRequestStatus, optional): force a specific status. defaults to none.
+                source_id (str, optional): update the source id associated with the stats. defaults to none.
+            ws_id (str, optional): the websocket id. defaults to none.
+            user_id (str, optional): the user id updating the stats. defaults to none.
+            ws_queue_datatype (GulpWsQueueDataType, optional): the websocket queue data type for notification. defaults to GulpWsQueueDataType.STATS_UPDATE.
+            ws_data (dict, optional): additional data for the websocket message. defaults to none.
+            req_id (str, optional): the request id for the websocket message. defaults to none.
+
         Returns:
             dict: the updated stats as a dictionary.
-        
+
         Raises:
             OperationalError: if locking fails after retries.
         """
+        log = MutyLogger.get_instance()
+        updated_data: dict = {} # dictionary to hold changes for super().update if needed, though current super().update ignores 'd'
+
         try:
+            # acquire lock for the duration of the update
             await self.__class__.acquire_advisory_lock(sess, self.id)
 
             # get latest data
             await sess.refresh(self)
-        finally:
-            await self.__class__.release_advisory_lock(sess, self.id)
 
-        # update counters from the provided data
-        self.source_processed += d.get("source_processed", 0)
-        self.source_failed += d.get("source_failed", 0)
-        self.records_failed += d.get("records_failed", 0)
-        self.records_skipped += d.get("records_skipped", 0)
-        self.records_processed += d.get("records_processed", 0)
-        self.records_ingested += d.get("records_ingested", 0)
-        self.source_id = d.get("source_id", self.source_id)
-
-        # process any errors provided in the update
-        error: Union[Exception, str, list[str]] = d.get("error", None)
-        if error:
-            if not self.errors:
-                self.errors = []
-
-            # handle different error types
-            if isinstance(error, Exception):
-                MutyLogger.get_instance().exception(error)
-                error_str = str(error)
-                if error_str not in self.errors:
-                    self.errors.append(error_str)
-            elif isinstance(error, str):
-                if error not in self.errors:
-                    self.errors.append(error)
-            elif isinstance(error, list):
-                for e in error:
-                    if e not in self.errors:
-                        self.errors.append(e)
-
-        # log update details
-        msg: str = f"---> update: ws_id={ws_id}, d={d}"
-        if error:
-            MutyLogger.get_instance().error(msg)
-        else:
-            MutyLogger.get_instance().debug(msg)
-
-        # check if all sources processed
-        if self.source_processed == self.source_total:
-            MutyLogger.get_instance().debug(
-                'source_processed: %d == source_total: %d, setting request "%s" to DONE'
-                % (self.source_processed, self.source_total, self.id)
-            )
-            if self.records_processed > 0 and self.records_ingested == 0:
-                self.status = GulpRequestStatus.FAILED
-            else:
-                self.status = GulpRequestStatus.DONE
-
-        # check if all sources failed
-        if self.source_failed == self.source_total:
-            MutyLogger.get_instance().error(
-                'source_failed: %d == source_total: %d, setting request "%s" to FAILED'
-                % (self.source_failed, self.source_total, self.id)
-            )
-            self.status = GulpRequestStatus.FAILED
-
-        # edge case for DONE but records processing failed
-        if self.status == GulpRequestStatus.DONE:
-            if self.records_processed == 0 and self.records_failed > 0:
-                self.status = GulpRequestStatus.FAILED
-
-        # handle completed status and update completion metrics
-        if self.status in [
-            GulpRequestStatus.CANCELED,
-            GulpRequestStatus.FAILED,
-            GulpRequestStatus.DONE,
-        ]:
-            # mark as complete and record finishing time
-            self.time_finished = muty.time.now_msec()
-            self.completed = "1"
-
-            # log completion information
-            MutyLogger.get_instance().info(
-                'REQUEST TIME INFO: request "%s" COMPLETED with status=%s, TOTAL TIME: %d seconds'
-                % (
+            # check if already completed or canceled
+            if self.status in [GulpRequestStatus.CANCELED, GulpRequestStatus.DONE]:
+                log.warning(
+                    "request %s is already done or canceled, status=%s! update ignored.",
                     self.id,
                     self.status,
-                    (self.time_finished - self.time_created) / 1000,
                 )
+                return self.to_dict() # return current state
+
+            # --- apply updates from d ---
+            self.source_processed += d.get("source_processed", 0)
+            self.source_failed += d.get("source_failed", 0)
+            self.records_failed += d.get("records_failed", 0)
+            self.records_skipped += d.get("records_skipped", 0)
+            self.records_processed += d.get("records_processed", 0)
+            self.records_ingested += d.get("records_ingested", 0)
+            if "source_id" in d:
+                self.source_id = d["source_id"]
+
+            # --- process errors ---
+            error: Union[Exception, str, list[str]] = d.get("error")
+            if error:
+                if not self.errors:
+                    self.errors = [] # ensure list exists
+
+                new_errors: list[str] = []
+                if isinstance(error, Exception):
+                    log.exception(error) # log the full exception
+                    error_str = str(error)
+                    if error_str not in self.errors:
+                        new_errors.append(error_str)
+                elif isinstance(error, str):
+                    if error not in self.errors:
+                        new_errors.append(error)
+                elif isinstance(error, list):
+                    for e in error:
+                        e_str = str(e) # ensure it's a string
+                        if e_str not in self.errors:
+                            new_errors.append(e_str)
+
+                if new_errors:
+                    self.errors.extend(new_errors)
+                    # mark errors as modified for sqlalchemy mutable tracking
+                    self.errors = self.errors # type: ignore
+
+            # log update details
+            log.debug("---> update stats: id=%s, ws_id=%s, current_status=%s, updates=%s", self.id, ws_id, self.status, d)
+            if error:
+                log.error("---> update stats error: id=%s, error=%s", self.id, error)
+
+
+            # --- determine status if not forced ---
+            is_completed: bool = False
+            new_status: Optional[GulpRequestStatus] = None
+
+            # check if all sources are processed
+            if self.source_processed >= self.source_total: # use >= for safety
+                log.debug(
+                    'source_processed: %d >= source_total: %d, request "%s" processing complete.',
+                    self.source_processed,
+                    self.source_total,
+                    self.id,
+                )
+                is_completed = True
+                # default to done, then check for failure conditions
+                new_status = GulpRequestStatus.DONE
+
+                # condition 1: all sources failed
+                if self.source_failed >= self.source_total:
+                    log.error(
+                        'source_failed: %d >= source_total: %d, setting request "%s" to failed.',
+                        self.source_failed,
+                        self.source_total,
+                        self.id,
+                    )
+                    new_status = GulpRequestStatus.FAILED
+                # condition 2: some sources processed, but nothing ingested (implies failure)
+                elif self.records_processed > 0 and self.records_ingested == 0:
+                     log.warning(
+                        'records_processed: %d > 0 but records_ingested: 0, setting request "%s" to failed.',
+                        self.records_processed,
+                        self.id,
+                    )
+                     new_status = GulpRequestStatus.FAILED
+                # condition 3: marked done, but actually no records processed and some failed
+                elif new_status == GulpRequestStatus.DONE and self.records_processed == 0 and self.records_failed > 0:
+                    log.warning(
+                        'status was done, but records_processed: 0 and records_failed: %d > 0, setting request "%s" to failed.',
+                        self.records_failed,
+                        self.id,
+                    )
+                    new_status = GulpRequestStatus.FAILED
+
+            # apply the determined status if one was found
+            if new_status:
+                self.status = new_status
+
+            # --- apply forced status ---
+            # this overrides any automatically determined status
+            forced_status: Optional[GulpRequestStatus] = d.get("status")
+            if forced_status:
+                log.debug("applying forced status %s to request %s", forced_status, self.id)
+                self.status = forced_status
+                if self.status in [GulpRequestStatus.FAILED, GulpRequestStatus.DONE, GulpRequestStatus.CANCELED]:
+                    is_completed = True # forced completion
+
+            # --- handle completion ---
+            if is_completed and self.completed == "0": # only update if not already marked completed
+                self.time_finished = muty.time.now_msec()
+                self.completed = "1"
+                log.info(
+                    'request "%s" **COMPLETED** with status=%s, total time: %d seconds',
+                    self.id,
+                    self.status,
+                    (self.time_finished - self.time_created) / 1000 if self.time_created else -1,
+                )
+
+            # --- call parent update ---
+            # note: the parent's update handles the commit and websocket notification.
+            # it uses the current state of 'self', so passing d=None is correct if parent doesn't need incremental changes.
+            updated_dict: dict = await super().update(
+                sess,
+                d=updated_data, # pass empty dict or specific fields if parent needs them
+                ws_id=ws_id,
+                user_id=user_id,
+                ws_queue_datatype=ws_queue_datatype,
+                ws_data=ws_data, # pass through ws_data
+                req_id=req_id or self.id, # pass through req_id or use self.id
             )
+            return updated_dict
 
-        # apply forced status if provided
-        forced_status: GulpRequestStatus = d.get("status", None)
-        if forced_status:
-            self.status = forced_status
+        finally:
+            # ensure lock is always released
+            await self.__class__.release_advisory_lock(sess, self.id)
 
-        # pass to parent's update method
-        dd = await super().update(
-            sess,
-            d=None,
-            ws_id=ws_id,
-            user_id=user_id,
-            ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
-            req_id=self.id,
-        )
-        return dd
+    # @override
+    # async def update(
+    #     self,
+    #     sess: AsyncSession,
+    #     d: dict,
+    #     ws_id: str = None,
+    #     user_id: str = None,
+    #     ws_queue_datatype: "GulpWsQueueDataType" = None,
+    #     ws_data: dict = None,
+    #     req_id: str = None,
+    # ) -> dict:
+    #     """
+    #     update the stats with improved locking strategy to prevent deadlocks.
+
+    #     Args:
+    #         sess (AsyncSession): the database session to use.
+    #         d (dict): the dictionary of values to update:
+    #             source_processed (int): the number of sources processed.
+    #             source_failed (int): the number of sources that failed.
+    #             records_failed (int): the number of records that failed.
+    #             records_skipped (int): the number of records that were skipped.
+    #             records_processed (int): the number of records that were processed.
+    #             records_ingested (int): the number of records that were ingested.
+    #             error (str|Exception|list[str]): the error message or exception that occurred.
+    #             status (GulpRequestStatus): the status of the stats.
+    #         ws_id (str): the websocket id.
+    #         user_id (str): the user id updating the stats.
+    #         ws_queue_datatype (GulpWsQueueDataType): ignored
+    #         ws_data (dict): ignored
+    #         req_id (str): ignored
+
+    #     Returns:
+    #         dict: the updated stats as a dictionary.
+
+    #     Raises:
+    #         OperationalError: if locking fails after retries.
+    #     """
+    #     try:
+    #         await self.__class__.acquire_advisory_lock(sess, self.id)
+
+    #         # get latest data
+    #         await sess.refresh(self)
+    #         if (
+    #             self.status == GulpRequestStatus.CANCELED
+    #             or self.status == GulpRequestStatus.DONE
+    #         ):
+    #             # just return
+    #             MutyLogger.get_instance().warning(
+    #                 "request %s is already done or canceled, status=%s !"
+    #                 % (self.id, self.status)
+    #             )
+    #             return self.to_dict()
+    #     finally:
+    #         await self.__class__.release_advisory_lock(sess, self.id)
+
+    #     # update counters from the provided data
+    #     self.source_processed += d.get("source_processed", 0)
+    #     self.source_failed += d.get("source_failed", 0)
+    #     self.records_failed += d.get("records_failed", 0)
+    #     self.records_skipped += d.get("records_skipped", 0)
+    #     self.records_processed += d.get("records_processed", 0)
+    #     self.records_ingested += d.get("records_ingested", 0)
+    #     self.source_id = d.get("source_id", self.source_id)
+
+    #     # process any errors provided in the update
+    #     error: Union[Exception, str, list[str]] = d.get("error", None)
+    #     if error:
+    #         if not self.errors:
+    #             self.errors = []
+
+    #         # handle different error types
+    #         if isinstance(error, Exception):
+    #             MutyLogger.get_instance().exception(error)
+    #             error_str = str(error)
+    #             if error_str not in self.errors:
+    #                 self.errors.append(error_str)
+    #         elif isinstance(error, str):
+    #             if error not in self.errors:
+    #                 self.errors.append(error)
+    #         elif isinstance(error, list):
+    #             for e in error:
+    #                 if e not in self.errors:
+    #                     self.errors.append(e)
+
+    #     # log update details
+    #     msg: str = f"---> update: ws_id={ws_id}, status={self.status}, d={d}"
+    #     if error:
+    #         MutyLogger.get_instance().error(msg)
+    #     else:
+    #         MutyLogger.get_instance().debug(msg)
+
+    #     # check if all sources processed
+    #     if self.source_processed == self.source_total:
+    #         # sources done, determine status
+    #         MutyLogger.get_instance().debug(
+    #             'source_processed: %d == source_total: %d, request "%s" is completed!'
+    #             % (self.source_processed, self.source_total, self.id)
+    #         )
+    #         # check for failed or done
+    #         if self.records_processed > 0 and self.records_ingested == 0:
+    #             self.status = GulpRequestStatus.FAILED
+    #         else:
+    #             self.status = GulpRequestStatus.DONE
+
+    #         # check if all sources failed
+    #         if self.source_failed == self.source_total:
+    #             MutyLogger.get_instance().error(
+    #                 'source_failed: %d == source_total: %d, setting request "%s" to FAILED'
+    #                 % (self.source_failed, self.source_total, self.id)
+    #             )
+    #             self.status = GulpRequestStatus.FAILED
+
+    #         # edge case for DONE but records processing failed
+    #         if self.status == GulpRequestStatus.DONE:
+    #             if self.records_processed == 0 and self.records_failed > 0:
+    #                 self.status = GulpRequestStatus.FAILED
+
+    #     # handle completed status and update completion metrics
+    #     if self.status in [
+    #         GulpRequestStatus.FAILED,
+    #         GulpRequestStatus.DONE,
+    #     ]:
+    #         # mark as complete and record finishing time
+    #         self.time_finished = muty.time.now_msec()
+    #         self.completed = "1"
+
+    #         # log completion information
+    #         MutyLogger.get_instance().info(
+    #             'REQUEST TIME INFO: request "%s" COMPLETED with status=%s, TOTAL TIME: %d seconds'
+    #             % (
+    #                 self.id,
+    #                 self.status,
+    #                 (self.time_finished - self.time_created) / 1000,
+    #             )
+    #         )
+
+    #     # apply forced status if provided
+    #     forced_status: GulpRequestStatus = d.get("status", None)
+    #     if forced_status:
+    #         self.status = forced_status
+
+    #     # pass to parent's update method
+    #     dd = await super().update(
+    #         sess,
+    #         d=None,
+    #         ws_id=ws_id,
+    #         user_id=user_id,
+    #         ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
+    #         req_id=self.id,
+    #     )
+    #     return dd
 
     @staticmethod
     async def finalize_query_stats(
@@ -525,7 +719,7 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             )
             status: GulpRequestStatus = GulpRequestStatus.DONE
 
-            dd: dict={}
+            dd: dict = {}
             if stats and stats.status != GulpRequestStatus.CANCELED:
                 # mark as completed
                 stats.completed = "1"
@@ -553,14 +747,12 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
                 )
         finally:
             await GulpRequestStats.release_advisory_lock(sess, req_id)
-                    
+
         if not send_query_done:
             return dd
 
         # inform the websocket
-        MutyLogger.get_instance().debug(
-            f"sending query done packet, errors={errors}"
-        )
+        MutyLogger.get_instance().debug(f"sending query done packet, errors={errors}")
         p = GulpQueryDonePacket(
             status=status,
             errors=errors or [],
@@ -591,8 +783,6 @@ class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
             sess, req_id, throw_if_not_found=False
         )
         if stats and stats.status == GulpRequestStatus.CANCELED:
-            MutyLogger.get_instance().warning(
-                f"request {req_id} is canceled!"
-            )
+            MutyLogger.get_instance().warning(f"request {req_id} is canceled!")
             return True
         return False

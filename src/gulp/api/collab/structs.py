@@ -654,27 +654,27 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # add current class to seen set
         seen.add(cls)
-        
+
         # get all direct relationships
         options = []
-        
+
         for rel in inspect(cls).relationships:
             # add direct relationship
             rel_name = rel.key
             options.append(selectinload(getattr(cls, rel_name)))
-            
+
             # handle recursive loading if requested
             if recursive:
                 target_class = rel.mapper.class_
-                
+
                 # skip already seen classes to prevent circular dependencies
                 if target_class in seen:
                     continue
-                    
+
                 # get nested loading options with updated path
                 nested_seen = seen.copy()
                 nested_seen.add(target_class)
-                
+
                 # build path-based loader
                 for nested_rel in inspect(target_class).relationships:
                     nested_rel_name = nested_rel.key
@@ -683,12 +683,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         selectinload(getattr(cls, rel_name))
                         .selectinload(getattr(target_class, nested_rel_name))
                     )
-                    
+
                     # avoid going too deep with recursion
                     nested_target = nested_rel.mapper.class_
                     if nested_target not in nested_seen:
                         nested_seen.add(nested_target)
-        
+
         return options
 
 
@@ -866,7 +866,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # add group grants
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
         await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID, commit=False)
-                
+
         await sess.commit()
 
     async def add_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
@@ -1342,7 +1342,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if user_id:
             # get user info (its groups and admin status)
             from gulp.api.collab.user import GulpUser
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)         
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
             # MutyLogger.get_instance().debug("user=%s, admin=%r, groups=%s" % (u.to_dict(), is_admin, group_ids))
