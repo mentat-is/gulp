@@ -39,6 +39,21 @@ example usage:
         "override_chunk_size": 200,
         "additional_mapping_files": [[ "windows.json", "windows" ]]
 }'
+
+./test_scripts/query_external.py \
+    --preview-mode \
+    --q '{ "query": {"match_all": {}} }' \
+    --plugin query_elasticsearch --operation_id test_operation \
+    --plugin_params '{
+        "custom_parameters":  {
+            "uri": "http://localhost:9200",
+            "username": "admin",
+            "password": "Gulp1234!",
+            "index": "test_operation",
+            "is_elasticsearch": false
+        },
+        "override_chunk_size": 200
+}'
 """
 
 
@@ -161,6 +176,15 @@ async def query_external(args):
                     # dump structs before running the query
                     MutyLogger.get_instance().debug("q_options=%s", q_options)
 
+                    # check if q is a json string, if so turn to dict
+                    if isinstance(args.q, str):
+                        try:
+                            qq = json.loads(args.q)
+                            args.q = qq
+                        except json.JSONDecodeError:
+                            # keep string
+                            pass
+                        
                     await GulpAPIQuery.query_external(
                         token,
                         args.operation_id,

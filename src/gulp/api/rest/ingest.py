@@ -249,8 +249,8 @@ async def _ingest_file_internal(
                 "PREVIEW MODE, no stats is created on the collab database."
             )
         else:
-             # create stats
-             stats = await GulpRequestStats.create(
+            # create stats
+            stats = await GulpRequestStats.create(
                 token=None,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -288,10 +288,10 @@ async def _ingest_file_internal(
                 # on preview (sync mode) raise exception
                 raise ex
             else:
-                d ={
-                    "source_failed":1,
-                    "status":status,
-                    "error":ex,
+                d = {
+                    "source_failed": 1,
+                    "status": status,
+                    "error": ex,
                 }
                 await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
@@ -317,14 +317,19 @@ async def _ingest_file_internal(
 
             # done
             if mod:
-                # update source ingestion info (plugin, plugin_params)
-                d = {
-                    "plugin": plugin,
-                    "plugin_params": mod.plugin_params().model_dump(
-                        exclude_none=True
-                    ) if mod.plugin_params else None
-                }
-                await GulpSource.update_by_id(None, source_id, d=d, ws_id=None, req_id=None)
+                if not preview_mode:
+                    # update source ingestion info (plugin, plugin_params)
+                    d = {
+                        "plugin": plugin,
+                        "plugin_params": (
+                            mod.plugin_params().model_dump(exclude_none=True)
+                            if mod.plugin_params
+                            else None
+                        ),
+                    }
+                    await GulpSource.update_by_id(
+                        None, source_id, d=d, ws_id=None, req_id=None
+                    )
                 await mod.unload()
 
         return status, preview_chunk
@@ -532,7 +537,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx, _ = await operation.add_context(
                     sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
                 )
-                #MutyLogger.get_instance().debug( f"context in operation {operation.id}:  {ctx}")
+                # MutyLogger.get_instance().debug( f"context in operation {operation.id}:  {ctx}")
                 src, _ = await ctx.add_source(
                     sess,
                     user_id=user_id,
@@ -644,7 +649,7 @@ async def _ingest_raw_internal(
         except Exception as ex:
             # just append error
             d = {
-                "error":ex,
+                "error": ex,
             }
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
@@ -912,8 +917,10 @@ async def ingest_zip_handler(
             user_id = s.user_id
 
             # handle multipart request manually
-            file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-                r=r, operation_id=operation_id, context_name=context_name
+            file_path, payload, result = (
+                await ServerUtils.handle_multipart_chunked_upload(
+                    r=r, operation_id=operation_id, context_name=context_name
+                )
             )
             if not result.done:
                 # must continue upload with a new chunk
@@ -929,7 +936,9 @@ async def ingest_zip_handler(
             unzipped = await muty.file.unzip(file_path)
 
             # read metadata json
-            files: list[GulpIngestPayload] = await _process_metadata_json(unzipped, payload)
+            files: list[GulpIngestPayload] = await _process_metadata_json(
+                unzipped, payload
+            )
             file_total = len(files)
 
             # ingest each file in a worker
