@@ -29,6 +29,7 @@ class GulpAPIIngest:
         file_sha1: str = None,
         total_file_size: int = 0,
         expected_status: int = 200,
+        preview_mode: bool = False,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
 
@@ -42,6 +43,7 @@ class GulpAPIIngest:
             "operation_id": operation_id,
             "context_name": context_name,
             "plugin": plugin,
+            "preview_mode": preview_mode,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
             "file_total": file_total,
