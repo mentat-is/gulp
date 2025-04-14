@@ -290,7 +290,7 @@ async def operation_reset_internal(operation_id: str, owner_id: str = None) -> N
                 # operation must be created anew
                 index = operation_id
                 description = None
-                glyph_id = None
+                glyph_id = "coins"
                 user_grants = ["admin", "guest", "ingest", "power", "editor"]
                 group_grants = [ADMINISTRATORS_GROUP_ID]
                 operation_data = {}

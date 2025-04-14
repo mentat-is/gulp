@@ -20,7 +20,7 @@ from importlib import import_module, resources
 
 import muty.file
 from muty.log import MutyLogger
-from sqlalchemy import text
+from sqlalchemy import insert, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -394,12 +394,8 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_first_by_filter(
-                sess,
-                GulpCollabFilter(names=["test_operation_icon"]),
-                user_id="admin",
-                throw_if_not_found=False,
-            )
+            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "coins")
+            MutyLogger.get_instance().debug("operation_glyph: %s" % (operation_glyph))
 
             # create default operation
             # pylint: disable=protected-access
@@ -408,7 +404,7 @@ class GulpCollab:
                 object_data={
                     "name": operation_id,
                     "index": index,
-                    "glyph_id": operation_glyph.id if operation_glyph else None,
+                    "glyph_id": operation_glyph.id,
                 },
                 obj_id=operation_id,
                 owner_id=admin_user.id,
@@ -522,6 +518,65 @@ class GulpCollab:
                 json.dumps(admin_user.to_dict(nested=True), indent=4)
             )
 
+    async def load_icons(self, sess: AsyncSession, user_id: str) -> None:
+        """
+        load icons from the included zip file
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            user_id (str): The user ID to use (will be set as the owner of the created objects).
+
+        """
+        from gulp.api.collab.glyph import GulpGlyph
+        assets_path = resources.files("gulp.api.collab.assets")
+        zip_path = muty.file.safe_path_join(assets_path, "icons.zip")
+
+        # unzip to temp dir
+        unzipped_dir: str = None
+        try:
+            unzipped_dir = await muty.file.unzip(zip_path, None)
+
+            # load each icon
+            files = await muty.file.list_directory_async(unzipped_dir, "*.svg", case_sensitive=False)
+            glyphs: list[dict] = []
+            l: int = len(files)
+            chunk_size = 256 if l > 256 else l
+
+            for f in files:
+                # read file, get bare filename without extension
+                icon_b = await muty.file.read_file_async(f)
+                bare_filename = os.path.basename(f)
+                bare_filename = os.path.splitext(bare_filename)[0].lower()
+                bare_filename = bare_filename.replace(" ", "_")
+
+                object_data = {
+                    "name": bare_filename,
+                    "img": icon_b,
+                }
+
+                d = GulpGlyph.build_base_object_dict(
+                    object_data, owner_id=user_id, obj_id=bare_filename, private=False)
+
+                glyphs.append(d)
+
+                if len(glyphs) == chunk_size:
+                    # insert bulk
+                    MutyLogger.get_instance().debug("inserting bulk of %d glyphs ..." % (len(glyphs)))
+                    await sess.execute(insert(GulpGlyph).values(glyphs))
+                    await sess.commit()
+                    glyphs = []
+
+            if glyphs:
+                # insert remaining
+                MutyLogger.get_instance().debug("last chunk, inserting bulk of %d glyphs ..." % (len(glyphs)))
+                await sess.execute(insert(GulpGlyph).values(glyphs))
+                await sess.commit()
+
+        finally:
+            if unzipped_dir:
+                # remove temp dir
+                await muty.file.delete_file_or_dir_async(unzipped_dir)
+
     async def create_default_data(self) -> None:
         """
         create the default data: glyphs, stored queries
@@ -548,36 +603,14 @@ class GulpCollab:
 
             # read glyphs
             assets_path = resources.files("gulp.api.collab.assets")
-            user_b = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "user.png")
-            )
-            operation_b = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "operation.png")
-            )
 
             # create glyphs
-            # pylint: disable=protected-access
-            user_glyph = await GulpGlyph._create_internal(
-                sess,
-                object_data={
-                    "name": "test_user_icon",
-                    "img": user_b,
-                },
-                owner_id=admin_user.id,
-                private=False,
-                obj_id="test_user_icon",
-            )
+            await self.load_icons(sess, admin_user.id)
 
-            _ = await GulpGlyph._create_internal(
-                sess,
-                object_data={
-                    "name": "test_operation_icon",
-                    "img": operation_b,
-                },
-                owner_id=admin_user.id,
-                private=False,
-                obj_id="test_operation_icon",
-            )
+            # get user and operation glyphs
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user")
+
+            # pylint: disable=protected-access
 
             # assign glyphs
             admin_user.glyph_id = user_glyph.id
