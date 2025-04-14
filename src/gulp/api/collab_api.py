@@ -394,7 +394,7 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "coins")
+            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "book-dashed")
             # MutyLogger.get_instance().debug("operation_glyph: %s" % (operation_glyph))
 
             # create default operation
@@ -541,6 +541,7 @@ class GulpCollab:
             files = await muty.file.list_directory_async(
                 unzipped_dir, "*.svg", case_sensitive=False
             )
+            MutyLogger.get_instance().debug("found %d files in %s" % (len(files), unzipped_dir))
             glyphs: list[dict] = []
             l: int = len(files)
             chunk_size = 256 if l > 256 else l
@@ -549,16 +550,19 @@ class GulpCollab:
                 # read file, get bare filename without extension
                 icon_b = await muty.file.read_file_async(f)
                 bare_filename = os.path.basename(f)
-                bare_filename = os.path.splitext(bare_filename)[0].lower()
-                bare_filename = bare_filename.replace(" ", "_")
+                bare_filename = os.path.splitext(bare_filename)[0]
 
                 object_data = {
                     "name": bare_filename,
                     "img": icon_b,
                 }
 
+                bare_filename = bare_filename.replace(" ", "_")
                 d = GulpGlyph.build_base_object_dict(
-                    object_data, owner_id=user_id, obj_id=bare_filename, private=False
+                    object_data,
+                    owner_id=user_id,
+                    obj_id=bare_filename.lower(),
+                    private=False,
                 )
 
                 glyphs.append(d)
@@ -579,7 +583,11 @@ class GulpCollab:
                 )
                 await sess.execute(insert(GulpGlyph).values(glyphs))
                 await sess.commit()
-
+        except Exception as e:
+            MutyLogger.get_instance().error(
+                "error loading icons: %s" % (str(e)), exc_info=True
+            )
+            raise e
         finally:
             if unzipped_dir:
                 # remove temp dir
@@ -616,7 +624,7 @@ class GulpCollab:
             await self.load_icons(sess, admin_user.id)
 
             # get user and operation glyphs
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user")
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user-round")
 
             # pylint: disable=protected-access
 

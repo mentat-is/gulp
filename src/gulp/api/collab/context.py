@@ -108,7 +108,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         # consider just the last part of the name if it's a path
         bare_name = name.split("/")[-1]
         src_id = GulpContext.make_source_id_key(self.operation_id, self.id, bare_name)
-        
+
         try:
             await GulpSource.acquire_advisory_lock(sess, src_id)
 
@@ -128,6 +128,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 "context_id": self.id,
                 "name": name,
                 "color": "purple",
+                "glyph_id": "file",
             }
             # pylint: disable=protected-access
             src = await GulpSource._create_internal(
@@ -153,7 +154,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 await src.add_user_grant(sess, u, commit=False)
             for g in self.granted_user_group_ids:
                 await src.add_group_grant(sess, g, commit=False)
-            
+
             # finally commit the session
             await sess.commit()
             await sess.refresh(self)
@@ -161,7 +162,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 f"source {src.id}, name={name} added to context {self.id}, src={src}"
             )
             return src, True
-        
+
         finally:
             # release the lock
             await GulpSource.release_advisory_lock(sess, src_id)
