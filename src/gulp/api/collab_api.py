@@ -519,6 +519,7 @@ class GulpCollab:
                 json.dumps(admin_user.to_dict(nested=True), indent=4)
             )
 
+    @staticmethod
     def to_camel_case(name: str) -> str:
         return re.sub(r'(?:^|-)([a-zA-Z])', lambda m: m.group(1).upper(), name)
 
