@@ -630,7 +630,7 @@ class GulpCollab:
             await self.load_icons(sess, admin_user.id)
 
             # get user and operation glyphs
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "User")
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "UserRound")
 
             # pylint: disable=protected-access
 
