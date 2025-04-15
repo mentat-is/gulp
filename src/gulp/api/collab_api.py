@@ -395,7 +395,7 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "BookDashed")
+            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "book-dashed")
             # MutyLogger.get_instance().debug("operation_glyph: %s" % (operation_glyph))
 
             # create default operation

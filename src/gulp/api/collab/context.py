@@ -128,7 +128,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 "context_id": self.id,
                 "name": name,
                 "color": "purple",
-                "glyph_id": "File",
+                "glyph_id": "file",
             }
             # pylint: disable=protected-access
             src = await GulpSource._create_internal(
