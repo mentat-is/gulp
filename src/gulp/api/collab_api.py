@@ -557,6 +557,8 @@ class GulpCollab:
                 bare_filename = os.path.basename(f)
                 bare_filename = os.path.splitext(bare_filename)[0]
 
+                id = bare_filename
+
                 bare_filename = self.to_camel_case(bare_filename.replace(" ", "_"))
 
                 object_data = {
@@ -567,7 +569,7 @@ class GulpCollab:
                 d = GulpGlyph.build_base_object_dict(
                     object_data,
                     owner_id=user_id,
-                    obj_id=bare_filename.lower(),
+                    obj_id=id.lower(),
                     private=False,
                 )
 
