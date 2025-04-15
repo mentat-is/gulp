@@ -395,7 +395,7 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "book-dashed")
+            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "BookDashed")
             # MutyLogger.get_instance().debug("operation_glyph: %s" % (operation_glyph))
 
             # create default operation
@@ -630,7 +630,7 @@ class GulpCollab:
             await self.load_icons(sess, admin_user.id)
 
             # get user and operation glyphs
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user-round")
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "User")
 
             # pylint: disable=protected-access
 

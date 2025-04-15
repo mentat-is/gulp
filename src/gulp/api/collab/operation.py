@@ -115,7 +115,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                 "operation_id": self.id,
                 "name": name,
                 "color": "white",
-                "glyph_id": "box",
+                "glyph_id": "Box",
             }
             # pylint: disable=protected-access
             ctx = await GulpContext._create_internal(
