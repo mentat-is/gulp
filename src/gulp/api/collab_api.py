@@ -17,6 +17,7 @@ import json
 import os
 import pkgutil
 from importlib import import_module, resources
+import re
 
 import muty.file
 from muty.log import MutyLogger
@@ -518,6 +519,9 @@ class GulpCollab:
                 json.dumps(admin_user.to_dict(nested=True), indent=4)
             )
 
+    def to_camel_case(name: str) -> str:
+        return re.sub(r'(?:^|-)([a-zA-Z])', lambda m: m.group(1).upper(), name)
+
     async def load_icons(self, sess: AsyncSession, user_id: str) -> None:
         """
         load icons from the included zip file
@@ -552,12 +556,13 @@ class GulpCollab:
                 bare_filename = os.path.basename(f)
                 bare_filename = os.path.splitext(bare_filename)[0]
 
+                bare_filename = self.to_camel_case(bare_filename.replace(" ", "_"))
+
                 object_data = {
                     "name": bare_filename,
                     "img": icon_b,
                 }
 
-                bare_filename = bare_filename.replace(" ", "_")
                 d = GulpGlyph.build_base_object_dict(
                     object_data,
                     owner_id=user_id,
