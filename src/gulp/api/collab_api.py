@@ -521,7 +521,7 @@ class GulpCollab:
 
     @staticmethod
     def to_camel_case(name: str) -> str:
-        return re.sub(r'(?:^|-)([a-zA-Z])', lambda m: m.group(1).upper(), name)
+        return re.sub(r'(?:^|[-_])([a-zA-Z0-9])', lambda m: m.group(1).upper(), name)
 
     async def load_icons(self, sess: AsyncSession, user_id: str) -> None:
         """
@@ -630,7 +630,7 @@ class GulpCollab:
             await self.load_icons(sess, admin_user.id)
 
             # get user and operation glyphs
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "UserRound")
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, 'user-round')
 
             # pylint: disable=protected-access
 
