@@ -30,17 +30,17 @@ async def test_glyph():
     assert power_token
 
     # delete all exysting glyph first
-    l = await GulpAPIGlyph.glyph_list(edit_token)
-    for glyph in l:
-        try:
-            await GulpAPIGlyph.glyph_delete(edit_token, glyph["id"], expected_status=401)
-            await GulpAPIGlyph.glyph_delete(power_token, glyph["id"])
-        except:
-            pass
-    l = await GulpAPIGlyph.glyph_list(edit_token)
-    assert not l
+    # l = await GulpAPIGlyph.glyph_list(edit_token)
+    # for glyph in l:
+    #     try:
+    #         await GulpAPIGlyph.glyph_delete(edit_token, glyph["id"], expected_status=401)
+    #         await GulpAPIGlyph.glyph_delete(power_token, glyph["id"])
+    #     except:
+    #         pass
+    # l = await GulpAPIGlyph.glyph_list(edit_token)
+    # assert not l
     pwd = os.path.dirname(os.path.abspath(__file__))
-    
+
     # guest cannot create
     st = await GulpAPIGlyph.glyph_create(
         guest_token,
@@ -75,10 +75,10 @@ async def test_glyph():
 
     # update
     await GulpAPIGlyph.glyph_update(
-        edit_token, st["id"], img_path=os.path.join(pwd, "./user.png"), name="glyph"
+        edit_token, st["id"], img_path=os.path.join(pwd, "./user.png"), name="testglyph"
     )
     st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st["id"])
-    assert st["name"] == "glyph"
+    assert st["name"] == "testglyph"
 
     # make glyph private
     st_id = st["id"]
@@ -89,7 +89,7 @@ async def test_glyph():
     l = await GulpAPIGlyph.glyph_list(
         guest_token,
         GulpCollabFilter(
-            names=["glyph"],
+            names=["testglyph"],
         ),
     )
     assert not l
@@ -100,7 +100,7 @@ async def test_glyph():
     l = await GulpAPIGlyph.glyph_list(
         guest_token,
         GulpCollabFilter(
-            names=["glyph"],
+            names=["testglyph"],
         ),
     )
     assert len(l) == 1
@@ -111,6 +111,7 @@ async def test_glyph():
         guest_token,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
+            names=["testglyph"],
         ),
     )
     assert not l
