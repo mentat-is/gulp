@@ -360,7 +360,7 @@ Here's a commented example, further details in the [model definition source](../
 
 ## stacked plugins
 
-plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can `enrich` it.
+plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can process it further.
 
 Stacked plugins are usually based on generic python *ingestion* plugins such as `csv`, `sqlite`.
 
