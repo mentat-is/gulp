@@ -1,0 +1,81 @@
+# json.py
+
+## Overview
+
+The [json plugin](../../src/gulp/plugins/json.py) provides functionality to ingest JSON data in various formats. It can process JSON files structured as arrays, objects, or line-delimited JSON records, extracting and flattening data into `GulpDocument` objects for further processing.
+
+> **NOTE**: The plugin requires a timestamp field in your JSON data as each document must have a timestamp.
+
+## JSON Format Brief
+
+JSON (JavaScript Object Notation) is a lightweight data interchange format that is easy for humans to read and write and easy for machines to parse and generate.
+In this plugin:
+
+- Three JSON formats are supported: list, dict, and line
+- Nested JSON objects are automatically flattened using dot notation
+- Timestamps are extracted from specified fields with automatic or custom date parsing
+- The plugin handles character encoding and date format conversions
+
+## Standalone Mode
+
+When used in standalone mode, the JSON plugin processes JSON files directly, converting JSON records to `GulpDocument` objects.
+
+### Parameters
+
+The JSON plugin supports the following custom parameters in the `custom_parameters` dictionary:
+
+- `encoding`: Specifies the character encoding to use when opening the file (default="utf-8")
+- `timestamp_field`: Field containing the timestamp (e.g., "some.nested.timestamp") (default="create_datetime")
+- `date_format`: Format string to parse the timestamp field; if null, tries autoparse (default=None)
+- `json_format`: JSON structure format (default="list")
+  - "list": A JSON array of objects (e.g., `[{"a":"b"}, {"c":"d"}]`)
+  - "dict": A single JSON object (e.g., `{"a":"b", "c":"d"}`)
+  - "line": One JSON object per line (e.g., `{"a":"b"}\n{"c":"d"}`)
+
+
+Additional parameters can be specified in the `mapping_parameters` dictionary:
+
+- `mappings`: Dictionary of field mappings to apply
+- `mapping_file`: Path to the JSON file containing the mapping
+- `mapping_id`: Identifier of the mapping to use from the mapping file
+
+
+## Stacked Mode
+
+In stacked mode, the stacked plugin runs the `json` plugin first which sequentially calls the stacked plugin's `record_to_gulp_document` function.
+This is useful to avoid re-writing the JSON processing logic, and focus on the parsing of the data instead.
+Other common use cases for using json as a stacked plugin include:
+
+- The stacked plugin requires specific configuration parameters
+- Files need preprocessing before JSON parsing (e.g., format detection, structure validation)
+- Custom post-processing of parsed JSON data is required
+
+## Example Usage
+Here's an example of testing the plugin using the `test_scripts/ingest.py` script:
+
+```bash
+python test_scripts/ingest.py \
+  --plugin json \
+  --path samples/json/jsonlist.json \
+  --plugin_params '{
+    "mapping_parameters":{
+      "mapping_file":"json_mapping.json", 
+      "mapping_id":"default"
+    }, 
+    "custom_parameters":{
+      "json_format":"list",
+      "timestamp_field":"create_datetime",
+    }
+  }'
+```
+
+## Common Issues and Solutions
+
+- **Format detection errors**: Ensure the json_format parameter matches your file structure
+- **Timestamp parsing errors**: Check that the timestamp_field exists and contains valid dates
+- **Character encoding problems**: If you see garbled text or errors, try specifying a different `encoding` value
+
+## JSON Processing Tips
+
+- Use the flattened field names in your mapping file (e.g., "user.id" instead of nested structure)
+- Test your date_format pattern with sample timestamps to ensure correct parsing

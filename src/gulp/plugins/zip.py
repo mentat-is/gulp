@@ -63,13 +63,13 @@ class Plugin(GulpPluginBase):
                 default_value="utf8",
             ),
             GulpPluginCustomParameter(
-                name="hash_type",
-                type="str",
-                desc="algorithm to use to calculate hash of zip files content",
-                default_value="sha1",
+                name="hashes",
+                type="list",
+                desc="algorithms to use to calculate hash of zip files content",
+                default_value=["sha1"],
             ),
             GulpPluginCustomParameter(
-                name="chunk size",
+                name="chunk_size",
                 type="int",
                 desc="chunk size",
                 default_value=2048,
@@ -92,9 +92,11 @@ class Plugin(GulpPluginBase):
         z: zipfile.ZipFile = kwargs.get("zip")
         f: zipfile.ZipInfo = kwargs.get("file")
         encoding: str = kwargs.get("encoding")
-        hash_type: str = kwargs.get("hash_type")
+        hashes: str = kwargs.get("hashes")
         chunk_size: int = kwargs.get("chunk_size")
         password: str = kwargs.get("password")
+        keep_files: bool = kwargs.get("keep_files")
+
         d = {}
         for attr in dir(record):
             v = getattr(f, attr)
@@ -110,17 +112,17 @@ class Plugin(GulpPluginBase):
         #      could we pass this file to an enrich plugin which handles files based on known
         #      file formats to get extra information?
         event_original = ""
-        _ = z.read(f, pwd=password.encode(encoding)
-                           if password is not None else None)
-        h = hashlib.__dict__[hash_type]()
-        with z.open(f) as i:
-            while True:
-                chunk = i.read(chunk_size)
-                event_original += chunk.hex()
-                if not chunk:
-                    break
-                h.update(chunk)
-        d[hash_type] = hash.hexdigest()
+        _ = z.read(f, pwd=password.encode(encoding) if password is not None else None)
+        for hash_type in hashes:
+            h = hashlib.__dict__[hash_type]()
+            with z.open(f) as i:
+                while True:
+                    chunk = i.read(chunk_size)
+                    event_original += chunk.hex()
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            d[hash_type] = hash.hexdigest()
 
         mimetype = mimetypes.guess_file_type(f.filename)
         guessed_mimetype = mimetype[0] if mimetype[0] is not None else "file/unknown"
@@ -132,7 +134,7 @@ class Plugin(GulpPluginBase):
         d["date_time"] = str(d["date_time"])
 
         # if keep_file is false, discard original files and only keep raw metadata
-        if not self._plugin_params.custom_parameters.get("keep_files"):
+        if not keep_files:
             event_original = json.dumps(d)
 
         # apply mappings
@@ -171,8 +173,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        **kwargs 
+        ) -> GulpRequestStatus:
         try:
 
             await super().ingest_file(
@@ -196,11 +198,11 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
+        keep_files = self._plugin_params.custom_parameters.get("keep_files")
         password = self._plugin_params.custom_parameters.get("password")
         encoding = self._plugin_params.custom_parameters.get("encoding")
-        hash_type = self._plugin_params.custom_parameters.get("hash_type")
-        chunk_size = self._plugin_params.custom_parameters.custom_parameters.custom_parameters.get(
-            "chunk_size")
+        hashes = self._plugin_params.custom_parameters.get("hashes")
+        chunk_size = self._plugin_params.custom_parameters.get("chunk_size")
         doc_idx = 0
         try:
             with zipfile.ZipFile(file_path) as z:
@@ -213,8 +215,9 @@ class Plugin(GulpPluginBase):
                             file=f,
                             encoding=encoding,
                             password=password,
-                            hash_type=hash_type,
-                            chunk_size=chunk_size
+                            hashes=hashes,
+                            chunk_size=chunk_size,
+                            keep_files=keep_files,
                         )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)

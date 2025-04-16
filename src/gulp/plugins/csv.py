@@ -17,11 +17,14 @@ in stacked mode, we simply run the stacked plugin, which in turn use the CSV plu
 
 CSV plugin support the following custom parameters in the plugin_params.extra dictionary:
 
+- `encoding`: encoding to use when opening the file (default="utf-8")
 - `delimiter`: set the delimiter for the CSV file (default=",")
+- `dialect`: python's csv supported dialect to use ('excel', 'excel-tab', 'unix')
 """
 
 import os
 from typing import override
+from datetime import datetime
 
 import aiofiles
 import muty.dict
@@ -43,11 +46,8 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
-try:
-    from aiocsv import AsyncDictReader
-except Exception:
-    muty.os.install_package("aiocsv")
-    from aiocsv import AsyncDictReader
+muty.os.check_and_install_package("aiocsv")
+from aiocsv import AsyncDictReader
 
 
 class Plugin(GulpPluginBase):
@@ -66,17 +66,36 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
+                name="encoding",
+                type="str",
+                desc="encoding to use",
+                default_value="utf-8"
+            ),
+            GulpPluginCustomParameter(
+                name="date_format",
+                type="str",
+                desc="format string to parse the timestamp field, if null try autoparse",
+                default_value=None,
+            ),
+            GulpPluginCustomParameter(
                 name="delimiter",
                 type="str",
                 desc="delimiter for the CSV file",
                 default_value=",",
-            )
+            ),
+            GulpPluginCustomParameter(
+                name="dialect",
+                type="str",
+                desc="python's csv supported dialect to use ('excel', 'excel-tab', 'unix')",
+                default_value="excel",
+            ),
         ]
 
     @override
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
+        date_format = kwargs.get("date_format")
 
         # MutyLogger.get_instance().debug("processing record:\n%s" % (json.dumps(record,indent=2)))
 
@@ -94,6 +113,9 @@ class Plugin(GulpPluginBase):
         # if not timestamp:
         #     # not mapped, last resort is to use the timestamp field, if set
         #     timestamp = record.get(self.selected_mapping().timestamp_field)
+
+        if date_format:
+            d["@timestamp"] = datetime.strptime(d["@timestamp"], date_format)
 
         return GulpDocument(
             self,
@@ -149,13 +171,17 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        delimiter = self._plugin_params.custom_parameters.get("delimiter", ",")
+        date_format = self._plugin_params.custom_parameters.get("date_format")
+        delimiter = self._plugin_params.custom_parameters.get("delimiter")
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        dialect = self._plugin_params.custom_parameters.get("dialect")
+
         doc_idx = 0
         try:
             async with aiofiles.open(
-                file_path, mode="r", encoding="utf-8", newline=""
+                file_path, mode="r", encoding=encoding, newline=""
             ) as f:
-                async for line_dict in AsyncDictReader(f, delimiter=delimiter):
+                async for line_dict in AsyncDictReader(f, dialect=dialect, delimiter=delimiter):
                     # fix dict (remove BOM from keys, if present)
                     fixed_dict = {
                         muty.string.remove_unicode_bom(k): v
@@ -168,7 +194,7 @@ class Plugin(GulpPluginBase):
                     fixed_dict["__line__"] = line[:-1]
 
                     try:
-                        await self.process_record(fixed_dict, doc_idx, flt)
+                        await self.process_record(fixed_dict, doc_idx, flt, date_format=date_format)
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)

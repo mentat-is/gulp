@@ -53,6 +53,12 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
+                name="encoding",
+                type="str",
+                desc="encoding to use",
+                default_value="utf-8",
+            ),
+            GulpPluginCustomParameter(
                 name="include_relocations",
                 type="bool",
                 desc="include base relocations information",
@@ -89,8 +95,9 @@ class Plugin(GulpPluginBase):
         record: pefile.PE = record
         relos: str = kwargs.get("include_relocations")
         entropy_checks: str = kwargs.get("entropy_checks")
-        keep_files: bool = self._plugin_params.custom_parameters.get("keep_files")
-        keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
+        keep_files: bool = kwargs.get("keep_files")
+        keep_warnings: bool = kwargs.get("keep_warnings")
+        encoding: str = kwargs.get("encoding")
 
         d = record.dump_dict()
         if entropy_checks:
@@ -117,7 +124,7 @@ class Plugin(GulpPluginBase):
             d, normalize=pretty, expand_lists=False
         ).items():
             if isinstance(v, bytes):
-                v = v.encode("utf8")
+                v = v.encode(encoding)
             mapped = self._process_key(str(k), str(v))
             final.update(mapped)
 
@@ -192,7 +199,10 @@ class Plugin(GulpPluginBase):
 
         relos = self._plugin_params.custom_parameters.get("include_relocations")
         entropy_check = self._plugin_params.custom_parameters.get("entropy_checks")
-
+        keep_files: bool = self._plugin_params.custom_parameters.get("keep_files")
+        keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
+        encoding: str = self._plugin_params.custom_parameters.get("encoding")
+        
         doc_idx = 0
         try:
             with pefile.PE(file_path) as pe:
@@ -203,6 +213,9 @@ class Plugin(GulpPluginBase):
                         flt=flt,
                         include_relocations=relos,
                         entropy_checks=entropy_check,
+                        keep_files=keep_files,
+                        keep_warnings=keep_warnings,
+                        encoding=encoding
                     )
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)

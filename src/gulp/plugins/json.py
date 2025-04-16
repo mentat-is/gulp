@@ -59,10 +59,10 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="timestamp_field",
+                name="encoding",
                 type="str",
-                desc="field containing the timestamp (e.g. some.nested.timestamp)",
-                default_value="create_datetime",
+                desc="encoding to use",
+                default_value="utf-8",
             ),
             GulpPluginCustomParameter(
                 name="date_format",
@@ -71,7 +71,13 @@ class Plugin(GulpPluginBase):
                 default_value=None,
             ),
             GulpPluginCustomParameter(
-                name="format",
+                name="timestamp_field",
+                type="str",
+                desc="field containing the timestamp (e.g. some.nested.timestamp)",
+                default_value="timestamp",
+            ),
+            GulpPluginCustomParameter(
+                name="json_format",
                 type="str",
                 desc="'line' one object per line, 'dict' standard json object, 'list' list of json objects",
                 default_value="list",
@@ -170,13 +176,10 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        timestamp_field = self._plugin_params.custom_parameters.get(
-            "timestamp_field", "create_datetime"
-        )
-        date_format = self._plugin_params.custom_parameters.get("date_format", None)
-        json_format = self._plugin_params.custom_parameters.get(
-            "format", "list"
-        ).lower()
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        timestamp_field = self._plugin_params.custom_parameters.get("timestamp_field")
+        date_format = self._plugin_params.custom_parameters.get("date_format")
+        json_format = self._plugin_params.custom_parameters.get("json_format").lower()
 
         if not timestamp_field:
             return GulpRequestStatus.FAILED
@@ -185,7 +188,7 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         try:
             if json_format == "list":
-                with open(file_path, encoding="utf-8") as file:
+                with open(file_path, mode="r", encoding=encoding) as file:
                     # list of objects:
                     # [ {"a":"b"}, {"b":"c"}]
                     events = json_s.load(file)
@@ -215,8 +218,7 @@ class Plugin(GulpPluginBase):
             elif json_format == "dict":
                 # json file:
                 # {"a":"b", "c":"d"}
-                # this may be memory heavy for big files
-                with open(file_path, encoding="utf-8") as file:
+                with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
                     if not isinstance(events, json_s.base.TransientStreamingJSON):
                         MutyLogger.get_instance().exception(
                             f"wrong json format, expected '{json_format}' got {type(events)}"
@@ -245,7 +247,7 @@ class Plugin(GulpPluginBase):
                 # one record per line:
                 # {"a": "b"}\n
                 # {"b": "c"}\n
-                async with aiofiles.open(file_path, mode="r") as file:
+                async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
                     async for line in file:
                         try:
                             parsed = json.loads(line)

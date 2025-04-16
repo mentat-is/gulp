@@ -1,0 +1,78 @@
+# win_pe.py
+
+## Overview
+
+The [win_pe plugin](../../src/gulp/plugins/win_pe.py) provides functionality to analyze and extract metadata from Windows PE (Portable Executable) files. It parses PE file structures and converts the extracted information into `GulpDocument` objects for further processing.
+
+> **NOTE**: The plugin extracts the timestamp from the PE file header's TimeDateStamp field.
+
+## PE Format Brief
+
+Portable Executable (PE) is the file format used for executables, object code, DLLs, and other files in Windows.
+In this plugin:
+
+- PE file structure is analyzed (headers, sections, imports/exports)
+- File type is detected (EXE, DLL, driver)
+- Optional entropy checks are performed to detect and flag suspicious patterns
+- Timestamps are extracted from the PE header
+
+## Standalone Mode
+
+When used in standalone mode, the win_pe plugin processes PE files directly, extracting their metadata and structure into `GulpDocument` objects.
+
+### Parameters
+
+The win_pe plugin supports the following custom parameters in the `custom_parameters` dictionary:
+
+- `encoding`: Specifies the character encoding to use (default="utf-8")
+- `include_relocations`: Include base relocations information (default=False)
+- `entropy_checks`: Include entropy checks for suspicious/packed file detection (default=True)
+- `keep_files`: If True, event.original will keep the whole PE file content (default=False)
+- `keep_warnings`: Do not discard pefile parsing warnings from document (default=False)
+
+Additional parameters can be specified in the `mapping_parameters` dictionary:
+
+- `mappings`: Dictionary of field mappings to apply
+- `mapping_file`: Path to the JSON file containing the mapping
+- `mapping_id`: Identifier of the mapping to use from the mapping file
+
+## Stacked Mode
+
+In stacked mode, the stacked plugin runs the `win_pe` plugin first which sequentially calls the stacked plugin's `record_to_gulp_document` function.
+This is useful to avoid re-writing the PE processing logic, and focus on the parsing of the data instead.
+Other common use cases for using win_pe as a stacked plugin include:
+
+- The stacked plugin requires specific configuration parameters
+- Files need preprocessing before PE analysis (e.g., unpacking, decryption)
+- Custom post-processing of PE metadata is required
+
+## Example Usage
+
+Here's an example of testing the plugin using the `test_scripts/ingest.py` script:
+
+```bash
+python test_scripts/ingest.py \
+ --plugin win_pe \
+ --path samples/executable.exe \
+ --plugin_params '{
+   "custom_parameters":{
+     "entropy_checks":true,
+     "include_relocations":false,
+     "keep_files":false
+   }
+ }'
+```
+
+## Common Issues and Solutions
+
+- **Invalid PE files**: The plugin may fail if the file is not a valid PE file
+- **Memory issues with large files**: Set `keep_files` to false for large executables
+- **Missing information**: Enable specific options like `include_relocations` if you need detailed PE data
+- **Character encoding problems**: If you see garbled text, try specifying a different `encoding` value
+
+## PE Processing Tips
+
+- Use `entropy_checks` to identify potentially suspicious or packed executables
+- Disable `keep_warnings` in production to reduce document size
+- Keep `include_relocations` disabled unless you specifically need relocation information
+- For malware analysis, consider setting `keep_files` to true to retain the original binary content

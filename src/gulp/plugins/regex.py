@@ -14,8 +14,10 @@ Key features:
 import os
 import re
 from typing import Any, override
+from datetime import datetime
 
 import aiofiles
+import re._constants
 import muty.dict
 import muty.json
 import muty.os
@@ -53,6 +55,18 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
+                name="encoding",
+                type="str",
+                desc="encoding to use",
+                default_value=None,
+            ),
+            GulpPluginCustomParameter(
+                name="date_format",
+                type="str",
+                desc="format string to parse the timestamp field, if null try autoparse",
+                default_value=None,
+            ),
+            GulpPluginCustomParameter(
                 name="regex",
                 type="str",
                 desc="regex to apply - must use named groups",
@@ -62,7 +76,7 @@ class Plugin(GulpPluginBase):
                 name="flags",
                 type="int",
                 desc="flags to apply to regex",
-                default_value=0,
+                default_value=re.NOFLAG,
             ),
         ]
 
@@ -71,7 +85,8 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         event: Match = record
-        line = kwargs["line"]
+        line = kwargs.get("line")
+        date_format = kwargs.get("date_format")
 
         d: dict = {}
 
@@ -80,13 +95,8 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        # TODO: find a better solution(?)
-        # currently we assume the following:
-        # - timestamp is nanoseconds from unix epoch, if numeric
-        timestamp: str = d.get("@timestamp", "0")
-        if not timestamp.isnumeric():
-            timestamp = muty.time.string_to_nanos_from_unix_epoch(timestamp)
-        d["@timestamp"] = timestamp
+        if date_format:
+            d["@timestamp"] = datetime.strptime(d["@timestamp"], date_format)
 
         return GulpDocument(
             self,
@@ -154,8 +164,11 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        regex = self._plugin_params.custom_parameters["regex"]
-        regex = re.compile(regex, self._plugin_params.custom_parameters["flags"])
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        date_format =self._plugin_params.custom_parameters.get("date_format")
+        flags = self._plugin_params.custom_parameters.get("flags")
+        regex = self._plugin_params.custom_parameters.get("regex")
+        regex = re.compile(regex, flags)
 
         # make sure we have at least 1 named group
         if regex.groups == 0:
@@ -179,7 +192,7 @@ class Plugin(GulpPluginBase):
         # we can process!
         doc_idx = 0
         try:
-            async with aiofiles.open(file_path, mode="r") as file:
+            async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
                 async for line in file:
                     m = regex.match(line)
                     if m:
