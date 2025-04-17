@@ -8,6 +8,21 @@ handling, context, and source information.
 Supports authentication, custom field mapping, timestamp adjustments,
 and works with both Elasticsearch and OpenSearch backends.
 
+Example command line:
+./test_scripts/query_external.py \                                                                                                                    gulp 19:08:53
+    --preview-mode \
+    --q '{ "query": {"match_all": {}} }' \
+    --plugin query_elasticsearch --operation_id test_operation \
+    --plugin_params '{
+        "custom_parameters":  {
+            "uri": "http://localhost:9200",
+            "username": "admin",
+            "password": "Gulp1234!",
+            "index": "test_operation",
+            "is_elasticsearch": false
+        },
+        "override_chunk_size": 200
+}'
 """
 
 from typing import Any, override
