@@ -670,7 +670,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 sess, token, permission=permission, obj=op
             )
             user_id = s.user_id
-
+        if not q_options.name:
+            q_options.name = muty.string.generate_unique()
         if q_options.preview_mode:
             if len(q) > 1:
                 raise ValueError(
@@ -695,8 +696,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
         queries: list[GulpQuery] = []
         for qq in q:
             # build query
-            if not q_options.name:
-                q_options.name = muty.string.generate_unique()
             gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
 
@@ -940,7 +939,8 @@ async def query_external_handler(
             )
             user_id = s.user_id
             index = op.index
-
+        if not q_options.name:
+            q_options.name = muty.string.generate_unique()
         if q_options.preview_mode:
             if len(q) > 1:
                 raise ValueError(
@@ -966,8 +966,6 @@ async def query_external_handler(
         queries: list[GulpQuery] = []
         for qq in q:
             # build query
-            if not q_options.name:
-                q_options.name = muty.string.generate_unique()
             gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
         await _spawn_query_group_workers(
