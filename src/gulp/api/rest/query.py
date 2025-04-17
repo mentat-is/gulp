@@ -24,6 +24,7 @@ from typing import Annotated, Any, Optional
 import muty.file
 import muty.log
 import muty.pydantic
+import muty.string
 import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -694,8 +695,11 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
         queries: list[GulpQuery] = []
         for qq in q:
             # build query
+            if not q_options.name:
+                q_options.name = muty.string.generate_unique()
             gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
+
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
@@ -795,6 +799,8 @@ async def query_gulp_handler(
 
         # convert gulp query to raw query
         dsl = flt.to_opensearch_dsl()
+        if not q_options.name:
+            q_options.name = muty.string.generate_unique()
         gq = GulpQuery(name=q_options.name, q=dsl)
 
         if q_options.preview_mode:
@@ -960,6 +966,8 @@ async def query_external_handler(
         queries: list[GulpQuery] = []
         for qq in q:
             # build query
+            if not q_options.name:
+                q_options.name = muty.string.generate_unique()
             gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
         await _spawn_query_group_workers(
