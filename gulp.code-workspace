@@ -45,7 +45,7 @@
 		],
 		"workbench.colorTheme": "Dracula Theme",
 		"files.autoSave": "afterDelay",
-		"terminal.integrated.scrollback": 1000000
+		"terminal.integrated.scrollback": 1000
 	}
 
 }

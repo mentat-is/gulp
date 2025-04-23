@@ -29,6 +29,7 @@ test_scripts/test.json
 *log*.txt
 .config
 gulpconfig
+rules
 
 # symlinks
 muty-python
@@ -41,3 +42,4 @@ docs/html
 # native
 src/gulp/libgulp
 *.so
+

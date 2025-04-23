@@ -439,24 +439,44 @@ async def test_queries():
 
 @pytest.mark.asyncio
 async def test_sigma_zip():
-
-    async def _test_sigma_zip_internal(token: str):
-        current_dir = os.path.dirname(os.path.realpath(__file__))
-        sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
-
+    """test sigma rule execution from zip file containing multiple rules
+    
+    validates proper processing of bulk sigma rules through websocket connection
+    with enhanced timeout handling and connection stability measures
+    """
+    
+    async def _test_sigma_zip_internal(token: str) -> None:
+        """internal test implementation for sigma zip processing
+        
+        Args:
+            token (str): authentication token for api access
+            
+        Raises:
+            AssertionError: if test completion criteria not met
+            TimeoutError: if processing stalls beyond configured thresholds
+        """
+        current_dir: str = os.path.dirname(os.path.realpath(__file__))
+        sigma_zip_path: str = os.path.join(current_dir, "sigma/windows.zip")
         _, host = TEST_HOST.split("://")
-        ws_url = f"ws://{host}/ws"
-        test_completed = False
+        ws_url: str = f"ws://{host}/ws"
+        test_completed: bool = False
 
-        # create a ping task to ensure regular pings regardless of message processing
-        async def _ping_loop(websocket):
+        async def _ping_loop(websocket: websockets.WebSocketClientProtocol) -> None:
+            """maintain websocket connection with regular pings
+            
+            Args:
+                websocket: active websocket connection
+                
+            Note:
+                runs until cancelled or connection error occurs
+            """
             try:
                 while True:
-                    await asyncio.sleep(10)  # Ping every 10 seconds consistently
+                    await asyncio.sleep(10)  # maintain 10s ping interval
                     try:
                         await websocket.ping()
                     except Exception as e:
-                        MutyLogger.get_instance().error(f"Ping error: {e}")
+                        MutyLogger.get_instance().error(f"ping error: {e}")
                         break
             except asyncio.CancelledError:
                 pass
@@ -464,23 +484,23 @@ async def test_sigma_zip():
         try:
             async with websockets.connect(
                 ws_url,
-                ping_interval=30,
-                ping_timeout=30,
-                close_timeout=15,
-                max_size=10_000_000,  # Allow larger messages
+                ping_interval=15,  # more frequent keepalive
+                ping_timeout=20,
+                close_timeout=20,
+                max_size=10_000_000,
             ) as ws:
-                # Start a dedicated ping task
-                ping_task = asyncio.create_task(_ping_loop(ws))
-
-                # Connect websocket
-                p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
-                await ws.send(p.model_dump_json(exclude_none=True))
-                num_done: int = 0
-                last_progress_time = time.time()
+                ping_task: asyncio.Task = asyncio.create_task(_ping_loop(ws))
+                progress_timeout: int = 30  # seconds without progress
+                message_timeout: int = 30  # seconds to wait for messages
+                last_progress: float = time.time()
 
                 try:
-                    # Use separate task to run the query to not block message processing
-                    query_task = asyncio.create_task(
+                    p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+                    await ws.send(p.model_dump_json(exclude_none=True))
+                    num_done: int = 0
+
+                    # start query execution in separate task
+                    query_task: asyncio.Task = asyncio.create_task(
                         GulpAPIQuery.query_sigma_zip(
                             token,
                             sigma_zip_path,
@@ -495,73 +515,100 @@ async def test_sigma_zip():
                         )
                     )
 
-                    # Message processing loop
+                    # message processing loop with timeout safeguards and retry logic
                     while True:
+                        retry_count: int = 0
+                        max_retries: int = 5  # maximum consecutive timeout retries
+                        base_backoff: float = 0.2  # initial backoff in seconds
+                        
                         try:
-                            # Use a timeout to avoid blocking indefinitely
-                            response = await asyncio.wait_for(ws.recv(), timeout=5.0)
-                            data = json.loads(response)
+                            # wait for message with timeout
+                            response: str = await asyncio.wait_for(ws.recv(), timeout=message_timeout)
+                            retry_count = 0  # reset retry counter on successful receive
+                            data: dict = json.loads(response)
 
-                            # Process different message types
+                            # handle query_done messages
                             if data["type"] == "query_done":
                                 num_done += 1
-                                q_done_packet = GulpQueryDonePacket.model_validate(
-                                    data["data"]
-                                )
+                                last_progress = time.time()
+                                q_done_packet: GulpQueryDonePacket = GulpQueryDonePacket.model_validate(data["data"])
+                                
+                                # log completion details
                                 MutyLogger.get_instance().debug(
-                                    f"Query done: {q_done_packet.name}, matches: {q_done_packet.total_hits}, num_done: {num_done}"
+                                    f"query done: {q_done_packet.name}, matches: {q_done_packet.total_hits}, processed: {num_done}"
                                 )
 
+                                # check completion condition
                                 if num_done == 1209:
                                     test_completed = True
                                     break
 
-                            # add dynamic backpressure - slow down if processing lots of messages
-                            if num_done % 20 == 0:
-                                await asyncio.sleep(0.01)
+                            # apply progressive backpressure based on processing rate
+                            if num_done % 10 == 0:
+                                await asyncio.sleep(0.1)  # brief pause every 10 messages
+
+                            # check for processing stall
+                            if time.time() - last_progress > progress_timeout:
+                                raise TimeoutError(f"no progress for {progress_timeout}s, last count: {num_done}")
 
                         except asyncio.TimeoutError:
-                            # Check if query task failed
-                            if query_task.done() and not test_completed:
+                            retry_count += 1
+                            MutyLogger.get_instance().warning(
+                                f"no messages received for {message_timeout}s (retry {retry_count}/{max_retries})"
+                            )
+
+                            # apply exponential backoff with jitter
+                            if retry_count <= max_retries:
+                                backoff = base_backoff * (2 ** retry_count)
+                                await asyncio.sleep(backoff)
+                                continue  # retry message reception
+                                
+                            # handle query task status after max retries
+                            if query_task.done():
                                 if query_task.exception():
-                                    raise query_task.exception()
-                                MutyLogger.get_instance().warning(
-                                    "No messages received for 5 seconds"
-                                )
-                            continue
+                                    MutyLogger.get_instance().error("query task failed with exception")
+                                    break
+                                MutyLogger.get_instance().info("query completed normally")
+                                break
+                                
+                            # final timeout after retries exhausted
+                            MutyLogger.get_instance().error("maximum timeout retries exceeded")
+                            raise TimeoutError("message reception retries exhausted")
 
                 finally:
-                    # Clean up the ping task
+                    # cleanup tasks with proper cancellation handling
                     ping_task.cancel()
                     await asyncio.gather(ping_task, return_exceptions=True)
-
-                    # Check query task status
+                    
                     if not query_task.done():
                         query_task.cancel()
+                        try:
+                            await query_task
+                        except asyncio.CancelledError:
+                            pass
 
         except websockets.exceptions.ConnectionClosed as ex:
-            MutyLogger.get_instance().error(f"WebSocket closed: {ex}")
+            MutyLogger.get_instance().error(f"websocket closed: {ex}")
+            raise
         except Exception as ex:
-            MutyLogger.get_instance().error(f"Exception: {ex}")
+            MutyLogger.get_instance().error(f"unexpected error: {ex}")
+            raise
 
-        assert test_completed, "Test did not complete successfully"
+        assert test_completed, "test failed to process all expected sigma rules"
         MutyLogger.get_instance().info(
-            _test_sigma_zip_internal.__name__ + " succeeded!"
+            f"{_test_sigma_zip_internal.__name__} completed successfully"
         )
 
-    # login
-    guest_token = await GulpAPIUser.login("guest", "guest")
+    # test execution flow
+    guest_token: str = await GulpAPIUser.login("guest", "guest")
     assert guest_token
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    ingest_token: str = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
-    # ingest some data
     from tests.ingest.test_ingest import test_win_evtx_multiple
-
-    # sigma zip test
     await test_win_evtx_multiple()
     await _test_sigma_zip_internal(guest_token)
-
+    
 
 @pytest.mark.asyncio
 async def test_sigma_convert():
