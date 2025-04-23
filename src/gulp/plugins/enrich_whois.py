@@ -39,6 +39,7 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from muty.log import MutyLogger
 from ipwhois import IPWhois
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -96,6 +97,7 @@ class Plugin(GulpPluginBase):
         Returns:
             Whois information as a dictionary or None if not found
         """
+        # MutyLogger.get_instance().debug("enriching whois for host=%s" % (host))
         if host in self._whois_cache:
             return self._whois_cache[host]
 
@@ -112,6 +114,7 @@ class Plugin(GulpPluginBase):
 
             # Transform to ECS fields
             whois_info = IPWhois(host).lookup_rdap(depth=1)
+            # MutyLogger.get_instance().debug("whois_info for host=%s: %s" % (host, whois_info))
 
             # remove null fields
             enriched = {}
@@ -124,8 +127,9 @@ class Plugin(GulpPluginBase):
             # add to cache
             self._whois_cache[host] = enriched
             return enriched
-
-        except Exception:
+        
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
             self._whois_cache[host] = None
             return None
 
@@ -194,6 +198,7 @@ class Plugin(GulpPluginBase):
         dd = []
         host_fields = self._plugin_params.custom_parameters.get(
             "host_fields", [])
+        
         # MutyLogger.get_instance().debug("host_fields: %s, num_docs=%d" % (host_fields, len(docs)))
         for doc in docs:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
