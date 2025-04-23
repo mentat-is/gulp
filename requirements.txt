@@ -83,7 +83,7 @@ pytest==8.3.4
 pytest-asyncio==0.24.0
 pytest-ordering==0.6
 python-dateutil==2.9.0.post0
-python-multipart==0.0.9
+python-multipart==0.0.18
 python-pip==1.1.1
 python-whois==0.9.5
 pytz==2024.2
