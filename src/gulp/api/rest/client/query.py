@@ -94,6 +94,8 @@ class GulpAPIQuery:
         mapping_parameters: GulpMappingParameters,
         q_options: Optional[GulpQueryParameters] = None,
         flt: Optional[GulpQueryFilter] = None,
+        levels: Optional[list[str]] = None,
+        tags: Optional[list[str]] = None,
         ws_id: str = None,
         req_id: str = None,
         restart_from: int = 0,
@@ -117,6 +119,8 @@ class GulpAPIQuery:
 
         payload = {
             "flt": flt.model_dump(exclude_none=True) if flt else {},
+            "levels": levels or [],
+            "tags": tags or [],
             "q_options": (q_options.model_dump(exclude_none=True) if q_options else {}),
             "file_sha1": file_sha1,
             "mapping_parameters": (

@@ -57,7 +57,7 @@ def to_gulp_query_struct(
             # generate a GulpQuery for each
             rule_id = str(r.id) or muty.string.generate_unique()
             rule_name = r.name or r.title or "sigma_%s" % (rule_id)
-            rule_tags: list[str] = [t.name for t in r.tags if t]
+            rule_tags: list[str] = [t.name for t in (r.tags or []) if t]
             if r.level:
                 # add severity tag
                 rule_tags.append(f"severity-{r.level.name.lower()}")

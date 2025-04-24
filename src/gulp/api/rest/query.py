@@ -304,7 +304,7 @@ async def _process_query_batch(
     num_batches: int,
 ) -> tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
     """
-    process a single batch of queries.
+    process a single batch of queries, each in a task in one of the worker processes.
 
     Args:
         batch (list[GulpQuery]): batch of queries to process
@@ -375,7 +375,7 @@ async def _process_query_batch(
 
 async def _worker_coro(kwds: dict) -> None:
     """
-    runs in background and processes queries in batches.
+    runs in background and processes queries in batches (each batch is run in tasks in worker processes, in parallel).
 
     1. processes queries in batches to limit resource usage
     2. sends query_done packets immediately after each result
@@ -1305,180 +1305,6 @@ async def query_sigma_handler(
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-
-
-@router.post(
-    "/query_sigma_zip",
-    response_model=JSendResponse,
-    tags=["query"],
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "default": {
-                            "value": {
-                                "status": "pending",
-                                "timestamp_msec": 1704380570434,
-                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                            }
-                        },
-                        "preview": {
-                            "value": {
-                                "status": "success",
-                                "timestamp_msec": 1704380570434,
-                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                                "data": {
-                                    "total_hits": 1234,
-                                    "docs": [
-                                        muty.pydantic.autogenerate_model_example_by_class(
-                                            GulpDocument
-                                        )
-                                    ],
-                                },
-                            }
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="Query using a ZIP file with sigma rules.",
-    description="""
-perform queries to Gulp using [sigma rules](https://github.com/SigmaHQ/sigma) from the provided zip file.
-
-- this API returns `pending` and results are streamed to the `ws_id` websocket.
-
-### payload
-
-payload may contain `plugin_params` (**mandatory**, for mapping), `q_options` (optional), `flt` (optional)
-
-#### q_options
-
-- `create_notes` is set to `True` to create notes on match (if not set explicitly to False).
-- if more than one query is provided, `q_options.group` must be set.
-- `q_options.preview_mode` is not supported (use `query_sigma` to obtain a preview).
-
-#### flt
-
-- `flt` may be used to restrict the query (flt.operation_ids is enforced to the provided `operation_id`).
-
-#### mapping_parameters
-
-- all the provided sigma rules uses the same `mapping_parameters` for mapping.
-""",
-)
-async def query_sigma_zip_handler(
-    r: Request,
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    params = locals()
-    params.pop("r")
-    ServerUtils.dump_params(params)
-
-    files_path: str = None
-    zip_path: str = None
-    try:
-        # handle multipart request manually
-        zip_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_name="sigmazip"
-        )
-        if not result.done:
-            # must continue upload with a new chunk
-            d = JSendResponse.error(
-                req_id=req_id, data=result.model_dump(exclude_none=True)
-            )
-            return JSONResponse(d, status_code=206)
-
-        # get optionals from payload
-        q_options = GulpQueryParameters(**payload.get("q_options", {}))
-        mapping_parameters = GulpMappingParameters(
-            **payload.get("mapping_parameters", {})
-        )
-        if not mapping_parameters:
-            MutyLogger.get_instance().warning(
-                "empty/missing mapping_parameters in payload, using empty mapping."
-            )
-            mapping_parameters = GulpMappingParameters()
-
-        flt = GulpQueryFilter(**payload.get("flt", {}))
-        flt.operation_ids = [operation_id]
-        MutyLogger.get_instance().debug(
-            "q_options=%s, mapping_parameters=%s, flt=%s"
-            % (q_options, mapping_parameters, flt)
-        )
-
-        # decompress
-        files_path = await muty.file.unzip(zip_path)
-        MutyLogger.get_instance().debug("sigma zip unzipped to %s" % (files_path))
-
-        # setup flt if not provided, must include operation_id
-        if not flt:
-            flt = GulpQueryFilter()
-        flt.operation_ids = [operation_id]
-
-        if q_options.note_parameters.create_notes is None:
-            # activate notes on match, default
-            # create a new note_parameters object with create_notes=True
-            q_options.note_parameters = q_options.note_parameters.model_copy(
-                update={"create_notes": True}
-            )
-
-        async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=op)
-            user_id = s.user_id
-            index = op.index
-
-        # convert all sigma rule/s using pysigma
-        files = await muty.file.list_directory_async(files_path, recursive=True)
-        sigmas = []
-        for f in files:
-            if f.lower().endswith(".yml") or f.lower().endswith(".yaml"):
-                try:
-                    with open(f, "r", encoding="utf-8") as ff:
-                        sigmas.append(ff.read())
-                except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        "error reading sigma file %s (%s)" % (f, str(ex))
-                    )
-
-        if len(sigmas) > 1 and not q_options.group:
-            raise ValueError(
-                "if more than one query is provided, `q_options.group` must be set."
-            )
-
-        queries: list[GulpQuery] = []
-        for s in sigmas:
-            q: list[GulpQuery] = await sigma_convert_default(s, mapping_parameters)
-            queries.extend(q)
-
-        # spawn one aio task, it will spawn n multiprocessing workers and wait them
-        await _spawn_query_group_workers(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            index=index,
-            queries=queries,
-            q_options=q_options,
-            flt=flt,
-        )
-
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-    finally:
-        if zip_path:
-            await muty.file.delete_file_or_dir_async(zip_path)
-        if files_path:
-            await muty.file.delete_file_or_dir_async(files_path)
 
 
 @router.post(
