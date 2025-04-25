@@ -443,7 +443,7 @@ class GulpPluginBase(ABC):
         """
         return {}
 
-    def ui() -> str:
+    def ui(self) -> str:
         """
         Returns HTML frame to be rendered in the UI, i.e. for custom plugin panel
         """
