@@ -144,7 +144,10 @@ class GulpPluginEntry(BaseModel):
         None,
         description="A regex to identify the data type (i.e. to identify the file header), for ingestion plugin only.",
     )
-
+    ui: Optional[str] = Field(
+        None,
+        description="HTML frame to be rendered in the UI, i.e. for custom plugin panel.",
+    )
 
 class GulpPluginCache:
     """
@@ -440,6 +443,11 @@ class GulpPluginBase(ABC):
         """
         return {}
 
+    def ui() -> str:
+        """
+        Returns HTML frame to be rendered in the UI, i.e. for custom plugin panel
+        """
+        return None
     def depends_on(self) -> list[str]:
         """
         Returns a list of plugins this plugin depends on.
@@ -2433,6 +2441,7 @@ class GulpPluginBase(ABC):
                     type=p.type(),
                     desc=p.desc(),
                     regex=p.regex(),
+                    ui=p.ui(),
                     filename=p.filename,
                     # check if plugin implements sigma_convert, if so it have sigma_support!
                     sigma_support=inspect.getmodule(p.sigma_convert)
