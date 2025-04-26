@@ -298,14 +298,22 @@ class GulpPluginBase(ABC):
         """
         super().__init__()
 
+        # plugin file path
+        self.path: str = path
+        #print("*** GulpPluginBase.__init__ (%s, %s) called!!!! ***" % (path, self.display_name()))
+
+        # to have faster access to the plugin filename
+        self.filename = os.path.basename(self.path)
+        self.bare_filename = os.path.splitext(self.filename)[0]
+
+        # to have faster access to the plugin name
+        self.name = self.display_name()
+
         # tell if the plugin has been pickled by the multiprocessing module (internal)
         self._pickled: bool = pickled
 
         # if set, this plugin have another plugin on top
         self._stacked: bool = False
-
-        # plugin file path
-        self.path: str = path
 
         #
         # the followin  are stored in the plugin instance at the query/ingest entrypoint
@@ -350,13 +358,6 @@ class GulpPluginBase(ABC):
         self._upper_record_to_gulp_document_fun: Callable = None
         self._upper_enrich_documents_chunk_fun: Callable = None
         self._upper_instance: GulpPluginBase = None
-
-        # to have faster access to the plugin filename
-        self.filename = os.path.basename(self.path)
-        self.bare_filename = os.path.splitext(self.filename)[0]
-
-        # to have faster access to the plugin name
-        self.name = self.display_name()
 
         # to bufferize gulpdocuments
         self._docs_buffer: list[dict] = []
@@ -2191,7 +2192,8 @@ class GulpPluginBase(ABC):
         # this is set in __reduce__(), which is called when the plugin is pickled(=loaded in another process)
         # pickled=True: running in worker
         # pickled=False: running in main process
-        pickled = kwargs.get("pickled", False)
+        #pickled = kwargs.get("pickled", False)
+        pickled = kwargs.pop("pickled", False)
 
         # get plugin full path by name
         path = GulpPluginBase.path_from_plugin(

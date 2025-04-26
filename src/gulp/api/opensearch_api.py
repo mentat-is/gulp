@@ -1940,7 +1940,8 @@ class GulpOpenSearch:
         processed: int = 0
         chunk_num: int = 0
         check_canceled_count: int = 0
-
+        total_hits: int = 0
+        
         while True:
             last: bool = False
             docs: list[dict] = []
