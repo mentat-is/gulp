@@ -642,11 +642,11 @@ class GulpPluginBase(ABC):
         if context_field in self._ctx_cache:
             return self._ctx_cache[context_field]
 
-        # cache miss - create new context
+        # cache miss - create new context        
         context_name = doc.get(context_field, "default")
         context: GulpContext
         context, _ = await self._operation.add_context(
-            self._sess, self._user_id, context_name, self._ws_id, self._req_id
+            self._sess, self._user_id, context_name, self._ws_id, self._req_id, obj_id=context_name
         )
 
         # update cache
@@ -680,7 +680,7 @@ class GulpPluginBase(ABC):
 
         # create source
         source, _ = await context.add_source(
-            self._sess, self._user_id, source_name, self._ws_id, self._req_id
+            self._sess, self._user_id, source_name, ws_id=self._ws_id, req_id=self._req_id, src_id=source_name
         )
 
         # update cache
@@ -702,17 +702,18 @@ class GulpPluginBase(ABC):
             tuple[str, str]: the context and source id.
         """
         # get field names from parameters or use defaults
-        context_field_name = self._plugin_params.custom_parameters.get(
+        context_id_field_name = self._plugin_params.custom_parameters.get(
             "context_field", "gulp.context_id"
         )
-        source_field_name = self._plugin_params.custom_parameters.get(
+        source_id_field_name = self._plugin_params.custom_parameters.get(
             "source_field", "gulp.source_id"
         )
 
         # for no ingestion case, just get values from doc or use defaults
+        # MutyLogger.get_instance().debug("ingest_index: %s, operation=%s" % (self._ingest_index, self._operation))
         if not self._ingest_index:
-            self._context_id = doc.get(context_field_name, "default")
-            self._source_id = doc.get(source_field_name, "default")
+            self._context_id = doc.get(context_id_field_name, "default")
+            self._source_id = doc.get(source_id_field_name, "default")
             return self._context_id, self._source_id
 
         # lazy load operation object
@@ -722,20 +723,20 @@ class GulpPluginBase(ABC):
             )
 
         # create cache key for source lookup
-        source_cache_key = f"{context_field_name}-{source_field_name}"
+        source_cache_key = f"{context_id_field_name}-{source_id_field_name}"
 
         # check if we have both context and source in cache
         if source_cache_key in self._src_cache:
-            context_id = self._ctx_cache[context_field_name]
+            context_id = self._ctx_cache[context_id_field_name]
             source_id = self._src_cache[source_cache_key]
             return context_id, source_id
 
         # handle context creation/retrieval
-        context_id = await self._get_or_create_context(doc, context_field_name)
+        context_id = await self._get_or_create_context(doc, context_id_field_name)
 
         # handle source creation/retrieval
         source_id = await self._get_or_create_source(
-            doc, context_id, source_field_name, source_cache_key
+            doc, context_id, source_id_field_name, source_cache_key
         )
 
         return context_id, source_id

@@ -92,6 +92,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         name: str,
         ws_id: str = None,
         req_id: str = None,
+        src_id: str = None,
     ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
@@ -102,12 +103,15 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             name (str): The name of the source (may be file name, path, etc...)
             ws_id (str, optional): The websocket id to stream NEW_SOURCE to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
+            src_id (str, optional): The id of the source. If not provided, a new id will be generated.
         Returns:
             tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
         # consider just the last part of the name if it's a path
         bare_name = name.split("/")[-1]
-        src_id = GulpContext.make_source_id_key(self.operation_id, self.id, bare_name)
+        if not src_id:
+            # create a new source id
+            src_id = GulpContext.make_source_id_key(self.operation_id, self.id, bare_name)
 
         try:
             await GulpSource.acquire_advisory_lock(sess, src_id)
@@ -121,6 +125,8 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                     f"source {src.id}, name={name} already exists in context {self.id}."
                 )
                 return src, False
+
+            # MutyLogger.get_instance().warning("creating new source: %s, id=%s", name, src_id)
 
             # create new source and link it to context
             object_data = {

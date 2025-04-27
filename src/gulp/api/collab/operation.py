@@ -81,6 +81,7 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         name: str,
         ws_id: str = None,
         req_id: str = None,
+        obj_id: str=None
     ) -> tuple[GulpContext, bool]:
         """
         Add a context to the operation, or return the context if already added.
@@ -91,11 +92,13 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             name (str): The name of the context.
             ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
+            obj_id (str, optional): The id of the context. If not provided, a new id will be generated.
 
         Returns:
             tuple(GulpContext, bool): The context added (or already existing) and a flag indicating if the context was added
         """
-        obj_id = GulpContext.make_context_id_key(self.id, name)
+        if not obj_id:
+            obj_id = GulpContext.make_context_id_key(self.id, name)
 
         try:
             await GulpContext.acquire_advisory_lock(sess, self.id)
@@ -109,6 +112,8 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
                     f"context {name} already added to operation {self.id}."
                 )
                 return ctx, False
+            
+            # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)
 
             # create new context and link it to operation
             object_data = {
