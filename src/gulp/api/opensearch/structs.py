@@ -190,7 +190,7 @@ class GulpDocument(GulpBasicDocument):
         context_id: str,
         source_id: str,
         event_original: str,
-        event_sequence: int,
+        event_sequence: int = None,
         timestamp: str = None,
         event_code: str = "0",
         event_duration: int = 1,
@@ -206,7 +206,7 @@ class GulpDocument(GulpBasicDocument):
             context_id (str): The context id on gulp collab database.
             source_id (str): The source id on gulp collab database.
             event_original (str): The original event data.
-            event_sequence (int): The sequence number of the event.
+            event_sequence (int, optional): The sequence number of the event.
             timestamp (str, optional): the time string, will be converted to iso8601 time string (ignored if "timestamp" is in kwargs). Defaults to None.
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
@@ -237,7 +237,6 @@ class GulpDocument(GulpBasicDocument):
                 else plugin_instance.bare_filename
             ),
             "event_original": event_original,
-            "event_sequence": event_sequence,
             # force event code from mapping or default to event_code
             "event_code": (
                 mapping.event_code
@@ -251,6 +250,9 @@ class GulpDocument(GulpBasicDocument):
             # @timestamp may have been mapped and already checked for validity in plugin._process_key()
             # if so, we will find it here...
         }
+        if event_sequence != None:
+            data["event_sequence"] = event_sequence
+
         data.update(kwargs)
 
         if "timestamp" not in data:
@@ -272,8 +274,9 @@ class GulpDocument(GulpBasicDocument):
         )
 
         # id is a hash of the document
+        event_sequence = data.get("event_sequence", 0)
         data["id"] = muty.crypto.hash_xxh128(
-            f"{data['event_original']}{data['event_code']}{data['operation_id']}{data['context_id']}{data['source_id']}{data['event_sequence']}"
+            f"{data['event_original']}{data['event_code']}{data['operation_id']}{data['context_id']}{data['source_id']}{event_sequence}"
         )
 
         # initialize with complete data (and validate)
