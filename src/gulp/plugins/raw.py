@@ -26,7 +26,10 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return "raw GulpDocuments ingestion plugin"
+        return """raw GulpDocuments ingestion plugin.
+        
+- documents are expected to have `gulp.context_id` and `gulp.source_id` fields set to existing GulpContext and GulpSource: if they do not exist, they will be created with `name` set to the given id.
+"""
 
     @override
     async def _record_to_gulp_document(

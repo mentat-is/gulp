@@ -81,7 +81,8 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
         name: str,
         ws_id: str = None,
         req_id: str = None,
-        obj_id: str=None
+        ctx_id: str=None,
+        color: str = None,
     ) -> tuple[GulpContext, bool]:
         """
         Add a context to the operation, or return the context if already added.
@@ -92,20 +93,21 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             name (str): The name of the context.
             ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
-            obj_id (str, optional): The id of the context. If not provided, a new id will be generated.
+            src_id (str, optional): The id of the context. If not provided, a new id will be generated.
+            color (str, optional): The color of the context. Defaults to "purple".
 
         Returns:
             tuple(GulpContext, bool): The context added (or already existing) and a flag indicating if the context was added
         """
-        if not obj_id:
-            obj_id = GulpContext.make_context_id_key(self.id, name)
+        if not ctx_id:
+            ctx_id = GulpContext.make_context_id_key(self.id, name)
 
         try:
             await GulpContext.acquire_advisory_lock(sess, self.id)
 
             # check if context exists
             ctx: GulpContext = await GulpContext.get_by_id(
-                sess, obj_id=obj_id, throw_if_not_found=False
+                sess, obj_id=ctx_id, throw_if_not_found=False
             )
             if ctx:
                 MutyLogger.get_instance().debug(
@@ -119,14 +121,15 @@ class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
             object_data = {
                 "operation_id": self.id,
                 "name": name,
-                "color": "white",
+                "color": color or "white",
                 "glyph_id": "box",
+
             }
             # pylint: disable=protected-access
             ctx = await GulpContext._create_internal(
                 sess,
                 object_data,
-                obj_id=obj_id,
+                obj_id=ctx_id,
                 owner_id=user_id,
                 ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
                 ws_id=ws_id,

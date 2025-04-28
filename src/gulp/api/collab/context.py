@@ -93,6 +93,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
         ws_id: str = None,
         req_id: str = None,
         src_id: str = None,
+        color: str = None,
     ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
@@ -104,6 +105,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
             ws_id (str, optional): The websocket id to stream NEW_SOURCE to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
             src_id (str, optional): The id of the source. If not provided, a new id will be generated.
+            color (str, optional): The color of the source. Defaults to "purple".
         Returns:
             tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
@@ -133,7 +135,7 @@ class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
                 "operation_id": self.operation_id,
                 "context_id": self.id,
                 "name": name,
-                "color": "purple",
+                "color": color or "purple",
                 "glyph_id": "file",
             }
             # pylint: disable=protected-access

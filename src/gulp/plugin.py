@@ -627,34 +627,39 @@ class GulpPluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
-    async def _get_or_create_context(self, doc: dict, context_field: str) -> str:
+    async def _get_or_create_context(self, doc: dict, context_field_name: str) -> str:
         """
         get context from cache or create new one
 
         Args:
             doc (dict): document containing context info
-            context_field (str): field name for context id
+            context_field_name (str): field name for context id
 
         Returns:
             str: context id
         """
         # check cache first
-        if context_field in self._ctx_cache:
-            return self._ctx_cache[context_field]
+        if context_field_name in self._ctx_cache:
+            return self._ctx_cache[context_field_name]
 
-        # cache miss - create new context        
-        context_name = doc.get(context_field, "default")
+        # cache miss - create new context (or get existing)
+        context_name = doc.get(context_field_name, None)
+        if context_name and context_field_name == 'gulp.context_id':
+            # name is already a context id, use that (raw documents case)
+            ctx_id = context_name
+        else:
+            ctx_id = None
         context: GulpContext
         context, _ = await self._operation.add_context(
-            self._sess, self._user_id, context_name, self._ws_id, self._req_id, obj_id=context_name
+            self._sess, self._user_id, context_name, self._ws_id, self._req_id, ctx_id=ctx_id
         )
 
         # update cache
-        self._ctx_cache[context_field] = context.id
+        self._ctx_cache[context_field_name] = context.id
         return context.id
 
     async def _get_or_create_source(
-        self, doc: dict, context_id: str, source_field: str, cache_key: str
+        self, doc: dict, context_id: str, source_field_name: str, cache_key: str
     ) -> str:
         """
         get source from cache or create new one
@@ -672,15 +677,20 @@ class GulpPluginBase(ABC):
         if cache_key in self._src_cache:
             return self._src_cache[cache_key]
 
-        # cache miss - create new source
-        source_name = doc.get(source_field, "default")
+        # cache miss - create new source (or get existing)
+        source_name = doc.get(source_field_name, "default")
+        if source_name and source_field_name == 'gulp.source_id':
+            # name is already a source id, use that (raw documents case)
+            src_id = source_name
+        else:
+            src_id = None
 
         # fetch context object
         context: GulpContext = await GulpContext.get_by_id(self._sess, context_id)
 
         # create source
         source, _ = await context.add_source(
-            self._sess, self._user_id, source_name, ws_id=self._ws_id, req_id=self._req_id, src_id=source_name
+            self._sess, self._user_id, source_name, ws_id=self._ws_id, req_id=self._req_id, src_id=src_id
         )
 
         # update cache
@@ -693,7 +703,9 @@ class GulpPluginBase(ABC):
 
         a cache is used to limit the queries.
 
-        NOTE: plugin_params.custom_parameters must have "context_field" and "source_field" set, otherwise context and source are attempted to be extracted from "gulp.context_id" and "gulp.source_id" fields.
+        NOTE: plugin_params.custom_parameters should have "context_field" and "source_field" set to indicate the context/source name fields in the document.
+            such fields will be used to generate context/source ids and create proper GulpContext/GulpSource on the collab database.
+            in case "context_field" and/or "source_field" are not set, they are set to "gulp.context_id" and "gulp.source_id".
 
         Args:
             doc (dict): the document to extract context and source from.
@@ -702,18 +714,23 @@ class GulpPluginBase(ABC):
             tuple[str, str]: the context and source id.
         """
         # get field names from parameters or use defaults
-        context_id_field_name = self._plugin_params.custom_parameters.get(
-            "context_field", "gulp.context_id"
-        )
-        source_id_field_name = self._plugin_params.custom_parameters.get(
-            "source_field", "gulp.source_id"
-        )
+        context_field_name = self._plugin_params.custom_parameters.get(
+            "context_field", None)
+        if not context_field_name:
+            # use default field name
+            context_field_name='gulp.context_id'
+
+        source_field_name = self._plugin_params.custom_parameters.get(
+            "source_field", None)
+        if not source_field_name:
+            # use default field name
+            source_field_name='gulp.source_id'
 
         # for no ingestion case, just get values from doc or use defaults
         # MutyLogger.get_instance().debug("ingest_index: %s, operation=%s" % (self._ingest_index, self._operation))
         if not self._ingest_index:
-            self._context_id = doc.get(context_id_field_name, "default")
-            self._source_id = doc.get(source_id_field_name, "default")
+            self._context_id = doc.get(context_field_name, "default")
+            self._source_id = doc.get(source_field_name, "default")
             return self._context_id, self._source_id
 
         # lazy load operation object
@@ -723,20 +740,20 @@ class GulpPluginBase(ABC):
             )
 
         # create cache key for source lookup
-        source_cache_key = f"{context_id_field_name}-{source_id_field_name}"
+        source_cache_key = f"{context_field_name}-{source_field_name}"
 
-        # check if we have both context and source in cache
+        # check if we have both context and source in cache (if we have source in cache, we have context too)
         if source_cache_key in self._src_cache:
-            context_id = self._ctx_cache[context_id_field_name]
+            context_id = self._ctx_cache[context_field_name]
             source_id = self._src_cache[source_cache_key]
             return context_id, source_id
 
         # handle context creation/retrieval
-        context_id = await self._get_or_create_context(doc, context_id_field_name)
+        context_id = await self._get_or_create_context(doc, context_field_name)
 
         # handle source creation/retrieval
         source_id = await self._get_or_create_source(
-            doc, context_id, source_id_field_name, source_cache_key
+            doc, context_id, source_field_name, source_cache_key
         )
 
         return context_id, source_id

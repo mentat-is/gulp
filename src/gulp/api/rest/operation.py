@@ -666,6 +666,71 @@ async def context_delete_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.post(
+    "/context_create",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "obj_id"},
+                    }
+                }
+            }
+        }
+    },
+    summary="creates a GulpContext if it does not already exists, either return the existing one's id.",
+    description="""
+- `token` needs `ingest` permission.
+""",
+)
+async def context_create_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    context_name: Annotated[str, Query(
+        description="the name of the context. It will be used to derive the `context_id`.",
+        example="test_context")],
+    ws_id: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_ws_id),
+    ] = None,
+    color: Annotated[str, Query(
+        description="the color of the context. Defaults to `white`.",
+        example="white",)] = None,
+    fail_if_exists: Annotated[
+        Optional[bool],
+        Query(
+            description="if set, the operation fails if the context already exists. Defaults to `False`."
+        ),
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            )
+            user_id = s.user_id
+
+            ctx, created = await op.add_context(sess, user_id, context_name, ws_id=ws_id, req_id=req_id, color=color)
+            if not created and fail_if_exists:
+                raise ObjectAlreadyExists(
+                    f"context name={ctx.name}, id={ctx.id} already exists in operation_id={operation_id}."
+                )
+            
+            return JSendResponse.success(req_id=req_id, data={"id": ctx.id})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
 
 @router.get(
     "/source_list",
@@ -703,6 +768,75 @@ async def source_list_handler(
         flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.post(
+    "/source_create",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "obj_id"},
+                    }
+                }
+            }
+        }
+    },
+    summary="creates a GulpSource if it does not already exists, either return the existing one's id.",
+    description="""
+- `token` needs `ingest` permission.
+""",
+)
+async def source_create_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    source_name: Annotated[str, Query(
+        description="the name of the source. It will be used to derive the `source_id`.",
+        example="test_source")],
+    ws_id: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_ws_id),
+    ] = None,
+    color: Annotated[str, Query(
+        description="the color of the source. Defaults to `purple`.",
+        example="purple",)] = None,
+    fail_if_exists: Annotated[
+        Optional[bool],
+        Query(
+            description="if set, the operation fails if the source already exists. Defaults to `False`."
+        ),
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            )
+            user_id = s.user_id
+
+            # get context (must exist) and add source
+            ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
+            src, created = await ctx.add_source(
+                sess, user_id, source_name, ws_id=ws_id, req_id=req_id, color=color)
+            if not created and fail_if_exists:
+                raise ObjectAlreadyExists(
+                    f"source name={ctx.name}, id={src.id} already exists in operation_id={operation_id}, context_id={ctx.id}."
+                )
+            
+            return JSendResponse.success(req_id=req_id, data={"id": src.id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
