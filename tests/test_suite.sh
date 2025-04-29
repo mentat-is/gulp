@@ -40,11 +40,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-python3 -m pytest -v -x -s $_TESTS_DIR/test_stored_query.py
-if [ $? -ne 0 ]; then
-    exit 1
-fi
-
 python3 -m pytest -v -x -s $_TESTS_DIR/test_story.py
 if [ $? -ne 0 ]; then
     exit 1
@@ -73,11 +68,17 @@ fi
 if [ ! -z $PATH_PAID_PLUGINS ]; then
     # paid plugins tests
     echo ". Running paid plugins tests from $PATH_PAID_PLUGINS ..."
+
     python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/ingest
     if [ $? -ne 0 ]; then
         exit 1
     fi
     python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/query
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
+    python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/test_stored_query.py
     if [ $? -ne 0 ]; then
         exit 1
     fi
