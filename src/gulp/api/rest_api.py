@@ -117,10 +117,11 @@ class GulpRestServer:
         path_extension = os.path.join(p, "extension")
         files: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
         
-        # extras
+        # extras, if any
         p = GulpConfig.get_instance().path_plugins_extra()        
-        path_extension = os.path.join(p, "extension")
-        files.extend(await muty.file.list_directory_async(path_extension, "*.py*"))
+        if p:
+            path_extension = os.path.join(p, "extension")
+            files.extend(await muty.file.list_directory_async(path_extension, "*.py*"))
 
         count: int = 0
         for f in files:
