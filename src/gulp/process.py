@@ -352,7 +352,6 @@ class GulpProcess:
             from gulp.api.rest_api import GulpRestServer
 
             # pylint: disable=protected-access
-            await GulpRestServer.get_instance()._unload_extension_plugins()
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:
             # worker process, set the queue

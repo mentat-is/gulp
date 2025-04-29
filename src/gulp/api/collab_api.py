@@ -21,7 +21,7 @@ import re
 
 import muty.file
 from muty.log import MutyLogger
-from sqlalchemy import insert, text
+from sqlalchemy import Table, insert, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -351,6 +351,26 @@ class GulpCollab:
             )
             await sess.commit()
 
+    async def create_table(self, t: Table) -> None:
+        """
+        creates a table in the database.
+
+        Args:
+            t (Table): The table to create.
+        """
+        async with self._engine.begin() as conn:
+            await conn.run_sync(t.create, checkfirst=True)
+    
+    async def drop_table(self, t: Table) -> None:
+        """
+        drops a table in the database.
+
+        Args:
+            t (Table): The table to drop.
+        """
+        async with self._engine.begin() as conn:
+            await conn.run_sync(t.drop, checkfirst=True)
+
     async def create_tables(self) -> None:
         """
         creates the database tables and functions.
@@ -603,10 +623,9 @@ class GulpCollab:
 
     async def create_default_data(self) -> None:
         """
-        create the default data: glyphs, stored queries
+        create the default data: glyphs
         """
         from gulp.api.collab.glyph import GulpGlyph
-        from gulp.api.collab.stored_query import GulpStoredQuery
         from gulp.api.collab.user import GulpUser
 
         async with self._collab_sessionmaker() as sess:
@@ -648,83 +667,6 @@ class GulpCollab:
                 power_user.glyph_id = user_glyph.id
             await sess.commit()
 
-            # stored query: windows sigma 1
-            sigma_match_some = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "sigma_match_some.yaml")
-            )
-            sigma_match_some_more = await muty.file.read_file_async(
-                muty.file.safe_path_join(assets_path, "sigma_match_some_more.yaml")
-            )
-            GulpStoredQuery = await GulpStoredQuery._create_internal(
-                sess,
-                object_data={
-                    "name": "win_evtx_sigma_1",
-                    "sigma": True,
-                    "tags": ["stored", "sigma"],
-                    "q_groups": ["group1"],
-                    "q": sigma_match_some.decode("utf-8"),
-                },
-                obj_id="test_stored_sigma_1",
-                owner_id=admin_user.id,
-                private=False,
-            )
-
-            # stored query: windows sigma 2
-            GulpStoredQuery = await GulpStoredQuery._create_internal(
-                sess,
-                object_data={
-                    "name": "win_evtx_sigma_2",
-                    "sigma": True,
-                    "tags": ["stored", "sigma"],
-                    "q_groups": ["group1"],
-                    "q": sigma_match_some_more.decode("utf-8"),
-                },
-                obj_id="test_stored_sigma_2",
-                owner_id=admin_user.id,
-                private=False,
-            )
-
-            # stored query: raw query
-            GulpStoredQuery = await GulpStoredQuery._create_internal(
-                sess,
-                object_data={
-                    "name": "raw_query",
-                    "tags": ["stored", "raw"],
-                    "q_groups": ["group2"],
-                    "q": json.dumps(
-                        {
-                            "query": {
-                                "bool": {
-                                    "must": [
-                                        {
-                                            "query_string": {
-                                                "query": "event.sequence:(352 OR 353 OR 354 OR 355)",
-                                                "analyze_wildcard": True,
-                                            }
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    ),
-                },
-                obj_id="test_stored_raw",
-                owner_id=admin_user.id,
-                private=False,
-            )
-
-            # stored query: splunk query
-            GulpStoredQuery = await GulpStoredQuery._create_internal(
-                sess,
-                object_data={
-                    "name": "splunk_raw_query",
-                    "tags": ["stored", "raw", "splunk"],
-                    "q": 'EventCode=5156 Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe" RecordNumber=1224403979',
-                },
-                obj_id="test_stored_raw_splunk",
-                owner_id=admin_user.id,
-                private=False,
-            )
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:
         """

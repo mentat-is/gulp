@@ -486,6 +486,15 @@ class GulpPluginBase(ABC):
         """
         return self._preview_chunk
 
+    async def post_init(self, **kwargs):
+        """
+        this is called after the plugin has been initialized, to allow for any post-initialization tasks.
+
+        Args:
+            kwargs: additional arguments to pass
+        """
+        return
+    
     async def _ingest_chunk_and_or_send_to_ws(
         self,
         data: list[dict],
@@ -2260,6 +2269,9 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug(
             f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}"
         )
+        # also call post-initialization routine if any
+        await p.post_init(**kwargs)
+
         if cache_mode != GulpPluginCacheMode.IGNORE:
             # add to cache
             GulpPluginCache.get_instance().add(m, bare_name)

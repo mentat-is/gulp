@@ -111,12 +111,24 @@ class GulpRestServer:
         load available extension plugins
         """
         MutyLogger.get_instance().debug("loading extension plugins ...")
-        l = await GulpPluginBase.list(extension_only=True)
+
+        # default
+        p = GulpConfig.get_instance().path_plugins_default()        
+        path_extension = os.path.join(p, "extension")
+        files: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
+        
+        # extras
+        p = GulpConfig.get_instance().path_plugins_extra()        
+        path_extension = os.path.join(p, "extension")
+        files.extend(await muty.file.list_directory_async(path_extension, "*.py*"))
+
         count: int = 0
-        for p in l:
-            p = await GulpPluginBase.load(p.path, extension=True)
-            self._extension_plugins.append(p)
-            count += 1
+        for f in files:
+            if '__init__.py' not in f:
+                # load
+                p = await GulpPluginBase.load(f, extension=True)
+                self._extension_plugins.append(p)
+                count += 1
 
         MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
 
