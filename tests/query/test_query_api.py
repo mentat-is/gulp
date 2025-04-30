@@ -2,7 +2,6 @@
 import asyncio
 import json
 import os
-import time
 
 import muty.file
 import pytest
@@ -10,11 +9,10 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import GulpAPICommon, _test_ingest_ws_loop, _test_init
-from gulp.api.rest.client.db import GulpAPIDb
+from gulp.api.rest.client.common import _test_ingest_ws_loop, _test_init
 from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.note import GulpAPINote
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
@@ -24,9 +22,7 @@ from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
-    TEST_INDEX,
     TEST_OPERATION_ID,
-    TEST_REQ_ID,
     TEST_WS_ID,
 )
 from gulp.api.ws_api import (
@@ -34,7 +30,7 @@ from gulp.api.ws_api import (
     GulpQueryGroupMatchPacket,
     GulpWsAuthPacket,
 )
-from gulp.structs import GulpMappingParameters, GulpPluginParameters
+from gulp.structs import GulpMappingParameters
 
 TEST_QUERY_RAW = {
     "query": {
@@ -406,7 +402,7 @@ async def test_queries():
         await GulpAPIObjectACL.object_add_granted_user(
             token=admin_token,
             obj_id="new_operation",
-            obj_type=GulpCollabType.OPERATION,
+            obj_type=COLLABTYPE_OPERATION,
             user_id="guest",
         )
 

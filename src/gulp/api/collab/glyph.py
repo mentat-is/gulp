@@ -16,10 +16,10 @@ from typing import override
 from sqlalchemy import LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_GLYPH, GulpCollabBase
 
 
-class GulpGlyph(GulpCollabBase, type=GulpCollabType.GLYPH):
+class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
     """
     Represents a glyph object.
     """

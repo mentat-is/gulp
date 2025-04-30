@@ -18,7 +18,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.collab.structs import GulpCollabType, GulpRequestStatus
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.rest.test_values import (
@@ -275,12 +275,12 @@ class GulpCollabCreateUpdatePacket(BaseModel):
                     "data": {
                         "id": "the id",
                         "name": "the name",
-                        "type": GulpCollabType.NOTE,
+                        "type": COLLABTYPE_NOTE,
                         "something": "else",
                     },
                     "bulk": True,
                     "bulk_size": 100,
-                    "type": GulpCollabType.NOTE,
+                    "type": COLLABTYPE_NOTE,
                     "created": True,
                 }
             ]
@@ -293,7 +293,7 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     )
     type: Optional[str] = Field(
         None,
-        description="Type of the event (may be a GulpCollabType or an arbitrary string).",
+        description="Type of the event (i.e. one of the COLLABTYPE strings).",
     )
     bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
     created: Optional[bool] = Field(

@@ -13,14 +13,14 @@ The module provides:
 
 from typing import Optional
 
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Integer
+from sqlalchemy import ARRAY, BIGINT, ForeignKey
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, GulpCollabObject
 
 
-class GulpHighlight(GulpCollabObject, type=GulpCollabType.HIGHLIGHT):
+class GulpHighlight(GulpCollabObject, type=COLLABTYPE_HIGHLIGHT):
     """
     an highlight in the gulp collaboration system
     """

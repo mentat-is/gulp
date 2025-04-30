@@ -20,13 +20,12 @@ from muty.log import MutyLogger
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpCollabType
 from gulp.api.ws_api import GulpWsQueueDataType
+from gulp.api.collab.source import GulpSource
+from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
 
 
-class GulpContext(GulpCollabBase, type=GulpCollabType.CONTEXT):
+class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     """
     Represents a context object
 

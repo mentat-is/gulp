@@ -25,7 +25,7 @@ from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, GulpUserPermission
+from gulp.api.collab.structs import COLLABTYPE_USER_GROUP, GulpCollabBase, GulpUserPermission
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ class GulpUserAssociations:
     )
 
 
-class GulpUserGroup(GulpCollabBase, type=GulpCollabType.USER_GROUP):
+class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
     """
     Represents an user group in the gulp system.
     """

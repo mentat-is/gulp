@@ -17,20 +17,18 @@ including the ability to add contexts and manage access permissions.
 
 from typing import Optional, override
 
-import muty.crypto
 from muty.log import MutyLogger
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from gulp.api.collab.context import GulpContext
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
 from gulp.api.ws_api import GulpWsQueueDataType
+from gulp.api.collab.context import GulpContext
+from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabBase
 
 
-class GulpOperation(GulpCollabBase, type=GulpCollabType.OPERATION):
+class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
     """
     Represents an operation in the gulp system.
     """

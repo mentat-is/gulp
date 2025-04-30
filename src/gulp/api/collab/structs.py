@@ -38,7 +38,6 @@ from sqlalchemy import (
     BIGINT,
     ColumnElement,
     ForeignKey,
-    Result,
     Select,
     String,
     Tuple,
@@ -62,14 +61,7 @@ from sqlalchemy.orm import (
     mapped_column,
     selectinload,
 )
-from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy_mixins.serialize import SerializeMixin
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 if TYPE_CHECKING:
     from gulp.api.ws_api import GulpWsQueueDataType
@@ -129,37 +121,22 @@ PERMISSION_MASK_INGEST = [
     GulpUserPermission.EDIT,
 ]
 
-
-class GulpCollabType(StrEnum):
-    """
-    defines the types in the collab database
-    """
-
-    GENERIC_OBJECT = "collab_obj"
-    NOTE = "note"
-    HIGHLIGHT = "highlight"
-    STORY = "story"
-    LINK = "link"
-    STORED_QUERY = "stored_query"
-    REQUEST_STATS = "request_stats"
-    USER_DATA = "user_data"
-    USER_SESSION = "user_session"
-    CONTEXT = "context"
-    USER = "user"
-    GLYPH = "glyph"
-    OPERATION = "operation"
-    SOURCE = "source"
-    USER_GROUP = "user_group"
-    SOURCE_FIELDS = "source_fields"
-
-    def __str__(self) -> str:
-        return self.value
-
-    def __repr__(self) -> str:
-        return f"'{str(self)}'"
-
-    def __json__(self) -> str:
-        return str(self)
+COLLABTYPE_GENERIC = "collab_obj"
+COLLABTYPE_NOTE = "note"
+COLLABTYPE_HIGHLIGHT = "highlight"
+COLLABTYPE_STORY = "story"
+COLLABTYPE_LINK = "link"
+COLLABTYPE_STORED_QUERY = "stored_query"
+COLLABTYPE_REQUEST_STATS = "request_stats"
+COLLABTYPE_USER_DATA = "user_data"
+COLLABTYPE_USER_SESSION = "user_session"
+COLLABTYPE_CONTEXT = "context"
+COLLABTYPE_USER = "user"
+COLLABTYPE_GLYPH = "glyph"
+COLLABTYPE_OPERATION = "operation"
+COLLABTYPE_SOURCE = "source"
+COLLABTYPE_USER_GROUP = "user_group"
+COLLABTYPE_SOURCE_FIELDS = "source_fields"
 
 
 T = TypeVar("T", bound="GulpCollabBase")
@@ -209,9 +186,9 @@ class GulpCollabFilter(BaseModel):
     # owner_user_ids: Optional[list[str]] = Field(None)
 
     ids: Optional[list[str]] = Field(None, description="filter by the given id/s.")
-    types: Optional[list[GulpCollabType]] = Field(
+    types: Optional[list[str]] = Field(
         None,
-        description="filter by the given type/s.",
+        description="filter by the given collaboration type/s.",
     )
     operation_ids: Optional[list[str]] = Field(
         None, description="filter by the given operation/s."
@@ -513,8 +490,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         unique=True,
         doc="The unque id/name of the object.",
     )
-    type: Mapped[GulpCollabType] = mapped_column(
-        SqlEnum(GulpCollabType), doc="The type of the object."
+    type: Mapped[str] = mapped_column(
+        String, doc="The collaboration type for the object."
     )
     owner_user_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
@@ -577,7 +554,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         this is called automatically when a subclass is created, before __init__ on the instance is called
 
         Args:
-            obj_type (GulpCollabType|str): The type of the object.
+            obj_type (str): The type of the object.
             abstract (bool): If True, the class is abstract
             **kwargs: Additional keyword arguments.
         """
@@ -590,10 +567,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             cls.__abstract__ = True
         else:
             # set table name based on type
-            cls.__tablename__ = str(obj_type)
+            cls.__tablename__ = obj_type
 
         cls.__mapper_args__ = {
-            "polymorphic_identity": str(obj_type),
+            "polymorphic_identity": obj_type,
         }
 
         # print("type=%s, cls.__name__=%s, abstract=%r, cls.__abstract__=%r, cls.__mapper_args__=%s" % (cls.__gulp_collab_type__, cls.__name__, abstract, cls.__abstract__, cls.__mapper_args__))
@@ -1138,12 +1115,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await self.__class__.release_advisory_lock(sess, self.id)
 
     @staticmethod
-    def object_type_to_class(collab_type: GulpCollabType) -> T:
+    def object_type_to_class(collab_type: str) -> T:
         """
         get the class of the given type
 
         Args:
-            collab_type (GulpCollabType): The type of the object.
+            collab_type (str): The type of the object.
         Returns:
             Type: The class of the object.
 
@@ -1155,7 +1132,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         for cls in subclasses:
             if cls.__gulp_collab_type__ == collab_type:
                 return cls
-        raise ValueError(f"no class found for type {collab_type}")
+        raise ValueError(f"no class found for collab type={collab_type}")
 
     async def update(
         self,
@@ -1675,7 +1652,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
 
 class GulpCollabObject(
-    GulpCollabBase, type=GulpCollabType.GENERIC_OBJECT, abstract=True
+    GulpCollabBase, type=COLLABTYPE_GENERIC, abstract=True
 ):
     """
     base for all collaboration objects (notes, links, stories, highlights) related to an operation.

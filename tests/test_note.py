@@ -3,7 +3,7 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.note import GulpAPINote
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
@@ -159,12 +159,12 @@ async def test_note():
 
     # make note2 private
     await GulpAPIObjectACL.object_make_private(
-        guest_token, note2["id"], GulpCollabType.NOTE, expected_status=401
+        guest_token, note2["id"], COLLABTYPE_NOTE, expected_status=401
     )
     await GulpAPIObjectACL.object_make_private(
         edit_token,
         note2["id"],
-        GulpCollabType.NOTE,
+        COLLABTYPE_NOTE,
     )
     l = await GulpAPINote.note_list(
         guest_token,
@@ -183,7 +183,7 @@ async def test_note():
     await GulpAPIObjectACL.object_make_public(
         edit_token,
         note2["id"],
-        GulpCollabType.NOTE,
+        COLLABTYPE_NOTE,
     )
     l = await GulpAPINote.note_list(
         guest_token,

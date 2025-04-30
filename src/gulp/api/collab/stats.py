@@ -22,28 +22,23 @@ long-running ingestion processes.
 
 """
 
-import asyncio
 from typing import Optional, Union, override
 
-import muty.crypto
 import muty.time
-import sqlalchemy
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, text
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 
-from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.structs import (
+    COLLABTYPE_REQUEST_STATS,
     GulpCollabBase,
-    GulpCollabType,
     GulpRequestStatus,
     GulpUserPermission,
     T,
 )
-from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
 from gulp.config import GulpConfig
 
@@ -66,7 +61,7 @@ class PreviewDone(Exception):
     """
 
 
-class GulpRequestStats(GulpCollabBase, type=GulpCollabType.REQUEST_STATS):
+class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
     Represents the statistics for an ingestion operation.
     """

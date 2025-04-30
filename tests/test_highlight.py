@@ -2,13 +2,12 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, GulpCollabFilter
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.highlight import GulpAPIHighlight
-from gulp.api.rest.client.link import GulpAPILink
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID
+from gulp.api.rest.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -75,7 +74,7 @@ async def test_highlight():
     # make private
     h_id = h["id"]
     await GulpAPIObjectACL.object_make_private(
-        edit_token, h["id"], GulpCollabType.HIGHLIGHT
+        edit_token, h["id"], COLLABTYPE_HIGHLIGHT
     )
     h = await GulpAPIHighlight.highlight_get_by_id(
         guest_token, h_id, expected_status=401
@@ -89,7 +88,7 @@ async def test_highlight():
     assert not l
 
     await GulpAPIObjectACL.object_make_public(
-        edit_token, h_id, GulpCollabType.HIGHLIGHT
+        edit_token, h_id, COLLABTYPE_HIGHLIGHT
     )
     h = await GulpAPIHighlight.highlight_get_by_id(guest_token, h_id)
     assert h

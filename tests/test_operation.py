@@ -6,7 +6,7 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.rest.client.common import GulpAPICommon
 from gulp.api.rest.client.db import GulpAPIDb
@@ -179,7 +179,7 @@ async def test_operation_api():
     await GulpAPIObjectACL.object_add_granted_user(
         token=ingest_token,
         obj_id=new_operation_id,
-        obj_type=GulpCollabType.OPERATION,
+        obj_type=COLLABTYPE_OPERATION,
         user_id="ingest",
         expected_status=401,
     )
@@ -188,7 +188,7 @@ async def test_operation_api():
     await GulpAPIObjectACL.object_add_granted_user(
         token=admin_token,
         obj_id=new_operation_id,
-        obj_type=GulpCollabType.OPERATION,
+        obj_type=COLLABTYPE_OPERATION,
         user_id="ingest",
     )
 
@@ -208,14 +208,14 @@ async def test_operation_api():
     await GulpAPIObjectACL.object_remove_granted_user(
         token=ingest_token,
         obj_id=new_operation_id,
-        obj_type=GulpCollabType.OPERATION,
+        obj_type=COLLABTYPE_OPERATION,
         user_id="ingest",
         expected_status=401,
     )
     await GulpAPIObjectACL.object_remove_granted_user(
         token=admin_token,
         obj_id=new_operation_id,
-        obj_type=GulpCollabType.OPERATION,
+        obj_type=COLLABTYPE_OPERATION,
         user_id="ingest",
     )
     operations = await GulpAPIOperation.operation_list(ingest_token)

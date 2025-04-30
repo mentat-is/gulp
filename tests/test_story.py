@@ -2,12 +2,12 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_STORY, GulpCollabFilter
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.story import GulpAPIStory
 from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID
+from gulp.api.rest.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -78,7 +78,7 @@ async def test_story():
     # make story private
     st_id = st["id"]
     await GulpAPIObjectACL.object_make_private(
-        edit_token, st["id"], GulpCollabType.STORY
+        edit_token, st["id"], COLLABTYPE_STORY,
     )
     st = await GulpAPIStory.story_get_by_id(guest_token, st["id"], expected_status=401)
     l = await GulpAPIStory.story_list(
@@ -89,7 +89,7 @@ async def test_story():
     )
     assert not l
 
-    await GulpAPIObjectACL.object_make_public(edit_token, st_id, GulpCollabType.STORY)
+    await GulpAPIObjectACL.object_make_public(edit_token, st_id, COLLABTYPE_STORY)
     st = await GulpAPIStory.story_get_by_id(guest_token, st_id)
     assert st
 

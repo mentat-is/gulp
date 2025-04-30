@@ -14,10 +14,10 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableDict
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_SOURCE, GulpCollabBase
 
 
-class GulpSource(GulpCollabBase, type=GulpCollabType.SOURCE):
+class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
     """
     Represents a source of data being processed by the gulp system.
 

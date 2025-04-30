@@ -17,7 +17,7 @@ from muty.jsend import JSendException, JSendResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabBase
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
@@ -30,7 +30,7 @@ router: APIRouter = APIRouter()
 async def _modify_grants(
     sess: AsyncSession,
     obj_id: str,
-    obj_type: GulpCollabType,
+    obj_type: str,
     token: str,
     user_id: str,
     add: bool,
@@ -42,7 +42,7 @@ async def _modify_grants(
     Args:
         sess (AsyncSession): the session
         obj_id (str): the object id to modify
-        obj_type (GulpCollabType): the object type
+        obj_type (str): the object collab type
         token (str): the token of the user
         user_id (str): the user id to add or remove
         add (bool): add or remove
@@ -76,7 +76,7 @@ async def _modify_grants(
 async def _make_public_or_private(
     sess: AsyncSession,
     obj_id: str,
-    obj_type: GulpCollabType,
+    obj_type: str,
     token: str,
     private: bool,
 ) -> GulpCollabBase:
@@ -86,7 +86,7 @@ async def _make_public_or_private(
     Args:
         sess (AsyncSession): the session
         obj_id (str): the object id to modify
-        obj_type (GulpCollabType): the object type
+        obj_type (str): the object collab type
         token (str): the token of the user
         private (bool): make object private or public
 
@@ -144,8 +144,8 @@ async def object_add_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     obj_type: Annotated[
-        GulpCollabType,
-        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+        str,
+        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
     ],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -193,8 +193,8 @@ async def object_remove_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     obj_type: Annotated[
-        GulpCollabType,
-        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+        str,
+        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
     ],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -242,8 +242,8 @@ async def object_add_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     obj_type: Annotated[
-        GulpCollabType,
-        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+        str,
+        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
     ],
     group_id: Annotated[str, Query(..., description="the group id to add.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -291,8 +291,8 @@ async def object_remove_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     obj_type: Annotated[
-        GulpCollabType,
-        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+        str,
+        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
     ],
     group_id: Annotated[str, Query(..., description="the group id to remove.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -342,8 +342,8 @@ async def object_make_private_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     obj_type: Annotated[
-        GulpCollabType,
-        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+        str,
+        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -397,8 +397,8 @@ async def object_make_public_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     obj_type: Annotated[
-        GulpCollabType,
-        Query(..., description="the object type.", example=GulpCollabType.NOTE),
+        str,
+        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:

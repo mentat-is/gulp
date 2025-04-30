@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabObject, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabObject
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
     GulpCollabCreateUpdatePacket,
@@ -61,7 +61,7 @@ class GulpNoteEdit(BaseModel):
     text: str = Field(..., description="The note text.")
 
 
-class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
+class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
     """
     a note in the gulp collaboration system
     """
@@ -257,7 +257,7 @@ class GulpNote(GulpCollabObject, type=GulpCollabType.NOTE):
         data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
             data=notes,
             bulk=True,
-            type=GulpCollabType.NOTE,
+            type=COLLABTYPE_NOTE,
             created=True,
             bulk_size=len(notes),
         )

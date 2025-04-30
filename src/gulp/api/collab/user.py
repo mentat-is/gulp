@@ -26,8 +26,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
 from gulp.api.collab.structs import (
+    COLLABTYPE_USER,
     GulpCollabBase,
-    GulpCollabType,
     GulpUserPermission,
     MissingPermission,
     T,
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from gulp.api.collab.user_session import GulpUserSession
 
 
-class GulpUser(GulpCollabBase, type=GulpCollabType.USER):
+class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
     """
     Represents a user in the system.
     """

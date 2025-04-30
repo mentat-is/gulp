@@ -3,12 +3,12 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_GLYPH, GulpCollabFilter
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.glyph import GulpAPIGlyph
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID
+from gulp.api.rest.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -83,7 +83,7 @@ async def test_glyph():
     # make glyph private
     st_id = st["id"]
     await GulpAPIObjectACL.object_make_private(
-        edit_token, st["id"], GulpCollabType.GLYPH
+        edit_token, st["id"], COLLABTYPE_GLYPH
     )
     st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st["id"], expected_status=401)
     l = await GulpAPIGlyph.glyph_list(
@@ -94,7 +94,7 @@ async def test_glyph():
     )
     assert not l
 
-    await GulpAPIObjectACL.object_make_public(edit_token, st_id, GulpCollabType.GLYPH)
+    await GulpAPIObjectACL.object_make_public(edit_token, st_id, COLLABTYPE_GLYPH)
     st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st_id)
     assert st
     l = await GulpAPIGlyph.glyph_list(

@@ -24,10 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabType, T
+from gulp.api.collab.structs import COLLABTYPE_SOURCE_FIELDS, GulpCollabBase, T
 
 
-class GulpSourceFields(GulpCollabBase, type=GulpCollabType.SOURCE_FIELDS):
+class GulpSourceFields(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELDS):
     """
     represents the fields mapping for a source, as returned by GulpOpenSearch.datastream_get_mapping_by_src
     """

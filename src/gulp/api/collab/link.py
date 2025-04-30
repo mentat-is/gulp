@@ -14,10 +14,10 @@ from sqlalchemy import ARRAY, String
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_LINK, GulpCollabObject
 
 
-class GulpLink(GulpCollabObject, type=GulpCollabType.LINK):
+class GulpLink(GulpCollabObject, type=COLLABTYPE_LINK):
     """
     a link in the gulp collaboration system
     """

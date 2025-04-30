@@ -2,12 +2,12 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import GulpCollabFilter, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_LINK, GulpCollabFilter
 from gulp.api.rest.client.common import _test_init
 from gulp.api.rest.client.link import GulpAPILink
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID
+from gulp.api.rest.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -78,7 +78,7 @@ async def test_link():
     # make link private
     lnk_id=lnk["id"]
     await GulpAPIObjectACL.object_make_private(
-        edit_token, lnk["id"], GulpCollabType.LINK
+        edit_token, lnk["id"], COLLABTYPE_LINK
     )
     lnk = await GulpAPILink.link_get_by_id(guest_token, lnk["id"], expected_status=401)
     l = await GulpAPILink.link_list(
@@ -90,7 +90,7 @@ async def test_link():
     assert not l
 
     await GulpAPIObjectACL.object_make_public(
-        edit_token, lnk_id, GulpCollabType.LINK
+        edit_token, lnk_id, COLLABTYPE_LINK
     )
     lnk = await GulpAPILink.link_get_by_id(guest_token, lnk_id)
     assert lnk

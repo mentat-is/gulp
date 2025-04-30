@@ -14,10 +14,10 @@ from sqlalchemy import ARRAY, String
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import GulpCollabObject, GulpCollabType
+from gulp.api.collab.structs import COLLABTYPE_STORY, GulpCollabObject
 
 
-class GulpStory(GulpCollabObject, type=GulpCollabType.STORY):
+class GulpStory(GulpCollabObject, type=COLLABTYPE_STORY):
     """
     a story in the gulp collaboration system
     """

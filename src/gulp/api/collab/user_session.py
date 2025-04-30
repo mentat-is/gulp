@@ -23,8 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gulp.api.collab.structs import (
+    COLLABTYPE_USER_SESSION,
     GulpCollabBase,
-    GulpCollabType,
     GulpUserPermission,
     MissingPermission,
     T,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from gulp.api.collab.user import GulpUser
 
 
-class GulpUserSession(GulpCollabBase, type=GulpCollabType.USER_SESSION):
+class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
     """
     Represents a user session (logged user).
     """
