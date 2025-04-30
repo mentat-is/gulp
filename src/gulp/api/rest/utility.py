@@ -170,7 +170,7 @@ async def request_list_handler(
     try:
         if running_only:
             # only return ongoing requests
-            flt = GulpCollabFilter(completed=["0"])
+            flt = GulpCollabFilter(status=["ongoing"])
         else:
             # all requests
             flt = GulpCollabFilter()

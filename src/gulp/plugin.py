@@ -1963,7 +1963,7 @@ class GulpPluginBase(ABC):
         """
         if not self._stats:
             return GulpRequestStatus.DONE
-        return self._stats.status
+        return GulpRequestStatus(self._stats.status)
 
     async def _flush_buffer(
         self,
@@ -2089,7 +2089,7 @@ class GulpPluginBase(ABC):
             % (
                 self._file_path or self._source_id,
                 len(self._docs_buffer),
-                self._stats.status if self._stats else GulpRequestStatus.DONE,
+                self._stats.status if self._stats else GulpRequestStatus.DONE.value,
                 self._ingestion_enabled,
             )
         )

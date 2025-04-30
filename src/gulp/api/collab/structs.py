@@ -121,12 +121,14 @@ PERMISSION_MASK_INGEST = [
     GulpUserPermission.EDIT,
 ]
 
+"""
+collaboration types (may be extended by plugins)
+"""
 COLLABTYPE_GENERIC = "collab_obj"
 COLLABTYPE_NOTE = "note"
 COLLABTYPE_HIGHLIGHT = "highlight"
 COLLABTYPE_STORY = "story"
 COLLABTYPE_LINK = "link"
-COLLABTYPE_STORED_QUERY = "stored_query"
 COLLABTYPE_REQUEST_STATS = "request_stats"
 COLLABTYPE_USER_DATA = "user_data"
 COLLABTYPE_USER_SESSION = "user_session"
