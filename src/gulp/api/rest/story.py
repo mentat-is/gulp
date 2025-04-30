@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
-from gulp.api.collab.story import GulpStory
+from gulp.api.collab.story import GulpStory, GulpStoryEntry
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
@@ -61,8 +61,8 @@ async def story_create_handler(
         Depends(APIDependencies.param_operation_id),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    doc_ids: Annotated[
-        list[str], Body(description="documents to be linked to the story.")
+    entries: Annotated[
+        list[GulpStoryEntry], Body(description="each entry correspond to a GulpDocument in the story.")
     ],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
@@ -72,9 +72,6 @@ async def story_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
-    if len(doc_ids) < 2:
-        raise ValueError("at least two documents must be provided.")
-
     try:
         object_data = GulpStory.build_dict(
             operation_id=operation_id,
