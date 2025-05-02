@@ -107,7 +107,7 @@ pip3 install -e . && pip3 install -e ../muty-python
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose --profile dev up -d
 
-# run gulp first time (will create collab database "gulp" on postgresql and the default index on opensearch)
+# run gulp first time (will create collab database "gulp" on postgresql and the default index/operation "test_operation" on opensearch)
 BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
 ~~~
 
