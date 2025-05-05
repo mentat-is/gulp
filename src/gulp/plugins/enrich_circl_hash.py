@@ -105,8 +105,8 @@ class Plugin(GulpPluginBase):
                             hash_type = s
                             break
 
-                if compute: 
-                    f = hashlib.new(hash_type, bytes.fromhex(f)).digest()
+                if compute:
+                    f = hashlib.new(hash_type, bytes.fromhex(f)).hexdigest()
                     
                 # append flattened data to the document
                 hash_data = await self._get_hash(f, hash_type)
