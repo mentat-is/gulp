@@ -93,6 +93,7 @@ a possible (temporary) solution is to disable disk thresholds in opensearch's co
 
 ## postgreSQL
 
+- **always recreate the whole database with `--reset-collab-full` if startup fails because of updated tables.**
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
   - in gulp configuration, check `multiprocessing_batch_size`: it is advised to keep it 0 to perform operation in batches of *number of cores*, raising this value may speed up ingestion a lot but it is more prone to errors.
   - in postgres configuration, increase `max_connections`

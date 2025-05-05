@@ -471,7 +471,7 @@ class GulpRestServer:
         if self._check_first_run():
             # first run, create index
             self._reset_operation = TEST_OPERATION_ID
-            self._reset_collab = True
+            self._reset_collab = 2
             first_run = True
             MutyLogger.get_instance().warning(
                 "FIRST RUN, creating collab database and operation '%s' ..."
