@@ -11,13 +11,102 @@ and is specifically typed as a STORY in the collaboration type system.
 from typing import Optional, override
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import ARRAY
+from sqlalchemy import ARRAY, BIGINT
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.types import JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 from gulp.api.collab.structs import COLLABTYPE_STORY, GulpCollabObject
 from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
 import muty.pydantic
+
+class GulpStoryNoteEntry(BaseModel):
+    """
+    represents a single note entry in a story, containing metadata about the note
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "1234567890abcdef1234567890abcdef",
+                    "name": "note name",
+                    "text": "note text",
+                }
+            ]
+        },
+    )
+
+    id: str = Field(
+        description='the unique identifier of the note.',
+    )
+    name: Optional[str] = Field(
+        None,
+        description='the name/title of the note.',
+    )
+    text: str = Field(
+        description=' the text of the note.',
+    )
+
+class GulpStoryLinkEntry(BaseModel):
+    """
+    represents a single link entry in a story, containing metadata about the link
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "1234567890abcdef1234567890abcdef",
+                    "name": "link name",
+                    "doc_ids": ["_id1", "_id2"],
+                }
+            ]
+        },
+    )
+
+    id: str = Field(
+        description='the unique identifier of the link.',
+    )
+    name: Optional[str] = Field(
+        None,
+        description='the name/title of the link.',
+    )
+    doc_ids: list[str] = Field(
+        description='the document IDs the link points to.',
+    )
+
+class GulpStoryHighlightEntry(BaseModel):
+    """
+    represents a single highlight entry in a story, containing metadata about the highlight
+    """
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "1234567890abcdef1234567890abcdef",
+                    "name": "highlight name",
+                    "time_range": [1609459200000000000, 1609462800000000000],
+                    "source_id": "source_id",
+
+                }
+            ]
+        },
+    )
+
+    id: str = Field(
+        description='the unique identifier of the highlight.',
+    )
+    name: Optional[str] = Field(
+        None,
+        description='the name/title of the highlight.',
+    )
+    time_range: tuple[int, int] = Field(
+        description="The time range of the highlight, in nanoseconds from unix epoch.",
+    )
+    source_id: Optional[str] = Field(
+        default=None,
+        description="The associated GulpSource id.",
+        alias="gulp.source_id",
+    )
 
 class GulpStoryEntry(BaseModel):
     """
@@ -25,6 +114,7 @@ class GulpStoryEntry(BaseModel):
     """
     model_config = ConfigDict(
         populate_by_name=True,
+        extra="allow",
         json_schema_extra={
             "examples": [
                 {
@@ -34,9 +124,11 @@ class GulpStoryEntry(BaseModel):
                     "gulp.operation_id": TEST_OPERATION_ID,
                     "gulp.context_id": TEST_CONTEXT_ID,
                     "gulp.source_id": TEST_SOURCE_ID,
-                    "context_name": "test_context",
-                    "source_name": "test_source",
-                    "notes": ["note1", "note2"],
+                    "notes": [muty.pydantic.autogenerate_model_example_by_class(GulpStoryNoteEntry)],
+                    "event.code": "example_event_code",
+                    "agent.type": "example_agent_type",
+                    "event.duration": 1000000000,
+                    "links": [muty.pydantic.autogenerate_model_example_by_class(GulpStoryLinkEntry)],
                 }
             ]
         },
@@ -46,10 +138,7 @@ class GulpStoryEntry(BaseModel):
         description='"_id": the unique identifier of the document.',
         alias="_id",
     )
-    gulp_timestamp: int = Field(
-        description='"@timestamp": document timestamp in nanoseconds from unix epoch',
-        alias="gulp.timestamp",
-    )
+
     operation_id: str = Field(
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
@@ -62,22 +151,29 @@ class GulpStoryEntry(BaseModel):
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
     )
-    timestamp: Optional[str] = Field(
-        None,
+    event_code: str = Field(
+        description='"event.code": the event code the document is associated with.',
+        alias="event.code",
+    )
+    agent_type: str = Field(
+        description='"agent.type": the plugin which created the document.',
+        alias="agent.type",
+    )
+    timestamp: str = Field(
         description='"@timestamp": document timestamp, in iso8601 format.',
         alias="@timestamp",
     )
-    context_name: Optional[str] = Field(
-        None,
-        description='name of the context the document is associated with.',
+    duration: Optional[int] = Field(
+        default=None,
+        description='"event.duration": optional duration of the event in nanoseconds.',
+        alias="event.duration",
     )
-    source_name: Optional[str] = Field(
-        None,
-        description='name of the source the document is associated with.',
+    notes: list[GulpStoryNoteEntry] = Field(
+        description='one or more notes associated with the document.',        
     )
-    notes: list[str] = Field(
-        default_factory=list,
-        description='one or more notes associated with the document.',
+    links: Optional[list[GulpStoryLinkEntry]] = Field(
+        default=None,
+        description='if the document is the source of a link (=points to other documents), these are the document `_id`s it points to.',
     )
 
 class GulpStory(GulpCollabObject, type=COLLABTYPE_STORY):
@@ -85,22 +181,25 @@ class GulpStory(GulpCollabObject, type=COLLABTYPE_STORY):
     a story in the gulp collaboration system
     """
 
-    entries: Mapped[list[dict]] = mapped_column(
+    entries: Mapped[list[GulpStoryEntry]] = mapped_column(
         MutableList.as_mutable(ARRAY(JSONB)),
         default_factory=list,
         doc="one or more GulpStoryEntry associated with the story.",
     )
-    notes: Mapped[list[str]] = mapped_column(
-        MutableList.as_mutable(ARRAY(str)),
+    highlights: Optional[list[GulpStoryHighlightEntry]] = mapped_column(
+        MutableList.as_mutable(ARRAY(JSONB)),
         default_factory=list,
-        doc="one or more story-specific notes.",
+        doc='optional highlighted time ranges.',
     )
     
     @override
     @classmethod
     def example(cls) -> dict:
         d = super().example()
-        d["docs"] = [
+        d["entries"] = [
             muty.pydantic.autogenerate_model_example_by_class(GulpStoryEntry)
+        ]
+        d["highlights"] = [
+            muty.pydantic.autogenerate_model_example_by_class(GulpStoryHighlightEntry)
         ]
         return d
