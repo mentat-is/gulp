@@ -72,7 +72,7 @@ async def _fetch_highlights(
             source_id=h.source_id,      
         )
         # add the note to the list        
-        highlights.append(hh.model_dump(exclude_none=True))
+        highlights.append(hh.model_dump(exclude_none=True, by_alias=True))
 
     return highlights
 
@@ -113,7 +113,7 @@ async def _fetch_links_for_document(
             name=l.name,
             doc_ids=l.doc_ids,
         )
-        links.append(ll.model_dump(exclude_none=True))
+        links.append(ll.model_dump(exclude_none=True, by_alias=True))
 
     return links
 
@@ -154,7 +154,7 @@ async def _fetch_notes_for_document(
             id=n.id,
             name=n.name,
             text=n.text)
-        notes.append(nn.model_dump(exclude_none=True))
+        notes.append(nn.model_dump(exclude_none=True, by_alias=True))
     return notes
 
 
@@ -206,7 +206,7 @@ async def _gulp_story_entry_from_document(
         duration=doc.pop("event.duration", None),
         links=links,
         notes=notes)
-    gse = gse.model_dump(exclude_none=True)
+    gse = gse.model_dump(exclude_none=True, by_alias=True)
 
     if include_whole_document:
         # add the rest of the document to the story entry
