@@ -11,8 +11,11 @@ class GulpAPIStory:
     async def story_create(
         token: str,
         operation_id: str,
+        name: str,
         doc_ids: list[str],
-        name: str = None,
+        highlight_ids: list[str] = None,
+        include_whole_documents: bool=False,
+        description: str = None,
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
@@ -27,12 +30,15 @@ class GulpAPIStory:
             "name": name,
             "color": color,
             "glyph_id": glyph_id,
+            "include_whole_documents": include_whole_documents,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }
 
         body = {
             "doc_ids": doc_ids,
+            "description": description,
+            "highlight_ids": highlight_ids,
             "tags": tags,
         }
 
@@ -51,6 +57,9 @@ class GulpAPIStory:
         token: str,
         obj_id: str,
         doc_ids: list[str] = None,
+        highlight_ids: list[str] = None,
+        include_whole_documents: bool = False,
+        description: str = None,
         name: str = None,
         tags: list[str] = None,
         glyph_id: str = None,
@@ -65,12 +74,15 @@ class GulpAPIStory:
             "color": color,
             "name": name,
             "glyph_id": glyph_id,
+            "include_whole_documents": include_whole_documents,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }
 
         body = {
             "doc_ids": doc_ids,
+            "description": description,
+            "highlight_ids": highlight_ids,
             "tags": tags,
         }
 

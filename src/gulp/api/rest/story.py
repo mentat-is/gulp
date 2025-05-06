@@ -237,7 +237,7 @@ async def _gulp_story_entry_from_document(
     },
     summary="creates a story.",
     description="""
-creates a story which groups multiple documents.
+creates a story, which provides an overview of the incident through annotated documents, links and highlights.
 
 for each document in `doc_ids`, the related notes and links are retrieved and stored in the story.
 
@@ -342,6 +342,10 @@ async def story_create_handler(
     },
     summary="updates an existing story.",
     description="""
+for each document in `doc_ids`, the related notes and links are retrieved and stored in the story.
+
+if `highlight_ids` are provided, the highlights are also stored in the story.
+
 - `token` needs `edit` permission (or be the owner of the object, or admin) to update the object.
 """,
 )
