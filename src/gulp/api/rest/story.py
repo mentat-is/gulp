@@ -19,10 +19,12 @@ from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
+from gulp.api.collab.context import GulpContext
 from gulp.api.collab.highlight import GulpHighlight
 from gulp.api.collab.link import GulpLink
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.story import GulpStory, GulpStoryEntry, GulpStoryHighlightEntry, GulpStoryLinkEntry, GulpStoryNoteEntry
 from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, COLLABTYPE_LINK, COLLABTYPE_NOTE, GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
@@ -65,11 +67,14 @@ async def _fetch_highlights(
         return []
 
     for h in h_objs:
+        # get source name
+        src: GulpSource = await GulpSource.get_by_id(sess, h.source_id, False)
         hh = GulpStoryHighlightEntry(
             id=h.id,
             name=h.name,
             time_range=h.time_range,
-            source_id=h.source_id,      
+            source_id=h.source_id,
+            source=src.name if src else None, 
         )
         # add the note to the list        
         highlights.append(hh.model_dump(exclude_none=True, by_alias=True))
@@ -193,13 +198,21 @@ async def _gulp_story_entry_from_document(
     if doc.get("event.duration", None) == 1:
         # and also remove event.duration if it is 1
         doc.pop("event.duration", None)
+    
+    source_id = doc.pop("gulp.source_id", None)
+    context_id = doc.pop("gulp.context_id", None)
+    
+    src: GulpSource = await GulpSource.get_by_id(sess, source_id, False)
+    ctx: GulpContext = await GulpContext.get_by_id(sess, context_id, False)
 
     # create the story entry
     gse: GulpStoryEntry = GulpStoryEntry(
         id=doc.pop("_id", None),
         operation_id=doc.pop("gulp.operation_id", None),
-        context_id=doc.pop("gulp.context_id", None),
-        source_id=doc.pop("gulp.source_id", None),
+        context_id=context_id,
+        source_id=source_id,
+        context=ctx.name if ctx else None,
+        source=src.name if src else None,
         event_code=doc.pop("event.code", None),
         agent_type=doc.pop("agent.type", None),
         timestamp=doc.pop("@timestamp", None),
@@ -296,6 +309,15 @@ async def story_create_handler(
                 # fetch the document and create the story entry
                 entry = await _gulp_story_entry_from_document(sess, operation_id, user_id, doc_id, include_whole_document=include_whole_documents)
                 entries.append(entry)
+
+        
+        # load mockup data
+        import muty.file
+        import json
+        js = await muty.file.read_file_async("/gulp/entries.json")
+        js = json.loads(js)
+        entries = js["entries"]
+        highlights = js.get("highlights", None)
 
         object_data = GulpStory.build_dict(
             operation_id=operation_id,

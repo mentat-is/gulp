@@ -269,6 +269,7 @@ class GulpPluginBase(ABC):
             - plugins are loaded with ignore_cache=True and pickled=True when passed to workers
             - the extension status is determined from the plugin type
         """
+        # print("********************************** REDUCE *************************************************")
         # determine if this is an extension plugin
         extension = GulpPluginType.EXTENSION in self.type()
 
@@ -296,6 +297,7 @@ class GulpPluginBase(ABC):
             None
 
         """
+        # print("********************************** INIT *************************************************")
         super().__init__()
 
         # plugin file path

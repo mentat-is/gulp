@@ -80,7 +80,9 @@ class GulpWsQueueDataType(StrEnum):
     # GulpCollabCreateUpdatePacket with type=NEW_SOURCE
     NEW_SOURCE = "new_source"
     # GulpCollabCreateUpdatePacket with type=NEW_CONTEXT
-    NEW_CONTEXT = "new_context"
+    NEW_CONTEXT = "new_context"    
+    # generic data
+    GENERIC = "generic"
 
 
 class WsQueueFullException(Exception):
@@ -542,6 +544,11 @@ class GulpWsData(BaseModel):
     )
     type: GulpWsQueueDataType = Field(
         ..., description="The type of data carried by the websocket."
+    )
+    # TODO: remove this, and turn GulpWsQueueDataType into simple string
+    inner_type: Optional[str] = Field(
+        None,
+        description="The inner type of data carried by the websocket.",
     )
     ws_id: str = Field(..., description="The WebSocket ID.")
     user_id: Optional[str] = Field(None, description="The user who issued the request.")
@@ -1207,6 +1214,14 @@ class GulpConnectedSockets:
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
+
+        # check for inner_type
+        if message.get("inner_type"):
+            # if inner_type is present, set type to inner_type
+            # TODO: this will go away once WsQueueDataType is turned to string
+            message["type"] = message["inner_type"]
+            message.pop("inner_type", None)
+
         await client_ws.put_message(message)
         return True
 
@@ -1605,6 +1620,7 @@ class GulpWsSharedQueue:
         req_id: str = None,
         data: Any = None,
         private: bool = False,
+        inner_type: str = None,
     ) -> None:
         """
         adds data to the shared queue with retry logic and backpressure handling.
@@ -1620,6 +1636,7 @@ class GulpWsSharedQueue:
             req_id (Optional[str]): the request id if applicable
             data (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
+            inner_type (Optional[str]): the inner type of the message, if applicable
 
         raises:
             WebSocketDisconnect: if websocket is not connected for DOCUMENTS_CHUNK type
@@ -1642,6 +1659,7 @@ class GulpWsSharedQueue:
             req_id=req_id,
             private=private,
             data=data,
+            inner_type=inner_type,
         )
 
         # attempt to add with exponential backoff

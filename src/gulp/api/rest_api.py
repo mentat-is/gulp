@@ -13,6 +13,7 @@ capabilities for the application.
 import asyncio
 import os
 import ssl
+import sys
 from typing import Any, Coroutine
 
 import asyncio_atexit
@@ -127,7 +128,12 @@ class GulpRestServer:
         for f in files:
             if '__init__.py' not in f:
                 # load
-                p = await GulpPluginBase.load(f, extension=True)
+                try:
+                    p = await GulpPluginBase.load(f, extension=True)
+                except Exception as ex:
+                    # plugin failed to load
+                    MutyLogger.get_instance().exception(ex)
+                    continue
                 self._extension_plugins.append(p)
                 count += 1
 
@@ -460,6 +466,7 @@ class GulpRestServer:
         from gulp.api.opensearch_api import GulpOpenSearch
 
         MutyLogger.get_instance().info("gULP main server process is starting!")
+
         asyncio_atexit.register(self._cleanup)
 
         main_process = GulpProcess.get_instance()

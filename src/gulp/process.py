@@ -138,6 +138,21 @@ class GulpProcess:
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
         """
+        # initialize paths immediately, before any unpickling happens
+        plugins_path = GulpConfig.get_instance().path_plugins_default()
+        plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
+        
+        # add plugin paths to sys.path immediately
+        def _add_to_syspath(p: str):
+            if p and p not in sys.path:
+                sys.path.insert(0, p)  # insert at beginning for priority
+                extension_path = os.path.join(p, "extension")
+                if os.path.isdir(extension_path):
+                    sys.path.insert(0, extension_path)
+        
+        _add_to_syspath(plugins_path)
+        _add_to_syspath(plugins_path_extra)
+        print("******* sys.path in process %d=%s *******" % (os.getpid(), sys.path))
 
         p = GulpProcess.get_instance()
         loop = asyncio.get_event_loop()
@@ -316,6 +331,7 @@ class GulpProcess:
         GulpConfig.get_instance()
 
         # sys.path fix is needed to load plugins from the plugins directories correctly
+        """
         plugins_path = GulpConfig.get_instance().path_plugins_default()
         plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
 
@@ -330,6 +346,7 @@ class GulpProcess:
 
         _add_to_syspath(plugins_path)
         _add_to_syspath(plugins_path_extra)
+        """
 
         # initializes executors
         await self.close_coro_pool()
@@ -345,7 +362,7 @@ class GulpProcess:
         if self._main_process:
 
             # creates the process pool and shared queue
-            MutyLogger.get_instance().info("main process initialized!")
+            MutyLogger.get_instance().warning("MAIN process initialized, sys.path=%s" % (sys.path))
             await self.recreate_process_pool_and_shared_queue()
 
             # load extension plugins

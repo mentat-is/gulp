@@ -148,9 +148,14 @@ class GulpConfig:
             )
 
         # read
-        MutyLogger.get_instance().info(
-            "reading configuration file: %s" % (config_file_path)
-        )
+        try:
+            MutyLogger.get_instance().info(
+                "reading configuration file: %s" % (config_file_path)
+            )
+        except:
+            # may happen in early process initialization, MutyLogger may not be initialized yet ... we don't care
+            pass
+        
         with open(config_file_path, "rb") as f:
             js = f.read()
             self._config = json5.loads(js)

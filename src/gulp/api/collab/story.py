@@ -107,6 +107,9 @@ class GulpStoryHighlightEntry(BaseModel):
         description="The associated GulpSource id.",
         alias="gulp.source_id",
     )
+    source: Optional[str] = Field(
+        default=None,
+        description="The name of the source identified by gulp.source_id.")
 
 class GulpStoryEntry(BaseModel):
     """
@@ -147,10 +150,17 @@ class GulpStoryEntry(BaseModel):
         description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
     )
+    context: str = Field(
+        description='name of the context identified by "gulp.context_id".')
+
     source_id: str = Field(
         description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
     )
+
+    source: str = Field(
+        description='name of the source identified by "gulp.source_id".')
+    
     event_code: str = Field(
         description='"event.code": the event code the document is associated with.',
         alias="event.code",
