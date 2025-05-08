@@ -245,7 +245,6 @@ class GulpRestServer:
         from gulp.api.rest.object_acl import router as object_acl_router
         from gulp.api.rest.operation import router as operation_router
         from gulp.api.rest.query import router as query_router
-        from gulp.api.rest.story import router as story_router
         from gulp.api.rest.user import router as user_router
         from gulp.api.rest.user_group import router as user_group_router
         from gulp.api.rest.utility import router as utility_router
@@ -259,7 +258,6 @@ class GulpRestServer:
         self._app.include_router(note_router)
         self._app.include_router(link_router)
         self._app.include_router(highlight_router)
-        self._app.include_router(story_router)
         self._app.include_router(glyph_router)
         self._app.include_router(user_group_router)
         self._app.include_router(object_acl_router)

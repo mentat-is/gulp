@@ -1258,6 +1258,41 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MutyLogger.get_instance().error(f"failed to acquire advisory lock: {e}")
             raise
 
+    @staticmethod
+    async def get_obj_id_by_table(
+        sess: AsyncSession,
+        table_name: str,
+        obj_id: str,
+        throw_if_not_found: bool = True,
+        recursive: bool = False,
+    ) -> T:
+        """
+        asynchronously retrieves an object from specified table (eager loaded) with the given id.
+
+        args:
+            sess (AsyncSession): the database session to use
+            table_name (str): the name of the table to query
+            obj_id (str): the id of the object to retrieve
+            throw_if_not_found (bool): if true, raises exception if not found (default=true)
+            recursive (bool): load nested relationships recursively (default=false)
+
+        returns:
+            T: the object or none if not found
+
+        raises:
+            ObjectNotFound: if object not found and throw_if_not_found=true
+            ValueError: if table name is invalid or class not found
+        """
+        # get model class from table name
+        model_class = GulpCollabBase.object_type_to_class(table_name)
+        c = await model_class.get_by_id(
+            sess,
+            obj_id,
+            throw_if_not_found=throw_if_not_found,
+            recursive=recursive,
+        )
+        return c
+
     @classmethod
     async def get_by_id(
         cls,
