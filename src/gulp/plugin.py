@@ -451,9 +451,10 @@ class GulpPluginBase(ABC):
         Returns HTML frame to be rendered in the UI, i.e. for custom plugin panel
         """
         return None
+
     def depends_on(self) -> list[str]:
         """
-        Returns a list of plugins this plugin depends on.
+        Returns a list of plugins this plugin depends on (plugin file name with/withouy py/pyc).
         """
         return []
 
@@ -2224,7 +2225,7 @@ class GulpPluginBase(ABC):
         #pickled = kwargs.get("pickled", False)
         pickled = kwargs.pop("pickled", False)
 
-        # get plugin full path by name
+         # get plugin full path by name
         path = GulpPluginBase.path_from_plugin(
             plugin, extension, raise_if_not_found=True
         )
@@ -2269,8 +2270,23 @@ class GulpPluginBase(ABC):
         m = muty.dynload.load_dynamic_module_from_file(module_name, path)
         p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
         MutyLogger.get_instance().debug(
-            f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}"
+            f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}, depends_on={p.depends_on()}"
         )
+
+        # check dependencies        
+        if p.depends_on():
+            # check each dependency (each is a file name)
+            for dep in p.depends_on():
+                # check if dependency is loaded
+                dep_path_noext = GulpPluginBase.path_from_plugin(dep, is_extension=False, raise_if_not_found=False)
+                dep_path_ext = GulpPluginBase.path_from_plugin(dep, is_extension=True, raise_if_not_found=False)
+                dep_path = dep_path_noext or dep_path_ext
+                if not dep_path:
+                    await p.unload()
+                    raise FileNotFoundError(
+                        f"dependency {dep} not found, plugin={bare_name} cannot load, path={path}"
+                    )
+
         # also call post-initialization routine if any
         await p.post_init(**kwargs)
 
