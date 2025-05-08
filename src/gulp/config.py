@@ -137,24 +137,10 @@ class GulpConfig:
             )
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
-            MutyLogger.get_instance().warning(
-                "no configuration file found, applying defaults from %s ..." % (src)
-            )
-
-        cfg_perms = oct(os.stat(config_file_path).st_mode & 0o777)
-        if cfg_perms != oct(0o0600):
-            MutyLogger.get_instance().warning(
-                "careful, weak configuration file permissions %s != 0600" % cfg_perms
-            )
+            print("****** NO CONFIGURATION FILE FOUND, creating default configuration %s from template ******" % (config_file_path))
 
         # read
-        try:
-            MutyLogger.get_instance().info(
-                "reading configuration file: %s" % (config_file_path)
-            )
-        except:
-            # may happen in early process initialization, MutyLogger may not be initialized yet ... we don't care
-            pass
+        print("****** reading configuration file: %s ******" % (config_file_path))
         
         with open(config_file_path, "rb") as f:
             js = f.read()
