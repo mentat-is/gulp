@@ -40,11 +40,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-python3 -m pytest -v -x -s $_TESTS_DIR/test_story.py
-if [ $? -ne 0 ]; then
-    exit 1
-fi
-
 python3 -m pytest -v -x -s $_TESTS_DIR/test_glyph.py
 if [ $? -ne 0 ]; then
     exit 1
@@ -74,6 +69,11 @@ if [ ! -z $PATH_PAID_PLUGINS ]; then
         exit 1
     fi
     python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/query
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
+    python3 -m pytest -v -x -s $PATH_PAID_PLUGINS/tests/test_story.py
     if [ $? -ne 0 ]; then
         exit 1
     fi
