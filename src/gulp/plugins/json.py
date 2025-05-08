@@ -93,7 +93,7 @@ class Plugin(GulpPluginBase):
         line: str = kwargs.get("line")
 
         d: dict = muty.json.flatten_json(record)
-
+        print(timestamp_field, d, record)
         if date_format:
             time_str = d.get(timestamp_field)
             timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
@@ -230,7 +230,7 @@ class Plugin(GulpPluginBase):
                             doc_idx,
                             flt=flt,
                             line=json.dumps(j),
-                            timestamp_filed=timestamp_field,
+                            timestamp_field=timestamp_field,
                             date_format=date_format,
                         )
                     except (RequestCanceledError, SourceCanceledError) as ex:
@@ -255,7 +255,7 @@ class Plugin(GulpPluginBase):
                                 doc_idx,
                                 flt=flt,
                                 line=line,
-                                timestamp_filed=timestamp_field,
+                                timestamp_field=timestamp_field,
                                 date_format=date_format,
                             )
                         except (RequestCanceledError, SourceCanceledError) as ex:
