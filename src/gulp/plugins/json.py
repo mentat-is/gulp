@@ -92,9 +92,7 @@ class Plugin(GulpPluginBase):
         date_format: str = kwargs.get("date_format")
         line: str = kwargs.get("line")
 
-        d: dict = {}
-        for k, v in record.items():
-            d[k] = v
+        d: dict = muty.json.flatten_json(record)
 
         if date_format:
             time_str = d.get(timestamp_field)
@@ -105,7 +103,7 @@ class Plugin(GulpPluginBase):
 
         # map
         final: dict = {}
-        for k, v in muty.json.flatten_json(d).items():
+        for k, v in d.items():
             mapped = self._process_key(k, v)
             final.update(mapped)
 
