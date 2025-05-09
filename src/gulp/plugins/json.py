@@ -38,6 +38,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+import dateutil.parser
 
 # pylint: disable=C0411
 muty.os.check_and_install_package("json-stream", ">=2.3.3,<3.0.0")
@@ -80,7 +81,7 @@ class Plugin(GulpPluginBase):
                 name="json_format",
                 type="str",
                 desc="'line' one object per line, 'dict' standard json object, 'list' list of json objects",
-                default_value="list",
+                default_value="line",
             ),
         ]
 
@@ -93,14 +94,23 @@ class Plugin(GulpPluginBase):
         line: str = kwargs.get("line")
 
         d: dict = muty.json.flatten_json(record)
-        print(timestamp_field, d, record)
-        if date_format:
-            time_str = d.get(timestamp_field)
-            timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
+        #print(timestamp_field, d, record)
+        t: str = d.get(timestamp_field)
+        timestamp: str = None
+        if isinstance(t, str):
+            if t.isnumeric():
+                # if it's a number, convert to int
+                timestamp = muty.time.number_to_iso8601(int(t))
+            else:
+                if date_format:
+                    timestamp = datetime.datetime.strptime(t, date_format).isoformat()
+                else:
+                    # attempt autoparse of date
+                    timestamp = dateutil.parser.parse(t).isoformat()
         else:
-            # Attempt autoparse of date
-            timestamp: str = dateutil.parser.parse(d.get(timestamp_field)).isoformat()
-
+            # numeric
+            timestamp = muty.time.number_to_iso8601(int(t))
+            
         # map
         final: dict = {}
         for k, v in d.items():
