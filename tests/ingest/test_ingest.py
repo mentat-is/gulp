@@ -247,7 +247,7 @@ async def test_raw():
 
 @pytest.mark.asyncio
 @pytest.mark.run(order=6)
-async def test_ingest_ws_raw():
+async def test_ws_raw():
     """
     tests websocket ingestion of raw data
     """
@@ -352,7 +352,7 @@ async def test_ingest_ws_raw():
         token=ingest_token, operation_id=TEST_OPERATION_ID
     )
     assert op["doc_count"] == 6000
-    MutyLogger.get_instance().info(test_ingest_ws_raw.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(test_ws_raw.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio

@@ -218,11 +218,12 @@ class GulpDocument(GulpBasicDocument):
             Returns:
             None
         """
-        # turn any document already in gulp ecs format back to GulpDocument
-        # (i.e. turn "@timestamp" back to "timestamp")
-        kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
+        # internal flag to indicate we are ingesting a raw gulp document, we have to turn it back to GulpDocument
+        # (i.e. turn "timestamp" back to "@timestamp")
+        if kwargs.pop("__raw__", False):
+            kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
 
-        # this is internal, set by _finalize_process_record() in the mapping engine
+        # internal flag, set by _finalize_process_record() in the mapping engine
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
 
         # build initial data dict

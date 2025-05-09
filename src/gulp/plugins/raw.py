@@ -49,6 +49,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=None, # taken from the record
             event_sequence=None, # taken from the record
+            __raw__=True, # internal flag to tell GulpDocument constructor to turn all fields back to original names, not aliases (raw has aliases)
             **record,
         )
 
