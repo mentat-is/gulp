@@ -129,7 +129,8 @@ class GulpConfig:
         config_file_path = self.path_config()
 
         # MutyLogger.get_instance().info("configuration path: %s" % (config_file_path))
-
+        
+        # note that we use prints here since this is called before the logger is initialized
         if not os.path.exists(config_file_path):
             # copy default configuration file
             src = os.path.abspath(
@@ -137,10 +138,10 @@ class GulpConfig:
             )
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
-            print("****** NO CONFIGURATION FILE FOUND, creating default configuration %s from template ******" % (config_file_path))
+            print("****** PID=%d, NO CONFIGURATION FILE FOUND, creating default configuration %s from template ******" % (os.getpid(), config_file_path))
 
         # read
-        print("****** reading configuration file: %s ******" % (config_file_path))
+        print("******  PID=%d, reading configuration file: %s ******" % (os.getpid(), config_file_path))
         
         with open(config_file_path, "rb") as f:
             js = f.read()

@@ -99,8 +99,8 @@ class Plugin(GulpPluginBase):
         timestamp: str = None
         if isinstance(t, str):
             if t.isnumeric():
-                # if it's a number, convert to int
-                timestamp = muty.time.number_to_iso8601(int(t))
+                # if it's a number, use it as is
+                timestamp = t
             else:
                 if date_format:
                     timestamp = datetime.datetime.strptime(t, date_format).isoformat()
@@ -109,7 +109,7 @@ class Plugin(GulpPluginBase):
                     timestamp = dateutil.parser.parse(t).isoformat()
         else:
             # numeric
-            timestamp = muty.time.number_to_iso8601(int(t))
+            timestamp = str(t)
             
         # map
         final: dict = {}

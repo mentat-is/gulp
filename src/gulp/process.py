@@ -152,7 +152,8 @@ class GulpProcess:
         
         _add_to_syspath(plugins_path)
         _add_to_syspath(plugins_path_extra)
-        print("******* sys.path in process %d=%s *******" % (os.getpid(), sys.path))
+        # note that we use prints here since this is called before the logger is initialized
+        print("******* PID=%d, sys.path=%s *******" % (os.getpid(), sys.path))
 
         p = GulpProcess.get_instance()
         loop = asyncio.get_event_loop()
