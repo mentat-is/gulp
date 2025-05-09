@@ -30,8 +30,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabObject
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
+    WSDATA_COLLAB_UPDATE,
     GulpCollabCreateUpdatePacket,
-    GulpWsQueueDataType,
     GulpWsSharedQueue,
 )
 
@@ -262,7 +262,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             bulk_size=len(notes),
         )
         GulpWsSharedQueue.get_instance().put(
-            GulpWsQueueDataType.COLLAB_UPDATE,
+            WSDATA_COLLAB_UPDATE,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,

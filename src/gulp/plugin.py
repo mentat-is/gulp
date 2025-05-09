@@ -35,9 +35,9 @@ from gulp.api.opensearch.query import (GulpQuery, GulpQueryHelpers,
                                        GulpQueryParameters)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import (GulpDocumentsChunkPacket,
+from gulp.api.ws_api import (WSDATA_DOCUMENTS_CHUNK, WSDATA_ENRICH_DONE, WSDATA_INGEST_SOURCE_DONE, GulpDocumentsChunkPacket,
                              GulpIngestSourceDonePacket, GulpQueryDonePacket,
-                             GulpWsQueueDataType, GulpWsSharedQueue)
+                             GulpWsSharedQueue)
 from gulp.config import GulpConfig
 from gulp.structs import (GulpMappingParameters, GulpPluginCustomParameter,
                           GulpPluginParameters, ObjectNotFound)
@@ -595,7 +595,7 @@ class GulpPluginBase(ABC):
                     self._ws_id}"
             )
             GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
+                type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 req_id=self._ws_id,
@@ -943,7 +943,7 @@ class GulpPluginBase(ABC):
                 enriched=True,
             )
             GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
+                type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 req_id=self._req_id,
@@ -958,7 +958,7 @@ class GulpPluginBase(ABC):
                 total_hits=kwargs.get("total_hits", 0),
             )
             GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.ENRICH_DONE,
+                type=WSDATA_ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 req_id=self._req_id,
@@ -2123,7 +2123,7 @@ class GulpPluginBase(ABC):
                 status = GulpRequestStatus.DONE
 
             GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.INGEST_SOURCE_DONE,
+                type=WSDATA_INGEST_SOURCE_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 operation_id=self._operation_id,

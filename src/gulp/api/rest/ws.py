@@ -42,6 +42,9 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
+    WSDATA_CLIENT_DATA,
+    WSDATA_CONNECTED,
+    WSDATA_ERROR,
     GulpClientDataPacket,
     GulpConnectedSocket,
     GulpConnectedSockets,
@@ -51,7 +54,6 @@ from gulp.api.ws_api import (
     GulpWsError,
     GulpWsErrorPacket,
     GulpWsIngestPacket,
-    GulpWsQueueDataType,
     GulpWsSharedQueue,
     GulpWsType,
 )
@@ -255,7 +257,7 @@ class GulpAPIWebsocket:
         p = GulpWsErrorPacket(error=str(ex), error_code=error_type.name)
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
-            type=GulpWsQueueDataType.WS_ERROR,
+            type=WSDATA_ERROR,
             ws_id=ws_id,
             data=p.model_dump(exclude_none=True),
         )
@@ -276,7 +278,7 @@ class GulpAPIWebsocket:
         """
         p = GulpWsData(
             timestamp=muty.time.now_msec(),
-            type=GulpWsQueueDataType.WS_CONNECTED,
+            type=WSDATA_CONNECTED,
             ws_id=ws_id,
             user_id=user_id,
             data=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id).model_dump(
@@ -523,7 +525,7 @@ class GulpAPIWebsocket:
                                 error_code=GulpWsError.OBJECT_NOT_FOUND.name,
                             )
                             await GulpWsSharedQueue.get_instance().put(
-                                type=GulpWsQueueDataType.WS_ERROR,
+                                type=WSDATA_ERROR,
                                 ws_id=ingest_packet.ws_id,
                                 user_id=user_id,
                                 data=p.model_dump(exclude_none=True),
@@ -624,7 +626,7 @@ class GulpAPIWebsocket:
 
                 data = GulpWsData(
                     timestamp=muty.time.now_msec(),
-                    type=GulpWsQueueDataType.CLIENT_DATA,
+                    type=WSDATA_CLIENT_DATA,
                     ws_id=ws.ws_id,
                     user_id=user_id,
                     data=client_ui_data.model_dump(exclude_none=True),

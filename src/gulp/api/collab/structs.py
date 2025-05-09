@@ -63,9 +63,6 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_mixins.serialize import SerializeMixin
 
-if TYPE_CHECKING:
-    from gulp.api.ws_api import GulpWsQueueDataType
-
 from gulp.structs import GulpSortOrder, ObjectNotFound
 
 
@@ -741,7 +738,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj_id: str = None,
         ws_id: str = None,
         owner_id: str = None,
-        ws_queue_datatype: "GulpWsQueueDataType" = None,
+        ws_queue_datatype: str = None,
         ws_data: dict = None,
         req_id: str = None,
         private: bool = True,
@@ -760,7 +757,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             operation_id (str, optional): The ID of the operation associated with the instance. Defaults to None.
             ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
             owner_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
-            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
+            ws_queue_datatype (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_UPDATE.
             ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
@@ -801,12 +798,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         from gulp.api.ws_api import (
             GulpCollabCreateUpdatePacket,
-            GulpWsQueueDataType,
             GulpWsSharedQueue,
         )
 
         if not ws_queue_datatype:
-            ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+            from gulp.api.ws_api import WSDATA_COLLAB_UPDATE
+            ws_queue_datatype = WSDATA_COLLAB_UPDATE
 
         # use provided data or serialize the instance
         if ws_data:
@@ -968,7 +965,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: "GulpWsQueueDataType" = None,
+        ws_queue_datatype: str = None,
         ws_data: dict = None,
         req_id: str = None,
     ) -> None:
@@ -979,7 +976,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             user_id (str, optional): The ID of the user making the request. Defaults to None.
-            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data. Defaults to GulpWsQueueDataType.COLLAB_DELETE.
+            ws_queue_datatype (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_DELETE.
             ws_data (dict, optional): data to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
             req_id (str, optional): The ID of the request. Defaults to None.
         Returns:
@@ -1002,12 +999,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # notify the websocket of the deletion
         from gulp.api.ws_api import (
             GulpCollabDeletePacket,
-            GulpWsQueueDataType,
             GulpWsSharedQueue,
         )
 
         if not ws_queue_datatype:
-            ws_queue_datatype = GulpWsQueueDataType.COLLAB_DELETE
+            from gulp.api.ws_api import WSDATA_COLLAB_DELETE
+            ws_queue_datatype = WSDATA_COLLAB_DELETE
 
         if ws_data:
             data = ws_data
@@ -1142,7 +1139,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         d: dict,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: "GulpWsQueueDataType" = None,
+        ws_queue_datatype: str = None,
         ws_data: dict = None,
         req_id: str = None,
     ) -> dict:
@@ -1156,7 +1153,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             d (dict): A dictionary containing the fields to update and their new values
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
             user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided.
-            ws_queue_datatype (GulpWsQueueDataType, optional): The type of the websocket queue data, ignored if ws_id is not provided. Defaults to GulpWsQueueDataType.COLLAB_UPDATE.
+            ws_queue_datatype (str, optional): The type of the websocket queue data, ignored if ws_id is not provided. Defaults to WSDATA_COLLAB_UPDATE.
             ws_data (dict, optional): data to send to the websocket. Defaults to the updated object, ignored if ws_id is not provided
             req_id (str, optional): The ID of the request, ignored if ws_id is not provided. Defaults to None.
 
@@ -1195,12 +1192,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # send update to websocket
         from gulp.api.ws_api import (
             GulpCollabCreateUpdatePacket,
-            GulpWsQueueDataType,
             GulpWsSharedQueue,
         )
 
         if not ws_queue_datatype:
-            ws_queue_datatype = GulpWsQueueDataType.COLLAB_UPDATE
+            from gulp.api.ws_api import WSDATA_COLLAB_UPDATE
+            ws_queue_datatype = WSDATA_COLLAB_UPDATE
 
         # notify the websocket of the collab object update
         if ws_data:

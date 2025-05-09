@@ -20,10 +20,9 @@ from muty.log import MutyLogger
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from gulp.api.ws_api import GulpWsQueueDataType
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
-
+from gulp.api.ws_api import WSDATA_NEW_SOURCE
 
 class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     """
@@ -143,7 +142,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 object_data,
                 obj_id=src_id,
                 owner_id=user_id,
-                ws_queue_datatype=GulpWsQueueDataType.NEW_SOURCE if ws_id else None,
+                ws_queue_datatype=WSDATA_NEW_SOURCE if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
                 commit=False

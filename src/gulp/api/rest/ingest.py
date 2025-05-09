@@ -386,8 +386,8 @@ once the upload is complete, the API will return a `pending` response and proces
 
 once the upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during processing, every `ingestion_buffer_size` documents (defined in the configuration):
 
-- `GulpWsQueueDataType.STATS_UPDATE`: with totals and stats
-- `GulpWsQueueDataType.DOCUMENTS_CHUNK`: the actual GulpDocuments chunk
+- `WSDATA_STATS_UPDATE`: with totals and stats
+- `WSDATA_DOCUMENTS_CHUNK`: the actual GulpDocuments chunk
 
 ### preview mode
 

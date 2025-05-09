@@ -23,10 +23,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from gulp.api.ws_api import GulpWsQueueDataType
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabBase
-
+from gulp.api.ws_api import WSDATA_NEW_CONTEXT
 
 class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
     """
@@ -129,7 +128,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 object_data,
                 obj_id=ctx_id,
                 owner_id=user_id,
-                ws_queue_datatype=GulpWsQueueDataType.NEW_CONTEXT if ws_id else None,
+                ws_queue_datatype=WSDATA_NEW_CONTEXT if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
                 commit=False,

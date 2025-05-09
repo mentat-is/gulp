@@ -38,7 +38,7 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_INDEX
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpRebaseDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRebaseDonePacket, GulpWsSharedQueue
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists
 
@@ -512,7 +512,7 @@ async def _rebase_internal(
         # signal failure on the websocket
         MutyLogger.get_instance().exception(ex)
         GulpWsSharedQueue.get_instance().put(
-            type=GulpWsQueueDataType.REBASE_DONE,
+            type=WSDATA_REBASE_DONE,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,
@@ -533,7 +533,7 @@ async def _rebase_internal(
     )
     # signal the websocket
     GulpWsSharedQueue.get_instance().put(
-        type=GulpWsQueueDataType.REBASE_DONE,
+        type=WSDATA_REBASE_DONE,
         ws_id=ws_id,
         user_id=user_id,
         req_id=req_id,
@@ -572,7 +572,7 @@ rebases `operation_id.index` and creates a new `dest_index` with rebased `@times
 
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
-- rebase happens in the background: when it is done, a `GulpWsQueueDataType.REBASE_DONE` event is sent to the `ws_id` websocket.
+- rebase happens in the background: when it is done, a `WSDATA_REBASE_DONE` event is sent to the `ws_id` websocket.
 """,
 )
 async def opensearch_rebase_index_handler(

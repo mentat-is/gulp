@@ -53,9 +53,10 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
+    WSDATA_QUERY_DONE,
+    WSDATA_QUERY_GROUP_MATCH,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
-    GulpWsQueueDataType,
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
@@ -231,7 +232,7 @@ async def _process_batch_results(
             name=q_name,
         )
         GulpWsSharedQueue.get_instance().put(
-            type=GulpWsQueueDataType.QUERY_DONE,
+            type=WSDATA_QUERY_DONE,
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,
@@ -281,7 +282,7 @@ async def _handle_query_group_match(
     # and signal websocket
     p = GulpQueryGroupMatchPacket(name=q_options.group, total_hits=total_doc_matches)
     GulpWsSharedQueue.get_instance().put(
-        type=GulpWsQueueDataType.QUERY_GROUP_MATCH,
+        type=WSDATA_QUERY_GROUP_MATCH,
         ws_id=ws_id,
         user_id=user_id,
         req_id=req_id,

@@ -4,7 +4,7 @@ from muty.log import MutyLogger
 
 from gulp.api.rest_api import GulpRestServer
 
-from gulp.api.ws_api import GulpWsQueueDataType, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -77,7 +77,7 @@ class Plugin(GulpPluginBase):
             % (user_id, operation_id, ws_id, req_id)
         )
         GulpWsSharedQueue.get_instance().put(
-            GulpWsQueueDataType.COLLAB_UPDATE,
+            WSDATA_COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,

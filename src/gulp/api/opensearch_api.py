@@ -45,9 +45,10 @@ from gulp.api.opensearch.filters import (
     GulpQueryFilter,
 )
 from gulp.api.ws_api import (
+    WSDATA_DOCUMENTS_CHUNK,
+    WSDATA_SOURCE_FIELDS_CHUNK,
     GulpDocumentsChunkPacket,
     GulpSourceFieldsChunkPacket,
-    GulpWsQueueDataType,
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
@@ -465,7 +466,7 @@ class GulpOpenSearch:
                         last=last,
                     )
                     GulpWsSharedQueue.get_instance().put(
-                        type=GulpWsQueueDataType.SOURCE_FIELDS_CHUNK,
+                        type=WSDATA_SOURCE_FIELDS_CHUNK,
                         ws_id=ws_id,
                         user_id=user_id,
                         req_id=req_id,
@@ -2012,7 +2013,7 @@ class GulpOpenSearch:
                     name=q_options.name,
                 )
                 GulpWsSharedQueue.get_instance().put(
-                    type=GulpWsQueueDataType.DOCUMENTS_CHUNK,
+                    type=WSDATA_DOCUMENTS_CHUNKUNK,
                     ws_id=ws_id,
                     user_id=user_id,
                     req_id=req_id,

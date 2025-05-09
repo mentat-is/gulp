@@ -18,7 +18,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpRequestStatus
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.rest.test_values import (
@@ -40,50 +40,26 @@ class GulpWsType(StrEnum):
     WS_CLIENT_DATA = "client_data"
 
 
-class GulpWsQueueDataType(StrEnum):
-    """
-    The type of data into the websocket queue.
-    """
-
-    # GulpWsErrorPacket
-    WS_ERROR = "ws_error"
-    # GulpWsAcknowledgedPacket
-    WS_CONNECTED = "ws_connected"
-    # GulpCollabCreateUpdatePacket
-    STATS_UPDATE = "stats_update"
-    # GulpCollabCreateUpdatePacket with type=collab object type
-    COLLAB_UPDATE = "collab_update"
-    # GulpUserLoginLogoutPacket
-    USER_LOGIN = "user_login"
-    # GulpUserLoginLogoutPacket
-    USER_LOGOUT = "user_logout"
-    # a GulpDocumentsChunk to indicate a chunk of documents during ingest or query operation
-    DOCUMENTS_CHUNK = "docs_chunk"
-    # GulpCollabDeletePacket
-    COLLAB_DELETE = "collab_delete"
-    # GulpIngestSourceDonePacket to indicate a source has been ingested
-    INGEST_SOURCE_DONE = "ingest_source_done"
-    # GulpQueryDonePacket
-    QUERY_DONE = "query_done"
-    # GulpQueryDonePacket
-    ENRICH_DONE = "enrich_done"
-    # GulpQueryDonePacket
-    TAG_DONE = "tag_done"
-    # GulpQueryGroupMatch
-    QUERY_GROUP_MATCH = "query_group_match"
-    # GulpRebaseDonePacket
-    REBASE_DONE = "rebase_done"
-    # GulpClientDataPacket
-    CLIENT_DATA = "client_data"
-    # GulpSourceFieldsChunkPacket
-    SOURCE_FIELDS_CHUNK = "source_fields_chunk"
-    # GulpCollabCreateUpdatePacket with type=NEW_SOURCE
-    NEW_SOURCE = "new_source"
-    # GulpCollabCreateUpdatePacket with type=NEW_CONTEXT
-    NEW_CONTEXT = "new_context"    
-    # generic data
-    GENERIC = "generic"
-
+# data types for the websocket
+WSDATA_ERROR = "ws_error"
+WSDATA_CONNECTED = "ws_connected"
+WSDATA_STATS_UPDATE = "stats_update"
+WSDATA_COLLAB_UPDATE = "collab_update"
+WSDATA_USER_LOGIN = "user_login"
+WSDATA_USER_LOGOUT = "user_logout"
+WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
+WSDATA_COLLAB_DELETE = "collab_delete"
+WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"
+WSDATA_QUERY_DONE = "query_done"
+WSDATA_ENRICH_DONE = "enrich_done"
+WSDATA_TAG_DONE = "tag_done"
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"
+WSDATA_REBASE_DONE = "rebase_done"
+WSDATA_CLIENT_DATA = "client_data"
+WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
+WSDATA_NEW_SOURCE = "new_source"
+WSDATA_NEW_CONTEXT = "new_context"
+WSDATA_GENERIC = "generic"
 
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
@@ -277,12 +253,12 @@ class GulpCollabCreateUpdatePacket(BaseModel):
                     "data": {
                         "id": "the id",
                         "name": "the name",
-                        "type": COLLABTYPE_NOTE,
+                        "type": "note",
                         "something": "else",
                     },
                     "bulk": True,
                     "bulk_size": 100,
-                    "type": COLLABTYPE_NOTE,
+                    "type": "note",
                     "created": True,
                 }
             ]
@@ -444,7 +420,7 @@ class GulpWsAuthPacket(BaseModel):
                     "token": "token_admin",
                     "ws_id": TEST_WS_ID,
                     "operation_id": [TEST_OPERATION_ID],
-                    "type": [GulpWsQueueDataType.DOCUMENTS_CHUNK],
+                    "type": [WSDATA_DOCUMENTS_CHUNK],
                 }
             ]
         }
@@ -463,7 +439,7 @@ class GulpWsAuthPacket(BaseModel):
         None,
         description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
     )
-    types: Optional[list[GulpWsQueueDataType]] = Field(
+    types: Optional[list[str]] = Field(
         None,
         description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
     )
@@ -542,13 +518,8 @@ class GulpWsData(BaseModel):
     timestamp: int = Field(
         ..., description="The timestamp of the data.", alias="@timestamp"
     )
-    type: GulpWsQueueDataType = Field(
+    type: str = Field(
         ..., description="The type of data carried by the websocket."
-    )
-    # TODO: remove this, and turn GulpWsQueueDataType into simple string
-    inner_type: Optional[str] = Field(
-        None,
-        description="The inner type of data carried by the websocket.",
     )
     ws_id: str = Field(..., description="The WebSocket ID.")
     user_id: Optional[str] = Field(None, description="The user who issued the request.")
@@ -632,7 +603,7 @@ class GulpConnectedSocket:
         self,
         ws: WebSocket,
         ws_id: str,
-        types: list[GulpWsQueueDataType] = None,
+        types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
     ):
@@ -642,7 +613,7 @@ class GulpConnectedSocket:
         Args:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
-            types (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all).
+            types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all).
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         """
@@ -1041,7 +1012,7 @@ class GulpConnectedSockets:
         self,
         ws: WebSocket,
         ws_id: str,
-        types: list[GulpWsQueueDataType] = None,
+        types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
     ) -> GulpConnectedSocket:
@@ -1051,7 +1022,7 @@ class GulpConnectedSockets:
         Args:
             ws (WebSocket): The WebSocket object.
             ws_id (str): The WebSocket ID.
-            types (list[GulpWsQueueDataType], optional): The types of data this websocket is interested in. Defaults to None (all)
+            types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all)
             operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         Returns:
@@ -1194,17 +1165,17 @@ class GulpConnectedSockets:
             return False
 
         # handle private messages
-        if data.private and data.type != GulpWsQueueDataType.USER_LOGIN:
+        if data.private and data.type != WSDATA_USER_LOGIN:
             if client_ws.ws_id != data.ws_id:
                 return False
 
         # check message distribution rules
         broadcast_types = {
-            GulpWsQueueDataType.COLLAB_UPDATE,
-            GulpWsQueueDataType.COLLAB_DELETE,
-            GulpWsQueueDataType.REBASE_DONE,
-            GulpWsQueueDataType.USER_LOGIN,
-            GulpWsQueueDataType.USER_LOGOUT,
+            WSDATA_COLLAB_UPDATE,
+            WSDATA_COLLAB_DELETE,
+            WSDATA_REBASE_DONE,
+            WSDATA_USER_LOGIN,
+            WSDATA_USER_LOGOUT,
         }
 
         if data.type not in broadcast_types and client_ws.ws_id != data.ws_id:
@@ -1214,13 +1185,6 @@ class GulpConnectedSockets:
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
-
-        # check for inner_type
-        if message.get("inner_type"):
-            # if inner_type is present, set type to inner_type
-            # TODO: this will go away once WsQueueDataType is turned to string
-            message["type"] = message["inner_type"]
-            message.pop("inner_type", None)
 
         await client_ws.put_message(message)
         return True
@@ -1613,14 +1577,13 @@ class GulpWsSharedQueue:
 
     def put(
         self,
-        type: GulpWsQueueDataType,
+        type: str,
         ws_id: str,
         user_id: str,
         operation_id: str = None,
         req_id: str = None,
         data: Any = None,
         private: bool = False,
-        inner_type: str = None,
     ) -> None:
         """
         adds data to the shared queue with retry logic and backpressure handling.
@@ -1629,14 +1592,13 @@ class GulpWsSharedQueue:
         queue is full, with progressive backoff between retries.
 
         args:
-            type (GulpWsQueueDataType): the type of data being queued
+            type (str): the type of data being queued
             ws_id (str): the websocket id that will receive the message
             user_id (str): the user id associated with this message
             operation_id (Optional[str]): the operation id if applicable
             req_id (Optional[str]): the request id if applicable
             data (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
-            inner_type (Optional[str]): the inner type of the message, if applicable
 
         raises:
             WebSocketDisconnect: if websocket is not connected for DOCUMENTS_CHUNK type
@@ -1645,7 +1607,7 @@ class GulpWsSharedQueue:
 
         # verify websocket is alive for document chunks - this allows interrupting
         # lengthy processes if the websocket is no longer connected
-        if type == GulpWsQueueDataType.DOCUMENTS_CHUNK:
+        if type == WSDATA_DOCUMENTS_CHUNK:
             if not GulpConnectedSocket.is_alive(ws_id):
                 raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
 
@@ -1659,7 +1621,6 @@ class GulpWsSharedQueue:
             req_id=req_id,
             private=private,
             data=data,
-            inner_type=inner_type,
         )
 
         # attempt to add with exponential backoff

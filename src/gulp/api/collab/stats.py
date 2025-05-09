@@ -39,7 +39,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
     T,
 )
-from gulp.api.ws_api import GulpQueryDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_COLLAB_DELETE, WSDATA_QUERY_DONE, WSDATA_STATS_UPDATE, GulpQueryDonePacket, GulpWsSharedQueue
 from gulp.config import GulpConfig
 
 
@@ -259,7 +259,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 obj_id=req_id,
                 ws_id=ws_id,
                 owner_id=user_id,
-                ws_queue_datatype=GulpWsQueueDataType.STATS_UPDATE,
+                ws_queue_datatype=WSDATA_STATS_UPDATE,
                 req_id=req_id,
             )
         finally:
@@ -294,7 +294,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         sess,
         ws_id=None,
         user_id=None,
-        ws_queue_datatype=GulpWsQueueDataType.COLLAB_DELETE,
+        ws_queue_datatype=WSDATA_COLLAB_DELETE,
         ws_data=None,
         req_id=None,
     ):
@@ -347,7 +347,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         d: dict,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: "GulpWsQueueDataType" = GulpWsQueueDataType.STATS_UPDATE, # provide default
+        ws_queue_datatype: str = WSDATA_STATS_UPDATE, # provide default
         ws_data: dict = None, # keep for super().update
         req_id: str = None, # keep for super().update
     ) -> dict:
@@ -368,7 +368,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 source_id (str, optional): update the source id associated with the stats. defaults to none.
             ws_id (str, optional): the websocket id. defaults to none.
             user_id (str, optional): the user id updating the stats. defaults to none.
-            ws_queue_datatype (GulpWsQueueDataType, optional): the websocket queue data type for notification. defaults to GulpWsQueueDataType.STATS_UPDATE.
+            ws_queue_datatype (str, optional): the websocket queue data type for notification. defaults to WSDATA_STATS_UPDATE.
             ws_data (dict, optional): additional data for the websocket message. defaults to none.
             req_id (str, optional): the request id for the websocket message. defaults to none.
 
@@ -530,7 +530,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         user_id: str,
         q_name: str = None,
         hits: int = 0,
-        ws_queue_datatype: GulpWsQueueDataType = GulpWsQueueDataType.QUERY_DONE,
+        ws_queue_datatype: str = WSDATA_QUERY_DONE,
         errors: list[str] = None,
         send_query_done: bool = True,
     ) -> dict:
@@ -544,7 +544,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             user_id(str): the user id
             q_name(str, optional): the query name (default: None)
             hits(int, optiona): the number of hits (default: 0)
-            ws_queue_datatype(GulpWsQueueDataType, optional): the websocket queue data type (default: GulpWsQueueDataType.QUERY_DONE)
+            ws_queue_datatype(str, optional): the websocket queue data type (default: WSDATA_QUERY_DONE)
             errors(list[str], optional): the list of errors (default: None)
             send_query_done(bool, optional): whether to send the query done packet to the websocket (default: True)
         """

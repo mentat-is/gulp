@@ -34,7 +34,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.api.collab.user_group import GulpUserAssociations
-from gulp.api.ws_api import GulpUserLoginLogoutPacket, GulpWsQueueDataType
+from gulp.api.ws_api import WSDATA_USER_LOGIN, WSDATA_USER_LOGOUT, GulpUserLoginLogoutPacket
 from gulp.config import GulpConfig
 
 if TYPE_CHECKING:
@@ -372,7 +372,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 obj_id=token_id,
                 ws_id=ws_id,
                 owner_id=u.id,
-                ws_queue_datatype=GulpWsQueueDataType.USER_LOGIN,
+                ws_queue_datatype=WSDATA_USER_LOGIN,
                 ws_data=p.model_dump(),
                 req_id=req_id,
             )
@@ -417,7 +417,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 user_id=s.user_id,
                 ws_id=ws_id,
                 req_id=req_id,
-                ws_queue_datatype=GulpWsQueueDataType.USER_LOGOUT,
+                ws_queue_datatype=WSDATA_USER_LOGOUT,
                 ws_data=p.model_dump(),
             )
 

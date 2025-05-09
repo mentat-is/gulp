@@ -33,7 +33,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import GulpQueryDonePacket, GulpWsQueueDataType, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_ENRICH_DONE, WSDATA_TAG_DONE, GulpQueryDonePacket, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -92,7 +92,7 @@ async def _tag_documents_internal(
                 total_hits=kwargs.get("total_hits", 0),
             )
             GulpWsSharedQueue.get_instance().put(
-                type=GulpWsQueueDataType.ENRICH_DONE,
+                type=WSDATA_ENRICH_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
                 req_id=req_id,
@@ -157,7 +157,7 @@ async def _tag_documents_internal(
                 ws_id=ws_id,
                 user_id=user_id,
                 hits=total,
-                ws_queue_datatype=GulpWsQueueDataType.TAG_DONE,
+                ws_queue_datatype=WSDATA_TAG_DONE,
                 errors=errors,
             )
 
@@ -207,7 +207,7 @@ async def _enrich_documents_internal(
                 ws_id=ws_id,
                 user_id=user_id,
                 hits=total,
-                ws_queue_datatype=GulpWsQueueDataType.ENRICH_DONE,
+                ws_queue_datatype=WSDATA_ENRICH_DONE,
                 errors=[error] if error else [],
             )
 
