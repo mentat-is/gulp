@@ -218,10 +218,8 @@ class GulpDocument(GulpBasicDocument):
             Returns:
             None
         """
-        # internal flag to indicate we are ingesting a raw gulp document, we have to turn it back to GulpDocument
-        # (i.e. turn "timestamp" back to "@timestamp")
-        if kwargs.pop("__raw__", False):
-            kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
+        # ensure we have non-aliased keys in kwargs
+        kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
 
         # internal flag, set by _finalize_process_record() in the mapping engine
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
@@ -267,7 +265,7 @@ class GulpDocument(GulpBasicDocument):
         if invalid or ts_nanos == 0:
             data["invalid_timestamp"] = invalid
 
-        # add gulp_event_code (event code as a number)
+        # add gulp_event_code (event code as a number)        
         data["gulp_event_code"] = (
             int(data["event_code"])
             if data["event_code"].isnumeric()
