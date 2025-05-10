@@ -586,12 +586,20 @@ async def operation_list_handler(
 async def context_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    context_id: Annotated[
+        Optional[str],
+        Query(
+            description="if set, only the context with this id is returned."
+        )] = None,
+
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id])
+        if context_id:
+            flt.ids=[context_id]
         d = await GulpContext.get_by_filter_wrapper(
             token,
             flt,
