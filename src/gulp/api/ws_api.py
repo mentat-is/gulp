@@ -1173,6 +1173,9 @@ class GulpConnectedSockets:
         broadcast_types = {
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
+            WSDATA_NEW_CONTEXT,
+            WSDATA_NEW_SOURCE,
+            WSDATA_INGEST_SOURCE_DONE,
             WSDATA_REBASE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
