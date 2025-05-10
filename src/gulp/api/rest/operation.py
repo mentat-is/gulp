@@ -82,7 +82,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
     set_default_grants: Annotated[
         bool,
         Query(
-            description="if set, default grants (READ access to default users) are set for the operation. Defaults to `True`."
+            description="if set, default grants (READ access to default users) are set for the operation. Defaults to `False`."
         ),
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
