@@ -2485,25 +2485,30 @@ class GulpPluginBase(ABC):
                     continue
 
                 # got entry
-                entry = GulpPluginEntry(
-                    path=f,
-                    display_name=p.display_name(),
-                    type=p.type(),
-                    desc=p.desc(),
-                    regex=p.regex(),
-                    ui=p.ui(),
-                    filename=p.filename,
-                    # check if plugin implements sigma_convert, if so it have sigma_support!
-                    sigma_support=inspect.getmodule(p.sigma_convert)
-                    != inspect.getmodule(GulpPluginBase.sigma_convert),
-                    custom_parameters=p.custom_parameters(),
-                    depends_on=p.depends_on(),
-                    tags=p.tags(),
-                    version=p.version(),
-                    data=p.data(),
-                )
+                try:
+                    entry = GulpPluginEntry(
+                        path=f,
+                        display_name=p.display_name(),
+                        type=p.type(),
+                        desc=p.desc(),
+                        regex=p.regex(),
+                        ui=p.ui(),
+                        filename=p.filename,
+                        # check if plugin implements sigma_convert, if so it have sigma_support!
+                        sigma_support=inspect.getmodule(p.sigma_convert)
+                        != inspect.getmodule(GulpPluginBase.sigma_convert),
+                        custom_parameters=p.custom_parameters(),
+                        depends_on=p.depends_on(),
+                        tags=p.tags(),
+                        version=p.version(),
+                        data=p.data(),
+                    )
 
-                l.append(entry)
+                    l.append(entry)
+                except Exception as ex:
+                    # something wrong in the value returned from plugin methods, cannot add .... 
+                    MutyLogger.get_instance().exception(ex)
+
                 await p.unload()
 
         l: list[GulpPluginEntry] = []
