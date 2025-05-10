@@ -2013,7 +2013,7 @@ class GulpOpenSearch:
                     name=q_options.name,
                 )
                 GulpWsSharedQueue.get_instance().put(
-                    type=WSDATA_DOCUMENTS_CHUNKUNK,
+                    type=WSDATA_DOCUMENTS_CHUNK,
                     ws_id=ws_id,
                     user_id=user_id,
                     req_id=req_id,
