@@ -856,6 +856,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
+        # will except if the group do not exist!
+        from gulp.api.collab.user_group import GulpUserGroup
+        await GulpUserGroup.get_by_id(sess, group_id)
+
         if group_id not in self.granted_user_group_ids:
             MutyLogger.get_instance().info(
                 "adding granted user group %s to object %s" % (group_id, self.id)
@@ -884,6 +888,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
+        # will except if the group do not exist!
+        from gulp.api.collab.user_group import GulpUserGroup
+        await GulpUserGroup.get_by_id(sess, group_id)
+
         if group_id in self.granted_user_group_ids:
             MutyLogger.get_instance().info(
                 "removing granted user group %s from object %s" % (group_id, self.id)
@@ -913,6 +921,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
+        # will except if the user do not exist!
+        from gulp.api.collab.user import GulpUser
+        await GulpUser.get_by_id(sess, user_id)
+
         if user_id not in self.granted_user_ids:
             MutyLogger.get_instance().info(
                 "adding granted user %s to object %s" % (user_id, self.id)
@@ -940,6 +952,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
+        
+        # will except if the user do not exist!
+        from gulp.api.collab.user import GulpUser
+        await GulpUser.get_by_id(sess, user_id)
+
         if user_id in self.granted_user_ids:
             MutyLogger.get_instance().info(
                 "removing granted user %s from object %s" % (user_id, self.id)
