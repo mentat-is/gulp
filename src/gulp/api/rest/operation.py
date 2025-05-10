@@ -761,11 +761,19 @@ async def source_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    source_id: Annotated[
+        Optional[str],
+        Query(
+            description="if set, only the source with this id is returned."
+        )] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
+        if source_id:
+            flt.ids=[source_id]
+
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
