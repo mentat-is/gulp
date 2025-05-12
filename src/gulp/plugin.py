@@ -497,7 +497,7 @@ class GulpPluginBase(ABC):
             kwargs: additional arguments to pass
         """
         return
-    
+
     async def _ingest_chunk_and_or_send_to_ws(
         self,
         data: list[dict],
@@ -1389,6 +1389,19 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
+    def _build_unmapped_key(self, source_key: str) -> str:
+        """
+        builds a "gulp.unmapped" key from a source key.
+
+        Args:
+            source_key (str): The source key to map.
+        Returns:
+            str: The unmapped key.
+        """
+        # remove . and spaces from the key
+        sk = source_key.replace(".", "_").replace(" ", "_")
+        return f"{GulpOpenSearch.UNMAPPED_PREFIX}.{sk}"
+
     def _try_map_ecs(
         self,
         fields_mapping: GulpMappingField,
@@ -1423,7 +1436,7 @@ class GulpPluginBase(ABC):
                     d[kk] = vv
         else:
             # unmapped key
-            d[f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}"] = source_value
+            d[self._build_unmapped_key(source_key)] = source_value
 
         return d
 
@@ -1460,7 +1473,7 @@ class GulpPluginBase(ABC):
         fields_mapping = mapping.fields.get(source_key)
         if not fields_mapping:
             # missing mapping at all (no ecs and no timestamp field)
-            return {f"{GulpOpenSearch.UNMAPPED_PREFIX}.{source_key}": source_value}
+            return {self._build_unmapped_key(source_key): source_value}
 
         d = {}
         if fields_mapping.force_type:
@@ -2273,7 +2286,7 @@ class GulpPluginBase(ABC):
             f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}, depends_on={p.depends_on()}"
         )
 
-        # check dependencies        
+        # check dependencies
         if p.depends_on():
             # check each dependency (each is a file name)
             for dep in p.depends_on():
@@ -2506,7 +2519,7 @@ class GulpPluginBase(ABC):
 
                     l.append(entry)
                 except Exception as ex:
-                    # something wrong in the value returned from plugin methods, cannot add .... 
+                    # something wrong in the value returned from plugin methods, cannot add ....
                     MutyLogger.get_instance().exception(ex)
 
                 await p.unload()
