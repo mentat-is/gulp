@@ -952,7 +952,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
-        
+
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
         await GulpUser.get_by_id(sess, user_id)
@@ -1550,8 +1550,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             token (str): The user token, pass None to skip token check.
             obj_id (str): The ID of the object to delete.
-            ws_id (str): The websocket ID, ignored if token is None
-            req_id (str): The request ID.
+            ws_id (str): The websocket ID, ignored if token is None. May be None if no websocket broadcast is required.
+            req_id (str): The request ID, may be None if no websocket broadcast is required.
             permission (list[GulpUserPermission], optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
 
         Raises:

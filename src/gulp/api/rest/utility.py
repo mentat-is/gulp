@@ -129,6 +129,55 @@ async def request_cancel_handler(
         raise JSendException(req_id=req_id) from ex
 
 
+@router.delete(
+    "/request_delete",
+    tags=["stats"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "test_req"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes a request.",
+    description="""
+deletes a `request_stats` object.
+
+- `token` needs `admin` permission or to be the owner of the request.
+""",
+)
+async def request_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id_to_delete: Annotated[
+        str, Query(description="request id to delete.", example=TEST_REQ_ID)
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+                sess, req_id_to_delete
+            )
+            _ = await GulpUserSession.check_token(
+                sess, token, obj=stats, enforce_owner=True
+            )
+            await stats.delete(sess)
+        return JSendResponse.success(req_id=req_id, data={"id": req_id_to_delete})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
 @router.get(
     "/request_list",
     tags=["stats"],
