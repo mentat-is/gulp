@@ -29,6 +29,7 @@ request body example:
 import datetime
 import ipaddress
 import socket
+import json
 import urllib
 from typing import Optional, override
 
@@ -83,6 +84,30 @@ class Plugin(GulpPluginBase):
                     "host.hostname",
                     "dns.question.name",
                 ],
+            ),
+            GulpPluginCustomParameter(
+                name="whois_fields",
+                type="list",
+                desc="list of whois fields to keep (only used if full_dump is set to false)",
+                default_value=[
+                    "asn_country_code",
+                    "asn_description",
+                    "network.end_address",
+                    "network.country",
+                    "objects.SN9171-RIPE.contact.name",
+                    ],
+            ),
+            GulpPluginCustomParameter(
+                name="full_dump",
+                type="bool",
+                desc="get all the whois information (ignore whois_fields)",
+                default_value=False,
+            ),
+            GulpPluginCustomParameter(
+                name="unify_dump",
+                type="bool",
+                desc="keep the whole enrichment in a single field",
+                default_value=True,
             )
         ]
 
@@ -98,40 +123,95 @@ class Plugin(GulpPluginBase):
             Whois information as a dictionary or None if not found
         """
         # MutyLogger.get_instance().debug("enriching whois for host=%s" % (host))
-        if host in self._whois_cache:
-            return self._whois_cache[host]
+       
 
         try:
-            # check if field is a url, if so extract the host
-            netloc = urllib.parse.urlparse(host).netloc
-            if netloc:
-                # netloc was extracted, we successfully parsed a URL
-                host = netloc
-
-            # if the field is not an IP address, try to resolve it
-            if not self._is_ip_field(host):
-                host = socket.gethostbyname(host)
-
-            # Transform to ECS fields
-            whois_info = IPWhois(host).lookup_rdap(depth=1)
-            # MutyLogger.get_instance().debug("whois_info for host=%s: %s" % (host, whois_info))
-
-            # remove null fields
             enriched = {}
-            for k, v in muty.json.flatten_json(whois_info).items():
-                if isinstance(v, datetime.datetime):
-                    v: datetime.datetime = v.isoformat()
+            if host in self._whois_cache:
+                MutyLogger.get_instance().debug("whois cache hit for host=%s" % (host))
+                enriched = self._whois_cache[host]
+            else:
+                # check if field is a url, if so extract the host
+                netloc = urllib.parse.urlparse(host).netloc
+                if netloc:
+                    # netloc was extracted, we successfully parsed a URL
+                    host = netloc
 
-                enriched[k] = v
+                # if the field is not an IP address, try to resolve it
+                if not self._is_ip_field(host):
+                    host = socket.gethostbyname(host)
 
-            # add to cache
-            self._whois_cache[host] = enriched
+                # Transform to ECS fields
+                whois_info = IPWhois(host).lookup_rdap(depth=1)
+                #MutyLogger.get_instance().debug("whois_info for host=%s: %s" % (host, whois_info))
+
+                # remove null fields
+                for k, v in muty.json.flatten_json(whois_info).items():
+                    if isinstance(v, datetime.datetime):
+                        v: datetime.datetime = v.isoformat()
+                    if v:
+                        enriched[k] = v
+                # add to cache
+                self._whois_cache[host] = enriched
+
+            #print("enriched: %s" % enriched)
+
+            # Filter fields based on custom parameters
+            to_keep = self._plugin_params.custom_parameters.get("whois_fields")
+            full_dump = self._plugin_params.custom_parameters.get("full_dump")
+            enriched = self._filter_fields_with_wildcards(enriched, to_keep, full_dump)
+
+            if self._plugin_params.custom_parameters.get("unify_dump"):
+                enriched = {"unified_dump": json.dumps(enriched, indent=2)}
+
+            MutyLogger.get_instance().debug("whois enriched for host=%s enriched=%s" % (host, enriched))
             return enriched
         
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
             self._whois_cache[host] = None
             return None
+
+    def _filter_fields_with_wildcards(self, flattened_enriched, whois_fields, full_dump=False) -> dict:
+        """
+        Filter a flattened JSON object based on whois_fields patterns.
+        
+        Args:
+            flattened_enriched: Already flattened JSON object (dict)
+            whois_fields: List of fields to keep, supporting wildcards with ".*"
+            full_dump: If True, return the original object without filtering
+            
+        Returns:
+            Filtered flattened JSON object
+        """
+        if full_dump:
+            return flattened_enriched
+        
+        # Preprocess patterns for faster matching
+        exact_patterns = set()
+        wildcard_prefixes = set()
+        
+        for pattern in whois_fields:
+            if pattern.endswith('.*'):
+                wildcard_prefixes.add(pattern[:-2])  # Store prefix without '.*'
+            else:
+                exact_patterns.add(pattern)
+        
+        # Create result with only matching keys
+        result = {}
+        for key, value in flattened_enriched.items():
+            # Check exact match first (fastest check)
+            if key in exact_patterns:
+                result[key] = value
+                continue
+                
+            # Then check wildcard matches
+            for prefix in wildcard_prefixes:
+                if key.startswith(prefix):
+                    result[key] = value
+                    break
+                    
+        return result
 
     def _is_ip_field(self, field_value: str) -> bool:
         """Check if a field value is an IP address (v4 or v6)"""
