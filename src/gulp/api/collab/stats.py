@@ -288,18 +288,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         await super().update(sess, d=d)
 
-    @override
-    async def delete(
-        self,
-        sess,
-        ws_id=None,
-        user_id=None,
-        ws_queue_datatype=WSDATA_COLLAB_DELETE,
-        ws_data=None,
-        req_id=None,
-    ):
-        raise NotImplementedError("Stats will be deleted by the system automatically.")
-
     @classmethod
     async def update_by_id(
         cls,
