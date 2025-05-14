@@ -44,7 +44,7 @@ async def _test_init(
         # reset the collab
         admin_token = await GulpAPIUser.login("admin", "admin")
         assert admin_token
-        await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=True)
+        await GulpAPIDb.gulp_reset(admin_token, delete_data=True)
 
     if login_admin_and_reset_operation:
         await GulpAPIUser.login_admin_and_reset_operation(

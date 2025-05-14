@@ -175,7 +175,14 @@ class ServerUtils:
         # parse request headers, continue_offset=0 (first chunk) is assumed if missing
         continue_offset = int(r.headers.get("continue_offset", 0))
         total_file_size = int(r.headers["size"])
-
+        if total_file_size == 0:
+            return (
+                None,
+                None,
+                GulpUploadResponse(
+                    done=True, continue_offset=None, error="file size is 0"
+                ),
+            )
         # decode multipart data
         data = decoder.MultipartDecoder(await r.body(), r.headers["content-type"])
         json_part, file_part = data.parts[0], data.parts[1]

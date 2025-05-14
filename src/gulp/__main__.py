@@ -62,29 +62,27 @@ def main():
         default=["debug"],
     )
     parser.add_argument(
-        "--recreate-collab",
+        "--reset-collab",
         help="""deletes and recreate the collab database (useful when schema changes).
 this also creates the database if it does not exist.
 
-cannot be used with --reset-operation.
+use with --delete-data to delete all documents on OpenSearch related to all the existing operations as well.
         """,
         action="store_true",
         default=False,
     )
     parser.add_argument(
         "--reset",
-        help="""reset an operation.
+        help="""reset (or create if not exists) an operation.
 
 the following tables on the collaboration database will be cleared of "operation_id" related data: notes, highlights, links, request_stats.
-
-cannot be used with --recreate-collab.
 """,
         nargs=1,
         metavar=("operation_id"),
     )
     parser.add_argument(
         "--delete-data",
-        help="""to be used with --reset-operation or --recreate-collab, to delete all documents on OpenSearch related to one (--reset) or all (--recreate-collab) operations.
+        help="""to be used with --reset-operation or --reset-collab, to delete all documents on OpenSearch related to one (--reset) or all (--reset-collab) operations.
 """,
         action="store_true",
         default=False,
@@ -110,9 +108,6 @@ cannot be used with --recreate-collab.
 
     # get params
     try:
-        # if args.reset and args.recreate_collab:
-        #     raise ValueError("cannot use --reset and --recreate-collab at the same time")
-
         if args.version:
             # print version string and exit
             print(ver)
@@ -126,7 +121,7 @@ cannot be used with --recreate-collab.
             GulpRestServer.get_instance().start(
                 logger_file_path=logger_file_path,
                 level=lv,
-                recreate_collab=args.recreate_collab,
+                reset_collab=args.reset_collab,
                 reset_operation=reset_operation,
                 delete_data=args.delete_data,
             )

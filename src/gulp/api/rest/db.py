@@ -23,7 +23,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
+from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch.filters import GulpQueryFilter
@@ -64,6 +64,7 @@ async def db_reset(delete_data: bool = False, user_id: str = None, create_operat
                     ops = await GulpOperation.get_by_filter(
                         sess,
                         user_id=user_id or "admin",
+                        throw_if_not_found=False
                     )
                     for op in ops:
                         # delete all data related to the operation
@@ -86,6 +87,7 @@ async def db_reset(delete_data: bool = False, user_id: str = None, create_operat
         collab = GulpCollab.get_instance()
         await collab.init(main_process=True)
         await collab.create_default_operation(operation_id=create_operation_id, index=create_operation_id)
+        await GulpOpenSearch.get_instance().datastream_create(ds=create_operation_id)
 
     MutyLogger.get_instance().info("collab database reset done !")
 
@@ -130,7 +132,7 @@ async def gulp_reset_handler(
         Query(
             description='if set, a default operation named "test_operation" will be created.',
         ),
-    ] = False,
+    ] = True,
     restart_processes: Annotated[
         bool,
         Query(
@@ -356,5 +358,153 @@ optional custom rebase script to run on the documents.
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.delete(
+    "/opensearch_delete_index",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "index": "test_operation",
+                            "operation_id": "test_operation",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an opensearch datastream.",
+    description="""
+deletes the datastream `index`, including the backing index/es and the index template.
+
+- **WARNING**: all data in the `index` will be deleted!
+- if `delete_operation` is set, the corresponding operation on the collab database is deleted if it exists..
+- `token` needs `admin` permission.
+""",
+)
+async def opensearch_delete_index_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[str, Depends(APIDependencies.param_index)],
+    delete_operation: Annotated[
+        bool,
+        Query(
+            description="if set, the corresponding operation (if any) on the collab database is deleted as well (default: true)."
+        ),
+    ] = True,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # we must be admin
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.ADMIN
+            )
+            user_id: str = s.user_id
+            op: GulpOperation = None
+            if delete_operation:
+                # get operation
+                op = await GulpOperation.get_first_by_filter(
+                    sess,
+                    GulpCollabFilter(index=[index]),
+                    throw_if_not_found=False,
+                    user_id=user_id,
+                )
+                if op:
+                    # delete the operation on collab
+                    await op.delete(sess, ws_id=None, user_id=s.user_id, req_id=req_id)
+                else:
+                    MutyLogger.get_instance().warning(
+                        f"operation with index={index} not found, skipping deletion..."
+                    )
+
+            # delete the datastream (deletes the corresponding index and template)
+            await GulpOpenSearch.get_instance().datastream_delete(
+                ds=index, throw_on_error=True
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={"index": index, "operation_id": op.id if op else None},
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/opensearch_list_index",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1734619572441,
+                        "req_id": "test_req",
+                        "data": [
+                            {
+                                "name": "new_index",
+                                "count": 7,
+                                "indexes": [
+                                    {
+                                        "index_name": ".ds-new_index-000001",
+                                        "index_uuid": "qwrMdTrgRI6fdU_SsIxbzw",
+                                    }
+                                ],
+                                "template": "new_index-template",
+                            },
+                            {
+                                "name": "test_operation",
+                                "count": 7,
+                                "indexes": [
+                                    {
+                                        "index_name": ".ds-test_operation-000001",
+                                        "index_uuid": "ZUuTB5KrSw6V-JVt9jtbcw",
+                                    }
+                                ],
+                                "template": "test_operation-template",
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="lists available datastreams.",
+    description="""
+lists all the available datastreams and their backing indexes
+
+- `token` needs `admin` permission.
+""",
+)
+async def opensearch_list_index_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.ADMIN
+            )
+
+        l = await GulpOpenSearch.get_instance().datastream_list()
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

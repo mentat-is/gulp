@@ -16,7 +16,7 @@ _made with :heart: by Mentat._
 
 <div align="center">
 
-[Description](#description) - [Architecture](#architecture) - [Installation](#installation) - [Run & examples](#run) - [GUI](#clients) - [Troubleshooting](./docs/Troubleshooting.md)
+[Description](#description) - [Architecture](#architecture) - [Installation](#installation) - [Run & examples](#commandline-examples) - [GUI](#clients) - [Troubleshooting](./docs/Troubleshooting.md)
 
 </div>
 
@@ -125,6 +125,40 @@ to use HTTPS, the following certificates must be available:
   - `$PATH_CERTS/gulp-ca.pem`
   - `$PATH_CERTS/gulp.pem`
   - `$PATH_CERTS/gulp.key`
+
+## commandline examples
+
+default startup, creates collab database with an operation names "test_operation" on the very first run.
+
+~~~bash
+gulp
+~~~
+
+> to detect if gulp has already run once check for `~/.config/gulp/.first_run_done` and delete it to revert to first run on the next run.
+
+start from scratch with a clean collaboration database (deleting data on Opensearch for **ALL** existing operations), and creates `my_operation` operation in the end.
+
+~~~bash
+gulp --reset-collab --reset my_operation --delete-data
+~~~
+
+reset the collab database, do not touch data on opensearch
+
+~~~bash
+gulp --reset-collab
+~~~
+
+reset the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, do not touch operation data on opensearch
+
+~~~bash
+gulp --reset my_operation
+~~~
+
+reset the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, deletes operation data on opensearch
+
+~~~bash
+gulp --reset my_operation --delete-data
+~~~
 
 ## clients
 

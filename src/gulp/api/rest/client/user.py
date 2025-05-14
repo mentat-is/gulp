@@ -28,7 +28,12 @@ class GulpAPIUser:
                     f"failed to delete operation {op}: {e}"
                 )
 
-        res = await GulpAPIOperation.operation_reset(admin_token, op, req_id=req_id)
+        res = await GulpAPIOperation.operation_create(
+            admin_token,
+            op,
+            set_default_grants=True,
+            req_id=req_id,
+        )
         assert res["id"] == op
         return admin_token
 

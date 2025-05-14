@@ -92,29 +92,21 @@ class GulpAPIDb:
         return res
 
     @staticmethod
-    async def gulp_reset(token: str, req_id: str = None) -> None:
-        api_common = GulpAPICommon.get_instance()
-        await api_common.make_request(
-            "POST",
-            "gulp_reset",
-            params={"req_id": req_id or api_common.req_id},
-            token=token,
-        )
-
-    @staticmethod
-    async def postgres_reset_collab(
+    async def gulp_reset(
         token: str,
-        full_reset: bool = False,
-        restart_process: bool = False,
+        delete_data: bool = True,
+        create_default_operation: bool = False,
+        restart_processes: bool = True,
         req_id: str = None,
     ) -> None:
         api_common = GulpAPICommon.get_instance()
         await api_common.make_request(
             "POST",
-            "postgres_reset_collab",
+            "gulp_reset",
             params={
-                "restart_processes": restart_process,
-                "full_reset": full_reset,
+                "delete_data": delete_data,
+                "create_default_operation": create_default_operation,
+                "restart_processes": restart_processes,
                 "req_id": req_id or api_common.req_id,
             },
             token=token,
@@ -132,7 +124,7 @@ class GulpAPIDb:
             "Resetting gULP (both collab and opensearch, creating default data) ..."
         )
         token = await GulpAPIUser.login_admin()
-        await GulpAPIDb.gulp_reset(token, req_id=req_id)
+        await GulpAPIDb.gulp_reset(token, create_default_operation=True, req_id=req_id)
 
     @staticmethod
     async def reset_collab_as_admin(

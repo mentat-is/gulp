@@ -1,6 +1,7 @@
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.rest.client.common import GulpAPICommon
-
+import muty.file
+import json
 
 class GulpAPIOperation:
     """
@@ -42,10 +43,17 @@ class GulpAPIOperation:
         description: str = None,
         glyph_id: str = None,
         set_default_grants: bool = False,
+        index_template: str = None,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
+
+        template_js = None
+        if index_template:
+            # read template
+            template: str = await muty.file.read_file_async(index_template)
+            template_js: dict = json.loads(template)
 
         params = {
             "name": name,
@@ -54,7 +62,10 @@ class GulpAPIOperation:
             "set_default_grants": set_default_grants,
             "req_id": req_id or api_common.req_id,
         }
-        body = description
+        body = {
+            "description": description,
+            "index_template": template_js if index_template else None,
+        }
 
         res = await api_common.make_request(
             "POST",

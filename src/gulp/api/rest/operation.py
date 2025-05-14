@@ -90,17 +90,10 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
             description="if set, default grants (READ access to default users) are set for the operation. Defaults to `False, this is intended mostly for DEBUGGING`."
         ),
     ] = False,
-    index_template: Annotated[Optional[UploadFile], File(description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)")]=None,
+    index_template: Annotated[Optional[dict], Body(description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)")]=None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    params = locals()
-    params["index_template"] = index_template.filename if index_template else None
-    ServerUtils.dump_params(params)
-    index_template_path: str = None
-
-    if index_template:
-        # download the index template to a temporary file
-        index_template_path = await muty.uploadfile.to_path(index_template)
+    ServerUtils.dump_params(locals())
 
     try:
         operation_id = muty.string.ensure_no_space_no_special(name.lower())
@@ -123,7 +116,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 )
 
         # recreate the index first
-        await GulpOpenSearch.get_instance().datastream_create(index, index_template=index_template_path)
+        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(index, index_template=index_template)
 
         # create the operation
         d = {
@@ -156,11 +149,6 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
         return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    finally:
-        if index_template_path:
-            # delete the temporary index template file
-            dir_name = os.path.dirname(index_template_path)
-            await muty.file.delete_file_or_dir_async(dir_name)
 
 
 @router.patch(
