@@ -96,8 +96,6 @@ the following environment variables may be set to override configuration options
   - mapping files are loaded by default from `$INSTALLDIR/mapping_files`
   - if a mapping file exists in both directories, `$PATH_MAPPING_FILES_EXTRA` has precedence (i.e. to allow newer mapping versions)
 
-- `PATH_INDEX_TEMPLATE`: if set, path to load the index template used when setting up new indexes (either, the [default](./src/gulp/api/mapping/index_template/template.json) template is used).
-
 - `PATH_CERTS`: if set, overrides `path_certs` in the configuration to specify a path to load SSL certificates from (for HTTPS).
 - `OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
 - `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.

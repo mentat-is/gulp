@@ -2,13 +2,17 @@
 gulp operations rest api
 """
 
+import os
 from typing import Annotated, Optional
 
+import muty.file
 import muty.string
+import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
@@ -21,6 +25,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
+from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
@@ -48,7 +53,7 @@ router: APIRouter = APIRouter()
     summary="creates an operation.",
     description="""
 - `operation_id` is derived from `name` by removing spaces and special characters.
-- if not set, `index` is set as `operation_id` and it is created using the default template: to specify another template, create index first using `opensearch_create_index` and then create the operation with such `index`.
+- if not set, `index` is set as `operation_id`.
 - `token` needs `ingest` permission.
 """,
 )
@@ -67,7 +72,7 @@ async def operation_create_handler(
             description="""
 if set, the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
 
-`index` is **created** if it doesn't exist, and **recreated** if it exists.""",
+**NOTE**: `index` is **created** if it doesn't exist, and **recreated** if it exists.""",
             example=TEST_INDEX,
         ),
     ] = None,
@@ -82,12 +87,20 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
     set_default_grants: Annotated[
         bool,
         Query(
-            description="if set, default grants (READ access to default users) are set for the operation. Defaults to `False`."
+            description="if set, default grants (READ access to default users) are set for the operation. Defaults to `False, this is intended mostly for DEBUGGING`."
         ),
     ] = False,
+    index_template: Annotated[Optional[UploadFile], File(description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)")]=None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params["index_template"] = index_template.filename if index_template else None
+    ServerUtils.dump_params(params)
+    index_template_path: str = None
+
+    if index_template:
+        # download the index template to a temporary file
+        index_template_path = await muty.uploadfile.to_path(index_template)
 
     try:
         operation_id = muty.string.ensure_no_space_no_special(name.lower())
@@ -110,7 +123,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 )
 
         # recreate the index first
-        await GulpOpenSearch.get_instance().datastream_create(index)
+        await GulpOpenSearch.get_instance().datastream_create(index, index_template=index_template_path)
 
         # create the operation
         d = {
@@ -143,6 +156,11 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
         return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+    finally:
+        if index_template_path:
+            # delete the temporary index template file
+            dir_name = os.path.dirname(index_template_path)
+            await muty.file.delete_file_or_dir_async(dir_name)
 
 
 @router.patch(
@@ -209,9 +227,7 @@ async def operation_update_handler(
             user_id = s.user_id
 
             # get the operation to be updated
-            op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id
-            )
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
 
             # build update dict
             d = {}
@@ -244,89 +260,6 @@ async def operation_update_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
-
-async def operation_reset_internal(operation_id: str, owner_id: str = None) -> None:
-    """
-    reset an operation (internal usage only)
-
-    - if the operation exists, delete all data on the associated index
-    - if the operation does not exist, create it and create the associated index
-
-    Args:
-        operation_id (str): the operation
-        owner_id (str, optional): the owner of the operation to set if the operation do not exist. Defaults to None (set to "admin")
-    """
-
-    async with GulpCollab.get_instance().session() as sess:
-        try:
-            await GulpOperation.acquire_advisory_lock(sess, operation_id)
-
-            # get operation if exists
-            op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id, throw_if_not_found=False
-            )
-
-            if op:
-                # operation exists
-                index = op.index
-                description = op.description
-                glyph_id = op.glyph_id
-                user_grants = op.granted_user_ids
-                group_grants = op.granted_user_group_ids
-                operation_data = op.operation_data
-                owner_id = op.owner_user_id
-                MutyLogger.get_instance().warning(
-                    "operation=%s exists: %s" % (operation_id, op)
-                )
-                # delete data by operation
-                await GulpOpenSearch.get_instance().delete_data_by_operation(
-                    index, operation_id
-                )
-
-                # delete operation (cascading delete of all related data)
-                await op.delete(sess)
-                await sess.commit()
-            else:
-                # operation must be created anew
-                index = operation_id
-                description = None
-                glyph_id = "book-dashed"
-                user_grants = ["admin", "guest", "ingest", "power", "editor"]
-                group_grants = [ADMINISTRATORS_GROUP_ID]
-                operation_data = {}
-                MutyLogger.get_instance().debug(
-                    "operation_reset, creating new operation=%s, index=%s!"
-                    % (operation_id, index)
-                )
-                # create index
-                await GulpOpenSearch.get_instance().datastream_create(index)
-
-            # recreate operation
-            MutyLogger.get_instance().info(
-                "operation_reset, re/creating collab operation=%s, index=%s"
-                % (operation_id, index)
-            )
-
-            d = {
-                "index": index,
-                "name": operation_id,
-                "description": description,
-                "glyph_id": glyph_id,
-                "operation_data": operation_data,
-                "granted_user_ids": user_grants,
-                "granted_user_group_ids": group_grants,
-            }
-            # pylint: disable=protected-access
-            await GulpOperation._create_internal(
-                sess,
-                d,
-                obj_id=operation_id,
-                owner_id=owner_id or "admin",
-                ws_id=None,
-                private=False,
-            )
-        finally:
-            await GulpOperation.release_advisory_lock(sess, operation_id)
 
 @router.delete(
     "/operation_delete",
@@ -391,73 +324,6 @@ async def operation_delete_handler(
             await op.delete(sess)
 
         return JSendResponse.success(req_id=req_id, data={"id": operation_id})
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-@router.post(
-    "/operation_reset",
-    tags=["operation"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"id": "obj_id"},
-                    }
-                }
-            }
-        }
-    },
-    summary="resets an operation.",
-    description="""
-this is a shortcut to recreate an existing operation, or create a fresh one with default grants if the operation doesn't exists.
-
-- `token` needs `ingest` permission.
-- `index` belonging to the operation is deleted and recreated on gulp's OpenSearch
-- `granted_user_ids`, `granted_group_ids`, `glyph_id`, `description`, `operation_data` are kept if the operation exists.
-- all operation related objects (i.e. `notes`, `requests`, ...) on the collab database is deleted.
-
-""",
-)
-async def operation_reset_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    ServerUtils.dump_params(locals())
-    try:
-
-        async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id, throw_if_not_found=False
-            )
-            if op:
-                # existing operation
-                MutyLogger.get_instance().debug("operation %s exists!" % operation_id)
-                await GulpUserSession.check_token(
-                    sess, token, obj=op, permission=GulpUserPermission.INGEST
-                )
-                owner_id: str = op.owner_user_id
-            else:
-                # create anew
-                MutyLogger.get_instance().debug(
-                    "operation %s NOT exists!" % operation_id
-                )
-                s = await GulpUserSession.check_token(
-                    sess, token, permission=GulpUserPermission.INGEST
-                )
-                owner_id = s.user_id
-
-        await operation_reset_internal(operation_id, owner_id=owner_id)
-        return JSendResponse.success(req_id=req_id, data={"id": operation_id})
-
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -588,10 +454,8 @@ async def context_list_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[
         Optional[str],
-        Query(
-            description="if set, only the context with this id is returned."
-        )] = None,
-
+        Query(description="if set, only the context with this id is returned."),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -599,7 +463,7 @@ async def context_list_handler(
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id])
         if context_id:
-            flt.ids=[context_id]
+            flt.ids = [context_id]
         d = await GulpContext.get_by_filter_wrapper(
             token,
             flt,
@@ -674,6 +538,7 @@ async def context_delete_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/context_create",
     tags=["operation"],
@@ -701,16 +566,24 @@ async def context_delete_handler(
 async def context_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    context_name: Annotated[str, Query(
-        description="the name of the context. It will be used to derive the `context_id`.",
-        example="test_context")],
+    context_name: Annotated[
+        str,
+        Query(
+            description="the name of the context. It will be used to derive the `context_id`.",
+            example="test_context",
+        ),
+    ],
     ws_id: Annotated[
         Optional[str],
         Depends(APIDependencies.param_ws_id),
     ] = None,
-    color: Annotated[str, Query(
-        description="the color of the context. Defaults to `white`.",
-        example="white",)] = None,
+    color: Annotated[
+        str,
+        Query(
+            description="the color of the context. Defaults to `white`.",
+            example="white",
+        ),
+    ] = None,
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -729,12 +602,14 @@ async def context_create_handler(
             )
             user_id = s.user_id
 
-            ctx, created = await op.add_context(sess, user_id, context_name, ws_id=ws_id, req_id=req_id, color=color)
+            ctx, created = await op.add_context(
+                sess, user_id, context_name, ws_id=ws_id, req_id=req_id, color=color
+            )
             if not created and fail_if_exists:
                 raise ObjectAlreadyExists(
                     f"context name={ctx.name}, id={ctx.id} already exists in operation_id={operation_id}."
                 )
-            
+
             return JSendResponse.success(req_id=req_id, data={"id": ctx.id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -771,21 +646,21 @@ async def source_list_handler(
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     source_id: Annotated[
         Optional[str],
-        Query(
-            description="if set, only the source with this id is returned."
-        )] = None,
+        Query(description="if set, only the source with this id is returned."),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
         if source_id:
-            flt.ids=[source_id]
+            flt.ids = [source_id]
 
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.post(
     "/source_create",
@@ -815,16 +690,24 @@ async def source_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    source_name: Annotated[str, Query(
-        description="the name of the source. It will be used to derive the `source_id`.",
-        example="test_source")],
+    source_name: Annotated[
+        str,
+        Query(
+            description="the name of the source. It will be used to derive the `source_id`.",
+            example="test_source",
+        ),
+    ],
     ws_id: Annotated[
         Optional[str],
         Depends(APIDependencies.param_ws_id),
     ] = None,
-    color: Annotated[str, Query(
-        description="the color of the source. Defaults to `purple`.",
-        example="purple",)] = None,
+    color: Annotated[
+        str,
+        Query(
+            description="the color of the source. Defaults to `purple`.",
+            example="purple",
+        ),
+    ] = None,
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -846,12 +729,13 @@ async def source_create_handler(
             # get context (must exist) and add source
             ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
             src, created = await ctx.add_source(
-                sess, user_id, source_name, ws_id=ws_id, req_id=req_id, color=color)
+                sess, user_id, source_name, ws_id=ws_id, req_id=req_id, color=color
+            )
             if not created and fail_if_exists:
                 raise ObjectAlreadyExists(
                     f"source name={ctx.name}, id={src.id} already exists in operation_id={operation_id}, context_id={ctx.id}."
                 )
-            
+
             return JSendResponse.success(req_id=req_id, data={"id": src.id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -919,5 +803,183 @@ async def source_delete_handler(
             )
 
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+async def operation_reset(
+    sess: AsyncSession, operation_id: str, user_id: str=None, delete_data: bool = False, recreate: bool = True
+) -> None:
+    """
+    resets the operation with the given ID.
+
+    if the operation does not exist, it is created anew.
+    if the operation exists, its metadata is preserved.
+
+    Args:
+        sess: the session to use.
+        operation_id: the ID of the operation to reset.
+        user_id: the ID of the user who owns the operation, or "admin" if not set.
+        delete_data: if true, operation documents on opensearch are deleted.
+        recreate: if true, the operation is recreated.
+    """
+    try:
+        # acquire the lock
+        await GulpOperation.acquire_advisory_lock(sess, operation_id)
+
+        if user_id is None:
+            user_id = "admin"
+
+        MutyLogger.get_instance().info("resetting operation %s, user_id=%s ..." % (operation_id, user_id))
+
+        # check if the operation exists
+        exists = False
+        op: GulpOperation = await GulpOperation.get_by_id(
+            sess, operation_id, throw_if_not_found=False
+        )
+        if op:
+            # we will use this data to recreate the operation
+            exists = True
+            d = {
+                "index": op.index,
+                "name": op.name,
+                "description": op.description,
+                "glyph_id": op.glyph_id,
+                "operation_data": op.operation_data,
+                "granted_user_ids": op.granted_user_ids,
+                "granted_user_group_ids": op.granted_user_group_ids,
+            }
+        else:
+            # operation will be created anew
+            d = {
+                "index": operation_id,
+                "name": operation_id,
+                "description": "",
+                "glyph_id": "book-dashed",
+                "operation_data": {},
+                "granted_user_ids": [],
+                "granted_user_group_ids": [ADMINISTRATORS_GROUP_ID],
+            }
+            MutyLogger.get_instance().warning(
+                "operation %s not found, will be created anew!" % (operation_id)
+            )
+
+        if delete_data and exists:
+            # perform full reset (delete and recreate the operation)
+            if exists:
+                # delete data
+                MutyLogger.get_instance().debug(
+                    "deleting data for operation %s ..." % (operation_id)
+                )
+                await GulpOpenSearch.get_instance().delete_data_by_operation(
+                    op.index, operation_id
+                )
+
+                # delete the operation
+                MutyLogger.get_instance().debug(
+                    "deleting operation %s ..." % (operation_id)
+                )
+                await op.delete(sess, ws_id=None, user_id=None, req_id=None)
+
+        if recreate:
+            # recreate the operation
+            # pylint: disable=protected-access
+            MutyLogger.get_instance().debug(
+                "re/creating operation %s, exists=%r ..." % (operation_id, exists)
+            )
+            if exists and op:
+                # delete the operation, will delete the related data on the collab database
+                await op.delete(sess)
+
+            await GulpOperation._create_internal(
+                sess,
+                d,
+                obj_id=operation_id,
+                owner_id=op.owner_user_id if exists else user_id,
+                ws_id=None,
+                private=False,
+            )
+
+            # create index on opensearch
+            ds_exist = await GulpOpenSearch.get_instance().datastream_exists(
+                ds=operation_id
+            )
+            if not ds_exist:
+                await GulpOpenSearch.get_instance().datastream_create(ds=operation_id)
+
+    finally:
+        # release the lock
+        await GulpOperation.release_advisory_lock(sess, operation_id)
+
+
+@router.post(
+    "/operation_reset",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                    }
+                }
+            }
+        }
+    },
+    summary="resets the operation, optionally deleting documents on OpenSearch.",
+    description="""operation will be reset, deleting all the notes, highlights, links and stats.
+
+- `token` needs to have `admin` permission.
+- the operation will be recreated with the same metadata (i.e. glyph, description, granted users, ...), if it exists.
+- if the operation does not exist it is created anew `using the default index template`.
+""",
+)
+async def operation_reset_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[
+        str,
+        Query(
+            description="if set, reset only affects this operation. either, affects all the operations found on the collab database.",
+            example=TEST_OPERATION_ID,
+        ),
+    ] = None,
+    delete_data: Annotated[
+        Optional[bool],
+        Query(
+            description="if set, the operation's data is deleted as well.",
+        ),
+    ] = True,
+    restart_processes: Annotated[
+        bool,
+        Query(
+            description="if true, the process pool is restarted as well.",
+        ),
+    ] = True,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.ADMIN
+            )
+            user_id = s.user_id
+            await operation_reset(
+                sess,
+                operation_id=operation_id,
+                user_id=user_id,
+                delete_data=delete_data,
+                recreate=True,
+            )
+
+        if restart_processes:
+            # restart the process pool
+            await GulpProcess.get_instance().init_gulp_process()
+
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"id": operation_id}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

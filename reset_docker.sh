@@ -5,7 +5,7 @@ docker compose --profile dev down
 docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data
 
-echo "[.] reset gulp docker configuration"
-sudo rm -rf ./gulpconfig
+echo "[.] reset first run"
+rm ~/.config/gulp/.first_run_done
 
 #docker compose up -d

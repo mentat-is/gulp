@@ -31,6 +31,7 @@ async def async_test():
     #     print(ex.to_string())
     pass
 
+
 def main():
     """
     :return:
@@ -61,24 +62,32 @@ def main():
         default=["debug"],
     )
     parser.add_argument(
-        "--reset-collab",
-        help="reset collaboration database on start (do not delete 'operation', 'users' and related tables to maintain existing owners and associations).",
-        action="store_const",
-        const=True,
+        "--recreate-collab",
+        help="""deletes and recreate the collab database (useful when schema changes).
+this also creates the database if it does not exist.
+
+cannot be used with --reset-operation.
+        """,
+        action="store_true",
         default=False,
     )
     parser.add_argument(
-        "--reset-collab-full",
-        help="same as --reset-collab, but perform a full collaboration database reset also deleting data on OpenSearch for the operations found in the 'operations' table.",
-        action="store_const",
-        const=True,
-        default=False,
-    )
-    parser.add_argument(
-        "--reset-operation",
-        help="deletes operation data both on OpenSearch and on the collaboration database.",
+        "--reset",
+        help="""reset an operation.
+
+the following tables on the collaboration database will be cleared of "operation_id" related data: notes, highlights, links, request_stats.
+
+cannot be used with --recreate-collab.
+""",
         nargs=1,
         metavar=("operation_id"),
+    )
+    parser.add_argument(
+        "--delete-data",
+        help="""to be used with --reset-operation or --recreate-collab, to delete all documents on OpenSearch related to one (--reset) or all (--recreate-collab) operations.
+""",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--version",
@@ -92,8 +101,7 @@ def main():
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     logger_file_path = args.log_to_file[0] if args.log_to_file else None
-    MutyLogger.get_instance(
-        "gulp", logger_file_path=logger_file_path, level=lv)
+    MutyLogger.get_instance("gulp", logger_file_path=logger_file_path, level=lv)
 
     if __RUN_TESTS__:
         # test stuff
@@ -102,25 +110,25 @@ def main():
 
     # get params
     try:
+        # if args.reset and args.recreate_collab:
+        #     raise ValueError("cannot use --reset and --recreate-collab at the same time")
+
         if args.version:
             # print version string and exit
             print(ver)
         else:
-            reset_collab = 0
-            if args.reset_collab:
-                reset_collab = 1
-            if args.reset_collab_full:
-                reset_collab = 2
+            reset_operation: str = None
+            if args.reset:
+                reset_operation = args.reset[0]
+
             # default
             print("%s\n%s" % (banner, ver))
-            reset_operation = (
-                args.reset_operation[0] if args.reset_operation is not None else None
-            )
             GulpRestServer.get_instance().start(
                 logger_file_path=logger_file_path,
                 level=lv,
-                reset_collab=reset_collab,
+                recreate_collab=args.recreate_collab,
                 reset_operation=reset_operation,
+                delete_data=args.delete_data,
             )
     except Exception as ex:
         # print exception and exit

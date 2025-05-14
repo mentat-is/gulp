@@ -832,17 +832,28 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             sess (AsyncSession): The session to use.
         """
-        # add user grants
-        await self.add_user_grant(sess, "ingest", commit=False)
+        # add user grants, admin and guest are guaranteed to exist (cannot be deleted)
         await self.add_user_grant(sess, "admin", commit=False)
-        await self.add_user_grant(sess, "editor", commit=False)
-        await self.add_user_grant(sess, "power", commit=False)
         await self.add_user_grant(sess, "guest", commit=False)
+
+        try:
+            await self.add_user_grant(sess, "ingest", commit=False)
+        except ObjectNotFound:
+            pass
+
+        try:
+            await self.add_user_grant(sess, "editor", commit=False)
+        except ObjectNotFound:
+            pass
+
+        try:
+            await self.add_user_grant(sess, "power", commit=False)
+        except ObjectNotFound:
+            pass
 
         # add group grants
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
         await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID, commit=False)
-
         await sess.commit()
 
     async def add_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
@@ -1402,6 +1413,70 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s" % (user_id, objects))
         return objects
+
+    @classmethod
+    async def delete_by_filter(
+        cls,
+        sess: AsyncSession,
+        flt: GulpCollabFilter = None,
+        user_id: str = None,
+    ) -> list[T]:
+        """
+        Asynchronously deletes objects based on the provided filter.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
+            user_id (str, optional): if set, only return objects that the user has access to.
+        Returns:
+            int: The number of objects deleted.
+        Raises:
+            Exception: If there is an error during the query execution or result processing.
+        """
+
+        # filter or empty filter
+        flt = flt or GulpCollabFilter()
+
+        is_admin = False
+        group_ids = []
+        if user_id:
+            # get user info (its groups and admin status)
+            from gulp.api.collab.user import GulpUser
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            is_admin = u.is_admin()
+            group_ids = [g.id for g in u.groups] if u.groups else []
+            # MutyLogger.get_instance().debug("user=%s, admin=%r, groups=%s" % (u.to_dict(), is_admin, group_ids))
+
+        # build and run query (ensure eager loading)
+        if is_admin:
+            # admin must see all
+            flt.granted_user_ids = None
+            flt.granted_user_group_ids = None
+            flt.owner_user_ids = None
+        else:
+            # user can see only objects he has access to
+            flt.granted_user_ids = [user_id]
+            flt.granted_user_group_ids = group_ids
+
+        q = flt.to_select_query(cls)
+        q = q.options(*cls._build_eager_loading_options())
+        MutyLogger.get_instance().debug(
+            "delete_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
+        )
+        res = await sess.execute(q)
+        objects = res.scalars().all()
+        if not objects:
+            return 0
+
+        deleted: int = 0
+        for o in objects:
+            # delete the object
+            await o.delete(sess)
+            deleted += 1
+
+        MutyLogger.get_instance().debug(
+            "user_id=%s, deleted %d objects" % (user_id, deleted))
+        return deleted
 
     @classmethod
     async def get_first_by_filter(

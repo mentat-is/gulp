@@ -19,6 +19,7 @@ operations (like bulk ingestion) and high-level functionality (like querying ope
 
 import asyncio
 import json
+from importlib import resources as impresources
 import os
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -849,6 +850,17 @@ class GulpOpenSearch:
         res = await self._opensearch.count(index=ds)
         return res["count"]
 
+    def _default_index_template_path(self) -> str:
+        """
+        Returns the path of the opensearch index template file.
+
+        Returns:
+            str: The path to the index template file.
+        """
+        p = impresources.files("gulp.api.mapping.index_template")
+        default_path = muty.file.safe_path_join(p, "template.json")
+        return default_path
+
     async def datastream_create(
         self, ds: str, index_template: str = None, delete_first: bool = True
     ) -> dict:
@@ -875,7 +887,7 @@ class GulpOpenSearch:
         # if so, we only apply gulp-related patching and leaving everything else as is
         apply_patches = True
         if index_template is None:
-            template_path = GulpConfig.get_instance().path_index_template()
+            template_path = self._default_index_template_path()
         else:
             template_path = index_template
             MutyLogger.get_instance().debug(
@@ -929,7 +941,7 @@ class GulpOpenSearch:
         try:
             if not index_template:
                 # use default
-                template_path = GulpConfig.get_instance().path_index_template()
+                template_path = self._default_index_template_path()
                 await self.index_template_set_from_file(ds, template_path)
             else:
                 # use provided as-is, just ensure the index is set
@@ -1549,7 +1561,7 @@ class GulpOpenSearch:
         async with GulpCollab.get_instance().session() as sess:
             all_operations = await GulpOperation.get_by_filter(
                 sess,
-                user_id=user_id,                
+                user_id=user_id,
             )
 
         # create operation lookup map
@@ -1942,7 +1954,7 @@ class GulpOpenSearch:
         chunk_num: int = 0
         check_canceled_count: int = 0
         total_hits: int = 0
-        
+
         while True:
             last: bool = False
             docs: list[dict] = []

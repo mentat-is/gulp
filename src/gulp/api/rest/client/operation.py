@@ -8,6 +8,33 @@ class GulpAPIOperation:
     """
 
     @staticmethod
+    async def operation_reset(
+        token: str,
+        operation_id: str,
+        delete_data: bool = False,
+        restart_processeses: bool = True,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        params = {
+            "operation_id": operation_id,
+            "delete_data": delete_data,
+            "restart_processes": restart_processeses,
+            "req_id": req_id or api_common.req_id,
+        }
+
+        res = await api_common.make_request(
+            "POST",
+            "operation_reset",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+        return res
+
+    @staticmethod
     async def operation_create(
         token: str,
         name: str,
@@ -222,26 +249,6 @@ class GulpAPIOperation:
         return await api_common.make_request(
             "DELETE",
             "source_delete",
-            params=params,
-            token=token,
-            expected_status=expected_status,
-        )
-
-    @staticmethod
-    async def operation_reset(
-        token: str,
-        operation_id: str,
-        req_id: str = None,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-        params = {
-            "operation_id": operation_id,
-            "req_id": req_id or api_common.req_id,
-        }
-        return await api_common.make_request(
-            "POST",
-            "operation_reset",
             params=params,
             token=token,
             expected_status=expected_status,

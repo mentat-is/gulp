@@ -16,8 +16,8 @@ import asyncio
 import json
 import os
 import pkgutil
-from importlib import import_module, resources
 import re
+from importlib import import_module, resources
 
 import muty.file
 from muty.log import MutyLogger
@@ -39,6 +39,11 @@ from gulp.api.rest.test_values import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
+
+
+# raised when the database schema does not match the expected schema
+class SchemaMismatch(Exception):
+    pass
 
 
 class GulpCollab:
@@ -123,7 +128,7 @@ class GulpCollab:
             # check tables exists
             async with self._collab_sessionmaker() as sess:
                 if not await self._check_all_tables_exist(sess):
-                    raise Exception(
+                    raise SchemaMismatch(
                         "collab database exists but (some) tables are missing."
                     )
         else:
@@ -360,7 +365,7 @@ class GulpCollab:
         """
         async with self._engine.begin() as conn:
             await conn.run_sync(t.create, checkfirst=True)
-    
+
     async def drop_table(self, t: Table) -> None:
         """
         drops a table in the database.
@@ -398,7 +403,7 @@ class GulpCollab:
                     await conn.execute(table.delete())
 
     async def create_default_operation(
-        self, operation_id: str = TEST_OPERATION_ID, index: str = TEST_INDEX
+        self, operation_id: str = None, index: str = None
     ) -> None:
         """
         create the default operation with a context and a source.
@@ -410,8 +415,12 @@ class GulpCollab:
         from gulp.api.collab.context import GulpContext
         from gulp.api.collab.glyph import GulpGlyph
         from gulp.api.collab.operation import GulpOperation
-        from gulp.api.collab.structs import GulpCollabFilter
         from gulp.api.collab.user import GulpUser
+
+        if operation_id is None:
+            operation_id = TEST_OPERATION_ID
+        if index is None:
+            index = TEST_INDEX
 
         async with self._collab_sessionmaker() as sess:
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
@@ -432,13 +441,13 @@ class GulpCollab:
             )
 
             # add sources to context and context to operation
-            ctx: GulpContext
-            ctx, _ = await operation.add_context(
-                sess,
-                user_id=admin_user.id,
-                name=TEST_CONTEXT_NAME,
-            )
-            await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
+            # ctx: GulpContext
+            # ctx, _ = await operation.add_context(
+            #     sess,
+            #     user_id=admin_user.id,
+            #     name=TEST_CONTEXT_NAME,
+            # )
+            # await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
 
             # add default grants (groups and users)
             await operation.add_default_grants(sess)
@@ -541,9 +550,9 @@ class GulpCollab:
 
     @staticmethod
     def to_camel_case(name: str) -> str:
-        return re.sub(r'(?:^|[-_])([a-zA-Z0-9])', lambda m: m.group(1).upper(), name)
+        return re.sub(r"(?:^|[-_])([a-zA-Z0-9])", lambda m: m.group(1).upper(), name)
 
-    async def load_icons(self, sess: AsyncSession, user_id: str) -> None:
+    async def _load_icons(self, sess: AsyncSession, user_id: str) -> None:
         """
         load icons from the included zip file
 
@@ -566,7 +575,9 @@ class GulpCollab:
             files = await muty.file.list_directory_async(
                 unzipped_dir, "*.svg", case_sensitive=False
             )
-            MutyLogger.get_instance().debug("found %d files in %s" % (len(files), unzipped_dir))
+            MutyLogger.get_instance().debug(
+                "found %d files in %s" % (len(files), unzipped_dir)
+            )
             glyphs: list[dict] = []
             l: int = len(files)
             chunk_size = 256 if l > 256 else l
@@ -621,10 +632,11 @@ class GulpCollab:
                 # remove temp dir
                 await muty.file.delete_file_or_dir_async(unzipped_dir)
 
-    async def create_default_data(self) -> None:
+    async def create_default_glyphs(self) -> None:
         """
-        create the default data: glyphs
+        create default glyphs and assign them to users.
         """
+
         from gulp.api.collab.glyph import GulpGlyph
         from gulp.api.collab.user import GulpUser
 
@@ -644,14 +656,11 @@ class GulpCollab:
                 sess, "power", throw_if_not_found=False
             )
 
-            # read glyphs
-            assets_path = resources.files("gulp.api.collab.assets")
+            # create glyphs from files
+            await self._load_icons(sess, admin_user.id)
 
-            # create glyphs
-            await self.load_icons(sess, admin_user.id)
-
-            # get user and operation glyphs
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, 'user-round')
+            # get user glyph
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user-round")
 
             # pylint: disable=protected-access
 
@@ -666,7 +675,6 @@ class GulpCollab:
             if power_user:
                 power_user.glyph_id = user_glyph.id
             await sess.commit()
-
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:
         """

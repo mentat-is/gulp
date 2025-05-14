@@ -49,8 +49,6 @@
   "parallel_processes_respawn_after_tasks": 10,
   // certificates directory (may be overridden by CERTS_DIRECTORY environment variable)
   "path_certs": "~/repos/gulp/certs",
-  // index template path (null=default, may be overridden by INDEX_TEMPLATE_PATH environment variable)
-  "path_index_template": null,
   // extra path to load mapping files from. leave null to use the default "GULPDIR/mapping_files". can be overridden with PATH_MAPPING_FILES_EXTRA environment variable
   "path_mapping_files_extra": null,
   // extra path to load plugins from. leave null to use the default "GULPDIR/plugins". can be overridden with PATH_PLUGINS_EXTRA environment variable

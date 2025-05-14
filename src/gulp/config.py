@@ -129,7 +129,7 @@ class GulpConfig:
         config_file_path = self.path_config()
 
         # MutyLogger.get_instance().info("configuration path: %s" % (config_file_path))
-        
+
         # note that we use prints here since this is called before the logger is initialized
         if not os.path.exists(config_file_path):
             # copy default configuration file
@@ -142,7 +142,7 @@ class GulpConfig:
 
         # read
         print("******  PID=%d, reading configuration file: %s ******" % (os.getpid(), config_file_path))
-        
+
         with open(config_file_path, "rb") as f:
             js = f.read()
             self._config = json5.loads(js)
@@ -620,25 +620,6 @@ class GulpConfig:
 
         if p:
             p = os.path.expanduser(p)
-        return p
-
-    def path_index_template(self) -> str:
-        """
-        Returns the path of the opensearch index template file.
-        """
-        p = impresources.files("gulp.api.mapping.index_template")
-        default_path = muty.file.safe_path_join(p, "template.json")
-
-        # try env
-        p = os.getenv("PATH_INDEX_TEMPLATE", None)
-        if not p:
-            # try configuration
-            p = self._config.get("path_index_template", None)
-            if not p:
-                p = default_path
-
-        pp = os.path.expanduser(p)
-        MutyLogger.get_instance().debug("path_index_template: %s" % (pp))
         return p
 
     def parallel_queries_max(self) -> int:
