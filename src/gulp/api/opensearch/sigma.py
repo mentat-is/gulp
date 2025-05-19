@@ -64,13 +64,13 @@ def to_gulp_query_struct(
             if r.logsource:
                 if r.logsource.product:
                     # add product tag
-                    rule_tags.append(f"product_{r.logsource.product.name.lower()}")
+                    rule_tags.append(f"product_{r.logsource.product.lower()}")
                 if r.logsource.service:
                     # add service tag
-                    rule_tags.append(f"service_{r.logsource.service.name.lower()}")
+                    rule_tags.append(f"service_{r.logsource.service.lower()}")
                 if r.logsource.category:
                     # add category tag
-                    rule_tags.append(f"category_{r.logsource.category.name.lower()}")
+                    rule_tags.append(f"category_{r.logsource.category.lower()}")
 
             if tags:
                 # additional tags
