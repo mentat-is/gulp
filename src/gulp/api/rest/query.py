@@ -343,6 +343,11 @@ async def _process_query_batch(
             # query name in note tags (this will allow to identify the results in the end)
             q_opt.note_parameters.note_tags.append(gq.name)
 
+        # add note tags
+        for t in gq.tags:
+            if t not in q_opt.note_parameters.note_tags:
+                q_opt.note_parameters.note_tags.append(t)
+                
         # add task
         d = dict(
             user_id=user_id,
