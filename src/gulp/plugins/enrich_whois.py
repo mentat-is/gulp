@@ -135,7 +135,7 @@ class Plugin(GulpPluginBase):
                 netloc = urllib.parse.urlparse(host).netloc
                 if netloc:
                     # netloc was extracted, we successfully parsed a URL
-                    host = netloc
+                    host = netloc.split(":")[0]
 
                 # if the field is not an IP address, try to resolve it
                 if not self._is_ip_field(host):

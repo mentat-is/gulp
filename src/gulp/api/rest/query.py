@@ -116,6 +116,7 @@ async def _query_internal(
     plugin: str,
     plugin_params: GulpPluginParameters,
     flt: GulpQueryFilter,
+    sigma_yml: str = None
 ) -> tuple[int, Exception, str]:
     """
     runs in a worker process and perform a query, streaming results to the `ws_id` websocket
@@ -150,6 +151,7 @@ async def _query_internal(
                     q=q,
                     q_options=q_options,
                     flt=flt,
+                    source_q=sigma_yml, # this is used for notes text
                 )
             else:
                 # external query
@@ -353,6 +355,7 @@ async def _process_query_batch(
             plugin=plugin,
             plugin_params=plugin_params,
             flt=flt,
+            sigma_yml=gq.sigma_yml
         )
 
         batch_tasks.append(
@@ -1034,6 +1037,7 @@ query an external source with one or more sigma rules, and optionally ingest dat
 - `plugin_params.mapping_parameters` may include the mapping to use to convert the sigma rule.
 - token must have `ingest` permission if `ingest` is set.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array, `ingest` is ignored and the data is returned directly without using the websocket.
+- `q_options.create_notes` is not supported.
 """,
 )
 async def query_external_sigma_handler(
@@ -1130,6 +1134,9 @@ async def query_external_sigma_handler(
                     req_id=req_id, data={"total_hits": total, "docs": docs}
                 )
             )
+        
+        # force to false
+        q_options.note_parameters.create_notes = False
 
         await _spawn_query_group_workers(
             user_id=user_id,

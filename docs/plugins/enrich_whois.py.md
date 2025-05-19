@@ -19,11 +19,13 @@ This is a plugin of type `GulpPluginType.ENRICHMENT` it can only be used to enri
 The plugin supports the following custom parameters in the `custom_parameters` dictionary:
 
 - `host_fields`: a list of ip fields to enrich
-- `whois_fields`: list of whois fields to keep (only used if full_dump is set to false) *
+- `whois_fields`: list of whois fields to keep (only used if full_dump is set to false)
 - `full_dump`: get all the whois information (ignore whois_fields)
 - `unify_dump`: keep all results in a single field
 
 > **NOTE**: for a complete list of whois_fields take a look at the [ipwhois documentation](https://ipwhois.readthedocs.io/en/latest))
+
+> **NOTE**: `whois_fields` support simple wildcards so you can for example specify `objects.*` to get all childs of the `objects` whois field
 
 ## GulpDocument
 

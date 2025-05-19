@@ -1897,6 +1897,7 @@ class GulpOpenSearch:
         callback_args: dict = None,
         callback_chunk: callable = None,
         callback_chunk_args: dict = None,
+        source_q: str = None
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -1924,6 +1925,7 @@ class GulpOpenSearch:
 
                 NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must done by the callback if needed.
             callback_chunk_args (dict, optional): further arguments to pass to the callback_chunk. Defaults to None.
+            source_q (str, optional): the source query (i.e. a sigma rule) from which this query was generated.
         Return:
             tuple:
             - processed (int): The number of documents processed (on a clean exit, this will be equal to total_hits).
@@ -2048,6 +2050,7 @@ class GulpOpenSearch:
                     tags=q_options.note_parameters.note_tags,
                     color=q_options.note_parameters.note_color,
                     glyph_id=q_options.note_parameters.note_glyph_id,
+                    source_q=source_q,
                 )
 
             # next chunk
