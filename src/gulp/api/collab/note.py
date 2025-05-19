@@ -185,6 +185,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
         tags: list[str] = None,
         color: str = None,
         glyph_id: str = None,
+        source_q: str = None,
     ) -> int:
         """
         creates a note for each document in the list, using bulk insert
@@ -199,7 +200,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             tags (list[str], optional): the tags to add to the notes. Defaults to None (set to ["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
             glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
-
+            source_q (str, optional): the original query to be set as text, if any. Defaults to None.
         Returns:
             the number of notes created
         """
@@ -234,6 +235,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 tags=tt,
                 color=color,
                 name=name,
+                text=source_q,
                 docs=[associated_doc],
             )
 

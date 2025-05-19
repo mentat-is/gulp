@@ -813,8 +813,8 @@ class GulpPluginBase(ABC):
             ObjectNotFound: if no document is found.
         """
         MutyLogger.get_instance().debug(
-            "GulpPluginBase.query_external: q=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s"
-            % (q, index, operation_id, q_options, plugin_params)
+            "GulpPluginBase.query_external: q=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s"
+            % (q, index, operation_id, q_options, plugin_params, kwargs)
         )
         self._sess = sess
         self._ws_id = ws_id

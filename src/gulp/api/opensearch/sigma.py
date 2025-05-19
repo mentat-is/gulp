@@ -70,6 +70,7 @@ def to_gulp_query_struct(
             converted = GulpQuery(
                 name=rule_name,
                 sigma_id=rule_id,
+                sigma_yml=sigma,
                 tags=rule_tags,
                 q=qq,
             )
