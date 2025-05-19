@@ -60,7 +60,18 @@ def to_gulp_query_struct(
             rule_tags: list[str] = [t.name for t in (r.tags or []) if t]
             if r.level:
                 # add severity tag
-                rule_tags.append(f"severity-{r.level.name.lower()}")
+                rule_tags.append(f"severity_{r.level.name.lower()}")
+            if r.logsource:
+                if r.logsource.product:
+                    # add product tag
+                    rule_tags.append(f"product_{r.logsource.product.name.lower()}")
+                if r.logsource.service:
+                    # add service tag
+                    rule_tags.append(f"service_{r.logsource.service.name.lower()}")
+                if r.logsource.category:
+                    # add category tag
+                    rule_tags.append(f"category_{r.logsource.category.name.lower()}")
+
             if tags:
                 # additional tags
                 for t in tags:
