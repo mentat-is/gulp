@@ -143,7 +143,6 @@ class Plugin(GulpPluginBase):
     ):
         # check if we're using elastic or openssearch and select the appropriate backend
         is_elasticsearch = kwargs.get("is_elasticsearch", False)
-        output_format = "dsl_lucene"
         if is_elasticsearch:
             # use elasticsearch backend
             backend = LuceneBackend()
@@ -153,7 +152,7 @@ class Plugin(GulpPluginBase):
 
         # call the sigma convert function
         return await sigma_convert_default(
-            sigma, mapping_parameters, backend=backend, output_format=output_format
+            sigma, mapping_parameters, backend=backend
         )
 
     @override

@@ -17,7 +17,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.mapping.models import GulpMapping
+from gulp.api.mapping.models import GulpMapping, GulpSigmaMapping
 
 
 class ObjectAlreadyExists(Exception):
@@ -105,6 +105,10 @@ class GulpMappingParameters(BaseModel):
         None,
         description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
     )
+    sigma_mappings: Optional[GulpSigmaMapping] = Field(
+        None,
+        description="if set, rules to map `lgosource` for sigma rules referring to this mapping.",
+    )
     mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
         description="""
@@ -132,6 +136,7 @@ if this is set, allows to specify further mapping files and mapping IDs with a t
         if (
             self.mappings is not None
             or self.mapping_file is not None
+            or self.sigma_mappings is not None
             or self.additional_mapping_files is not None
         ):
             return False

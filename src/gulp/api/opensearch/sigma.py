@@ -13,8 +13,10 @@ These utilities facilitate the use of Sigma rules for security monitoring and th
 using the Gulp framework.
 """
 
+import json
 from typing import TYPE_CHECKING
 
+import muty.file
 import muty.string
 import yaml
 from muty.log import MutyLogger
@@ -22,8 +24,12 @@ from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.collection import SigmaCollection
 from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.mapping.models import GulpMapping
+from gulp.api.collab.source import GulpSource
+from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
@@ -31,11 +37,175 @@ if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQuery
 
 
+def get_sigma_mappings(m: GulpMappingParameters) -> GulpSigmaMapping:
+    """
+    get the sigma mappings from the mapping parameters.
+
+    Args:
+        m (GulpMappingParameters): the mapping parameters
+
+    Returns:
+        GulpSigmaMapping: the sigma mappings, or None if not found (both in mapping parameters and mapping file, if any)
+    """
+    if m.sigma_mappings:
+        # get it from mapping parameters
+        return m.sigma_mappings
+
+    if m.mapping_file:
+        # get it from mapping file
+        mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
+            m.mapping_file
+        )
+        file_content = muty.file.read_file(mapping_file_path)
+        mapping_data = json.loads(file_content)
+        mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
+        sigma_mappings = mapping_file_obj.sigma_mappings
+        if not sigma_mappings:
+            MutyLogger.get_instance().warning(
+                "mapping file %s has no sigma mappings", m.mapping_file
+            )
+            return None
+        return sigma_mappings
+
+    # no sigma mappings found
+    MutyLogger.get_instance().warning(
+        "no sigma mappings found in mapping parameters or mapping file: %s",
+        m.mapping_file,
+    )
+    return None
+
+
+def use_this_sigma(
+    yml: str,
+    levels: list[str] = None,
+    products: list[str] = None,
+    categories: list[str] = None,
+    services: list[str] = None,
+    tags: list[str] = None,
+) -> bool:
+    """
+    check if this sigma rule should be used, depending on filters
+
+    Args:
+        yml (str): the sigma rule YAML
+        levels (list[str], optional): list of levels to check. Defaults to None.
+        products (list[str], optional): list of products to check. Defaults to None.
+        categories (list[str], optional): list of categories to check. Defaults to None.
+        services (list[str], optional): list of services to check. Defaults to None.
+        tags (list[str], optional): list of tags to check. Defaults to None.
+
+    Returns:
+        bool: True if the rule should be used, False otherwise
+    """
+    sc = SigmaCollection.from_yaml(yml)
+    l: int = len(sc)
+    passed: int = 0
+
+    for r in sc:
+        r: SigmaRule
+        if levels:
+            # check if level is in levels
+            if r.level and str(r.level.name).lower() not in levels:
+                continue
+        if products:
+            if (
+                r.logsource
+                and r.logsource.product
+                and r.logsource.product.lower() not in products
+            ):
+                continue
+        if categories:
+            if (
+                r.logsource
+                and r.logsource.category
+                and r.logsource.category.lower() not in categories
+            ):
+                continue
+        if services:
+            if (
+                r.logsource
+                and r.logsource.service
+                and r.logsource.service.lower() not in services
+            ):
+                continue
+        if tags:
+            # check if any tag is in tags
+            tag_found: bool = False
+            if r.tags:
+                for t in r.tags:
+                    if t.name and t.name.lower() in tags:
+                        tag_found = True
+                        break
+            if not tag_found:
+                continue
+        # passed
+        passed += 1
+
+    if passed == l:
+        # all rules passed
+        return True
+
+    # do not use this sigma
+    return False
+
+
+async def sigmas_to_queries(
+    sess: AsyncSession,
+    sigmas: list[str],
+    src_ids: list[str],
+    levels: list[str] = None,
+    products: list[str] = None,
+    services: list[str] = None,
+    categories: list[str] = None,
+    tags: list[str] = None,
+    sigma_convert: callable = None,
+) -> list["GulpQuery"]:
+
+    # convert sigma rule/s using pysigma
+    queries: list[GulpQuery] = []
+    for sigma in sigmas:
+        # check if this sigma should be used
+        if not use_this_sigma(
+            sigma,
+            levels=levels,
+            products=products,
+            categories=categories,
+            services=services,
+            tags=tags,
+        ):
+            # MutyLogger.get_instance().warning(
+            #     "skipping sigma rule %s, not matching filters !", sigma
+            # )
+            continue
+
+        for src_id in src_ids:
+            # for each source, we convert this sigma using mapping specific for this source
+            src: GulpSource = await GulpSource.get_by_id(sess, src_id)
+            plugin_params: dict = src.plugin_params or {}
+            mp: dict = plugin_params.get("mapping_parameters", {})
+            mapping_parameters: GulpMappingParameters = (
+                GulpMappingParameters.model_validate(mp)
+            )
+
+            # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
+            sigma_mappings: GulpSigmaMapping = get_sigma_mappings(mapping_parameters)
+            mapping_parameters.sigma_mappings = sigma_mappings
+            if sigma_convert is None:
+                # use default sigma convert
+                sigma_convert = sigma_convert_default
+
+            q: list[GulpQuery] = await sigma_convert(sigma, mapping_parameters)
+            queries.extend(q)
+
+    return queries
+
 def to_gulp_query_struct(
     sigma: str, backend: Backend, output_format: str = None, tags: list[str] = None
 ) -> list["GulpQuery"]:
     """
     convert a Sigma rule to a GulpQuery object.
+
+    NOTE: levels (severity_), logsource.service(service_), logsource.product (product_), and logsource.category (category_) are set in GulpQuery.tags together with sigma tags (if any).
 
     Args:
         sigma (str): the sigma rule YAML
@@ -213,14 +383,13 @@ async def sigma_convert_default(
     **kwargs,
 ) -> list["GulpQuery"]:
     """
-    convert a sigma rule to one or more GulpQuery objects targeting gulp's opensearch backend.
+    convert a sigma rule to one or more GulpQuery objects targeting gulp's opensearch/elasticsearch backend.
 
     Args:
         sigma (str): the sigma rule YAML
         mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
         **kwargs: additional parameters to pass to the conversion function
             backend (Backend): the backend to use for conversion. Defaults to OpensearchLuceneBackend.
-            output_format (str): the output format to use. Defaults to "dsl_lucene".
     Returns:
         list[GulpQuery]: one or more queries in the format specified by backend/pipeline/output_format.
     """
@@ -237,10 +406,35 @@ async def sigma_convert_default(
 
     # convert the transformed sigma rule to gulp queries
     backend = kwargs.get("backend", OpensearchLuceneBackend())
-    output_format = kwargs.get("output_format", "dsl_lucene")
-    return to_gulp_query_struct(
+    output_format = "dsl_lucene"
+    qs: list[GulpQuery] = to_gulp_query_struct(
         mapped_sigma, backend=backend, output_format=output_format
     )
+
+    # finally we add constraints if sigma mappings are set
+    for q in qs:
+        if mapping_parameters.sigma_mappings:
+            existing_q: dict = q.q
+            new_query_string: str = ""
+            if mapping_parameters.sigma_mappings.service_values:
+                for v in mapping_parameters.sigma_mappings.service_values:# add service values to the query
+                    new_query_string += f"({mapping_parameters.sigma_mappings.service_field} : {v}) OR "
+            new_q: dict = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                               q["query"]
+                            },
+                            {
+                                "queryterm": {
+                                    mapping_parameters.sigma_mappings.index: q.sigma_id
+                                }
+                            }
+                        ]
+                    }
+                }
+    return qs
 
 
 async def sigma_to_tags(sigma: str) -> list[str]:

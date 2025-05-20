@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
     GulpCollabFilter,
@@ -44,9 +45,10 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.mapping.models import GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.sigma import sigma_convert_default
+from gulp.api.opensearch.sigma import get_sigma_mappings, sigma_convert_default, sigmas_to_queries
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -116,7 +118,7 @@ async def _query_internal(
     plugin: str,
     plugin_params: GulpPluginParameters,
     flt: GulpQueryFilter,
-    sigma_yml: str = None
+    sigma_yml: str = None,
 ) -> tuple[int, Exception, str]:
     """
     runs in a worker process and perform a query, streaming results to the `ws_id` websocket
@@ -151,7 +153,7 @@ async def _query_internal(
                     q=q,
                     q_options=q_options,
                     flt=flt,
-                    source_q=sigma_yml, # this is used for notes text
+                    source_q=sigma_yml,  # this is used for notes text
                 )
             else:
                 # external query
@@ -347,7 +349,7 @@ async def _process_query_batch(
         for t in gq.tags:
             if t not in q_opt.note_parameters.note_tags:
                 q_opt.note_parameters.note_tags.append(t)
-                
+
         # add task
         d = dict(
             user_id=user_id,
@@ -360,7 +362,7 @@ async def _process_query_batch(
             plugin=plugin,
             plugin_params=plugin_params,
             flt=flt,
-            sigma_yml=gq.sigma_yml
+            sigma_yml=gq.sigma_yml,
         )
 
         batch_tasks.append(
@@ -1139,7 +1141,7 @@ async def query_external_sigma_handler(
                     req_id=req_id, data={"total_hits": total, "docs": docs}
                 )
             )
-        
+
         # force to false
         q_options.note_parameters.create_notes = False
 
@@ -1227,32 +1229,56 @@ async def query_sigma_handler(
             examples=[[EXAMPLE_SIGMA_RULE]],
         ),
     ],
-    mapping_parameters: Annotated[
-        GulpMappingParameters,
-        Body(
-            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`."
-        ),
-    ] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
     ] = None,
-    flt: Annotated[
-        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
+    src_ids: Annotated[
+        Optional[list[str]],
+        Body(description="optional source ids to restrict the query."),
+    ] = None,
+    levels: Annotated[
+        Optional[list[str]],
+        Body(
+            description="optional `sigma.level` to restrict the applied sigma rules (`high`, `low`, `medium`, `critical`, `informational`)"
+        ),
+    ] = ["high", "critical"],
+    products: Annotated[
+        Optional[str],
+        Body(
+            description="optional `sigma.logsource.product` to restrict the applied sigma rules."
+        ),
+    ] = None,
+    categories: Annotated[
+        Optional[str],
+        Body(
+            description="optional `sigma.logsource.category` to restrict the applied sigma rules."
+        ),
+    ] = None,
+    services: Annotated[
+        Optional[str],
+        Body(
+            description="optional `sigma.logsource.service` to restrict the applied sigma rules."
+        ),
+    ] = None,
+    tags: Annotated[
+        Optional[list[str]],
+        Body(description="optional `sigma.tags` to restrict the applied sigma rules."),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
-    params["mapping_parameters"] = (
-        mapping_parameters.model_dump(exclude_none=True) if mapping_parameters else None
-    )
     ServerUtils.dump_params(params)
 
     # setup flt if not provided, must include operation_id
-    if not flt:
+    if not src_ids:
+        # all sources
         flt = GulpQueryFilter()
+    else:
+        # only query these sources
+        flt = GulpQueryFilter(src_ids=src_ids)
+
     flt.operation_ids = [operation_id]
 
     try:
@@ -1275,11 +1301,15 @@ async def query_sigma_handler(
             user_id = s.user_id
             index = op.index
 
-        # convert sigma rule/s using pysigma
-        queries: list[GulpQuery] = []
-        for s in sigmas:
-            q: list[GulpQuery] = await sigma_convert_default(s, mapping_parameters)
-            queries.extend(q)
+            # convert sigma rule/s using pysigma
+            queries: list[GulpQuery] = await sigmas_to_queries(
+                sigmas,
+                src_ids=src_ids,
+                levels=levels,
+                products=products,
+                categories=categories,
+                services=services,
+                tags=tags)
 
         if q_options.preview_mode:
             if len(sigmas) > 1:

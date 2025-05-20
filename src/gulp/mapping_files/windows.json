@@ -4,6 +4,13 @@
             "win_evtx.py"
         ]
     },
+    "sigma": {
+        "service_name": "windefend",
+        "service_field": "winlog.channel",
+        "service_values": [
+            "Microsoft-Windows-Windows Defender"
+        ]
+    },
     "mappings": {
         "windows": {
             "allow_prefixed": true,

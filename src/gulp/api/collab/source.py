@@ -8,12 +8,14 @@ and a context, forming a unique tuple.
 the source entity is a fundamental part of the collaboration data model, linking
 operations and contexts with the actual datasource, and providing additional metadata like color.
 """
+
 from typing import Optional
 
 from sqlalchemy import ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.orm import Mapped, mapped_column
+
 from gulp.api.collab.structs import COLLABTYPE_SOURCE, GulpCollabBase
 
 
@@ -42,8 +44,8 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
         default=None,
         doc="plugin used for ingestion.",
     )
-    plugin_params: Mapped[Optional[dict]] = mapped_column(
+    mapping_parameters: Mapped[Optional[dict]] = mapped_column(
         MutableDict.as_mutable(JSONB),
         default_factory=dict,
-        doc="plugin parameters used for ingestion (mapping, ...).",
+        doc="mapping used for ingestion.",
     )

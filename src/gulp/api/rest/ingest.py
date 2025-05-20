@@ -319,13 +319,16 @@ async def _ingest_file_internal(
             if mod:
                 if not preview_mode:
                     # update source ingestion info (plugin, plugin_params)
+                    plugin_params = mod.plugin_params()
+                    if plugin_params:
+                        mapping_params: dict = (
+                            plugin_params.mapping_parameters.model_dump()
+                        )
+                    else:
+                        mapping_params: dict = None
                     d = {
                         "plugin": plugin,
-                        "plugin_params": (
-                            mod.plugin_params().model_dump(exclude_none=True)
-                            if mod.plugin_params
-                            else None
-                        ),
+                        "mapping_parameters": mapping_params,
                     }
                     await GulpSource.update_by_id(
                         None, source_id, d=d, ws_id=None, req_id=None
