@@ -82,7 +82,7 @@ def use_this_sigma(
     categories: list[str] = None,
     services: list[str] = None,
     tags: list[str] = None,
-) -> bool:
+) -> tuple[bool, list[str]]:
     """
     check if this sigma rule should be used, depending on filters
 
@@ -95,11 +95,12 @@ def use_this_sigma(
         tags (list[str], optional): list of tags to check. Defaults to None.
 
     Returns:
-        bool: True if the rule should be used, False otherwise
+        tuple[bool, list[str]]: True if the rule should be used, False otherwise. Also returns a list of service names found in the rule (logsource.service) if the sigma must be used.
     """
     sc = SigmaCollection.from_yaml(yml)
     l: int = len(sc)
     passed: int = 0
+    sigma_service_names: list[str] = []
 
     for r in sc:
         r: SigmaRule
@@ -140,13 +141,16 @@ def use_this_sigma(
                 continue
         # passed
         passed += 1
+        if r.logsource.service:
+            # add service name to the list
+            sigma_service_names.append(r.logsource.service.lower())
 
     if passed == l:
         # all rules passed
-        return True
+        return True, sigma_service_names
 
     # do not use this sigma
-    return False
+    return False, []
 
 
 async def sigmas_to_queries(
@@ -165,14 +169,15 @@ async def sigmas_to_queries(
     queries: list[GulpQuery] = []
     for sigma in sigmas:
         # check if this sigma should be used
-        if not use_this_sigma(
+        use, sigma_service_names = use_this_sigma(
             sigma,
             levels=levels,
             products=products,
             categories=categories,
             services=services,
             tags=tags,
-        ):
+        )
+        if not use:
             # MutyLogger.get_instance().warning(
             #     "skipping sigma rule %s, not matching filters !", sigma
             # )
@@ -190,6 +195,20 @@ async def sigmas_to_queries(
             # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
             sigma_mappings: GulpSigmaMapping = get_sigma_mappings(mapping_parameters)
             mapping_parameters.sigma_mappings = sigma_mappings
+            if mapping_parameters.sigma_mappings:
+                # check if this sigma rule is for this source
+                if (
+                    mapping_parameters.sigma_mappings.service_name.lower()
+                    not in sigma_service_names
+                ):
+                    # this sigma rule is not for this source
+                    # MutyLogger.get_instance().warning(
+                    #     "skipping sigma rule %s, not matching service name %s",
+                    #     sigma,
+                    #     mapping_parameters.sigma_mappings.service_name,
+                    # )
+                    continue
+
             if sigma_convert is None:
                 # use default sigma convert
                 sigma_convert = sigma_convert_default
@@ -198,6 +217,7 @@ async def sigmas_to_queries(
             queries.extend(q)
 
     return queries
+
 
 def to_gulp_query_struct(
     sigma: str, backend: Backend, output_format: str = None, tags: list[str] = None
@@ -413,27 +433,37 @@ async def sigma_convert_default(
 
     # finally we add constraints if sigma mappings are set
     for q in qs:
-        if mapping_parameters.sigma_mappings:
-            existing_q: dict = q.q
-            new_query_string: str = ""
-            if mapping_parameters.sigma_mappings.service_values:
-                for v in mapping_parameters.sigma_mappings.service_values:# add service values to the query
-                    new_query_string += f"({mapping_parameters.sigma_mappings.service_field} : {v}) OR "
-            new_q: dict = {
-                "query": {
-                    "bool": {
-                        "must": [
-                            {
-                               q["query"]
-                            },
-                            {
-                                "queryterm": {
-                                    mapping_parameters.sigma_mappings.index: q.sigma_id
-                                }
+        if not mapping_parameters.sigma_mappings:
+            continue
+        if not mapping_parameters.sigma_mappings.service_values:
+            continue
+
+        # add service values to the query
+        for v in mapping_parameters.sigma_mappings.service_values:
+            new_query_string += (
+                f"{mapping_parameters.sigma_mappings.service_field}: *{v}* OR "
+            )
+        new_query_string = new_query_string[:-4]
+
+        # build the new query using a further query_string
+        new_q: dict = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {q.q["query"]},
+                        {
+                            "query_string": {
+                                "query": new_query_string,
                             }
-                        ]
-                    }
+                        },
+                    ]
                 }
+            }
+        }
+        q.q = new_q
+        MutyLogger.get_instance().debug(
+            "sigma_convert_default final query:\n%s", json.dumps(q.q, indent=2)
+        )
     return qs
 
 
