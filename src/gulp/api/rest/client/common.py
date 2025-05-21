@@ -143,6 +143,7 @@ async def _test_ingest_ws_loop(
     check_ingested: int = None,
     check_processed: int = None,
     check_skipped: int = None,
+    skip_checks: bool = False,
     success: bool = None,
 ):
     """
@@ -221,10 +222,11 @@ async def _test_ingest_ws_loop(
                             success_test_succeeded = False
 
                     if (
-                        ingested_test_succeeded
+                        skip_checks or
+                        (ingested_test_succeeded
                         and processed_test_succeeded
                         and skipped_test_succeeded
-                        and success_test_succeeded
+                        and success_test_succeeded)
                     ):
                         MutyLogger.get_instance().info(
                             "all tests succeeded, breaking the loop!"

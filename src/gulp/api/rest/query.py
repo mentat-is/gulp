@@ -1285,7 +1285,7 @@ async def query_sigma_handler(
         flt = GulpQueryFilter()
     else:
         # only query these sources
-        flt = GulpQueryFilter(src_ids=src_ids)
+        flt = GulpQueryFilter(source_ids=src_ids)
 
     flt.operation_ids = [operation_id]
 

@@ -475,14 +475,19 @@ async def test_sigma_single_new():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    file_path = os.path.join(
+        current_dir, "sigma/Microsoft-Windows-Windows Defender%4Operational.evtx"
+    )
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
-    await test_win_evtx()
+    await test_win_evtx(file_path=file_path, skip_checks=True)
+
+    await asyncio.sleep(8)
 
     # read sigma
-    current_dir = os.path.dirname(os.path.realpath(__file__))
     sigma = await muty.file.read_file_async(
-        os.path.join(current_dir, "sigma/windefend_test.yml")
+        os.path.join(current_dir, "sigma/win_defender_threat.yml")
     )
 
     _, host = TEST_HOST.split("://")
@@ -517,7 +522,7 @@ async def test_sigma_single_new():
                     MutyLogger.get_instance().debug(
                         "query done, name=%s", q_done_packet.name
                     )
-                    if q_done_packet.name == "LSASS Access Detected via Attack Surface Reduction":
+                    if q_done_packet.name == "Windows Defender Threat Detected":
                         # assert q_done_packet.total_hits == 3
                         test_completed = True
                     else:
@@ -534,3 +539,13 @@ async def test_sigma_single_new():
 
     assert test_completed
     MutyLogger.get_instance().info(test_sigma_single_new.__name__ + " succeeded!")
+
+    # try again
+    await GulpAPIQuery.query_sigma(
+        guest_token,
+        TEST_OPERATION_ID,
+        src_ids=["e027a5f1254f620bc62f62ea7fd628437c303ccc"],
+        sigmas=[
+            sigma.decode(),
+        ],
+    )

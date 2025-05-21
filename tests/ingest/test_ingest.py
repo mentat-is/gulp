@@ -356,10 +356,11 @@ async def test_ws_raw():
 
 
 @pytest.mark.asyncio
-async def test_win_evtx():
+async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
-    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+    if file_path is None:
+        file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -373,7 +374,7 @@ async def test_win_evtx():
         plugin="win_evtx",
     )
 
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    await _test_ingest_ws_loop(check_ingested=7, check_processed=7, skip_checks=skip_checks)
     MutyLogger.get_instance().info(test_win_evtx.__name__ + " succeeded!")
 
 
