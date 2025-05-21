@@ -260,7 +260,7 @@ async def sigmas_to_queries(
                     #     sigma,
                     #     mapping_parameters.sigma_mappings.service_name,
                     # )
-                    pass# continue
+                    continue
 
             if sigma_convert is None:
                 # use default sigma convert
