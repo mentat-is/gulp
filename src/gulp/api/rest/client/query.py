@@ -168,9 +168,13 @@ class GulpAPIQuery:
         token: str,
         operation_id: str,
         sigmas: list[str],
-        mapping_parameters: GulpPluginParameters = None,
+        src_ids: list[str] = None,
         q_options: GulpQueryParameters = None,
-        flt: GulpQueryFilter = None,
+        levels: list[str] = None,
+        products: list[str] = None,
+        categories: list[str] = None,
+        services: list[str] = None,
+        tags: list[str] = None,
         expected_status: int = 200,
         req_id: str = None,
         ws_id: str = None,
@@ -183,17 +187,14 @@ class GulpAPIQuery:
         }
         body = {
             "sigmas": sigmas,
-            "flt": (flt.model_dump(by_alias=True, exclude_none=True) if flt else None),
-            "mapping_parameters": (
-                mapping_parameters.model_dump(by_alias=True, exclude_none=True)
-                if mapping_parameters
-                else None
-            ),
-            "q_options": (
-                q_options.model_dump(by_alias=True, exclude_none=True)
-                if q_options
-                else None
-            ),
+            "src_ids": src_ids or [],
+            "q_options": q_options.model_dump(by_alias=True, exclude_none=True) if q_options else None,
+            "levels": levels or [],
+            "products": products or [],
+            "categories": categories or [],
+            "services": services or [],
+            "tags": tags or [],
+           
         }
 
         res = await api_common.make_request(

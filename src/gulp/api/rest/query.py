@@ -1204,8 +1204,8 @@ async def query_external_sigma_handler(
     description="""
 query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
+- sigma rules in `sigmas` are batched and runs in parallel in concurrent tasks into worker processes.
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
-- `flt` may be used to restrict the query (flt.operation_ids is enforced to the provided `operation_id`).
 
 ### q_options
 
@@ -1213,9 +1213,14 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 - if more than one query is provided, `q_options.group` must be set.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `sigmas` array and the data is returned directly without using the websocket.
 
-### mapping_parameters
+### src_ids
 
-- all the provided sigma rules uses the same `mapping_parameters` for mapping.
+if not provided, `all sources in the operation` are used (not advised).
+
+### pre-filtering sigma rules
+
+sigma rules may be filtered using `levels`, `products`, `categories`, `services` and `tags` parameters.
+
 """,
 )
 async def query_sigma_handler(
@@ -1229,36 +1234,39 @@ async def query_sigma_handler(
             examples=[[EXAMPLE_SIGMA_RULE]],
         ),
     ],
+    src_ids: Annotated[
+        list[str],
+        Body(description="ids of the source to apply the query/ies to."),
+    ],
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
     ] = None,
-    src_ids: Annotated[
-        Optional[list[str]],
-        Body(description="optional source ids to restrict the query."),
-    ] = None,
     levels: Annotated[
         Optional[list[str]],
         Body(
-            description="optional `sigma.level` to restrict the applied sigma rules (`high`, `low`, `medium`, `critical`, `informational`)"
+            description="optional `sigma.level` to restrict the applied sigma rules (`high`, `low`, `medium`, `critical`, `informational`)",
+            examples=[["high", "critical"]],
         ),
-    ] = ["high", "critical"],
+    ] = None,
     products: Annotated[
-        Optional[str],
+        Optional[list[str]],
         Body(
-            description="optional `sigma.logsource.product` to restrict the applied sigma rules."
+            description="optional `sigma.logsource.product` to restrict the applied sigma rules.",
+            examples=[["windows"]],
         ),
     ] = None,
     categories: Annotated[
-        Optional[str],
+        Optional[list[str]],
         Body(
             description="optional `sigma.logsource.category` to restrict the applied sigma rules."
         ),
     ] = None,
     services: Annotated[
-        Optional[str],
+        Optional[list[str]],
         Body(
-            description="optional `sigma.logsource.service` to restrict the applied sigma rules."
+            description="optional `sigma.logsource.service` to restrict the applied sigma rules.",
+            examples=[["windefend"]],
         ),
     ] = None,
     tags: Annotated[
@@ -1303,6 +1311,8 @@ async def query_sigma_handler(
 
             # convert sigma rule/s using pysigma
             queries: list[GulpQuery] = await sigmas_to_queries(
+                sess,
+                user_id,
                 sigmas,
                 src_ids=src_ids,
                 levels=levels,

@@ -467,3 +467,70 @@ async def test_sigma_convert():
 
     finally:
         muty.file.delete_file_or_dir(sigma_path)
+
+@pytest.mark.asyncio
+async def test_sigma_single_new():
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest some data
+    from tests.ingest.test_ingest import test_win_evtx
+    await test_win_evtx()
+
+    # read sigma
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    sigma = await muty.file.read_file_async(
+        os.path.join(current_dir, "sigma/windefend_test.yml")
+    )
+
+    _, host = TEST_HOST.split("://")
+    ws_url = f"ws://{host}/ws"
+    test_completed = False
+
+    async with websockets.connect(ws_url) as ws:
+        # connect websocket
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token=guest_token, ws_id=TEST_WS_ID)
+        await ws.send(p.model_dump_json(exclude_none=True))
+
+        # receive responses
+        try:
+            while True:
+                response = await ws.recv()
+                data = json.loads(response)
+
+                if data["type"] == "ws_connected":
+                    # run test
+                    await GulpAPIQuery.query_sigma(
+                        guest_token,
+                        TEST_OPERATION_ID,
+                        sigmas=[
+                            sigma.decode(),
+                        ],
+                    )
+                elif data["type"] == "query_done":
+                    # query done
+                    q_done_packet: GulpQueryDonePacket = (
+                        GulpQueryDonePacket.model_validate(data["data"])
+                    )
+                    MutyLogger.get_instance().debug(
+                        "query done, name=%s", q_done_packet.name
+                    )
+                    if q_done_packet.name == "LSASS Access Detected via Attack Surface Reduction":
+                        # assert q_done_packet.total_hits == 3
+                        test_completed = True
+                    else:
+                        raise ValueError(
+                            f"unexpected query name: {q_done_packet.name}"
+                        )
+                    break
+
+                # ws delay
+                await asyncio.sleep(0.1)
+
+        except websockets.exceptions.ConnectionClosed as ex:
+            MutyLogger.get_instance().exception(ex)
+
+    assert test_completed
+    MutyLogger.get_instance().info(test_sigma_single_new.__name__ + " succeeded!")

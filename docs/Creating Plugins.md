@@ -354,7 +354,20 @@ Here's a commented example, further details in the [model definition source](../
         }
       }
     }
+  },
+  // this is used only by `sigma_query` API: it allows, during conversion of a sigma query to a raw OpenSearch query, to target documents with a specific sigma `logsource.service`. 
+  "sigma_mappings": {
+    // this is the `logsource.service" listed in the sigma rule
+    "service_name": "windefend",
+    // this is the FIELD NAME in the documents
+    "service_name": "winlog.channel",
+    // these are possible values for FIELD NAME in the documents (they're matched as substring)
+    // basically, the sigma is "patched" after conversion to match only documents with i.e. `winlog.channel` = any of the values in `service_values`.
+    "service_values": [
+        "Microsoft-Windows-Windows Defender",
+    ]
   }
+
 }
 ```
 

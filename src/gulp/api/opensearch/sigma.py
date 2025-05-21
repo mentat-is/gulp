@@ -155,8 +155,9 @@ def use_this_sigma(
 
 async def sigmas_to_queries(
     sess: AsyncSession,
+    user_id: str,
     sigmas: list[str],
-    src_ids: list[str],
+    src_ids: list[str] = None,
     levels: list[str] = None,
     products: list[str] = None,
     services: list[str] = None,
@@ -164,7 +165,30 @@ async def sigmas_to_queries(
     tags: list[str] = None,
     sigma_convert: callable = None,
 ) -> list["GulpQuery"]:
+    """
+    convert a list of sigma rules to GulpQuery objects.
 
+    for each sigma rule, we check if it should be used, depending on the filters set (levels, products, categories, services, tags).
+    if the rule should be used, we convert it to a GulpQuery object using the mapping parameters of the source.
+    if no sources are provided, we get all sources for the user.
+
+    Args:
+        sess (AsyncSession): the database session
+        user_id (str): the user id
+        sigmas (list[str]): the list of sigma rules in YAML format
+        src_ids (list[str], optional): list of source ids to use. Defaults to None (get all sources).
+        levels (list[str], optional): list of levels to check. Defaults to None.
+        products (list[str], optional): list of products to check. Defaults to None.
+        services (list[str], optional): list of services to check. Defaults to None.
+        categories (list[str], optional): list of categories to check. Defaults to None.
+        tags (list[str], optional): list of tags to check. Defaults to None.
+        sigma_convert (callable, optional): the sigma convert function to use. Defaults to None.
+    """
+    if not src_ids:
+        # get all source ids, if not provided
+        srcs = await GulpSource.get_by_filter(sess, user_id=user_id)
+        src_ids = [s.id for s in srcs]
+        MutyLogger.get_instance().warning("using all sources for user %s: %s", user_id, src_ids)
     # convert sigma rule/s using pysigma
     queries: list[GulpQuery] = []
     for sigma in sigmas:
@@ -186,8 +210,7 @@ async def sigmas_to_queries(
         for src_id in src_ids:
             # for each source, we convert this sigma using mapping specific for this source
             src: GulpSource = await GulpSource.get_by_id(sess, src_id)
-            plugin_params: dict = src.plugin_params or {}
-            mp: dict = plugin_params.get("mapping_parameters", {})
+            mp: dict = src.mapping_parameters or {}
             mapping_parameters: GulpMappingParameters = (
                 GulpMappingParameters.model_validate(mp)
             )
@@ -277,9 +300,8 @@ def to_gulp_query_struct(
             )
             converted_sigmas.append(converted)
     MutyLogger.get_instance().debug(
-        "converted %d sigma rules to GulpQuery:\n%s",
+        "converted %d sigma rules to GulpQuery",
         len(converted_sigmas),
-        converted_sigmas,
     )
     return converted_sigmas
 
@@ -439,7 +461,11 @@ async def sigma_convert_default(
             continue
 
         # add service values to the query
+        new_query_string: str = ""
         for v in mapping_parameters.sigma_mappings.service_values:
+            # escape special characters
+            v = v.replace(" ", "\\ ")
+            v = v.replace("/", "\\/")
             new_query_string += (
                 f"{mapping_parameters.sigma_mappings.service_field}: *{v}* OR "
             )
@@ -450,20 +476,28 @@ async def sigma_convert_default(
             "query": {
                 "bool": {
                     "must": [
-                        {q.q["query"]},
+                        q.q["query"],
                         {
+                            # this is the new part of the query, to handle sigma mappings
                             "query_string": {
                                 "query": new_query_string,
                             }
-                        },
+                        }
                     ]
                 }
             }
         }
+        
+        # store back the patched query
         q.q = new_q
+
+    count: int=0
+    for q in qs:
         MutyLogger.get_instance().debug(
-            "sigma_convert_default final query:\n%s", json.dumps(q.q, indent=2)
+            "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))
         )
+        count += 1
+            
     return qs
 
 
