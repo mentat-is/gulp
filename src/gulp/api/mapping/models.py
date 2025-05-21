@@ -136,6 +136,41 @@ class GulpMappingFileMetadata(BaseModel):
         description="one or more plugin names that this mapping file is associated with.",
     )
 
+class GulpSigmaMapping(BaseModel):
+    """
+    defines a logsource -> gulp document mapping
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "fields": {"field1": {"ecs": ["test.mapped"]}},
+                    "description": "test description.",
+                    "agent_type": "win_evtx",
+                    "event_code": "1234",
+                    "allow_prefixed": False
+                }
+            ]
+        },
+    )
+
+    service_name: str = Field(
+        ...,
+        description="`logsource.service` in the sigma rule.",
+        examples=["windefend"],
+    )
+    service_field: str = Field(
+        ...,
+        description="field name corresponding to `service_name` in the documents.",
+        examples=["winlog.channel"],
+    )
+    service_values: list[str] = Field(
+        ...,
+        description="list of (substring) values for the `service_name` field.",
+        examples=[["Microsoft-Windows-Windows Defender"]],
+    )
 
 class GulpMappingFile(BaseModel):
     """
@@ -160,6 +195,10 @@ class GulpMappingFile(BaseModel):
         ...,
         description="defined mappings for this mapping file, key is the `mapping_id`",
         min_length=1,
+    )
+    sigma_mappings: Optional[GulpSigmaMapping] = Field(
+        None,
+        description="if set, rules to map `lgosource` for sigma rules referring to this mapping.",
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
         ...,
