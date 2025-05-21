@@ -361,7 +361,7 @@ Here's a commented example, further details in the [model definition source](../
     "service_name": "windefend",
     // this is the FIELD NAME in the documents
     "service_name": "winlog.channel",
-    // these are possible values for FIELD NAME in the documents (they're matched as substring)
+    // these are possible values for FIELD NAME in the documents (they're matched as substring CASE SENSITIVE)
     // basically, the sigma is "patched" after conversion to match only documents with i.e. `winlog.channel` = any of the values in `service_values`.
     "service_values": [
         "Microsoft-Windows-Windows Defender",

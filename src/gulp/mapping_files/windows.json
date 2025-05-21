@@ -8,7 +8,7 @@
         "service_name": "windefend",
         "service_field": "winlog.channel",
         "service_values": [
-            "Microsoft-Windows-Windows Defender",
+            "Microsoft-Windows-Windows Defender"
         ]
     },
     "mappings": {
