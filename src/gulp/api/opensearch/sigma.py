@@ -13,7 +13,9 @@ These utilities facilitate the use of Sigma rules for security monitoring and th
 using the Gulp framework.
 """
 
+import asyncio
 import json
+import os
 from typing import TYPE_CHECKING
 
 import muty.file
@@ -25,19 +27,20 @@ from sigma.collection import SigmaCollection
 from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncSession
+import aiofiles.os
 
 from gulp.api.collab.source import GulpSource
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
-from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from gulp.structs import GulpMappingParameters, GulpPluginParameters
+from gulp.structs import GulpMappingParameters
 
 if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQuery
 
 
-def get_sigma_mappings(m: GulpMappingParameters) -> GulpSigmaMapping:
+async def _get_sigma_mappings(m: GulpMappingParameters) -> GulpSigmaMapping:
     """
     get the sigma mappings from the mapping parameters.
 
@@ -56,7 +59,7 @@ def get_sigma_mappings(m: GulpMappingParameters) -> GulpSigmaMapping:
         mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
             m.mapping_file
         )
-        file_content = muty.file.read_file(mapping_file_path)
+        file_content = await muty.file.read_file_async(mapping_file_path)
         mapping_data = json.loads(file_content)
         mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
         sigma_mappings = mapping_file_obj.sigma_mappings
@@ -164,6 +167,8 @@ async def sigmas_to_queries(
     categories: list[str] = None,
     tags: list[str] = None,
     sigma_convert: callable = None,
+    paths: bool = False,
+    req_id: str = None,
 ) -> list["GulpQuery"]:
     """
     convert a list of sigma rules to GulpQuery objects.
@@ -183,18 +188,43 @@ async def sigmas_to_queries(
         categories (list[str], optional): list of categories to check. Defaults to None.
         tags (list[str], optional): list of tags to check. Defaults to None.
         sigma_convert (callable, optional): the sigma convert function to use. Defaults to None.
+        paths (bool, optional): if True, sigmas are paths to files (will be read). Defaults to False.
+        req_id (str, optional): the request id. Defaults to None.
+    Returns:
+        list[GulpQuery]: the list of GulpQuery objects
     """
     if not src_ids:
         # get all source ids, if not provided
         srcs = await GulpSource.get_by_filter(sess, user_id=user_id)
         src_ids = [s.id for s in srcs]
         MutyLogger.get_instance().warning("using all sources for user %s: %s", user_id, src_ids)
+
     # convert sigma rule/s using pysigma
     queries: list[GulpQuery] = []
+    count: int = 0
     for sigma in sigmas:
+        if count % 50 == 0 and req_id:
+            # check if the request is cancelled
+            canceled = await GulpRequestStats.is_canceled(sess, req_id)
+            if canceled:
+                raise Exception("request canceled")
+            
+        count += 1            
         # check if this sigma should be used
+        if paths:
+            # the sigma is a path to a file
+            is_file = await aiofiles.os.path.isfile(sigma)
+            if is_file:
+                rule_content: bytes = await muty.file.read_file_async(sigma)
+                rule_content = rule_content.decode()
+            else:
+                continue
+        else:
+            # the rule itself
+            rule_content = sigma
+
         use, sigma_service_names = use_this_sigma(
-            sigma,
+            rule_content,
             levels=levels,
             products=products,
             categories=categories,
@@ -203,7 +233,7 @@ async def sigmas_to_queries(
         )
         if not use:
             # MutyLogger.get_instance().warning(
-            #     "skipping sigma rule %s, not matching filters !", sigma
+            #     "skipping sigma rule %s, not matching filters !" %  (rule_content)
             # )
             continue
 
@@ -216,7 +246,7 @@ async def sigmas_to_queries(
             )
 
             # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
-            sigma_mappings: GulpSigmaMapping = get_sigma_mappings(mapping_parameters)
+            sigma_mappings: GulpSigmaMapping = await _get_sigma_mappings(mapping_parameters)
             mapping_parameters.sigma_mappings = sigma_mappings
             if mapping_parameters.sigma_mappings:
                 # check if this sigma rule is for this source
@@ -230,13 +260,13 @@ async def sigmas_to_queries(
                     #     sigma,
                     #     mapping_parameters.sigma_mappings.service_name,
                     # )
-                    continue
+                    pass# continue
 
             if sigma_convert is None:
                 # use default sigma convert
                 sigma_convert = sigma_convert_default
 
-            q: list[GulpQuery] = await sigma_convert(sigma, mapping_parameters)
+            q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters)
             queries.extend(q)
 
     return queries
@@ -391,7 +421,7 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
 
     # process detection section where field names are used
     if "detection" not in sigma_dict:
-        MutyLogger.get_instance().warning("sigma rule has no detection section")
+        MutyLogger.get_instance().warning("sigma rule has no detection section:\n%s", sigma_yaml)
         return sigma_yaml
 
     detection = sigma_dict["detection"]
@@ -415,7 +445,7 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
 
     # convert back to yaml
     s = yaml.dump(sigma_dict, sort_keys=False)
-    MutyLogger.get_instance().debug("mapped sigma:\n%s", s)
+    # MutyLogger.get_instance().debug("mapped sigma:\n%s", s)
     return s
 
 
@@ -491,12 +521,12 @@ async def sigma_convert_default(
         # store back the patched query
         q.q = new_q
 
-    count: int=0
-    for q in qs:
-        MutyLogger.get_instance().debug(
-            "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))
-        )
-        count += 1
+    # count: int=0
+    # for q in qs:
+    #     MutyLogger.get_instance().debug(
+    #         "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))
+    #     )
+    #     count += 1
             
     return qs
 

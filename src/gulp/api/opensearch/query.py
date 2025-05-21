@@ -16,6 +16,7 @@ async client interfaces.
 
 """
 
+import json
 from typing import Any, Optional
 
 import muty.string
@@ -367,10 +368,6 @@ class GulpQueryHelpers:
         Raises:
             Exception: if an error occurs during the query
         """
-        MutyLogger.get_instance().debug(
-            "GulpQueryHelpers.query_raw: q=%s, index=%s, flt=%s, q_options=%s"
-            % (q, index, flt, q_options)
-        )
         if not q_options:
             q_options = GulpQueryParameters()
 
@@ -380,6 +377,11 @@ class GulpQueryHelpers:
         if flt and not flt.is_empty():
             # merge with filter
             q = flt.merge_to_opensearch_dsl(q)
+
+        MutyLogger.get_instance().debug(
+            "GulpQueryHelpers.query_raw: index=%s, q=%s"
+            % (index, json.dumps(q, indent=2))
+        )
 
         from gulp.api.opensearch_api import GulpOpenSearch
 

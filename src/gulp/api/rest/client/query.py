@@ -91,9 +91,8 @@ class GulpAPIQuery:
         token: str,
         zip_file_path: str,
         operation_id: str,
-        mapping_parameters: GulpMappingParameters,
+        src_ids: list[str] = None,
         q_options: Optional[GulpQueryParameters] = None,
-        flt: Optional[GulpQueryFilter] = None,
         levels: Optional[list[str]] = None,    
         tags: Optional[list[str]] = None,
         products: Optional[list[str]] = None,
@@ -121,19 +120,14 @@ class GulpAPIQuery:
         }
 
         payload = {
-            "flt": flt.model_dump(exclude_none=True) if flt else {},
+            "src_ids": src_ids or [],
             "levels": levels or [],
-            "tags": tags or [],
-            "categories": categories or [],
             "products": products or [],
+            "categories": categories or [],
             "services": services or [],
+            "tags": tags or [],
             "q_options": (q_options.model_dump(exclude_none=True) if q_options else {}),
             "file_sha1": file_sha1,
-            "mapping_parameters": (
-                mapping_parameters.model_dump(exclude_none=True)
-                if mapping_parameters
-                else {}
-            ),
             "original_file_path": zip_file_path,
         }
 

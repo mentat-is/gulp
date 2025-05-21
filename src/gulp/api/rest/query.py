@@ -48,7 +48,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.sigma import get_sigma_mappings, sigma_convert_default, sigmas_to_queries
+from gulp.api.opensearch.sigma import sigma_convert_default, sigmas_to_queries
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -562,6 +562,7 @@ async def _spawn_query_group_workers(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     flt: GulpQueryFilter = None,
+    create_stats: bool=True
 ) -> None:
     """
     spawns worker tasks for each query and wait them all
@@ -580,17 +581,18 @@ async def _spawn_query_group_workers(
         flt=flt,
     )
 
-    # create a stats, just to allow request canceling
-    async with GulpCollab.get_instance().session() as sess:
-        await GulpRequestStats.create(
-            token=None,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=None,  # uses default
-            operation_id=operation_id,
-            sess=sess,
-            user_id=user_id,
-        )
+    if create_stats:
+        # create a stats, just to allow request canceling
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpRequestStats.create(
+                token=None,
+                ws_id=ws_id,
+                req_id=req_id,
+                object_data=None,  # uses default
+                operation_id=operation_id,
+                sess=sess,
+                user_id=user_id,
+            )
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
