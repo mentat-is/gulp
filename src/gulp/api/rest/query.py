@@ -544,6 +544,9 @@ async def _preview_query(
             total, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
                 query_index, q, q_options
             )
+            for d in docs:
+                # remove highlight, not needed in preview
+                d.pop("highlight", None)
     finally:
         if mod:
             await mod.unload()

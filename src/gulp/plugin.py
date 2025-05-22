@@ -1651,6 +1651,10 @@ class GulpPluginBase(ABC):
 
         if self._preview_mode:
             # preview, accumulate docs
+            for d in docs:
+                # remove highlight if present
+                d.pop("highlight", None)
+
             self._preview_chunk.extend(docs)
             # MutyLogger.get_instance().debug("accumulated %d docs" % (len(self._preview_chunk)))
             if (
