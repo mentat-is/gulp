@@ -685,18 +685,27 @@ class GulpOpenSearch:
 
         MutyLogger.get_instance().debug("index ignore_above: %d" % (ignore_above))
 
+        # TODO: this may be handy but leave it commented for now ....
+        # dtt.append(
+        #     {
+        #         # all strings as keywords + text
+        #         "all_strings_as_keywords": {
+        #             "match_mapping_type": "string",
+        #             "mapping": {
+        #                 "type": "text",
+        #                 "analyzer": "standard",
+        #                 "fields": {
+        #                     "keyword": {
+        #                         "type": "keyword",
+        #                         "ignore_above": ignore_above,
+        #                     }
+        #                 }
+        #             },
+        #         }
+        #     }
+        # )
+
         # handle object fields
-        dtt.append(
-            {
-                "all_strings_as_keywords": {
-                    "match_mapping_type": "string",  # Target all string fields
-                    "mapping": {
-                        "type": "keyword",  # Map as keyword directly
-                        "ignore_above": ignore_above,
-                    },
-                }
-            }
-        )
         dtt.append(
             {
                 "objects": {
@@ -749,7 +758,7 @@ class GulpOpenSearch:
             mappings["properties"]["event"]["properties"]["original"] = {
                 "type": "text",
                 "analyzer": "standard",
-                "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
+                "fields": {"keyword": {"type": "keyword", "ignore_above": ignore_above}},
             }
 
             settings["index"]["mapping"]["total_fields"] = {

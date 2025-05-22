@@ -60,7 +60,8 @@ async def test_sigma_single_new():
 
     # read sigma
     sigma_path = os.path.join(
-        current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml"
+        #current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml"
+        current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml"
         #current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml"
         #current_dir, "sigma/win_defender_threat.yml"
     )

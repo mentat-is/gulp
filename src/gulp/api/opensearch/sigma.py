@@ -395,6 +395,66 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
             return [GulpPluginBase.build_unmapped_key(field)]
             #return [field]
 
+    def _patch_re_selections(detection: dict) -> dict:
+        """
+        patch "|re" selections to be compatible with elasticsearch/opensearch.
+
+        TODO: submit a patch to pysigma elasticsearch/opensearch backends to handle this automatically.
+
+        Args:
+            detection (dict): the detection section of the sigma rule
+        """
+        def _process_selection_value(d: dict, k: str, v: str):
+            if v.startswith("^"):
+                # elastic doesn't like the ^ at the beginning
+                v = v[1:]
+            else:
+                v = ".*" + v
+            if v.endswith("$"):
+                # elastic doesn't like the $ at the end
+                v = v[:-1]
+            else:
+                v = v + ".*"
+            
+            # update the value
+            d[k] = v
+
+
+        for field, value in detection.items():
+            if isinstance(value, dict):
+                # selection is a dict, i.e.
+                #
+                # 'detection': {
+                #    'selection': {
+                #        'Contents|re': 'http[s]?://[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}',
+                #        ...
+                #    },
+                for k, v in value.items():
+                    if k.endswith("|re"):
+                        # we're interested to patch regex only ...
+                        _process_selection_value(value, k, v)
+
+            elif isinstance(value, list):
+                # selection is a list of dicts, i.e.
+                #
+                # 'detection': {
+                #     'selection_img': [{
+                #         'Image|endswith': ['\\powershell.exe', '\\pwsh.exe']
+                #     }, {
+                #         'OriginalFileName': ['PowerShell.EXE', 'pwsh.dll']
+                #     }],
+                #     'selection_re': [{
+                #         'CommandLine|re': '\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+.*\\+'
+                #     }, ...
+                for item in value:
+                    if isinstance(item, dict):
+                        for k, v in item.items():                            
+                            if k.endswith("|re"):
+                                # we're interested to patch regex only ...
+                                _process_selection_value(item, k, v)
+                        
+        return detection
+    
     def _process_field_conditions(conditions: dict) -> dict:
         """
         process a dictionary of field conditions, replacing field names with ecs mappings.
@@ -414,7 +474,7 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
 
     # parse the sigma yaml
     try:
-        sigma_dict = yaml.safe_load(sigma_yaml)
+        sigma_dict = yaml.safe_load(sigma_yaml)        
     except yaml.YAMLError as e:
         MutyLogger.get_instance().error("failed to parse sigma yaml: %s", e)
         raise
@@ -434,7 +494,9 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
         MutyLogger.get_instance().warning("sigma rule has no detection section:\n%s", sigma_yaml)
         return sigma_yaml
 
+    # fix detection part for elasticsearch/opensearch
     detection = sigma_dict["detection"]
+    detection = _patch_re_selections(detection)
 
     # process each key in the detection section
     for key, value in list(detection.items()):
