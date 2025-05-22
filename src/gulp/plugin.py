@@ -1391,7 +1391,8 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
-    def _build_unmapped_key(self, source_key: str) -> str:
+    @staticmethod
+    def build_unmapped_key(source_key: str) -> str:
         """
         builds a "gulp.unmapped" key from a source key.
 
@@ -1438,7 +1439,7 @@ class GulpPluginBase(ABC):
                     d[kk] = vv
         else:
             # unmapped key
-            d[self._build_unmapped_key(source_key)] = source_value
+            d[GulpPluginBase.build_unmapped_key(source_key)] = source_value
 
         return d
 
@@ -1475,7 +1476,7 @@ class GulpPluginBase(ABC):
         fields_mapping = mapping.fields.get(source_key)
         if not fields_mapping:
             # missing mapping at all (no ecs and no timestamp field)
-            return {self._build_unmapped_key(source_key): source_value}
+            return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
         if fields_mapping.force_type:

@@ -273,7 +273,7 @@ async def sigmas_to_queries(
             if not sigma_service_names:
                 # no service names found in the rule, we don't need to use sigma mappings
                 use_sigma_mappings = False
-                
+
             q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
             queries.extend(q)
 
@@ -391,7 +391,9 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
             ]
         else:
             # keep original field if no mapping exists
-            return [field]
+            # return the unmapped field
+            return [GulpPluginBase.build_unmapped_key(field)]
+            #return [field]
 
     def _process_field_conditions(conditions: dict) -> dict:
         """

@@ -20,6 +20,9 @@ services:
       http.cors.enabled: true
       http.cors.allow-origin: "*"
       http.cors.allow-headers: "*"
+      # fix for field expansion error - increases the maximum number of fields that can be queried with wildcards
+      # indices.query.bool.max_clause_count: 8192
+      
 
       # log settings
       # logger.level: DEBUG                            # sets the root logger level (default is INFO)
