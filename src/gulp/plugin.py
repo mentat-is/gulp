@@ -620,7 +620,8 @@ class GulpPluginBase(ABC):
         return l, skipped
 
     async def sigma_convert(
-        self, sigma: str, mapping_parameters: GulpMappingParameters = None, **kwargs
+        self, sigma: str, mapping_parameters: GulpMappingParameters = None, 
+        use_sigma_mappings: bool = True, **kwargs
     ) -> list[GulpQuery]:
         """
         convert a sigma rule to a specific query format.
@@ -632,6 +633,7 @@ class GulpPluginBase(ABC):
         Args:
             sigma (str): the sigma rule YAML
             mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
+            use_sigma_mappings (bool, optional): whether to process (if present) sigma mappings to build the query. Defaults to True.
             **kwargs: additional arguments to pass to the conversion function.
 
         Returns:

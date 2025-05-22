@@ -85,8 +85,7 @@ then, different entrypoints may be implemented:
 
   - to support direct gulp queries through the `query_sigma` REST API, there is no need to implement `sigma_convert`, since gulp already implements the opensearch pysigma backend needed.
   - to query an external source (i.e. SPLUNK) using sigma rules, one may implement `sigma_convert` targeting the pysigma SPLUNK backend in the splunk external plugin.
-  - otherwise, `sigma_convert`is also exposed by the gulp REST API to be used to manually convert sigma rules to target both gulp and, via plugin, an external source.
-
+  
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.

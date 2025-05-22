@@ -202,39 +202,6 @@ class GulpAPIQuery:
         return res
 
     @staticmethod
-    async def sigma_convert(
-        token: str,
-        sigma: str,
-        mapping_parameters: GulpMappingParameters = None,
-        plugin: str = None,
-        expected_status: int = 200,
-        req_id: str = None,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-        params = {
-            "req_id": req_id or api_common.req_id,
-            "plugin": plugin,
-        }
-        body = {
-            "sigma": sigma,
-            "mapping_parameters": (
-                mapping_parameters.model_dump(by_alias=True, exclude_none=True)
-                if mapping_parameters
-                else None
-            ),
-        }
-
-        res = await api_common.make_request(
-            "POST",
-            "sigma_convert",
-            params=params,
-            body=body,
-            token=token,
-            expected_status=expected_status,
-        )
-        return res
-
-    @staticmethod
     async def query_single_id(
         token: str,
         operation_id: str,

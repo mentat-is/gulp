@@ -248,7 +248,10 @@ async def sigmas_to_queries(
             # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
             sigma_mappings: GulpSigmaMapping = await _get_sigma_mappings(mapping_parameters)
             mapping_parameters.sigma_mappings = sigma_mappings
-            if mapping_parameters.sigma_mappings:
+            
+            # if we have mappings AND rule have service names, we check if the rule is for this source.
+            # either, the rule will be always used.
+            if mapping_parameters.sigma_mappings and sigma_service_names:
                 # check if this sigma rule is for this source
                 if (
                     mapping_parameters.sigma_mappings.service_name.lower()
@@ -266,7 +269,12 @@ async def sigmas_to_queries(
                 # use default sigma convert
                 sigma_convert = sigma_convert_default
 
-            q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters)
+            use_sigma_mappings = True
+            if not sigma_service_names:
+                # no service names found in the rule, we don't need to use sigma mappings
+                use_sigma_mappings = False
+                
+            q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
             queries.extend(q)
 
     return queries
@@ -452,6 +460,7 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
 async def sigma_convert_default(
     sigma: str,
     mapping_parameters: GulpMappingParameters = None,
+    use_sigma_mappings: bool = True,
     **kwargs,
 ) -> list["GulpQuery"]:
     """
@@ -460,6 +469,7 @@ async def sigma_convert_default(
     Args:
         sigma (str): the sigma rule YAML
         mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
+        use_sigma_mappings (bool, optional): whether to process (if present) sigma mappings to build the query. Defaults to True.
         **kwargs: additional parameters to pass to the conversion function
             backend (Backend): the backend to use for conversion. Defaults to OpensearchLuceneBackend.
     Returns:
@@ -482,8 +492,11 @@ async def sigma_convert_default(
     qs: list[GulpQuery] = to_gulp_query_struct(
         mapped_sigma, backend=backend, output_format=output_format
     )
+    if not use_sigma_mappings:
+        # no sigma mappings, just return the queries
+        return qs
 
-    # finally we add constraints if sigma mappings are set
+    # finally we add constraints if sigma mappings are set (and we're told to use them)
     for q in qs:
         if not mapping_parameters.sigma_mappings:
             continue
@@ -521,13 +534,13 @@ async def sigma_convert_default(
         # store back the patched query
         q.q = new_q
 
+    # done!
     # count: int=0
     # for q in qs:
     #     MutyLogger.get_instance().debug(
     #         "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))
     #     )
-    #     count += 1
-            
+    #     count += 1            
     return qs
 
 
