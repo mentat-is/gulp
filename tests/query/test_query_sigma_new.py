@@ -60,9 +60,20 @@ async def test_sigma_single_new():
 
     # read sigma
     sigma_path = os.path.join(
-        #current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml"
-        current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml"
-        #current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml"
+        # current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml" # 6
+        current_dir, "sigma/windows/create_stream_hash/create_stream_hash_file_sharing_domains_download_susp_extension.yml" # 1
+        # current_dir, "sigma/windows/file/file_change/file_change_win_2022_timestomping.yml" # 4
+        #current_dir, "sigma/windows/network_connection/net_connection_win_rdp_outbound_over_non_standard_tools.yml" # 0
+        # current_dir, "sigma/windows/network_connection/net_connection_win_susp_initiated_uncommon_or_suspicious_locations.yml" # 3
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml" # 0
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_frombase64string.yml" # 1
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_renamed_binary_highly_relevant.yml" # 19
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_execution_path.yml" # 10
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_inline_win_api_access.yml" # 7
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_parents.yml" # 1
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_script_exec_from_env_folder.yml" # 0
+        # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_script_exec_from_temp.yml" # 5
+        # current_dir, "sigma/windows/registry/registry_set/registry_set_renamed_sysinternals_eula_accepted.yml" # 7
         #current_dir, "sigma/win_defender_threat.yml"
     )
     sigma = await muty.file.read_file_async(sigma_path)

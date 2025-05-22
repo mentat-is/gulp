@@ -1805,6 +1805,14 @@ class GulpOpenSearch:
             ObjectNotFound: If no more hits are found.
         """
         body = q
+
+        # we also want the matched fields
+        q["highlight"] = {
+            "fields": {
+                "*": {}
+            }
+        }
+  
         body["track_total_hits"] = True
         for k, v in parsed_options.items():
             if v:

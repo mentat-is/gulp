@@ -215,6 +215,8 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
         notes = []
         MutyLogger.get_instance().info("creating a bulk of %d notes..." % len(docs))
         for doc in docs:
+            highlights = doc.pop("highlight", None)
+
             # associate the document with the note by creating a GulpBasicDocument object
             associated_doc = GulpBasicDocument(
                 id=doc.get("_id"),
@@ -226,6 +228,15 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 source_id=doc.get("gulp.source_id"),
             )
 
+            # build the note text
+            text = "### sigma rule\n\n"
+            text += source_q
+            if highlights:
+                # if highlights are present, add highlights to the text
+                text+= "\n\n"
+                text+= "### matches\n\n"
+                text+="````json" + "\n" + str(highlights) + "\n````"
+
             # add the note object dictionary
             object_data = GulpNote.build_dict(
                 operation_id=associated_doc.operation_id,
@@ -235,7 +246,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 tags=tt,
                 color=color,
                 name=name,
-                text=source_q,
+                text=text,
                 docs=[associated_doc],
             )
 
