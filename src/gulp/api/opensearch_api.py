@@ -678,7 +678,25 @@ class GulpOpenSearch:
         # add dynamic templates for unmapped fields
         dtt = []
 
+        ignore_above = GulpConfig.get_instance().index_dynamic_keyword_ignore_above()
+        if not ignore_above:
+            # use default
+            ignore_above = 1024
+    
+        MutyLogger.get_instance().debug("index ignore_above: %d" % (ignore_above))
+            
         # handle object fields
+        dtt.append(
+ {
+                "all_strings_as_keywords": {
+                    "match_mapping_type": "string",  # Target all string fields
+                    "mapping": {
+                        "type": "keyword",  # Map as keyword directly
+                        "ignore_above": ignore_above,
+                    }
+                }
+            }            
+        )
         dtt.append(
             {
                 "objects": {
@@ -696,7 +714,7 @@ class GulpOpenSearch:
                     "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
                     "match_pattern": "regex",
                     "match": "^0[xX][0-9a-fA-F]+$",
-                    "mapping": {"type": "keyword", "ignore_above": 1024},
+                    "mapping": {"type": "keyword"}
                 }
             }
         )
@@ -705,10 +723,11 @@ class GulpOpenSearch:
                 "unmapped_fields": {
                     "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
                     "match_mapping_type": "*",
-                    "mapping": {"type": "keyword", "ignore_above": 1024},
+                    "mapping": {"type": "keyword"}
                 }
             }
         )
+            
         dtt.extend(dt)
         mappings["dynamic_templates"] = dtt
 

@@ -48,7 +48,8 @@ async def test_sigma_single_new():
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(
-        current_dir, "sigma/Microsoft-Windows-Windows Defender%4Operational.evtx"
+        # current_dir, "sigma/Microsoft-Windows-Windows Defender%4Operational.evtx"
+        current_dir, "sigma/Microsoft-Windows-Sysmon%4Operational.evtx"
     )
 
     if os.environ.get("INGEST_DATA") == "1":
@@ -59,7 +60,8 @@ async def test_sigma_single_new():
 
     # read sigma
     sigma_path = os.path.join(
-        current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml"
+        current_dir, "sigma/windows/process_creation/proc_creation_win_susp_inline_win_api_access.yml"
+        #current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml"
         #current_dir, "sigma/win_defender_threat.yml"
     )
     sigma = await muty.file.read_file_async(sigma_path)

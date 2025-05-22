@@ -200,6 +200,12 @@ class GulpConfig:
 
         return (splitted[0], int(splitted[1]))
 
+    def index_dynamic_keyword_ignore_above(self) -> int:
+        """
+        Returns the default ignore_above value for dynamic keyword fields in the index template (default=not specified, use default).
+        """
+        return self._config.get("index_dynamic_keyword_ignore_above", None)
+    
     def index_template_default_total_fields_limit(self) -> int:
         """
         Returns the default total fields limit for the index template (default=10000).
