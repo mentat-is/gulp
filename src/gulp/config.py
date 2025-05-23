@@ -236,6 +236,24 @@ class GulpConfig:
         )
         return n
 
+    def ingestion_local_path(self) -> str:
+        """
+        if this is not set, the default path will be used: ~/.config/gulp/ingest_local
+
+        Returns:
+            str: the local path for ingestion
+        """
+        n = self._config.get("ingestion_local_path", None)
+        if not n:
+            # use default
+            p = self.config_dir()
+            n = os.path.abspath(os.path.join(p, "ingest_local"))
+
+        if not os.path.exists(n):
+            # create if not exist
+            os.makedirs(n, exist_ok=True)
+        return n
+    
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.

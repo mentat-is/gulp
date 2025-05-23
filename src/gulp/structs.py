@@ -86,7 +86,6 @@ class GulpMappingParameters(BaseModel):
             "examples": [
                 {
                     "mapping_file": "mftecmd_csv.json",
-                    "plugin": "mftecmd",
                     "mappings": {
                         "the_mapping_id": autogenerate_model_example_by_class(
                             GulpMapping

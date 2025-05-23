@@ -33,6 +33,8 @@
   "ingestion_retry_max": 3,
   // how many seconds between ingestion retries on error (default=1)
   "ingestion_retry_delay": 1,
+  // if defined, this is a local path to be used for ingestion (default=GULPDIR/ingest_local)
+  "ingestion_local_path": null,
   // client certificate password (not supported, ignored)
   "opensearch_client_cert_password": null,
   // this is the default, set to true only if your opensearch cluster has multiple nodes

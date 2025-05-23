@@ -86,6 +86,52 @@ class GulpAPIIngest:
 
 
     @staticmethod
+    async def ingest_file_local(
+        token: str,
+        file_path: str,
+        operation_id: str,
+        context_name: str,
+        plugin: str,
+        file_total: int = 1,
+        flt: Optional[GulpIngestionFilter] = None,
+        plugin_params: Optional[GulpPluginParameters] = None,
+        delete_after: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        expected_status: int = 200,
+        preview_mode: bool = False,
+    ) -> dict:
+        api_common = GulpAPICommon.get_instance()
+
+        params = {
+            "operation_id": operation_id,
+            "context_name": context_name,
+            "plugin": plugin,
+            "path": file_path,
+            "preview_mode": preview_mode,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
+            "file_total": file_total,
+            "delete_after": delete_after,
+        }
+
+        body = {
+            "flt": flt.model_dump(exclude_none=True) if flt else {},
+            "plugin_params": (
+                plugin_params.model_dump(exclude_none=True) if plugin_params else {}
+            ),
+        }
+
+        return await api_common.make_request(
+            "POST",
+            "ingest_file_local",
+            params=params,
+            token=token,
+            body=body,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
     async def ingest_zip(
         token: str,
         file_path: str,
@@ -147,6 +193,39 @@ class GulpAPIIngest:
         )
 
     @staticmethod
+    async def ingest_zip_local(
+        token: str,
+        file_path: str,
+        operation_id: str,
+        context_name: str,
+        flt: GulpIngestionFilter = None,
+        delete_after: bool = False,
+        ws_id: str = None,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        """Ingest a ZIP archive containing files to process"""
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "delete_after": delete_after,
+            "path": file_path,
+            "context_name": context_name,
+            "ws_id": ws_id or api_common.ws_id,
+            "req_id": req_id or api_common.req_id,
+        }
+
+        body = flt or None
+        return await api_common.make_request(
+            "POST",
+            "ingest_zip_local",
+            params=params,
+            token=token,
+            body=body,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
     async def ingest_raw(
         token: str,
         raw_data: Dict,
@@ -181,6 +260,27 @@ class GulpAPIIngest:
             "ingest_raw",
             params=params,
             body=body,
+            token=token,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
+    async def ingest_local_list(
+        token: str,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> dict:
+        """Ingest raw data using the raw plugin"""
+        api_common = GulpAPICommon.get_instance()
+
+        params = {
+            "req_id": req_id or api_common.req_id,
+        }
+
+        return await api_common.make_request(
+            "GET",
+            "ingest_local_list",
+            params=params,
             token=token,
             expected_status=expected_status,
         )

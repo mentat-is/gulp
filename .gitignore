@@ -30,6 +30,7 @@ test_scripts/test.json
 .config
 gulpconfig
 rules
+ingest_local
 
 # symlinks
 muty-python
