@@ -679,6 +679,33 @@ class GulpOpenSearch:
         # add dynamic templates for unmapped fields
         dtt = []
 
+        ignore_above = GulpConfig.get_instance().index_dynamic_keyword_ignore_above()
+        if not ignore_above:
+            # use default
+            ignore_above = 1024
+
+        MutyLogger.get_instance().debug("index ignore_above: %d" % (ignore_above))
+
+        # TODO: this may be handy but leave it commented for now ....
+        # dtt.append(
+        #     {
+        #         # all strings as keywords + text
+        #         "all_strings_as_keywords": {
+        #             "match_mapping_type": "string",
+        #             "mapping": {
+        #                 "type": "text",
+        #                 "analyzer": "standard",
+        #                 "fields": {
+        #                     "keyword": {
+        #                         "type": "keyword",
+        #                         "ignore_above": ignore_above,
+        #                     }
+        #                 }
+        #             },
+        #         }
+        #     }
+        # )
+
         # handle object fields
         dtt.append(
             {
@@ -697,7 +724,7 @@ class GulpOpenSearch:
                     "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
                     "match_pattern": "regex",
                     "match": "^0[xX][0-9a-fA-F]+$",
-                    "mapping": {"type": "keyword", "ignore_above": 1024},
+                    "mapping": {"type": "keyword"},
                 }
             }
         )
@@ -706,10 +733,11 @@ class GulpOpenSearch:
                 "unmapped_fields": {
                     "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
                     "match_mapping_type": "*",
-                    "mapping": {"type": "keyword", "ignore_above": 1024},
+                    "mapping": {"type": "keyword"},
                 }
             }
         )
+
         dtt.extend(dt)
         mappings["dynamic_templates"] = dtt
 
@@ -731,7 +759,7 @@ class GulpOpenSearch:
             mappings["properties"]["event"]["properties"]["original"] = {
                 "type": "text",
                 "analyzer": "standard",
-                "fields": {"keyword": {"type": "keyword", "ignore_above": 1024}},
+                "fields": {"keyword": {"type": "keyword", "ignore_above": ignore_above}},
             }
 
             settings["index"]["mapping"]["total_fields"] = {
@@ -740,6 +768,7 @@ class GulpOpenSearch:
             settings["index"][
                 "refresh_interval"
             ] = GulpConfig.get_instance().index_template_default_refresh_interval()
+
             if not GulpConfig.get_instance().opensearch_multiple_nodes():
                 # optimize for single node
                 # this also removes "yellow" node in single node mode
@@ -1788,6 +1817,14 @@ class GulpOpenSearch:
             ObjectNotFound: If no more hits are found.
         """
         body = q
+
+        # we also want the matched fields
+        q["highlight"] = {
+            "fields": {
+                "*": {}
+            }
+        }
+  
         body["track_total_hits"] = True
         for k, v in parsed_options.items():
             if v:
@@ -1798,7 +1835,7 @@ class GulpOpenSearch:
             "content-type": "application/json",
         }
         timeout = GulpConfig.get_instance().opensearch_request_timeout()
-        params: dict={}
+        params: dict = {}
         if timeout > 0:
             # set timeout in seconds
             params["timeout"] = timeout
@@ -1819,10 +1856,14 @@ class GulpOpenSearch:
                 )
             else:
                 # external opensearch
-                res = await el.search(body=body, index=index, headers=headers, params=params)
+                res = await el.search(
+                    body=body, index=index, headers=headers, params=params
+                )
         else:
             # use the OpenSearch client (default)
-            res = await self._opensearch.search(body=body, index=index, headers=headers, params=params)
+            res = await self._opensearch.search(
+                body=body, index=index, headers=headers, params=params
+            )
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (json.dumps(res, indent=2)))
         hits = res["hits"]["hits"]
@@ -1897,7 +1938,7 @@ class GulpOpenSearch:
         callback_args: dict = None,
         callback_chunk: callable = None,
         callback_chunk_args: dict = None,
-        source_q: str = None
+        source_q: str = None,
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -1983,7 +2024,9 @@ class GulpOpenSearch:
                     # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s" % (req_id, stats))
                     if canceled:
                         last = True
-                        MutyLogger.get_instance().warning("search_dsl: request %s canceled!" % (req_id))
+                        MutyLogger.get_instance().warning(
+                            "search_dsl: request %s canceled!" % (req_id)
+                        )
 
                 if callback:
                     # call the callback for each document

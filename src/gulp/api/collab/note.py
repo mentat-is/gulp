@@ -15,6 +15,7 @@ Main functionalities:
 - Associating notes with contexts, sources, and documents
 """
 
+import json
 from typing import List, Optional, override
 
 from muty.log import MutyLogger
@@ -215,6 +216,8 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
         notes = []
         MutyLogger.get_instance().info("creating a bulk of %d notes..." % len(docs))
         for doc in docs:
+            highlights = doc.pop("highlight", None)
+
             # associate the document with the note by creating a GulpBasicDocument object
             associated_doc = GulpBasicDocument(
                 id=doc.get("_id"),
@@ -226,6 +229,16 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 source_id=doc.get("gulp.source_id"),
             )
 
+            # build the note text
+            text = ""
+            if highlights:
+                # if highlights are present, add highlights to the text
+                text+= "### matches\n\n"
+                text+="````json" + "\n" + json.dumps(highlights, indent=2) + "\n````"
+            
+            text += "\n\n### query:\n\n"
+            text += f"````text\n{str(source_q)}````"
+
             # add the note object dictionary
             object_data = GulpNote.build_dict(
                 operation_id=associated_doc.operation_id,
@@ -235,7 +248,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 tags=tt,
                 color=color,
                 name=name,
-                text=source_q,
+                text=text,
                 docs=[associated_doc],
             )
 

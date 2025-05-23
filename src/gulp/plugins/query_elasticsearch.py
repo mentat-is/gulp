@@ -139,7 +139,8 @@ class Plugin(GulpPluginBase):
 
     @override
     async def sigma_convert(
-        self, sigma: str, mapping_parameters: GulpMappingParameters = None, **kwargs
+        self, sigma: str, mapping_parameters: GulpMappingParameters = None, 
+        use_sigma_mapping: bool = True, **kwargs
     ):
         # check if we're using elastic or openssearch and select the appropriate backend
         is_elasticsearch = kwargs.get("is_elasticsearch", False)
@@ -152,7 +153,7 @@ class Plugin(GulpPluginBase):
 
         # call the sigma convert function
         return await sigma_convert_default(
-            sigma, mapping_parameters, backend=backend
+            sigma, mapping_parameters, backend=backend, use_sigma_mapping=use_sigma_mapping
         )
 
     @override

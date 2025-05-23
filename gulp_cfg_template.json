@@ -23,6 +23,8 @@
   "https_enforce_client_certs": false,
   // default for index template creation
   "index_template_default_total_fields_limit": 10000,
+  // if set, tweaks the "ignore_above" setting for dynamically generated keyword fields in the index (default=not specified, use default)
+  "index_dynamic_keyword_ignore_above": 1500,
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
   // failed events in a file to consider the file ABORTED (0=disabled)

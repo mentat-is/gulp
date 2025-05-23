@@ -48,7 +48,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.sigma import get_sigma_mappings, sigma_convert_default, sigmas_to_queries
+from gulp.api.opensearch.sigma import sigma_convert_default, sigmas_to_queries
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -544,6 +544,9 @@ async def _preview_query(
             total, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
                 query_index, q, q_options
             )
+            for d in docs:
+                # remove highlight, not needed in preview
+                d.pop("highlight", None)
     finally:
         if mod:
             await mod.unload()
@@ -562,6 +565,7 @@ async def _spawn_query_group_workers(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     flt: GulpQueryFilter = None,
+    create_stats: bool=True
 ) -> None:
     """
     spawns worker tasks for each query and wait them all
@@ -580,17 +584,18 @@ async def _spawn_query_group_workers(
         flt=flt,
     )
 
-    # create a stats, just to allow request canceling
-    async with GulpCollab.get_instance().session() as sess:
-        await GulpRequestStats.create(
-            token=None,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=None,  # uses default
-            operation_id=operation_id,
-            sess=sess,
-            user_id=user_id,
-        )
+    if create_stats:
+        # create a stats, just to allow request canceling
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpRequestStats.create(
+                token=None,
+                ws_id=ws_id,
+                req_id=req_id,
+                object_data=None,  # uses default
+                operation_id=operation_id,
+                sess=sess,
+                user_id=user_id,
+            )
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
@@ -1358,113 +1363,6 @@ async def query_sigma_handler(
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-
-
-@router.post(
-    "/sigma_convert",
-    response_model=JSendResponse,
-    tags=["query"],
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1704380570434,
-                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                        "data": [
-                            {
-                                "q": {
-                                    "query": {
-                                        "bool": {
-                                            "must": [
-                                                {
-                                                    "query_string": {
-                                                        "query": "\\*:*",
-                                                        "analyze_wildcard": True,
-                                                    }
-                                                }
-                                            ]
-                                        }
-                                    }
-                                },
-                                "name": "Match All Events",
-                                "sigma_id": "1a070ea4-87f4-467c-b1a9-f556c56b2449",
-                                "tags": [],
-                            }
-                        ],
-                    }
-                }
-            }
-        }
-    },
-    summary="Convert a sigma rule to a gulp raw query.",
-    description="""
-manually builds raw query for gulp or external plugin from a sigma rule YAML.
-
-- `plugin_params` is used to specify mapping parameters: `mapping_file` or `mappings` (direct mapping), `mapping_id`, `additional_mapping_files`
-""",
-)
-async def sigma_convert_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    sigma: Annotated[
-        str,
-        Body(
-            description="a sigma rule YML to be converted.",
-            examples=[EXAMPLE_SIGMA_RULE],
-            media_type="text/plain",
-        ),
-    ],
-    mapping_parameters: Annotated[
-        GulpMappingParameters,
-        Body(
-            description="to provide the mappings to be used via `mapping_file`/`mappings`, `mapping_id`, `additional_mapping_files`."
-        ),
-    ] = None,
-    plugin: Annotated[
-        str,
-        Query(
-            description="if set, the plugin implementing `sigma_convert` to convert the sigma rule using a specific backend/pipeline. Default=use Gulp Opensearch backend outputting lucene DSL raw queries."
-        ),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    params = locals()
-    params["mapping_parameters"] = (
-        mapping_parameters.model_dump(exclude_none=True) if mapping_parameters else None
-    )
-    ServerUtils.dump_params(params)
-
-    mod = None
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            _ = await GulpUserSession.check_token(sess, token)
-
-        # convert sigma rule/s using pysigma
-        MutyLogger.get_instance().debug("sigma rule: %s" % (sigma))
-        if plugin is not None:
-            # load the plugin, use custom backend
-            try:
-                mod = await GulpPluginBase.load(plugin)
-                q: list[GulpQuery] = await mod.sigma_convert(sigma, mapping_parameters)
-            finally:
-                if mod:
-                    await mod.unload()
-        else:
-            # use gulp's backend
-            q: list[GulpQuery] = await sigma_convert_default(sigma, mapping_parameters)
-
-        l: list[dict] = []
-        for qq in q:
-            l.append(qq.model_dump(exclude_none=True))
-
-        return JSONResponse(JSendResponse.success(req_id, data=l))
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-    finally:
-        if mod:
-            await mod.unload()
 
 
 @router.post(

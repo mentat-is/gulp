@@ -620,7 +620,8 @@ class GulpPluginBase(ABC):
         return l, skipped
 
     async def sigma_convert(
-        self, sigma: str, mapping_parameters: GulpMappingParameters = None, **kwargs
+        self, sigma: str, mapping_parameters: GulpMappingParameters = None, 
+        use_sigma_mappings: bool = True, **kwargs
     ) -> list[GulpQuery]:
         """
         convert a sigma rule to a specific query format.
@@ -632,6 +633,7 @@ class GulpPluginBase(ABC):
         Args:
             sigma (str): the sigma rule YAML
             mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
+            use_sigma_mappings (bool, optional): whether to process (if present) sigma mappings to build the query. Defaults to True.
             **kwargs: additional arguments to pass to the conversion function.
 
         Returns:
@@ -1389,7 +1391,8 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
-    def _build_unmapped_key(self, source_key: str) -> str:
+    @staticmethod
+    def build_unmapped_key(source_key: str) -> str:
         """
         builds a "gulp.unmapped" key from a source key.
 
@@ -1436,7 +1439,7 @@ class GulpPluginBase(ABC):
                     d[kk] = vv
         else:
             # unmapped key
-            d[self._build_unmapped_key(source_key)] = source_value
+            d[GulpPluginBase.build_unmapped_key(source_key)] = source_value
 
         return d
 
@@ -1473,7 +1476,7 @@ class GulpPluginBase(ABC):
         fields_mapping = mapping.fields.get(source_key)
         if not fields_mapping:
             # missing mapping at all (no ecs and no timestamp field)
-            return {self._build_unmapped_key(source_key): source_value}
+            return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
         if fields_mapping.force_type:
@@ -1648,6 +1651,10 @@ class GulpPluginBase(ABC):
 
         if self._preview_mode:
             # preview, accumulate docs
+            for d in docs:
+                # remove highlight if present
+                d.pop("highlight", None)
+
             self._preview_chunk.extend(docs)
             # MutyLogger.get_instance().debug("accumulated %d docs" % (len(self._preview_chunk)))
             if (

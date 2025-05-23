@@ -91,9 +91,8 @@ class GulpAPIQuery:
         token: str,
         zip_file_path: str,
         operation_id: str,
-        mapping_parameters: GulpMappingParameters,
+        src_ids: list[str] = None,
         q_options: Optional[GulpQueryParameters] = None,
-        flt: Optional[GulpQueryFilter] = None,
         levels: Optional[list[str]] = None,    
         tags: Optional[list[str]] = None,
         products: Optional[list[str]] = None,
@@ -121,19 +120,14 @@ class GulpAPIQuery:
         }
 
         payload = {
-            "flt": flt.model_dump(exclude_none=True) if flt else {},
+            "src_ids": src_ids or [],
             "levels": levels or [],
-            "tags": tags or [],
-            "categories": categories or [],
             "products": products or [],
+            "categories": categories or [],
             "services": services or [],
+            "tags": tags or [],
             "q_options": (q_options.model_dump(exclude_none=True) if q_options else {}),
             "file_sha1": file_sha1,
-            "mapping_parameters": (
-                mapping_parameters.model_dump(exclude_none=True)
-                if mapping_parameters
-                else {}
-            ),
             "original_file_path": zip_file_path,
         }
 
@@ -200,39 +194,6 @@ class GulpAPIQuery:
         res = await api_common.make_request(
             "POST",
             "query_sigma",
-            params=params,
-            body=body,
-            token=token,
-            expected_status=expected_status,
-        )
-        return res
-
-    @staticmethod
-    async def sigma_convert(
-        token: str,
-        sigma: str,
-        mapping_parameters: GulpMappingParameters = None,
-        plugin: str = None,
-        expected_status: int = 200,
-        req_id: str = None,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-        params = {
-            "req_id": req_id or api_common.req_id,
-            "plugin": plugin,
-        }
-        body = {
-            "sigma": sigma,
-            "mapping_parameters": (
-                mapping_parameters.model_dump(by_alias=True, exclude_none=True)
-                if mapping_parameters
-                else None
-            ),
-        }
-
-        res = await api_common.make_request(
-            "POST",
-            "sigma_convert",
             params=params,
             body=body,
             token=token,
