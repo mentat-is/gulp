@@ -173,6 +173,26 @@ class GulpAPIOperation:
         )
 
     @staticmethod
+    async def context_get_by_id(
+        token: str,
+        src_id: str,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> list[dict]:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "obj_id": src_id,
+            "req_id": req_id or api_common.req_id,
+        }
+        return await api_common.make_request(
+            "GET",
+            "context_get_by_id",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
     async def context_list(
         token: str,
         operation_id: str,
@@ -234,6 +254,26 @@ class GulpAPIOperation:
         return await api_common.make_request(
             "GET",
             "source_list",
+            params=params,
+            token=token,
+            expected_status=expected_status,
+        )
+
+    @staticmethod
+    async def source_get_by_id(
+        token: str,
+        src_id: str,
+        req_id: str = None,
+        expected_status: int = 200,
+    ) -> list[dict]:
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "obj_id": src_id,
+            "req_id": req_id or api_common.req_id,
+        }
+        return await api_common.make_request(
+            "GET",
+            "source_get_by_id",
             params=params,
             token=token,
             expected_status=expected_status,

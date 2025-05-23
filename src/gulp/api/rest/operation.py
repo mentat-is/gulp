@@ -440,18 +440,12 @@ async def operation_list_handler(
 async def context_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    context_id: Annotated[
-        Optional[str],
-        Query(description="if set, only the context with this id is returned."),
-    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id])
-        if context_id:
-            flt.ids = [context_id]
         d = await GulpContext.get_by_filter_wrapper(
             token,
             flt,
@@ -461,6 +455,41 @@ async def context_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.get(
+    "/context_get_by_id",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpContext.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets a context.",
+)
+async def context_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        d = await GulpContext.get_by_id_wrapper(
+            token,
+            obj_id,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.delete(
     "/context_delete",
@@ -632,23 +661,51 @@ async def source_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    source_id: Annotated[
-        Optional[str],
-        Query(description="if set, only the source with this id is returned."),
-    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
-        if source_id:
-            flt.ids = [source_id]
-
         d = await GulpSource.get_by_filter_wrapper(token, flt)
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.get(
+    "/source_get_by_id",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpSource.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets a source.",
+)
+async def source_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        d = await GulpSource.get_by_id_wrapper(
+            token,
+            obj_id,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.post(
     "/source_create",
