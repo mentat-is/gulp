@@ -387,7 +387,7 @@ class GulpCollab:
 
     async def clear_tables(self, exclude: list[str] = None) -> None:
         """
-        clears the database tables, excluding the ones in the exclude list.
+        clears (delete data without dropping the table) the database tables, excluding the ones in the exclude list.
 
         Args:
             exclude (list[str], optional): The list of tables to exclude. Defaults to None.
@@ -400,7 +400,8 @@ class GulpCollab:
             for table_name, table in GulpCollabBase.metadata.tables.items():
                 # MutyLogger.get_instance().debug("---> clear: table=%s" % (table_name))
                 if table_name not in exclude:
-                    await conn.execute(table.delete())
+                    #await conn.execute(table.delete())
+                    await conn.execute(text("TRUNCATE TABLE %s RESTART IDENTITY CASCADE;" % (table_name)))
 
     async def create_default_operation(
         self, operation_id: str = None, index: str = None

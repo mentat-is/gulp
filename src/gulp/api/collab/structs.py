@@ -39,6 +39,7 @@ from sqlalchemy import (
     ColumnElement,
     ForeignKey,
     Select,
+    Delete,
     String,
     Tuple,
     and_,
@@ -50,6 +51,7 @@ from sqlalchemy import (
     literal,
     or_,
     select,
+    delete,
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
@@ -208,6 +210,12 @@ class GulpCollabFilter(BaseModel):
         None,
         description="filter by the given object text (wildcard accepted).",
     )
+    time_created_range: Optional[tuple[int, int]] = Field(
+        None,
+        description="""
+            if set, matches objects in a `CollabObject.time_created` range [start, end], inclusive, in milliseconds from unix epoch.
+        """,
+    )
     time_pin_range: Optional[tuple[int, int]] = Field(
         None,
         description="""
@@ -300,23 +308,22 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         )
         return exists(subq)
 
-    def to_select_query(self, obj_type: T) -> Select[Tuple]:
+    def _to_query_internal(self, q: Select|Delete, obj_type: T) -> Select[Tuple]|Delete[Tuple]:
         """
-        convert the filter to a select query
+        convert the filter to a select or delete query
 
         Args:
-            type (T): the type of the object (one derived from GulpCollabBase)
+            q (Select|Delete): the query to apply the filter to
 
         Returns:
-            Select[Tuple]: the select query
+            Select[Tuple]|Delete[Tuple]: the select or delete query
         """
         # disable not-an-iterable and non-subscribtable:
         # checks are in place and the pydantic model enforces the type
         # pylint: disable=E1133,E1136
 
-        q: Select = select(obj_type)
         if self.ids:
-            q = q.filter(self._case_insensitive_or_ilike(obj_type.id, self.ids))
+            q = q.filter(self._case_insensitive_or_ilike(obj_type.id, self.ids))            
         if self.types:
             # match if equal to any in the list
             q = q.filter(obj_type.type.in_(self.types))
@@ -406,6 +413,14 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             if self.time_pin_range[1]:
                 q = q.where(obj_type.time_pin <= self.time_pin_range[1])
 
+        if self.time_created_range and "time_created" in obj_type.columns:
+            # returns all collab objects that have time_created in time_created_range
+            if self.time_created_range[0]:
+                q = q.where(obj_type.time_created >= self.time_created_range[0])
+            if self.time_created_range[1]:
+                q = q.where(obj_type.time_created <= self.time_created_range[1])
+
+
         if self.doc_ids and "docs" in obj_type.columns:
             # returns all collab objects that have at least one document with _id in doc_ids
             conditions = []
@@ -475,7 +490,30 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         # MutyLogger.get_instance().debug(f"to_select_query: {q}")
         return q
 
+    def to_select_query(self, obj_type: T) -> Select[Tuple]:
+        """
+        convert the filter to a select query
 
+        Args:
+            type (T): the type of the object (one derived from GulpCollabBase)
+
+        Returns:
+            Select[Tuple]: the select query
+        """
+        return self._to_query_internal(select(obj_type), obj_type)
+
+    def to_delete_query(self, obj_type: T) -> Delete[Tuple]:
+        """
+        convert the filter to a delete query
+
+        Args:
+            type (T): the type of the object (one derived from GulpCollabBase)
+
+        Returns:
+            Delete[Tuple]: the delete query
+        """
+        return self._to_query_internal(delete(obj_type), obj_type)
+    
 class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMixin):
     """
     base for everything on the collab database
@@ -1420,7 +1458,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         flt: GulpCollabFilter = None,
         user_id: str = None,
-    ) -> list[T]:
+        throw_if_not_found: bool = True,
+    ) -> int:
         """
         Asynchronously deletes objects based on the provided filter.
 
@@ -1458,25 +1497,26 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt.granted_user_ids = [user_id]
             flt.granted_user_group_ids = group_ids
 
-        q = flt.to_select_query(cls)
-        q = q.options(*cls._build_eager_loading_options())
+        q = flt.to_delete_query(cls)
         MutyLogger.get_instance().debug(
             "delete_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
         )
         res = await sess.execute(q)
-        objects = res.scalars().all()
-        if not objects:
+        if res is None or res.rowcount == 0:
+            if throw_if_not_found:
+                raise ObjectNotFound(
+                    f"No {cls.__name__} found with filter {flt}", cls.__name__, str(flt)
+                )
             return 0
-
-        deleted: int = 0
-        for o in objects:
-            # delete the object
-            await o.delete(sess)
-            deleted += 1
-
+        deleted_count = res.rowcount
+            
+        # commit the transaction
+        await sess.commit()        
         MutyLogger.get_instance().debug(
-            "user_id=%s, deleted %d objects" % (user_id, deleted))
-        return deleted
+            "user_id=%s, deleted %d objects (optimized)" % (user_id, deleted_count)
+        )
+        
+        return deleted_count
 
     @classmethod
     async def get_first_by_filter(

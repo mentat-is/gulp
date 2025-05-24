@@ -45,6 +45,7 @@ from gulp.api.ws_api import (
     WSDATA_CLIENT_DATA,
     WSDATA_CONNECTED,
     WSDATA_ERROR,
+    WSTOKEN_MONITOR,
     GulpClientDataPacket,
     GulpConnectedSocket,
     GulpConnectedSockets,
@@ -228,8 +229,9 @@ class GulpAPIWebsocket:
             )
 
         user_id = None
+        
         # special case for monitor token
-        if params.token.lower() == "monitor" and not required_permission:
+        if params.token.lower() == WSTOKEN_MONITOR and not required_permission:
             return params.ws_id, user_id
 
         # authenticate normal user
@@ -290,19 +292,23 @@ class GulpAPIWebsocket:
     @staticmethod
     async def _handle_websocket(
         websocket: WebSocket,
-        socket_type: GulpWsType,
-        permission: Optional[GulpUserPermission],
         run_loop_fn: Callable[[GulpConnectedSocket, str], Awaitable[None]],
+        socket_type: GulpWsType = None,
+        permission: GulpUserPermission = None,
     ) -> None:
         """
         generic websocket handler that follows the common pattern for all ws endpoints
 
         Args:
             websocket (WebSocket): the websocket connection
+            run_loop_fn (Callable): the main loop function for this socket type
             socket_type (GulpWsType): the type of socket connection
             permission (Optional[GulpUserPermission]): required permission for this endpoint
-            run_loop_fn (Callable): the main loop function for this socket type
+                        
         """
+        if not socket_type:
+            socket_type = GulpWsType.WS_DEFAULT
+
         ws = None
         try:
             # accept connection and get auth params
@@ -322,9 +328,10 @@ class GulpAPIWebsocket:
             ws = GulpConnectedSockets.get_instance().add(
                 websocket,
                 ws_id,
-                params.types,
-                params.operation_ids,
+                types=params.types,
+                operation_ids=params.operation_ids,
                 socket_type=socket_type,
+                internal=params.internal,
             )
 
             # acknowledge connection
@@ -420,7 +427,7 @@ class GulpAPIWebsocket:
             await ws.run_loop()
 
         await GulpAPIWebsocket._handle_websocket(
-            websocket, GulpWsType.WS_DEFAULT, None, run_loop
+            websocket, run_loop,
         )
 
     @router.websocket("/ws_ingest_raw")
@@ -439,9 +446,9 @@ class GulpAPIWebsocket:
         """
         await GulpAPIWebsocket._handle_websocket(
             websocket,
-            GulpWsType.WS_INGEST,
-            GulpUserPermission.INGEST,
             GulpAPIWebsocket.ws_ingest_run_loop,
+            socket_type=GulpWsType.WS_INGEST,
+            permission=GulpUserPermission.INGEST,
         )
 
     @staticmethod
@@ -572,9 +579,8 @@ class GulpAPIWebsocket:
         """
         await GulpAPIWebsocket._handle_websocket(
             websocket,
-            GulpWsType.WS_CLIENT_DATA,
-            None,
             GulpAPIWebsocket.ws_client_data_run_loop,
+            socket_type=GulpWsType.WS_CLIENT_DATA,
         )
 
     @staticmethod

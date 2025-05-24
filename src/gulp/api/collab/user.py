@@ -34,7 +34,7 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.api.collab.user_group import GulpUserAssociations
-from gulp.api.ws_api import WSDATA_USER_LOGIN, WSDATA_USER_LOGOUT, GulpUserLoginLogoutPacket
+from gulp.api.ws_api import WSDATA_EVENT_LOGIN, WSDATA_EVENT_LOGOUT, WSDATA_USER_LOGIN, WSDATA_USER_LOGOUT, GulpUserLoginLogoutPacket, GulpWsSharedQueue
 from gulp.config import GulpConfig
 
 if TYPE_CHECKING:
@@ -293,6 +293,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         ws_id: str,
         req_id: str,
         skip_password_check: bool = False,
+        user_ip: str = None,
     ) -> "GulpUserSession":
         """
         Asynchronously logs in a user and creates a session (=obtain token).
@@ -302,7 +303,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
             skip_password_check (bool, optional): Whether to skip the password check, internal usage only. Defaults to False.
-
+            user_ip (str, optional): The IP address of the user, for logging purposes. Defaults to None.
         Returns:
             GulpUserSession: The created session object.
         """
@@ -349,7 +350,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                     )
 
             # create new session
-            p = GulpUserLoginLogoutPacket(user_id=u.id, login=True)
+            p = GulpUserLoginLogoutPacket(user_id=u.id, login=True, ip=user_ip)
             object_data = {
                 "user_id": u.id,
                 "time_expire": time_expire,
@@ -377,6 +378,11 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 req_id=req_id,
             )
 
+            # also send login packet to internal websockets
+            GulpWsSharedQueue.get_instance().put_internal_data(WSDATA_EVENT_LOGIN,
+                                                               user_id=u.id,
+                                                               data=p.model_dump(exclude_none=True))
+
             # update user with new session and write the new session object itself
             u.session = new_session
             u.time_last_login = muty.time.now_msec()
@@ -394,7 +400,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             
     @staticmethod
     async def logout(
-        sess: AsyncSession, s: "GulpUserSession", ws_id: str, req_id: str
+        sess: AsyncSession, s: "GulpUserSession", ws_id: str, req_id: str,
+        user_ip:str = None,
     ) -> None:
         """
         Logs out the specified user by deleting the session.
@@ -404,6 +411,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             s: the GulpUserSession to log out
             ws_id (str): The websocket ID.
             req_id (str): The request ID.
+            user_ip (str, optional): The IP address of the user, for logging purposes. Defaults to None.
         Returns:
             None
         """
@@ -420,6 +428,12 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 ws_queue_datatype=WSDATA_USER_LOGOUT,
                 ws_data=p.model_dump(),
             )
+            
+            # also send logout packet to internal websockets
+            GulpWsSharedQueue.get_instance().put_internal_data(WSDATA_EVENT_LOGOUT,
+                                                               user_id=s.user_id,
+                                                               data=p.model_dump(exclude_none=True))
+
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """

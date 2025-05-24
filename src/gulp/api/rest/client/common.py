@@ -295,8 +295,8 @@ class GulpAPICommon:
         self.ws_id = ws_id
         self.req_id = req_id
         self.host = host
-        self._log_res = log_request
-        self._log_req = log_response
+        self._log_res = log_response
+        self._log_req = log_request
 
     def _make_url(self, endpoint: str) -> str:
         return f"{self.host}/{endpoint}"
@@ -304,9 +304,11 @@ class GulpAPICommon:
     def _log_request(self, method: str, url: str, params: dict):
         if not self._log_req:
             return
+        if not params:
+            params = {}
         MutyLogger.get_instance().debug(f"REQUEST {method} {url}")
         MutyLogger.get_instance().debug(
-            f"REQUEST PARAMS: {json.dumps(params, indent=2)}"
+            f"REQUEST PARAMS: {params}"
         )
 
     def _log_response(self, r: requests.Response):

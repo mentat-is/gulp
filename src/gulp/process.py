@@ -331,24 +331,6 @@ class GulpProcess:
         # read configuration
         GulpConfig.get_instance()
 
-        # sys.path fix is needed to load plugins from the plugins directories correctly
-        """
-        plugins_path = GulpConfig.get_instance().path_plugins_default()
-        plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
-
-        def _add_to_syspath(p: str):
-            if p and p not in sys.path:
-                extension_path = os.path.join(p, "extension")
-                MutyLogger.get_instance().debug(
-                    "adding %s and %s to sys.path" % (p, extension_path)
-                )
-                sys.path.append(p)
-                sys.path.append(extension_path)
-
-        _add_to_syspath(plugins_path)
-        _add_to_syspath(plugins_path_extra)
-        """
-
         # initializes executors
         await self.close_coro_pool()
         await self.close_thread_pool()
@@ -370,6 +352,7 @@ class GulpProcess:
             from gulp.api.rest_api import GulpRestServer
 
             # pylint: disable=protected-access
+            await GulpRestServer.get_instance()._unload_extension_plugins()
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:
             # worker process, set the queue

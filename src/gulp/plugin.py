@@ -65,7 +65,7 @@ class GulpPluginCacheMode(StrEnum):
 
     FORCE = "force"  # force load into cache if not already loaded
     IGNORE = "ignore"  # always load from disk
-    DEFAULT = "default"  # use configuration value
+    DEFAULT = "default"  # use configuration value (cache enabled/disabled)
 
 
 class GulpPluginEntry(BaseModel):
@@ -2271,6 +2271,9 @@ class GulpPluginBase(ABC):
                     force_load_from_disk = False
                 else:
                     # cache disabled
+                    MutyLogger.get_instance().warning(
+                        "plugin cache is disabled, loading plugin %s from disk" % (bare_name)
+                    )
                     force_load_from_disk = True
 
         if not force_load_from_disk:
@@ -2310,7 +2313,7 @@ class GulpPluginBase(ABC):
         # also call post-initialization routine if any
         await p.post_init(**kwargs)
 
-        if cache_mode != GulpPluginCacheMode.IGNORE:
+        if cache_mode != GulpPluginCacheMode.IGNORE and GulpConfig.get_instance().plugin_cache_enabled():
             # add to cache
             GulpPluginCache.get_instance().add(m, bare_name)
         return p
@@ -2335,10 +2338,12 @@ class GulpPluginBase(ABC):
         # finally:
         self._sess = None
         self._stats = None
-        self._mappings.clear()
-        self._mappings = None
-        self._index_type_mapping.clear()
-        self._index_type_mapping = None
+        if self._mappings:
+            self._mappings.clear()
+            self._mappings = None
+        if self._index_type_mapping:
+            self._index_type_mapping.clear()
+            self._index_type_mapping = None
         self._upper_record_to_gulp_document_fun = None
         self._upper_enrich_documents_chunk_fun = None
         self._upper_instance = None

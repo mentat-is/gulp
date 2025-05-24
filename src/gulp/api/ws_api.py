@@ -38,7 +38,7 @@ class GulpWsType(StrEnum):
     WS_DEFAULT = "default"
     WS_INGEST = "ingest"
     WS_CLIENT_DATA = "client_data"
-
+    
 
 # data types for the websocket
 WSDATA_ERROR = "ws_error"
@@ -61,6 +61,14 @@ WSDATA_NEW_SOURCE = "new_source"
 WSDATA_NEW_CONTEXT = "new_context"
 WSDATA_GENERIC = "generic"
 
+# events
+WSDATA_EVENT_LOGIN = WSDATA_USER_LOGIN
+WSDATA_EVENT_LOGOUT = WSDATA_USER_LOGOUT
+WSDATA_EVENT_QUERY_RESULT = "query_result"
+
+# used for internal websockets
+WSTOKEN_MONITOR= "monitor"
+
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
 
@@ -78,6 +86,10 @@ class GulpUserLoginLogoutPacket(BaseModel):
     user_id: str = Field(..., description="The user ID.")
     login: bool = Field(
         ..., description="If the event is a login event, either it is a logout."
+    )
+    ip: Optional[str] = Field(
+        None,
+        description="The IP address of the user, if available.",
     )
 
 
@@ -429,7 +441,7 @@ class GulpWsAuthPacket(BaseModel):
         ...,
         description="""user token.
 
-        - `monitor` is a special token used to also monitor users login/logout.
+        - `monitor` is a special token, reserved for internal use.
     """,
     )
     ws_id: Optional[str] = Field(
@@ -443,7 +455,10 @@ class GulpWsAuthPacket(BaseModel):
         None,
         description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
     )
-
+    internal: Optional[bool] = Field(
+        False,
+        description="if set, only internal messages are sent to this websocket.",
+    )
 
 class GulpDocumentsChunkPacket(BaseModel):
     """
@@ -521,7 +536,7 @@ class GulpWsData(BaseModel):
     type: str = Field(
         ..., description="The type of data carried by the websocket."
     )
-    ws_id: str = Field(..., description="The WebSocket ID.")
+    ws_id: Optional[str] = Field(description="The target WebSocket ID, may be None only if `internal` is set.")
     user_id: Optional[str] = Field(None, description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
@@ -534,7 +549,10 @@ class GulpWsData(BaseModel):
         description="If the data is private, only the websocket `ws_id` receives it.",
     )
     data: Optional[Any] = Field(None, description="The data carried by the websocket.")
-
+    internal: Optional[bool] = Field(
+        False,
+        description="Data to be routed to plugins only.",
+    )
 
 class WsQueueMessagePool:
     """
@@ -605,6 +623,7 @@ class GulpConnectedSocket:
         ws_id: str,
         types: list[str] = None,
         operation_ids: list[str] = None,
+        internal: bool = False,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
     ):
         """
@@ -615,13 +634,15 @@ class GulpConnectedSocket:
             ws_id (str): The WebSocket ID.
             types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all).
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
+            internal (bool, optional): If set, only internal messages are sent to this websocket. Defaults to False.
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         """
         self.ws = ws
         self.ws_id = ws_id
         self._msg_pool = WsQueueMessagePool()
-        self.types = types
+        self.types = types        
         self.operation_ids = operation_ids
+        self.internal = internal
         self.send_task = None
         self.receive_task = None
         self.socket_type = socket_type
@@ -1015,6 +1036,7 @@ class GulpConnectedSockets:
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
+        internal: bool = False,
     ) -> GulpConnectedSocket:
         """
         Adds a websocket to the connected sockets list.
@@ -1025,6 +1047,7 @@ class GulpConnectedSockets:
             types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all)
             operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
+            internal (bool, optional): If set, this is an internal websocket. Defaults to False.
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
@@ -1035,6 +1058,7 @@ class GulpConnectedSockets:
             types=types,
             operation_ids=operation_ids,
             socket_type=socket_type,
+            internal=internal,
         )
 
         # store socket reference
@@ -1152,6 +1176,19 @@ class GulpConnectedSockets:
         Returns:
             bool: True if message was routed, False otherwise
         """
+        async def _route(data: GulpWsData, client_ws: GulpConnectedSocket):
+            """put message in the target websocket queue"""
+            message = data.model_dump(
+                exclude_none=True, exclude_defaults=True, by_alias=True
+            )
+
+            await client_ws.put_message(message)
+            
+        if client_ws.internal and data.internal:
+            # internal message (for plugins)
+            await _route(data, client_ws)
+            return True
+        
         # skip if not a default socket
         if client_ws.socket_type != GulpWsType.WS_DEFAULT:
             return False
@@ -1163,7 +1200,7 @@ class GulpConnectedSockets:
         # check operation filter
         if client_ws.operation_ids and data.operation_id not in client_ws.operation_ids:
             return False
-
+        
         # handle private messages
         if data.private and data.type != WSDATA_USER_LOGIN:
             if client_ws.ws_id != data.ws_id:
@@ -1185,11 +1222,7 @@ class GulpConnectedSockets:
             return False
 
         # all checks passed, send the message
-        message = data.model_dump(
-            exclude_none=True, exclude_defaults=True, by_alias=True
-        )
-
-        await client_ws.put_message(message)
+        await _route(data, client_ws)
         return True
 
     async def broadcast_message(
@@ -1587,6 +1620,7 @@ class GulpWsSharedQueue:
         req_id: str = None,
         data: Any = None,
         private: bool = False,
+        internal: bool = False,
     ) -> None:
         """
         adds data to the shared queue with retry logic and backpressure handling.
@@ -1602,6 +1636,7 @@ class GulpWsSharedQueue:
             req_id (Optional[str]): the request id if applicable
             data (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
+            internal (bool): whether this message is internal (used by plugins only)
 
         raises:
             WebSocketDisconnect: if websocket is not connected for DOCUMENTS_CHUNK type
@@ -1624,6 +1659,7 @@ class GulpWsSharedQueue:
             req_id=req_id,
             private=private,
             data=data,
+            internal=internal,
         )
 
         # attempt to add with exponential backoff
@@ -1657,3 +1693,25 @@ class GulpWsSharedQueue:
             f"{self.MAX_RETRIES} attempts (queue size: {queue_size})"
         )
         raise WsQueueFullException(f"queue full for ws {ws_id}")
+
+    def put_internal_data(
+        self,
+        type: str,
+        user_id: str,
+        data: dict,
+    ) -> None:
+        """
+        same as put() but for internal messages (used by plugins only)
+        
+        Args:
+            type (str): the type of data being queued
+            user_id (str): the user id associated with this message
+            data (dict): the payload data
+        """
+        self.put(
+            type=type,
+            ws_id=None,
+            user_id=user_id,
+            data=data,
+            internal=True,
+        )
