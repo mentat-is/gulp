@@ -18,7 +18,7 @@ operations beyond self-management.
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -205,6 +205,7 @@ refer to `gulp_cfg_template.json` for more information.
 """,
 )
 async def login_handler(
+    r: Request,
     user_id: Annotated[
         str,
         Body(description="user ID for authentication", examples=["admin"]),
@@ -215,11 +216,14 @@ async def login_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    ip: str = r.client.host if r.client else "unknown"
+    params = locals()
+    params.pop("r", None)  # Remove Request object from params for logging
+    ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
             s = await GulpUser.login(
-                sess, user_id=user_id, password=password, ws_id=ws_id, req_id=req_id
+                sess, user_id=user_id, password=password, ws_id=ws_id, req_id=req_id, user_ip=ip
             )
             return JSONResponse(
                 JSendResponse.success(
@@ -264,16 +268,20 @@ a `GulpUserLoginLogoutPacket` with `login: false` is sent on the `ws_id` websock
 """,
 )
 async def logout_handler(
+    r: Request,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    ip: str = r.client.host if r.client else "unknown"
+    params = locals()
+    params.pop("r", None)  # Remove Request object from params for logging
+    ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check permission and get user id
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-            await GulpUser.logout(sess, s, ws_id=ws_id, req_id=req_id)
+            await GulpUser.logout(sess, s, ws_id=ws_id, req_id=req_id, user_ip=ip)
 
             return JSONResponse(
                 JSendResponse.success(

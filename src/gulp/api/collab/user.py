@@ -34,7 +34,12 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.api.collab.user_group import GulpUserAssociations
-from gulp.api.ws_api import WSDATA_EVENT_LOGIN, WSDATA_EVENT_LOGOUT, WSDATA_USER_LOGIN, WSDATA_USER_LOGOUT, GulpUserLoginLogoutPacket, GulpWsSharedQueue
+from gulp.api.ws_api import (
+    WSDATA_USER_LOGIN,
+    WSDATA_USER_LOGOUT,
+    GulpUserLoginLogoutPacket,
+    GulpWsSharedQueue,
+)
 from gulp.config import GulpConfig
 
 if TYPE_CHECKING:
@@ -106,7 +111,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         adds the user to the default administrators group.
 
         NOTE: this is expected to be called only when the user is created and is an admin
-        
+
         Args:
             sess (AsyncSession): The database session.
 
@@ -114,24 +119,24 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             bool: True if the user was added to the administrators group, False otherwise
         """
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID, GulpUserGroup
+
         try:
             await self.__class__.acquire_advisory_lock(sess, self.id)
             g: GulpUserGroup = await GulpUserGroup.get_by_id(
                 sess, ADMINISTRATORS_GROUP_ID
             )
             MutyLogger.get_instance().debug(
-                "adding user %s to the 'administrators' group"
-                % (self.id)
+                "adding user %s to the 'administrators' group" % (self.id)
             )
             try:
                 await g.add_user(sess, self.id)
             except:
                 return False
-        
+
             return True
         finally:
             await self.__class__.release_advisory_lock(sess, self.id)
-    
+
     @classmethod
     @override
     # pylint: disable=arguments-differ
@@ -346,7 +351,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                     )
                 else:
                     time_expire = (
-                        muty.time.now_msec() + GulpConfig.get_instance().token_ttl() * 1000
+                        muty.time.now_msec()
+                        + GulpConfig.get_instance().token_ttl() * 1000
                     )
 
             # create new session
@@ -378,10 +384,15 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 req_id=req_id,
             )
 
-            # also send login packet to internal websockets
-            GulpWsSharedQueue.get_instance().put_internal_data(WSDATA_EVENT_LOGIN,
-                                                               user_id=u.id,
-                                                               data=p.model_dump(exclude_none=True))
+            # also broadcast to registered plugins
+            from gulp.plugin import GulpInternalEventsManager
+            await GulpInternalEventsManager.get_instance().broadcast_event(
+               GulpInternalEventsManager.EVENT_LOGIN,
+                {
+                    "user_id": u.id,
+                    "ip": user_ip,
+                },
+            )
 
             # update user with new session and write the new session object itself
             u.session = new_session
@@ -393,15 +404,18 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             await sess.commit()
             await sess.refresh(new_session)
             return new_session
-        
+
         finally:
             # release the lock
             await GulpUser.release_advisory_lock(sess, user_id)
-            
+
     @staticmethod
     async def logout(
-        sess: AsyncSession, s: "GulpUserSession", ws_id: str, req_id: str,
-        user_ip:str = None,
+        sess: AsyncSession,
+        s: "GulpUserSession",
+        ws_id: str,
+        req_id: str,
+        user_ip: str = None,
     ) -> None:
         """
         Logs out the specified user by deleting the session.
@@ -428,12 +442,16 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 ws_queue_datatype=WSDATA_USER_LOGOUT,
                 ws_data=p.model_dump(),
             )
-            
-            # also send logout packet to internal websockets
-            GulpWsSharedQueue.get_instance().put_internal_data(WSDATA_EVENT_LOGOUT,
-                                                               user_id=s.user_id,
-                                                               data=p.model_dump(exclude_none=True))
 
+            # also broadcast to registered plugins
+            from gulp.plugin import GulpInternalEventsManager
+            await GulpInternalEventsManager.get_instance().broadcast_event(
+                GulpInternalEventsManager.EVENT_LOGOUT,
+                {
+                    "user_id": s.user_id,
+                    "ip": user_ip,
+                },
+            )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """

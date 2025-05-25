@@ -342,7 +342,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 self._case_insensitive_or_ilike(obj_type.source_id, self.source_ids)
             )
         if self.owner_user_ids and "owner_user_id" in obj_type.columns:
-            q = q = q.filter(
+            q = q.filter(
                 self._case_insensitive_or_ilike(
                     obj_type.owner_user_id, self.owner_user_ids
                 )
@@ -362,7 +362,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.texts and "text" in obj_type.columns:
             q = q.filter(self._case_insensitive_or_ilike(obj_type.text, self.texts))
 
-        if self.model_extra:
+        if self.model_extra:            
             # handle granted_user_ids and granted_group_ids as special case first
             granted_user_ids = self.model_extra.pop("granted_user_ids", None)
             granted_group_ids = self.model_extra.pop("granted_user_group_ids", None)
@@ -393,14 +393,24 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
             # Process remaining model_extra fields
             for k, v in self.model_extra.items():
+                """
+                if self.owner_user_ids and "owner_user_id" in obj_type.columns:W
+                    q = q = q.filter(
+                        self._case_insensitive_or_ilike(
+                            obj_type.owner_user_id, self.owner_user_ids
+                        )
+                    )
+                """
                 if hasattr(obj_type, k):
                     col = getattr(obj_type, k)
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
                     if is_array:
+                        print(f"filtering by {k}={v} on {obj_type.__name__}, col={col} (ARRAY)")
                         q = q.filter(self._array_contains_any(col, v))
                     else:
-                        q = q.filter(self._case_insensitive_or_ilike(col, v))
+                        print(f"filtering by {k}={v} on {obj_type.__name__}, col={col}")
+                        q = q.filter(self._case_insensitive_or_ilike(k, v))
 
         if self.doc_ids and "doc_ids" in obj_type.columns:
             # return all collab objects that have at least one document with _id in doc_ids
@@ -480,7 +490,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     MutyLogger.get_instance().warning(
                         "invalid sort field: %s. skipping this field." % (field)
                     )
-        q = q.order_by(*order_clauses)
+        if isinstance(q, Select):
+            q = q.order_by(*order_clauses)
 
         if self.limit:
             q = q.limit(self.limit)
@@ -1494,7 +1505,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt.owner_user_ids = None
         else:
             # user can see only objects he has access to
-            flt.granted_user_ids = [user_id]
+            flt.granted_user_ids = [user_id] if user_id else None
             flt.granted_user_group_ids = group_ids
 
         q = flt.to_delete_query(cls)

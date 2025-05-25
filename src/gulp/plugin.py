@@ -8,6 +8,7 @@ import os
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from enum import StrEnum
+import sys
 from types import ModuleType
 from typing import Any, Callable, Optional
 
@@ -35,7 +36,7 @@ from gulp.api.opensearch.query import (GulpQuery, GulpQueryHelpers,
                                        GulpQueryParameters)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import (WSDATA_DOCUMENTS_CHUNK, WSDATA_ENRICH_DONE, WSDATA_INGEST_SOURCE_DONE, GulpDocumentsChunkPacket,
+from gulp.api.ws_api import (WSDATA_DOCUMENTS_CHUNK, WSDATA_ENRICH_DONE, WSDATA_INGEST_SOURCE_DONE, WSDATA_USER_LOGIN, WSDATA_USER_LOGOUT, GulpDocumentsChunkPacket,
                              GulpIngestSourceDonePacket, GulpQueryDonePacket,
                              GulpWsSharedQueue)
 from gulp.config import GulpConfig
@@ -67,6 +68,36 @@ class GulpPluginCacheMode(StrEnum):
     IGNORE = "ignore"  # always load from disk
     DEFAULT = "default"  # use configuration value (cache enabled/disabled)
 
+
+class GulpInternalEvent(BaseModel):
+    """
+    Gulp internal event, broadcasted by engine to plugins registered via GulpPluginEventQueues.register()
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "event_type": "login",
+                    "timestamp_msec": 123456789,
+                    "data": {"user_id": "user123", "ip": "192.168.2.10"}
+                }
+            ]
+        },
+    )
+    type: str = Field(
+        ...,
+        description="The type of the event.",
+    )
+    timestamp_msec: int = Field(
+        ...,
+        description="The timestamp of the event in milliseconds since epoch.",
+    )
+    data: dict = Field(
+        ...,
+        description="Arbitrary data for the event.",
+    )
 
 class GulpPluginEntry(BaseModel):
     """
@@ -226,6 +257,100 @@ class GulpPluginCache:
             MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
 
+
+class GulpInternalEventsManager:
+    """
+    Singleton class to manage internal events broadcasted from core to plugins
+    """
+
+    _instance: "GulpInternalEventsManager" = None
+    EVENT_LOGIN: str = WSDATA_USER_LOGIN    # data={ "user_id": str, "ip": str }
+    EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data={ "user_id": str, "ip": str }
+    EVENT_INGEST_RESULT: str = "ingest_result"
+
+
+    def __init__(self):
+        self._initialized: bool = True
+
+        # every dict have a "plugin" key which is a GulpPluginBase instance, and a "types" key with a list of event types this plugin is interested in
+        self._plugins: dict[str, dict] = {}
+
+    def __new__(cls):
+        """
+        Create a new instance of the class.
+        """
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def get_instance(cls) -> "GulpInternalEventsManager":
+        """
+        get the manager instance.
+
+        Returns:
+            GulpInternalEventsManager: The internal events manager instance.
+        """
+        if not cls._instance:
+            cls._instance = cls()
+        return cls._instance
+
+    def clear(self):
+        """
+        Clear the internal events manager plugins list
+        """
+        self._plugins = {}
+
+    def register(self, plugin: "GulpPluginBase", types: list[str] = None) -> None:
+        """
+        Register a plugin to receive internal events.
+
+        Args:
+            plugin (GulpPluginBase): The plugin to register.
+            types (list[str], optional): The list of event types the plugin is interested in. If not set, the plugin will receive all events.
+        """
+        name: str = plugin.bare_filename
+        if name not in self._plugins.keys():
+            MutyLogger.get_instance().debug("registering plugin %s to receive internal events: %s" % (name, types))
+            self._plugins[name] = {
+                "plugin_instance": plugin,  # the plugin instance
+                "types": types if types else []
+            }
+        else:
+            MutyLogger.get_instance().warning("plugin %s already registered to receive internal events" % (name))
+
+    def deregister(self, plugin: str) -> None:
+        """
+        Stop a plugin from receiving internal events.
+
+        Args:
+            plugin (str): The name of the plugin to unregister.
+        """
+        if plugin in self._plugins.keys():
+            MutyLogger.get_instance().debug("deregistering plugin %s from receiving internal events" % (plugin))
+            del self._plugins[plugin]
+        else:
+            MutyLogger.get_instance().warning("plugin %s not registered to receive internal events" % (plugin))
+
+    async def broadcast_event(self, t: str, data: dict) -> None:
+        """
+        Broadcast an event to all registered plugin event queues.
+
+        Args:
+            t: str: The type of the event.
+            data: dict: The data to send with the event.
+        Returns:
+            None
+        """
+        ev: GulpInternalEvent = GulpInternalEvent(type=t, timestamp_msec=muty.time.now_msec(), data=data)
+        for plugin, entry in self._plugins.items():
+            p: GulpPluginBase = entry["plugin_instance"]
+            if t in entry["types"]:
+                try:
+                    MutyLogger.get_instance().debug("broadcasting event %s to plugin %s" % (t, p.bare_filename))
+                    await p.internal_event_callback(ev)
+                except Exception as e:
+                    MutyLogger.get_instance().exception(e)
 
 class GulpPluginBase(ABC):
     """
@@ -489,6 +614,15 @@ class GulpPluginBase(ABC):
         """
         return self._preview_chunk
 
+    async def internal_event_callback(self, ev: GulpInternalEvent) -> None:
+        """
+        this is called by the engine to broadcast an event to the plugin.
+
+        Args:
+            ev (GulpInternalEvent): the event
+        """
+        return
+    
     async def post_init(self, **kwargs):
         """
         this is called after the plugin has been initialized, to allow for any post-initialization tasks.
@@ -2187,6 +2321,23 @@ class GulpPluginBase(ABC):
                 MutyLogger.get_instance().warning("request canceled, source_done!")
             finally:
                 self._sess = None
+    
+    def register_internal_events_callback(self, types: list[str]=None) -> None:
+        """
+        Register this plugin to be called by the engine for internal events.
+
+        - the plugin must implement `internal_event_callback` method to handle the events.
+
+        Args:
+            types (list[str], optional): List of event types to register for. Defaults to None, which registers for all events.
+        """
+        GulpInternalEventsManager.get_instance().register(self, types)
+    
+    def deregister_internal_events_callback(self) -> None:
+        """
+        Stop listening to internal events.
+        """
+        GulpInternalEventsManager.get_instance().deregister(self.bare_filename)
 
     @staticmethod
     def load_sync(
@@ -2332,34 +2483,35 @@ class GulpPluginBase(ABC):
         """
 
         # clear stuff
-        # try:
-        #    if _sess:
-        #        await self._sess.close()
-        # finally:
         self._sess = None
         self._stats = None
-        if self._mappings:
-            self._mappings.clear()
-            self._mappings = None
-        if self._index_type_mapping:
-            self._index_type_mapping.clear()
-            self._index_type_mapping = None
+        self._mappings.clear()
+        self._index_type_mapping.clear()
         self._upper_record_to_gulp_document_fun = None
         self._upper_enrich_documents_chunk_fun = None
         self._upper_instance = None
         self._docs_buffer.clear()
-        self._docs_buffer = None
         self._extra_docs.clear()
-        self._extra_docs = None
         self._extra_docs: list[dict]
         self._plugin_params = None
         self._operation = None
+
+        # empty internal events queue
+        self.deregister_internal_events_callback()
         if GulpConfig.get_instance().plugin_cache_enabled():
             # do not unload if cache is enabled
             return
 
-        MutyLogger.get_instance().debug("unloading plugin: %s" % (self.name))
-        GulpPluginCache.get_instance().remove(self.name)
+        MutyLogger.get_instance().debug("unloading plugin: %s" % (self.bare_filename))
+        GulpPluginCache.get_instance().remove(self.bare_filename)
+
+        # # finally delete the module
+        # if self.type() == GulpPluginType.EXTENSION:
+        #     module_name = f"gulp.plugins.extension.{self.bare_filename}"
+        # else:
+        #     module_name = f"gulp.plugins.{self.bare_filename}"
+        # if module_name in sys.modules:
+        #     del sys.modules[module_name]
 
     @staticmethod
     def path_from_plugin(
