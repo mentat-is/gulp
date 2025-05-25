@@ -214,7 +214,7 @@ async def sigmas_to_queries(
         if paths:
             # the sigma is a path to a file
             is_file = await aiofiles.os.path.isfile(sigma)
-            if is_file:
+            if is_file and (sigma.lower().endswith(".yml") or sigma.lower().endswith(".yaml")):
                 rule_content: bytes = await muty.file.read_file_async(sigma)
                 rule_content = rule_content.decode()
             else:
@@ -274,8 +274,12 @@ async def sigmas_to_queries(
                 # no service names found in the rule, we don't need to use sigma mappings
                 use_sigma_mappings = False
 
-            q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
-            queries.extend(q)
+            try:
+                q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
+                queries.extend(q)
+            except Exception as ex:
+                # error converting sigma
+                MutyLogger.get_instance().error("ERROR converting sigma rule:\n%s\n%s", rule_content, ex)
 
     return queries
 
