@@ -393,24 +393,16 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
             # Process remaining model_extra fields
             for k, v in self.model_extra.items():
-                """
-                if self.owner_user_ids and "owner_user_id" in obj_type.columns:W
-                    q = q = q.filter(
-                        self._case_insensitive_or_ilike(
-                            obj_type.owner_user_id, self.owner_user_ids
-                        )
-                    )
-                """
-                if hasattr(obj_type, k):
+                if k in obj_type.columns:
                     col = getattr(obj_type, k)
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
                     if is_array:
-                        print(f"filtering by {k}={v} on {obj_type.__name__}, col={col} (ARRAY)")
                         q = q.filter(self._array_contains_any(col, v))
                     else:
-                        print(f"filtering by {k}={v} on {obj_type.__name__}, col={col}")
-                        q = q.filter(self._case_insensitive_or_ilike(k, v))
+                        q = q.filter(self._case_insensitive_or_ilike(col, v))
+                    
+                    continue
 
         if self.doc_ids and "doc_ids" in obj_type.columns:
             # return all collab objects that have at least one document with _id in doc_ids
