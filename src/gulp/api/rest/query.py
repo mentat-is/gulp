@@ -43,6 +43,7 @@ from gulp.api.collab.structs import (
     GulpRequestStatus,
     GulpUserPermission,
 )
+from gulp.api.collab.user import GulpUser, GulpUserDataQueryHistoryEntry
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpSigmaMapping
@@ -710,6 +711,9 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
 
+        # add query to history (first one only)
+        await GulpUser.add_query_history_entry(user_id, queries[0].q, q_options=q_options)
+
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
@@ -829,6 +833,9 @@ async def query_gulp_handler(
                 )
             )
 
+        # add query to history
+        await GulpUser.add_query_history_entry(user_id, gq.q, q_options=q_options,flt=flt)
+        
         # spawn worker
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -979,6 +986,10 @@ async def query_external_handler(
             # build query
             gq = GulpQuery(name=q_options.name, q=qq)
             queries.append(gq)
+
+        # add query to history (first one only)
+        await GulpUser.add_query_history_entry(user_id, queries[0].q, q_options=q_options, plugin=plugin, plugin_params=plugin_params, external=True)
+
         await _spawn_query_group_workers(
             user_id=user_id,
             req_id=req_id,
@@ -1342,6 +1353,9 @@ async def query_sigma_handler(
                 )
             )
 
+        # add query to history (first one only)
+        await GulpUser.add_query_history_entry(user_id, queries[0].q, q_options=q_options, flt=flt, sigma=sigmas[0])
+
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -1407,6 +1421,48 @@ async def query_single_id_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
+@router.get(
+    "/query_history_get",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": autogenerate_model_example_by_class(GulpUserDataQueryHistoryEntry),
+                    }
+                }
+            }
+        }
+    },
+    summary="Get the query history for the calling user.",
+    description="""
+returns the last queries performed by the user.
+
+if `query_history_max_size` is not set in the configuration, it defaults to 20.
+""",
+)
+async def query_history_get_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+            user_id: str = s.user_id
+
+        d = await GulpUser.get_query_history(user_id)
+        return JSONResponse(JSendResponse.success(req_id, data=d))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.post(
     "/query_max_min_per_field",

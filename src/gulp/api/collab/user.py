@@ -13,11 +13,12 @@ and ownership relationships.
 
 """
 
-from typing import TYPE_CHECKING, Optional, override
+from typing import TYPE_CHECKING, Any, Optional, override
 
 import muty.crypto
 import muty.time
 from muty.log import MutyLogger
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,9 @@ from gulp.api.collab.structs import (
     WrongUsernameOrPassword,
 )
 from gulp.api.collab.user_group import GulpUserAssociations
+from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
@@ -41,11 +45,53 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
+from gulp.structs import GulpPluginParameters
+from muty.pydantic import autogenerate_model_example_by_class
 
 if TYPE_CHECKING:
     from gulp.api.collab.user_group import GulpUserGroup
     from gulp.api.collab.user_session import GulpUserSession
 
+class GulpUserDataQueryHistoryEntry(BaseModel):
+    """
+    Represents a single entry in the user's query history.
+    """
+
+    query: Any = Field(..., description="The query that was performed, may be a string or a dict depending on the query type and target.")
+    external: bool = Field(
+        False, description="if the query is an external query."
+    )
+    query_options: Optional[GulpQueryParameters] = Field(
+        None, description="Additional options for the query."
+    )
+    flt: Optional[GulpQueryFilter] = Field(None, description="Filter applied to the query.")
+    plugin: Optional[str] = Field(None, description="Only set for external queries.")
+    plugin_params: Optional[GulpPluginParameters] = Field(
+        None, description="Only set for external queries, the parameters for the external query plugin."
+    )
+    sigma: Optional[str] = Field(None, description="Sigma rule YML if the query is converted from a sigma rule.")
+    timestamp_msec: int = Field(..., description="Timestamp of the query in milliseconds from the unix epoch.")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "query": {
+                        "query": {
+                            "match_all": {}
+                        }
+                    },
+                    "external": False,
+                    "query_options": autogenerate_model_example_by_class(GulpQueryParameters),
+                    "flt": autogenerate_model_example_by_class(GulpQueryFilter),
+                    "plugin": None,
+                    "plugin_params": autogenerate_model_example_by_class(GulpPluginParameters),
+                    "sigma": None,
+                    "timestamp_msec": muty.time.now_msec(),
+                }
+            ]
+        }
+    )
 
 class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
     """
@@ -106,6 +152,100 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         )
         return d
 
+    @staticmethod
+    async def add_query_history_entry(user_id: str, q: Any, q_options: GulpQueryParameters=None, flt: GulpQueryFilter=None, sigma: str = None, external: bool=False, plugin: str = None, plugin_params: GulpPluginParameters = None) -> None:
+        """
+        Adds a query history entry for the user.
+
+        Args:
+            user_id (str): The ID of the user.
+            q (Any): the query to perform
+            q_options (GulpQueryParameters, optional): Additional query options. Defaults to None.
+            flt (GulpQueryFilter, optional): Filter applied to the query. Defaults to None.
+            external (bool, optional): Whether the query is external. Defaults to False.
+            plugin (str, optional): The plugin used for the query. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the query. Defaults to None.
+            sigma (str, optional): Sigma rule applied to the query. Defaults to None.
+        """
+        async with GulpCollab.get_instance().session() as sess:
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            await u._add_query_history_entry(sess, q, q_options, flt, sigma, external, plugin, plugin_params)
+        
+    async def _add_query_history_entry(self, sess: AsyncSession, q: Any, q_options: GulpQueryParameters=None, flt: GulpQueryFilter=None, sigma: str = None, external: bool=False, plugin: str = None, plugin_params: GulpPluginParameters = None) -> None:
+        """
+        Adds a query history entry for the user.
+
+        Args:
+            sess (AsyncSession): The database session, will be committed after the entry is added.
+            q (Any): The query to perform
+            q_options (GulpQueryParameters, optional): Additional query options. Defaults to None.
+            flt (GulpQueryFilter, optional): Filter applied to the query. Defaults to None.
+            external (bool, optional): Whether the query is external. Defaults to False.
+            plugin (str, optional): The plugin used for the query. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the query. Defaults to None.
+            sigma (str, optional): Sigma rule applied to the query. Defaults to None.            
+        """
+        if self.user_data is None:
+            self.user_data = {}
+
+        if "query_history" not in self.user_data:
+            self.user_data["query_history"] = []
+
+        q_history = self.user_data["query_history"]
+        entry: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
+            query=q,
+            external=external,
+            query_options=q_options,
+            flt=flt,
+            plugin=plugin,
+            plugin_params=plugin_params,
+            sigma=sigma,
+            timestamp_msec=muty.time.now_msec(),            
+        )
+        q_history.append(entry.model_dump(exclude_none=True))
+
+        # trim if the history is too long
+        MutyLogger.get_instance().debug("current user query histor size=%d" % (len(q_history)))
+        max_history_size: int = GulpConfig.get_instance().query_history_max_size()                                        
+        if len(q_history) > max_history_size:
+            # keep only the last `max_history_size` entries
+            MutyLogger.get_instance().warning(
+                "trimming query history for user %s, size=%d, max_size=%d" % (self.id, len(q_history), max_history_size)
+            )
+            q_history = q_history[-max_history_size:]
+
+        self.user_data["query_history"] = q_history
+        await sess.commit()
+
+    async def _get_query_history(self) -> list[dict]:
+        """
+        Retrieves the query history for the user.
+
+        Args:
+            sess (AsyncSession): The database session.
+
+        Returns:
+            list[dict]: The query history entries.
+        """
+        if "query_history" not in self.user_data:
+            return []
+
+        return self.user_data["query_history"]
+    
+    @staticmethod
+    async def get_query_history(user_id: str) -> list[dict]:
+        """
+        Retrieves the query history for the user.
+
+        Args:
+            user_id (str): The ID of the user.
+
+        Returns:
+            list[dict]: The query history entries.
+        """
+        async with GulpCollab.get_instance().session() as sess:
+            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+            return await u._get_query_history()
     async def add_to_default_administrators_group(self, sess: AsyncSession) -> bool:
         """
         adds the user to the default administrators group.

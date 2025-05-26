@@ -701,6 +701,27 @@ class GulpConfig:
         # MutyLogger.get_instance().debug("certs directory: %s" % (pp))
         return pp
 
+    def query_history_max_size(self) -> int:
+        """
+        Returns the maximum size of the query history (default: 20).
+
+        this is the maximum number of queries to keep as history for each user.
+
+        Returns:
+            int: the maximum size of the query history
+        """
+        n = self._config.get("query_history_max_size", None)
+        if not n:
+            # default
+            return 20
+
+        if n > 50:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! query_history_max_size value too big (%d), set to max(50)!" % (n)
+            )
+            n=50
+
+        return n
     def aggregation_max_buckets(self) -> int:
         """
         Returns the maximum number of buckets to return for aggregations (default: 999).

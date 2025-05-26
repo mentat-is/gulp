@@ -69,6 +69,8 @@
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
+  // how many queries to keep in the history per user(default=20, max=50)
+  "query_history_max_size": 20,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
   "stats_ttl": 86400,
   // admin/impersonation token expiration seconds, default=10 min (600 seconds)
