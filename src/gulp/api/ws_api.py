@@ -527,7 +527,7 @@ class GulpWsData(BaseModel):
     type: str = Field(
         ..., description="The type of data carried by the websocket."
     )
-    ws_id: Optional[str] = Field(description="The target WebSocket ID, may be None only if `internal` is set.")
+    ws_id: Optional[str] = Field(None, description="The target WebSocket ID, may be None only if `internal` is set.")
     user_id: Optional[str] = Field(None, description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
@@ -540,7 +540,10 @@ class GulpWsData(BaseModel):
         description="If the data is private, only the websocket `ws_id` receives it.",
     )
     data: Optional[Any] = Field(None, description="The data carried by the websocket.")
-
+    internal: Optional[bool] = Field(
+        False,
+        description="Used internally (i.e. to broadcast internal events to plugins).",
+    )
 class WsQueueMessagePool:
     """
     message pool for the ws to reduce memory pressure and gc
@@ -1112,15 +1115,6 @@ class GulpConnectedSockets:
         if socket_id:
             return self._sockets.get(socket_id)
 
-        # fallback to linear search if mapping fails
-        # this shouldn't happen but maintains backward compatibility
-        # TODO: we may remove this
-        for socket in self._sockets.values():
-            if socket.ws_id == ws_id:
-                # repair the mapping
-                self._ws_id_map[ws_id] = str(id(socket.ws))
-                return socket
-
         return None
 
     async def cancel_all(self) -> None:
@@ -1201,6 +1195,19 @@ class GulpConnectedSockets:
         await _route(data, client_ws)
         return True
 
+    async def _process_internal_message(self, data: GulpWsData) -> None:
+        """
+        processes internal messages that do not require routing
+
+        Args:
+            data (GulpWsData): The internal message to process.
+        """
+        # handle internal messages here
+        # for now, just log it
+        # self._logger.debug(f"processing internal message: {data}")
+        from gulp.plugin import GulpInternalEventsManager
+        await GulpInternalEventsManager.get_instance().broadcast_event(data.type, data.data)
+
     async def broadcast_message(
         self, data: GulpWsData, skip_list: list[str] = None
     ) -> None:
@@ -1211,6 +1218,11 @@ class GulpConnectedSockets:
             data (GulpWsData): The message to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
+        if data.internal:
+            # this is an internal message, skip routing and process directly
+            await self._process_internal_message(data)
+            return
+        
         # create copy to avoid modification during iteration
         socket_items = list(self._sockets.items())
 
@@ -1403,7 +1415,7 @@ class GulpWsSharedQueue:
         while retries < self.MAX_RETRIES:
             try:
                 cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                if cws:
+                if cws or msg.internal:
                     await GulpConnectedSockets.get_instance().broadcast_message(msg)
                 break
             except Exception as e:
@@ -1480,7 +1492,7 @@ class GulpWsSharedQueue:
             for msg in messages:
                 try:
                     cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                    if cws:
+                    if cws or msg.internal:
                         await GulpConnectedSockets.get_instance().broadcast_message(msg)
                 except Exception as e:
                     logger.error(f"Cleanup error: {e}")
@@ -1587,6 +1599,26 @@ class GulpWsSharedQueue:
         self._shared_q.join()
         MutyLogger.get_instance().debug(f"Flushed {counter} messages from shared queue")
 
+    def put_internal_event(self,
+                            msg: str,
+                            params: dict = None) -> None:
+        """
+        Puts a GulpInternalEvent (not websocket related) into the shared queue.
+
+        this is used to send internal events from worker processes to be processed by the main process
+
+        Args:
+            msg (str): The message type.
+            params (dict, optional): The parameters for the message.
+        """        
+        wsd = GulpWsData(
+            timestamp=muty.time.now_msec(),
+            type=msg,
+            data=params,
+            internal=True,
+        )
+        self._shared_q.put(wsd)
+        
     def put(
         self,
         type: str,

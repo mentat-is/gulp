@@ -266,7 +266,7 @@ class GulpInternalEventsManager:
     _instance: "GulpInternalEventsManager" = None
     EVENT_LOGIN: str = WSDATA_USER_LOGIN    # data={ "user_id": str, "ip": str }
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data={ "user_id": str, "ip": str }
-    EVENT_INGEST_RESULT: str = "ingest_result"
+    EVENT_INGEST: str = "ingestion"
 
 
     def __init__(self):
@@ -500,6 +500,7 @@ class GulpPluginBase(ABC):
         self._source_error: str = None
         self._tot_skipped_in_source: int = 0
         self._tot_failed_in_source: int = 0
+        self._tot_processed_in_source: int = 0
         self._tot_ingested_in_source: int = 0
 
         # to keep track of ingested chunks
@@ -631,6 +632,29 @@ class GulpPluginBase(ABC):
             kwargs: additional arguments to pass
         """
         return
+
+    def broadcast_ingest_internal_event(self) -> None:
+        """
+        broadcast internal ingest metrics event to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
+        """
+        d = {
+            "plugin": self.bare_filename,
+            "user_id": self._user_id,
+            "plugin_params": self._plugin_params.model_dump(exclude_none=True) if self._plugin_params else None,
+            "status": str(self._stats.status) if self._stats else str(GulpRequestStatus.ONGOING),
+            "errors": [self._source_error],
+            "req_id": self._req_id,
+            "ingested": self._tot_ingested_in_source,
+            "failed": self._tot_failed_in_source,
+            "skipped": self._tot_skipped_in_source,
+            "processed": self._tot_processed_in_source,
+            "source_id": self._source_id,
+            "context_id": self._context_id,
+            "operation_id": self._operation_id,
+            "file_path": self._original_file_path if self._original_file_path else self._file_path,
+        }
+        GulpWsSharedQueue.get_instance().put_internal_event(msg=GulpInternalEventsManager.EVENT_INGEST,params=d)
+
 
     async def _ingest_chunk_and_or_send_to_ws(
         self,
@@ -1770,6 +1794,7 @@ class GulpPluginBase(ABC):
         )
 
         self._extra_docs = []
+        self._tot_processed_in_source += 1
 
         # process this record and generate one or more gulpdocument dictionaries
         try:

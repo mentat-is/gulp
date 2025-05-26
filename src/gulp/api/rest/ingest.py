@@ -321,6 +321,9 @@ async def _ingest_file_internal(
             # done
             if mod:
                 if not preview_mode:
+                    # broadcast ingest internal event
+                    mod.broadcast_ingest_internal_event()
+
                     # update source ingestion info (plugin, plugin_params)
                     plugin_params = mod.plugin_params()
                     if plugin_params:
