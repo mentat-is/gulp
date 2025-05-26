@@ -147,6 +147,20 @@ class GulpConfig:
             js = f.read()
             self._config = json5.loads(js)
 
+        # create plugins/ui directory if not exists
+        try:
+            # may file on containerized ...
+            plugins_path = self.path_plugins_default()
+            ui_plugins_path = muty.file.safe_path_join(plugins_path, "ui")
+            os.makedirs(plugins_path, exist_ok=True)
+        except:
+            pass
+
+        extra_path = self.path_plugins_extra()
+        if extra_path:
+            # ensure extra plugins path exists
+            ui_plugins_path = muty.file.safe_path_join(extra_path, "ui")
+            os.makedirs(ui_plugins_path, exist_ok=True)
     def set_config(self, config: dict):
         """
         Sets the configuration dictionary.

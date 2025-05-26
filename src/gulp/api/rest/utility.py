@@ -22,7 +22,7 @@ import muty.file
 import muty.obj
 import muty.uploadfile
 import psutil
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -37,7 +37,7 @@ from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest.test_values import TEST_REQ_ID
 from gulp.api.rest_api import GulpRestServer
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase
+from gulp.plugin import GulpPluginBase, GulpUiPluginMetadata
 from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
@@ -756,7 +756,7 @@ async def plugin_list_handler(
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
 
-            l = await GulpPluginBase.list()
+            l = await GulpPluginBase.list_plugins()
 
             # turn to model_dump
             ll: list[dict] = []
@@ -802,7 +802,7 @@ async def plugin_get_handler(
     plugin: Annotated[
         str,
         Query(
-            description='filename of the plugin to retrieve content for, i.e. "plugin.py", "paid/paid_plugin.py"'
+            description='filename of the plugin to retrieve content for, i.e. "plugin.py"'
         ),
     ],
     is_extension: Annotated[
@@ -869,9 +869,7 @@ async def plugin_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     plugin: Annotated[
         str,
-        Query(
-            description='filename of the plugin to be deleted, i.e. "plugin.py", "paid/paid_plugin.py"'
-        ),
+        Query(description='filename of the plugin to be deleted, i.e. "plugin.py" '),
     ],
     is_extension: Annotated[
         bool, Query(description="the plugin is an extension plugin")
@@ -884,15 +882,17 @@ async def plugin_delete_handler(
         async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
-            file_path = GulpPluginBase.path_from_plugin(
-                plugin, is_extension=is_extension
-            )
-
-            # cannot delete base plugins (may be in a container)
-            if GulpConfig.get_instance().path_plugins_default() in file_path:
-                raise Exception("cannot delete plugin in base path: %s" % (file_path))
+            extra_path = GulpConfig.get_instance().path_plugins_extra()
+            if not extra_path:
+                raise Exception(
+                    "either PATH_PLUGINS_EXTRA or `path_plugins_extra` in the configuration must be defined"
+                )
+            if is_extension:
+                # extension plugins are in a subdirectory
+                extra_path = os.path.join(extra_path, "extension")
 
             # delete file
+            file_path = muty.file.safe_path_join(extra_path, plugin.lower())
             await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
             return JSONResponse(
                 JSendResponse.success(
@@ -940,7 +940,7 @@ async def plugin_upload_handler(
     filename: Annotated[
         str,
         Query(
-            description='the filename to save the plugin as, i.e. "plugin.py", "paid/paid_plugin.py", defaults to the uploaded filename.'
+            description='the filename to save the plugin as, i.e. "plugin.py", defaults to the uploaded filename.'
         ),
     ] = None,
     allow_overwrite: Annotated[
@@ -957,9 +957,10 @@ async def plugin_upload_handler(
             await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
 
             if not GulpConfig.get_instance().path_plugins_extra():
-                raise Exception("to upload plugins, define PATH_PLUGINS_EXTRA.")
+                raise Exception(
+                    "to upload plugins, define PATH_PLUGINS_EXTRA or set `path_plugins_extra` in the configuration."
+                )
 
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
             if not filename:
                 # use default filename
                 filename = os.path.basename(plugin.filename)
@@ -986,6 +987,316 @@ async def plugin_upload_handler(
                     data={
                         "filename": filename,
                         "path": file_path,
+                    },
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.delete(
+    "/ui_plugin_delete",
+    tags=["plugin"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "filename": "custom_plugin.tsx",
+                            "path": "/opt/gulp/plugins/ui/custom_plugin.tsx",
+                            "metadata_path": "/opt/gulp/plugins/ui/custom_plugin.tsx.json",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an existing UI plugin file.",
+    description="""
+- token needs `edit` permission.
+- plugin will be deleted from the `PATH_PLUGINS_EXTRA` directory, which must be set since the main plugins directly may not be writable.
+""",
+)
+async def ui_plugin_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[
+        str,
+        Query(description='filename of the plugin to be deleted, i.e. "plugin.tsx"'),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+
+            extra_path = os.path.join(
+                GulpConfig.get_instance().path_plugins_extra(), "ui"
+            )
+            file_path = os.path.join(extra_path, plugin)
+
+            # delete file
+            await muty.file.delete_file_or_dir_async(file_path, ignore_errors=False)
+
+            # delete metadata file
+            metadata_file_path = file_path + ".json"
+            await muty.file.delete_file_or_dir_async(
+                metadata_file_path, ignore_errors=True
+            )
+
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={
+                        "filename": plugin,
+                        "path": file_path,
+                        "metadata_path": metadata_file_path,
+                    },
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/ui_plugin_get",
+    tags=["plugin"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701546711919,
+                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
+                        "data": {
+                            "filename": "win_evtx.py",
+                            "path": "/opt/gulp/plugins/win_evtx.py",
+                            "content": "base64 file content here",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get UI plugin content (i.e. for editing and reupload).",
+    description="""
+- token needs `edit` permission.
+- file is read from the `PATH_PLUGINS_EXTRA` directory if set, either from the main plugins directory.
+- file content is returned as base64.
+""",
+)
+async def ui_plugin_get_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[
+        str,
+        Query(
+            description='filename of the plugin to retrieve content for, i.e. "plugin.tsx"'
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+
+            extra_path = GulpConfig.get_instance().path_plugins_extra()
+            default_path = GulpConfig.get_instance().path_plugins_default()
+            plugin_path: str = None
+            if extra_path:
+                # build the extra path
+                plugin_path = os.path.join(extra_path, "ui", plugin.lower())
+                if not os.path.exists(plugin_path):
+                    # if not found in extra_path, try default path
+                    plugin_path = None
+            if not plugin_path:
+                # use default path
+                plugin_path = os.path.join(default_path, "ui", plugin.lower())
+                if not os.path.exists(plugin_path):
+                    raise FileNotFoundError(
+                        "%s not found both in extra_path=%s or default_path=%s"
+                        % (plugin, extra_path, default_path)
+                    )
+
+            # read file content
+            f = await muty.file.read_file_async(plugin_path)
+            filename = os.path.basename(plugin_path)
+
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={
+                        "filename": filename,
+                        "path": plugin_path,
+                        "content": base64.b64encode(f).decode(),
+                    },
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/ui_plugin_list",
+    tags=["plugin"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1734609216840,
+                        "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
+                        "data": {
+                            "status": "success",
+                            "timestamp_msec": 1748263060378,
+                            "req_id": "test_req",
+                            "data": [
+                                {
+                                    "display_name": "Test UI Plugin",
+                                    "plugin": "some_gulp_plugin",
+                                    "extension": True,
+                                    "version": "1.0.0",
+                                    "desc": "A plugin for testing UI components",
+                                }
+                            ],
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="list available UI plugins.",
+)
+async def ui_plugin_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.READ)
+
+            l = await GulpPluginBase.list_ui_plugins()
+
+            # turn to model_dump
+            ll: list[dict] = []
+            for p in l:
+                d: dict = p.model_dump(exclude_none=True)
+                ll.append(d)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/ui_plugin_upload",
+    tags=["plugin"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "filename": "custom_plugin.tsx",
+                            "path": "/opt/gulp/plugins/ui/custom_plugin.tsx",
+                            "metadata_path": "/opt/gulp/plugins/ui/custom_plugin.tsx.json",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="upload a .ts/.tx UI plugin file.",
+    description="""
+- token needs `edit` permission.
+- to upload plugins, define `PATH_PLUGINS_EXTRA` environment variable since the default plugins directory is not writable.
+""",
+)
+async def ui_plugin_upload_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    plugin: Annotated[UploadFile, File(description="the plugin file to upload")],
+    metadata: Annotated[UploadFile, File(description="the plugin metadata file")],
+    filename: Annotated[
+        str,
+        Query(
+            description='the filename to save the plugin as, i.e. "plugin.tsx", defaults to the uploaded filename.'
+        ),
+    ] = None,
+    allow_overwrite: Annotated[
+        bool, Query(description="if set, will overwrite an existing plugin file.")
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSendResponse:
+    params = locals()
+    params["plugin"] = plugin.filename
+    params["metadata"] = metadata.filename
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
+
+            if not GulpConfig.get_instance().path_plugins_extra():
+                raise Exception(
+                    "to upload plugins, define PATH_PLUGINS_EXTRA or set `path_plugins_extra` in the configuration."
+                )
+
+            if not filename:
+                # use default filename
+                filename = os.path.basename(plugin.filename)
+
+            # upload path
+            extra_path = os.path.join(
+                GulpConfig.get_instance().path_plugins_extra(), "ui"
+            )
+            file_path = muty.file.safe_path_join(extra_path, filename.lower())
+            MutyLogger.get_instance().debug("saving plugin to: %s" % (file_path))
+
+            if not allow_overwrite:
+                # overwrite disabled
+                if os.path.exists(file_path):
+                    raise ObjectAlreadyExists("plugin %s already exists." % (filename))
+
+            # ok, write file
+            p = await muty.uploadfile.to_path(plugin, dest_dir=os.path.dirname(file_path))
+            os.rename(p, file_path)
+
+            # also create the metadata file
+            metadata_file_path = file_path + ".json"
+            MutyLogger.get_instance().debug(
+                "saving plugin metadata to: %s" % (metadata_file_path)
+            )
+            p = await muty.uploadfile.to_path(
+                metadata, dest_dir=os.path.dirname(file_path)
+            )
+            os.rename(p, metadata_file_path)
+
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={
+                        "filename": filename,
+                        "path": file_path,
+                        "metadata_path": metadata_file_path,
                     },
                 )
             )
