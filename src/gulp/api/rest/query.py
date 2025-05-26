@@ -459,8 +459,8 @@ async def _worker_coro(kwds: dict) -> None:
             % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
 
-        # if all queries in the group matched, update note tags and send notification
-        if num_queries > 1 and query_matched_total == num_queries:
+        # if query groups is set and all queries in the group matched, update note tags and send notification
+        if q_options.group and (num_queries > 1 and query_matched_total == num_queries):
             await _handle_query_group_match(
                 operation_id=operation_id,
                 user_id=user_id,
@@ -672,11 +672,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     ServerUtils.dump_params(params)
 
     try:
-        if len(q) > 1 and not q_options.group:
-            raise ValueError(
-                "if more than one query is provided, `q_options.group` must be set."
-            )
-
         async with GulpCollab.get_instance().session() as sess:
             permission = GulpUserPermission.READ
 
