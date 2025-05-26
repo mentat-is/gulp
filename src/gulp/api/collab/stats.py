@@ -418,7 +418,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
                 if new_errors:
                     self.errors.extend(new_errors)
-                    # mark errors as modified for sqlalchemy mutable tracking
+                    # mark errors as modified for sqlalchemy mutable tracking (explicit assignment is needed)
                     self.errors = self.errors # type: ignore
 
             # log update details

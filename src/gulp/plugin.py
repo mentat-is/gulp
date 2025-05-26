@@ -707,7 +707,7 @@ class GulpPluginBase(ABC):
             "user_id": self._user_id,
             "plugin_params": self._plugin_params.model_dump(exclude_none=True) if self._plugin_params else None,
             "status": str(self._stats.status) if self._stats else str(GulpRequestStatus.ONGOING),
-            "errors": [self._source_error],
+            "errors": [self._source_error] if self._source_error else [],
             "req_id": self._req_id,
             "ingested": self._tot_ingested_in_source,
             "failed": self._tot_failed_in_source,
