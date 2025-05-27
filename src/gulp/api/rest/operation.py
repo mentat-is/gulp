@@ -77,7 +77,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
         ),
     ] = None,
     description: Annotated[
-        str,
+        Optional[str],
         Depends(APIDependencies.param_description_optional),
     ] = None,
     glyph_id: Annotated[
