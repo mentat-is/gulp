@@ -31,8 +31,8 @@ async def test_query_export():
 
     try:
         q_options: GulpQueryParameters = GulpQueryParameters()
-        q_options.limit = 500
-        q_options.total_limit = 500
+        #q_options.limit = 500
+        #q_options.total_limit = 500
 
         flt: GulpQueryFilter = GulpQueryFilter()
 

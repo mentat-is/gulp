@@ -91,7 +91,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         """
         try:
             from gulp.api.collab.user import GulpUser
-            await GulpUserSession.acquire_advisory_lock(sess, "admin")
+            # await GulpUserSession.acquire_advisory_lock(sess, "admin")
 
             # the "admin" user always exists
             admin_user: GulpUser = await GulpUser.get_by_id(sess, obj_id="admin")
@@ -109,7 +109,8 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             # MutyLogger.get_instance().debug("created new admin session: %s" % (admin_session.to_dict()))
             return admin_session
         finally:
-            await GulpUserSession.release_advisory_lock(sess, "admin")
+            pass
+            # await GulpUserSession.release_advisory_lock(sess, "admin")
 
     @staticmethod
     async def check_token(

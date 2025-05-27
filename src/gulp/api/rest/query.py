@@ -1773,6 +1773,37 @@ async def query_fields_by_source_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+async def _export_json_worker_internal(
+    index: str,
+    dsl: dict,
+    req_id: str,
+    q_options: GulpQueryParameters,
+) -> str:
+    """
+    worker function that runs in a separate process to perform json export.
+    
+    Args:
+        index (str): index to query
+        dsl (dict): opensearch dsl query
+        req_id (str): request id
+        q_options (GulpQueryParameters): query options
+        
+    Returns:
+        str: path to the exported file
+        
+    Throws:
+        Exception: if export operation fails
+    """
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            file_path = await GulpOpenSearch.get_instance().search_dsl_sync_output_file(
+                sess, index, dsl, req_id, q_options=q_options
+            )
+            return file_path
+    except Exception as ex:
+        MutyLogger.get_instance().exception(ex)
+        raise ex
+
 @router.post(
     "/query_gulp_export_json",
     response_model=JSendResponse,
@@ -1813,20 +1844,41 @@ async def query_gulp_export_json_handler(
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> FileResponse:
+    """
+    export documents as json file and stream to client.
+    
+    performs the same operation as query_gulp but returns a json file instead of websocket results.
+    uses worker process to avoid blocking other requests during export.
+    
+    Args:
+        bt (BackgroundTasks): background tasks for cleanup operations
+        token (str): authentication token
+        operation_id (str): operation identifier
+        flt (GulpQueryFilter, optional): query filter parameters
+        q_options (GulpQueryParameters, optional): query execution options
+        req_id (str, optional): request identifier
+        
+    Returns:
+        FileResponse: the exported json file for streaming to client
+        
+    Throws:
+        JSendException: if authentication fails or export operation fails
+    """
     params = locals()
     params.pop("bt")  # remove background tasks from params
     params["flt"] = flt.model_dump(exclude_none=True)
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    q_options.preview_mode = False  # ignore preview mode
-    q_options.note_parameters.create_notes = False  # ignore create notes
+    # ignore preview mode and note creation for export
+    q_options.preview_mode = False
+    q_options.note_parameters.create_notes = False
     if not q_options.fields:
-        # export all fields
+        # export all fields if not specified
         q_options.fields = "*"
 
     try:
-        # setup flt if not provided, must include operation_id
+        # setup filter if not provided, must include operation_id
         if not flt:
             flt = GulpQueryFilter()
         flt.operation_ids = [operation_id]
@@ -1834,32 +1886,53 @@ async def query_gulp_export_json_handler(
         async with GulpCollab.get_instance().session() as sess:
             permission = GulpUserPermission.READ
 
-            # get operation and check acl
+            # get operation and check access control
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s = await GulpUserSession.check_token(
                 sess, token, permission=permission, obj=op
             )
             index = op.index
 
-            # convert gulp query to raw query
+            # convert gulp query to opensearch dsl
             dsl = flt.to_opensearch_dsl()
             if not q_options.name:
                 q_options.name = muty.string.generate_unique()
-                    
-            file_path = await GulpOpenSearch.get_instance().search_dsl_sync_output_file(sess, index, dsl,
-                                                                               req_id, q_options=q_options)
-            async def _cleanup(file_path: str):
+
+            # run export in worker process to avoid blocking the event loop
+            kwds = dict(
+                index=index,
+                dsl=dsl,
+                req_id=req_id,
+                q_options=q_options,
+            )
+            
+            # execute export operation in worker process (non-blocking)
+            file_path = await GulpProcess.get_instance().process_pool.apply(
+                _export_json_worker_internal, kwds=kwds
+            )
+
+            async def _cleanup(file_path: str) -> None:
+                """
+                cleanup function to remove temporary export file after response is sent.
+                
+                Args:
+                    file_path (str): path to the file to cleanup
+                """
                 if file_path:
                     MutyLogger.get_instance().debug(
-                        "cleanup file %s after response sent" % (file_path)
+                        "cleanup file %s after response sent" % file_path
                     )
                     await muty.file.delete_file_or_dir_async(file_path)
+
+            # schedule cleanup after response is sent to client
+            bt.add_task(_cleanup, file_path)
             
-            # add the cleanup task to the background tasks
-            # this will be called after the response is sent
-            bt.add_task(_cleanup, file_path)                            
-            return FileResponse(file_path)
+            # return file response for streaming to client
+            return FileResponse(
+                file_path,
+                media_type="application/json",
+                filename=f"gulp_export_{q_options.name}_{req_id}.json"
+            )
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    
