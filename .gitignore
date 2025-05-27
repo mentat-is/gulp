@@ -43,4 +43,6 @@ docs/html
 # native
 src/gulp/libgulp
 *.so
+export.json
+export.csv
 

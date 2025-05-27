@@ -5,6 +5,7 @@ from typing import Any, Optional
 import muty.crypto
 import muty.file
 from muty.log import MutyLogger
+import requests
 
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
@@ -86,6 +87,49 @@ class GulpAPIQuery:
         )
         return res
 
+    @staticmethod
+    async def query_gulp_export_json(
+        token: str,
+        operation_id: str,
+        output_file_path: str,
+        flt: GulpQueryFilter = None,
+        q_options: GulpQueryParameters = None,
+        expected_status: int = 200,
+        req_id: str = None
+    ) -> str:
+        """
+        returns the path to the exported JSON file
+        """
+        api_common = GulpAPICommon.get_instance()
+        params = {
+            "operation_id": operation_id,
+            "req_id": req_id or api_common.req_id
+        }
+        headers = {"token": token} if token else {}
+        body = {
+            "flt": (
+                flt.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                if flt
+                else None
+            ),
+            "q_options": (
+                q_options.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
+                if q_options
+                else None
+            ),
+        }
+        url = GulpAPICommon.get_instance()._make_url("query_gulp_export_json")
+        r = requests.request("POST", url, headers=headers, params=params, json=body, stream=True)
+        assert r.status_code == expected_status
+
+        with open(output_file_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        return output_file_path
+    
     @staticmethod
     async def query_sigma_zip(
         token: str,

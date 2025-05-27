@@ -130,7 +130,7 @@ class GulpQueryParameters(BaseModel):
     """
     additional options for a query.
 
-    when using with external queries, not all options are guaranteed to be implemented (it is the plugin responsibility to handle them)
+    NOTE: when using with external queries, not all options are guaranteed to be implemented (it is the plugin responsibility to handle them)
     """
 
     model_config = ConfigDict(
@@ -145,6 +145,7 @@ class GulpQueryParameters(BaseModel):
                     },
                     "fields": ["@timestamp", "event.id"],
                     "limit": 1000,
+                    "total_limit": 0,
                     "group": "test",
                     "name": "test",
                     "preview_mode": False,
@@ -199,6 +200,15 @@ for pagination, the maximum number of documents to return **per chunk**, default
 
 - for `external` queries, its the plugin responsibility to handle this.""",
     )
+    total_limit: Optional[int] = Field(
+        0,
+        ge=1,
+        description="""
+The maximum number of documents to return in total, default=0 (no limit).
+
+NOTE: as documents are returned in chunk of `limit` size, total is intended as a multiple of it. default=0 (no limit).
+"""
+    )   
     search_after: Optional[list[dict]] = Field(
         None,
         description="""

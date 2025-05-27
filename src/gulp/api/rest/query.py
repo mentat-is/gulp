@@ -25,15 +25,15 @@ import muty.file
 import muty.log
 import muty.pydantic
 import muty.string
+import muty.time
 import muty.uploadfile
-from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile, BackgroundTasks
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BeforeValidator
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
@@ -1772,3 +1772,94 @@ async def query_fields_by_source_handler(
             return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
+@router.post(
+    "/query_gulp_export_json",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "default": {
+                            "value": {
+                                "docs": [{}]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    summary="Export documents as JSON.",
+    description="""
+same as performing a `query_gulp` but streams a JSON file as response to the client.
+
+- flt.operation_ids is enforced to the provided `operation_id`.
+- `q_options.preview_mode` and `q_options.note_parameters.create_notes` are ignored.
+- if unset, `q_options.fields` is set to `*` to export all fields.
+""",
+)
+async def query_gulp_export_json_handler(
+    bt: BackgroundTasks,
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
+    q_options: Annotated[
+        GulpQueryParameters,
+        Depends(APIDependencies.param_q_options),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> FileResponse:
+    params = locals()
+    params.pop("bt")  # remove background tasks from params
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["q_options"] = q_options.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    q_options.preview_mode = False  # ignore preview mode
+    q_options.note_parameters.create_notes = False  # ignore create notes
+    if not q_options.fields:
+        # export all fields
+        q_options.fields = "*"
+
+    try:
+        # setup flt if not provided, must include operation_id
+        if not flt:
+            flt = GulpQueryFilter()
+        flt.operation_ids = [operation_id]
+
+        async with GulpCollab.get_instance().session() as sess:
+            permission = GulpUserPermission.READ
+
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=op
+            )
+            index = op.index
+
+            # convert gulp query to raw query
+            dsl = flt.to_opensearch_dsl()
+            if not q_options.name:
+                q_options.name = muty.string.generate_unique()
+                    
+            file_path = await GulpOpenSearch.get_instance().search_dsl_sync_output_file(sess, index, dsl,
+                                                                               req_id, q_options=q_options)
+            async def _cleanup(file_path: str):
+                if file_path:
+                    MutyLogger.get_instance().debug(
+                        "cleanup file %s after response sent" % (file_path)
+                    )
+                    await muty.file.delete_file_or_dir_async(file_path)
+            
+            # add the cleanup task to the background tasks
+            # this will be called after the response is sent
+            bt.add_task(_cleanup, file_path)                            
+            return FileResponse(file_path)
+
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+    
