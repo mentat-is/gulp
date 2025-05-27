@@ -1,5 +1,5 @@
 # .devcontainer/Dockerfile
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.13
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.13-bullseye
 
 # Install OS dependencies
 RUN apt update && export DEBIAN_FRONTEND=noninteractive && \

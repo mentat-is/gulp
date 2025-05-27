@@ -23,25 +23,6 @@ services:
       # fix for field expansion error - increases the maximum number of fields that can be queried with wildcards
       # indices.query.bool.max_clause_count: 8192
       
-
-      # log settings
-      # logger.level: DEBUG                            # sets the root logger level (default is INFO)
-      # logger.org.opensearch: DEBUG                   # sets opensearch core logger level
-      # logger.org.opensearch.bootstrap: TRACE         # more detailed bootstrap logging
-      # logger.org.opensearch.cluster.service: DEBUG   # cluster service logs
-      # logger.org.opensearch.index.engine: DEBUG      # engine operations logs
-      # logger.org.opensearch.transport: DEBUG         # transport layer logs
-      # logger.org.opensearch.discovery: TRACE         # very detailed discovery logs
-      # logger.action: DEBUG                           # action execution logs
-      # logger.org.opensearch.index.indexing: DEBUG    # indexing operations logs
-      # logger.org.opensearch.indices: DEBUG           # indices operations logs
-      # # memory monitoring logs (helpful for OOM issues)
-      # logger.org.opensearch.monitor.jvm: DEBUG       # detailed JVM monitoring
-
-      #deploy:
-      #resources:
-      #limits:
-      #memory: 8000M
     ulimits:
       memlock:
         soft: -1
@@ -50,8 +31,6 @@ services:
       - 9200:9200
     volumes:
       - opensearch_data:/usr/share/opensearch/data
-    networks:
-      - gulp
 
   opensearch-dashboards:
     profiles: [ "os-dashboards" ]
@@ -63,8 +42,6 @@ services:
       OPENSEARCH_HOSTS: '["http://os01:9200"]'
     depends_on:
       - os01
-    networks:
-      - gulp
 
   postgres:
     # using an image having pg_cron preinstalled
@@ -81,8 +58,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
       #- POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS}
-    networks:
-      - gulp
 
   elasticvue:
     profiles: [ "dev" ]
@@ -92,8 +67,6 @@ services:
       - 8082:8080
     depends_on:
       - os01
-    networks:
-      - gulp
 
   adminer:
     profiles: [ "dev" ]
@@ -102,8 +75,6 @@ services:
       - postgres
     ports:
       - 8081:8080
-    networks:
-      - gulp
 
   gulp:
     profiles: [ "gulp" ]
@@ -132,8 +103,6 @@ services:
     # sleeping for 30 seconds to wait for both gulp/opensearch to be ready
     # (seems depends is not enough)
     command: /bin/sh -c "sleep 30 && python3 -m gulp ${EXTRA_ARGS:-}"
-    networks:
-      - gulp
 
     # allow restart
     restart: unless-stopped
@@ -147,14 +116,8 @@ services:
     restart: on-failure
     ports:
       - 3000:3000
-    networks:
-      - gulp
 
 volumes:
   postgres_data:
   opensearch_data:
 
-
-networks:
-  gulp:
-    driver: bridge

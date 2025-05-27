@@ -1,5 +1,5 @@
 
-FROM python:3.12.3-bullseye
+FROM python:3.13-3-bullseye
 
 # Add build arguments
 ARG _VERSION
@@ -14,6 +14,7 @@ ENV ADDRESS=0.0.0.0
 RUN apt-get -qq update
 RUN apt-get install -y -q \
     libsystemd-dev \
+    inetutils-ping \
     vim \
     sed \
     git \

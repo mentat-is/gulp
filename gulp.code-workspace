@@ -45,7 +45,10 @@
 		],
 		"workbench.colorTheme": "Dracula Theme",
 		"files.autoSave": "afterDelay",
-		"terminal.integrated.scrollback": 1000
+		"terminal.integrated.scrollback": 1000,
+		"[python]": {
+			"editor.defaultFormatter": "ms-python.black-formatter"
+		}
 	}
 
 }
