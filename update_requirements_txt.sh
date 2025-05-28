@@ -8,7 +8,6 @@ elif [ "$1" == "--help" ]; then
 fi
 
 echo "[.] Updating requirements.txt, using muty-python branch: $_BRANCH"
-exit 0
 
 # Get pip freeze output, remove -e lines, and add muty package
 pip3 freeze | grep -v "^-e" > requirements.txt
