@@ -21,6 +21,8 @@ GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset test_operation --delete-data
 
 ## running the test suite
 
+> **TODO: some tests are currently broken!**
+ 
 the test suite tests all the gulp rest API and plugins, including ingestion and query (checking the results too)
 
 ~~~bash
