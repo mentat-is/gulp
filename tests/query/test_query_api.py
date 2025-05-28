@@ -434,41 +434,6 @@ async def test_queries():
 
 
 @pytest.mark.asyncio
-async def test_sigma_convert():
-    guest_token = await GulpAPIUser.login("guest", "guest")
-    assert guest_token
-
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    sigma_zip_path = os.path.join(current_dir, "sigma/windows.zip")
-    try:
-        sigma_path = await muty.file.unzip(sigma_zip_path)
-        rule_path = os.path.join(
-            sigma_path,
-            "create_remote_thread/create_remote_thread_win_susp_relevant_source_image.yml",
-        )
-        sigma: bytes = await muty.file.read_file_async(rule_path)
-        mapping_parameters = GulpMappingParameters(mapping_file="windows.json")
-        s = await GulpAPIQuery.sigma_convert(
-            guest_token, sigma.decode(), mapping_parameters=mapping_parameters
-        )
-        # hackish but effective
-        assert "process.executable:" in str(s)
-        print(s)
-
-        # now without mapping
-        s = await GulpAPIQuery.sigma_convert(
-            guest_token, sigma.decode(), mapping_parameters=None
-        )
-        assert "process.executable:" not in str(s)
-        print(s)
-        MutyLogger.get_instance().info(
-            test_sigma_convert.__name__ + " succeeded!"
-        )
-
-    finally:
-        muty.file.delete_file_or_dir(sigma_path)
-
-@pytest.mark.asyncio
 async def test_sigma_single_new():
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token

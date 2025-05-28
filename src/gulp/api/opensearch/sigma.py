@@ -166,7 +166,6 @@ async def sigmas_to_queries(
     services: list[str] = None,
     categories: list[str] = None,
     tags: list[str] = None,
-    sigma_convert: callable = None,
     paths: bool = False,
     req_id: str = None,
 ) -> list["GulpQuery"]:
@@ -187,7 +186,6 @@ async def sigmas_to_queries(
         services (list[str], optional): list of services to check. Defaults to None.
         categories (list[str], optional): list of categories to check. Defaults to None.
         tags (list[str], optional): list of tags to check. Defaults to None.
-        sigma_convert (callable, optional): the sigma convert function to use. Defaults to None.
         paths (bool, optional): if True, sigmas are paths to files (will be read). Defaults to False.
         req_id (str, optional): the request id. Defaults to None.
     Returns:
@@ -265,17 +263,13 @@ async def sigmas_to_queries(
                     # )
                     continue
 
-            if sigma_convert is None:
-                # use default sigma convert
-                sigma_convert = sigma_convert_default
-
             use_sigma_mappings = True
             if not sigma_service_names:
                 # no service names found in the rule, we don't need to use sigma mappings
                 use_sigma_mappings = False
 
             try:
-                q: list[GulpQuery] = await sigma_convert(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
+                q: list[GulpQuery] = await sigma_convert_default(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
                 queries.extend(q)
             except Exception as ex:
                 # error converting sigma

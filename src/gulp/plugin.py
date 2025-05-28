@@ -154,10 +154,6 @@ class GulpPluginEntry(BaseModel):
         ...,
         description="This is the bare filename without extension (aka the `internal plugin name`, to be used as `plugin` throughout the whole gulp API).",
     )
-    sigma_support: Optional[bool] = Field(
-        False,
-        description="Whether the plugin supports sigma conversion through `sigma_convert` entrypoint.",
-    )
     custom_parameters: Optional[list[GulpPluginCustomParameter]] = Field(
         [],
         description="A list of custom parameters this plugin supports.",
@@ -841,28 +837,6 @@ class GulpPluginBase(ABC):
 
         # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
         return l, skipped
-
-    async def sigma_convert(
-        self, sigma: str, mapping_parameters: GulpMappingParameters = None, 
-        use_sigma_mappings: bool = True, **kwargs
-    ) -> list[GulpQuery]:
-        """
-        convert a sigma rule to a specific query format.
-
-        `sigma_convert` may be used to convert a sigma rule into a raw query to be used then with `query_external` REST API: the plugin must implement a pysigma backend suitable for the external source DSL.
-
-        NOTE: usually, this is implemented in the same `external` plugin handling a particular external source (i.e. splunk)
-
-        Args:
-            sigma (str): the sigma rule YAML
-            mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
-            use_sigma_mappings (bool, optional): whether to process (if present) sigma mappings to build the query. Defaults to True.
-            **kwargs: additional arguments to pass to the conversion function.
-
-        Returns:
-            list[GulpQuery]: one or more queries.
-        """
-        raise NotImplementedError("not implemented!")
 
     async def _get_or_create_context(self, doc: dict, context_field_name: str) -> str:
         """
@@ -2764,9 +2738,6 @@ class GulpPluginBase(ABC):
                         regex=p.regex(),
                         ui=p.ui(),
                         filename=p.filename,
-                        # check if plugin implements sigma_convert, if so it have sigma_support!
-                        sigma_support=inspect.getmodule(p.sigma_convert)
-                        != inspect.getmodule(GulpPluginBase.sigma_convert),
                         custom_parameters=p.custom_parameters(),
                         depends_on=p.depends_on(),
                         tags=p.tags(),

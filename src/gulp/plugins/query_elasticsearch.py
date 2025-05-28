@@ -35,7 +35,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import PreviewDone
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.sigma import sigma_convert_default
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
@@ -136,25 +135,6 @@ class Plugin(GulpPluginBase):
                 default_value=None,
             ),
         ]
-
-    @override
-    async def sigma_convert(
-        self, sigma: str, mapping_parameters: GulpMappingParameters = None, 
-        use_sigma_mapping: bool = True, **kwargs
-    ):
-        # check if we're using elastic or openssearch and select the appropriate backend
-        is_elasticsearch = kwargs.get("is_elasticsearch", False)
-        if is_elasticsearch:
-            # use elasticsearch backend
-            backend = LuceneBackend()
-        else:
-            # use opensearch backend
-            backend = OpensearchLuceneBackend()
-
-        # call the sigma convert function
-        return await sigma_convert_default(
-            sigma, mapping_parameters, backend=backend, use_sigma_mapping=use_sigma_mapping
-        )
 
     @override
     async def _record_to_gulp_document(

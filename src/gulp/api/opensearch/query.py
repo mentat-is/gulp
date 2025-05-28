@@ -202,7 +202,6 @@ for pagination, the maximum number of documents to return **per chunk**, default
     )
     total_limit: Optional[int] = Field(
         0,
-        ge=1,
         description="""
 The maximum number of documents to return in total, default=0 (no limit).
 

@@ -17,7 +17,6 @@
   - [extension plugins](#extension-plugins-1)
 - [addendum](#addendum)
   - [external queries](#external-queries)
-  - [sigma queries](#sigma-queries)
 
 # plugins
 
@@ -81,11 +80,6 @@ then, different entrypoints may be implemented:
 - `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
 
-- `sigma_convert`: this may be implemented in a plugin to supports sigma rules conversion to queries for a `target DSL different than gulp (i.e. SPLUNK)`.
-
-  - to support direct gulp queries through the `query_sigma` REST API, there is no need to implement `sigma_convert`, since gulp already implements the opensearch pysigma backend needed.
-  - to query an external source (i.e. SPLUNK) using sigma rules, one may implement `sigma_convert` targeting the pysigma SPLUNK backend in the splunk external plugin.
-  
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
@@ -419,11 +413,3 @@ to query an external source with an `external plugin`, we use the `query_externa
 
 > look at [test_elasticsearch](../tests/query.py) in the query tests for an example usage
 
-## sigma queries
-
-to query gulp using sigma rules, we use the `query_sigma` API:
-
-1. specify the `plugin` to be used (must implement `sigma_convert`)
-2. pass the `q` parameter with one or more sigma rules to be translated: the resulting queries will be executed **in parallel**.
-
-> look at [test_win_evtx](../tests/query.py) in the query tests for an example usage

@@ -350,49 +350,6 @@ class GulpAPIQuery:
         return res
 
     @staticmethod
-    async def query_external_sigma(
-        token: str,
-        operation_id: str,
-        sigmas: list[str],
-        plugin: str,
-        q_options: GulpQueryParameters,
-        plugin_params: GulpPluginParameters,
-        ingest: bool = False,
-        ws_id: str = None,
-        req_id: str = None,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-        params = {
-            "operation_id": operation_id,
-            "ingest": ingest,
-            "plugin": plugin,
-            "req_id": req_id or api_common.req_id,
-            "ws_id": ws_id or api_common.ws_id,
-        }
-        body = {
-            "sigmas": sigmas,
-            "q_options": (
-                q_options.model_dump(by_alias=True, exclude_none=True)
-                if q_options
-                else None
-            ),
-            "plugin_params": (
-                plugin_params.model_dump(by_alias=True, exclude_none=True)
-            ),
-        }
-
-        res = await api_common.make_request(
-            "POST",
-            "query_external_sigma",
-            params=params,
-            body=body,
-            token=token,
-            expected_status=expected_status,
-        )
-        return res
-
-    @staticmethod
     async def query_operations(
         token: str,
         expected_status: int = 200,
