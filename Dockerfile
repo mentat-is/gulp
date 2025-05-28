@@ -7,8 +7,8 @@ ENV _VERSION=${_VERSION}
 ARG _MUTY_VERSION
 ENV _MUTY_VERSION=${_MUTY_VERSION}
 
-ENV PORT=8080
-ENV ADDRESS=0.0.0.0
+ENV BIND_TO_PORT=8080
+ENV BIND_TO_ADDR=0.0.0.0
 
 # install dependencies
 RUN apt-get -qq update
@@ -60,6 +60,6 @@ RUN echo "[.] Installed packages:" && pip3 list -v
 # show version during build
 RUN python3 -m gulp --version
 
-EXPOSE ${PORT}
+EXPOSE ${BIND_TO_PORT}
 
-CMD ["sh","-c","gulp ${ARGS:---log-level debug}"]
+CMD ["gulp", "--log-level debug"]
