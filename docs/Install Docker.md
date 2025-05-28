@@ -62,6 +62,8 @@ docker run --rm -e GULP_CONFIG_PATH=/bla/bla.json -e BIND_TO_PORT=8080 gulp-core
 
 of course, you may provide your own compose file to suit your particular configuration (multiple OpenSearch nodes, ...).
 
+> please note that the provided [docker-compose.yml](../docker-compose.yml) is just an example (albeit working!), and also have the `OpenSearch security plugin DISABLED`: you may want to change this for your production environment!
+
 ### cleanup
 
 to cleanup `gulp`, `postgresql` and `opensearch` data volumes, use the provided [reset script](../reset_docker.sh).
