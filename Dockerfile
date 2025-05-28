@@ -1,5 +1,5 @@
 
-FROM python:3.13-3-bullseye
+FROM python:3.13-bullseye
 
 # Add build arguments
 ARG _VERSION

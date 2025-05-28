@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
+_BRANCH="develop"
+if [ "$1" == "--release" ]; then
+    _BRANCH="master"
+elif [ "$1" == "--help" ]; then
+    echo "Usage: $0 [--release to use the master branch for muty-python]"
+    exit 1
+fi
 
-echo "[.] Updating requirements.txt"
+echo "[.] Updating requirements.txt, using muty-python branch: $_BRANCH"
+exit 0
 
 # Get pip freeze output, remove -e lines, and add muty package
 pip3 freeze | grep -v "^-e" > requirements.txt

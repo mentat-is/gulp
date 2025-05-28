@@ -13,6 +13,10 @@ docker run mentatis/gulp-core:latest
 
 ## (re)build image
 
+> **NOTE TO DEVTEAM**: to build an image, a proper `requirements.txt` is needed, with all the python packages needed to at least startup the core and the basic plugins.
+>
+> **it is the responsibility of the devteam, indeed, to keep  `requirements.txt` updated using [update_requirements.sh](../update_requirements_txt.sh) script before committing a stable tag/release on the repository.**
+
 1. clone repositories
 
   ~~~bash
@@ -22,13 +26,7 @@ docker run mentatis/gulp-core:latest
   git clone https://github.com/mentat-is/muty-python.git
   ~~~
 
-2. freeze the requirements
-
-  ~~~bash
-  ./update_requirements_txt.sh
-  ~~~
-
-3. build `gulp-core` image
+2. build `gulp-core` image
 
   ~~~bash
   # to rebuild, add --no-cache flag ...
