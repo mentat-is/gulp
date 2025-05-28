@@ -2,6 +2,7 @@
   - [pull image directly from docker hub](#pull-image-directly-from-docker-hub)
   - [(re)build image](#rebuild-image)
   - [run with docker-compose](#run-with-docker-compose)
+    - [cleanup](#cleanup)
 
 # docker Installation
 
@@ -35,11 +36,16 @@ docker run mentatis/gulp-core:latest
 
 ## run with docker-compose
 
+you can run all the gulp stack on the `local machine` using the provided [docker-compose.yml](../docker-compose.yml).
+
 you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) file to the container, and you're ready to go!
 
 ~~~bash
 # supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp, gulp-web (and adminer and elasticvue for debugging)
 GULP_IMAGE=gulp-core:latest BIND_TO_PORT=8080 PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files GULP_CONFIG_PATH=/home/valerino/repos/gulp/gulp_cfg.json docker compose --profile gulp --profile dev up
+
+# to add extra arguments, provide them with EXTRA_ARGS, i.e. to tweak log-level
+EXTRA_ARGS="--log-level warning" GULP_IMAGE=... BIND_TO_PORT=... (same as above)
 ~~~
 
 > multiple profiles may be specified using on the `docker compose` command line:
@@ -50,4 +56,8 @@ GULP_IMAGE=gulp-core:latest BIND_TO_PORT=8080 PATH_PLUGINS_EXTRA=/home/valerino/
 > - `--profile os-dashboards`: also run opensearch dahsboards
 > - *no profile specified: just run `opensearch` and `postgresql`*
 
-to cleanup `gulp`, `postgresql` and `opensearch data` volumes, use the provided [reset script](../reset_docker.sh).
+of course, you may provide your own compose file to suit your particular configuration (multiple OpenSearch nodes, ...).
+
+### cleanup
+
+to cleanup `gulp`, `postgresql` and `opensearch` data volumes, use the provided [reset script](../reset_docker.sh).

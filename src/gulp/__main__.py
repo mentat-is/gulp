@@ -94,7 +94,9 @@ the following tables on the collaboration database will be cleared of "operation
         const=True,
         default=False,
     )
-    args = parser.parse_args()
+    args = parser.parse_args()        
+    print(". command line args (sys.argv):\n%s" % (sys.argv))
+    print(". command line args (parsed):\n%s" % (args))
 
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]

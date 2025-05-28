@@ -913,7 +913,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         await GulpUserGroup.get_by_id(sess, group_id)
 
         if group_id not in self.granted_user_group_ids:
-            MutyLogger.get_instance().info(
+            MutyLogger.get_instance().debug(
                 "adding granted user group %s to object %s" % (group_id, self.id)
             )
 
@@ -978,7 +978,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         await GulpUser.get_by_id(sess, user_id)
 
         if user_id not in self.granted_user_ids:
-            MutyLogger.get_instance().info(
+            MutyLogger.get_instance().debug(
                 "adding granted user %s to object %s" % (user_id, self.id)
             )
 
