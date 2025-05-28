@@ -145,10 +145,12 @@ class GulpProcess:
         # add plugin paths to sys.path immediately
         def _add_to_syspath(p: str):
             if p and p not in sys.path:
-                sys.path.insert(0, p)  # insert at beginning for priority
+                #sys.path.insert(0, p)  # insert at beginning for priority
+                sys.path.append(p)
                 extension_path = os.path.join(p, "extension")
                 if os.path.isdir(extension_path):
-                    sys.path.insert(0, extension_path)
+                    #sys.path.insert(0, extension_path)
+                    sys.path.append(extension_path)
         
         _add_to_syspath(plugins_path)
         _add_to_syspath(plugins_path_extra)
