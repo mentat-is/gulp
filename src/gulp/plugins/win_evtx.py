@@ -36,8 +36,6 @@ from gulp.api.collab.stats import (
 )
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.opensearch.query import GulpQuery
-from gulp.api.opensearch.sigma import to_gulp_query_struct
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpMappingParameters, GulpPluginParameters

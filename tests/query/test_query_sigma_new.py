@@ -60,8 +60,12 @@ async def test_sigma_single_new():
 
     # read sigma
     sigma_path = os.path.join(
+        current_dir, "sigma/windows/create_remote_thread/create_remote_thread_win_susp_relevant_source_image.yml" # 13 mathes on test samples win evtx
+        
+        # following matches are for Microsoft-Windows-Sysmon%4Operational.evtx on our sharepoint
+
         # current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml" # 6
-        current_dir, "sigma/windows/create_stream_hash/create_stream_hash_file_sharing_domains_download_susp_extension.yml" # 1
+        # current_dir, "sigma/windows/create_stream_hash/create_stream_hash_file_sharing_domains_download_susp_extension.yml" # 1
         # current_dir, "sigma/windows/file/file_change/file_change_win_2022_timestomping.yml" # 4
         #current_dir, "sigma/windows/network_connection/net_connection_win_rdp_outbound_over_non_standard_tools.yml" # 0
         # current_dir, "sigma/windows/network_connection/net_connection_win_susp_initiated_uncommon_or_suspicious_locations.yml" # 3

@@ -1165,7 +1165,7 @@ async def query_sigma_handler(
                 categories=categories,
                 services=services,
                 tags=tags)
-
+            
         if q_options.preview_mode:
             if len(sigmas) > 1:
                 raise ValueError(

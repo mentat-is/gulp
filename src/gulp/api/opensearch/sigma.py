@@ -270,11 +270,44 @@ async def sigmas_to_queries(
 
             try:
                 q: list[GulpQuery] = await sigma_convert_default(rule_content, mapping_parameters, use_sigma_mappings=use_sigma_mappings)
+                for qq in q:
+                    q_dict: dict = qq.q
+
+                    # tie this query to the source id
+                    new_q: dict = {
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    q_dict["query"],
+                                    {
+                                        "query_string": {
+                                            "query": "gulp.source_id: %s" % src_id,
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                    qq.q = new_q
+
                 queries.extend(q)
             except Exception as ex:
                 # error converting sigma
                 MutyLogger.get_instance().error("ERROR converting sigma rule:\n%s\n%s", rule_content, ex)
 
+    # log the number of queries generated
+    MutyLogger.get_instance().debug(
+        "converted %d sigma rules to %d GulpQuery objects",
+        len(sigmas),
+        len(queries),
+    )
+    # count: int = 0
+    # for q in queries:
+    #     # dump each query
+    #     MutyLogger.get_instance().debug(
+    #         "query[%d]: %s" %  (count,  json.dumps(q.q, indent=2))            
+    #     )
+    #     count += 1
     return queries
 
 
@@ -556,6 +589,16 @@ async def sigma_convert_default(
     )
     if not use_sigma_mappings:
         # no sigma mappings, just return the queries
+        MutyLogger.get_instance().warning(
+            "sigma_convert_default, no sigma mappings, returning %d queries",
+            len(qs),
+        )
+        # count: int =0
+        # for q in qs:
+        #     MutyLogger.get_instance().debug(
+        #         "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))                
+        #     )
+        #     count += 1
         return qs
 
     # finally we add constraints if sigma mappings are set (and we're told to use them)
