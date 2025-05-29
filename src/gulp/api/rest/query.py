@@ -1765,7 +1765,7 @@ async def query_gulp_export_json_handler(
             return FileResponse(
                 file_path,
                 media_type="application/json",
-                filename=f"gulp_export_{q_options.name}_{req_id}.json"
+                filename=f"gulp_export_{req_id}.json"
             )
 
     except Exception as ex:
