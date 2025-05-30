@@ -1,12 +1,12 @@
 - [docker Installation](#docker-installation)
-  - [pull image directly from docker hub](#pull-image-directly-from-docker-hub)
+  - [pull latest image directly from docker hub](#pull-latest-image-directly-from-docker-hub)
   - [(re)build image](#rebuild-image)
   - [run with docker-compose](#run-with-docker-compose)
     - [cleanup](#cleanup)
 
 # docker Installation
 
-## pull image directly from docker hub
+## pull latest image directly from docker hub
 
 ```bash
 docker run mentatis/gulp-core:latest

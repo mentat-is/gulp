@@ -35,21 +35,9 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **High-Speed Multiprocessing Engine**: Gulp's engine is designed for speed, offering fast ingestion and querying capabilities through multiprocessing.
 - **Query using SIGMA rules**: Gulp supports querying using Sigma Rules, allowing for easy, one-click queries with thousands of rules in parallel.
 - **Collaboration Platform**: Gulp includes a collaboration platform, enabling teams to work together on the same incident. Features include note-taking, highlighting, and link adding.
-- **Innovative UI**: Gulp's user interface includes multiple on-screen per-context(i.e. a log source) zoomable timelines for visualizing events, making it easier to understand and analyze incidents.
+- [**An innovative UI**](https://github.com/mentat-is/gulpui-web): Gulp's user interface includes multiple on-screen per-context(i.e. a log source) zoomable timelines for visualizing events, making it easier to understand and analyze incidents.
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
-- **WEB UI client**: [a full fledged web-ui](https://github.com/mentat-is/gulpui-web) is available!
-
-## timeline
-
-Here's the rough timeline we put together, it is subject to change:
-
-![timeline](.images/timeline.png)
-
-## MOCA 2024 presentation
-
-[here is our presentation](https://docs.google.com/presentation/d/e/2PACX-1vTynDHQqr2hN6d3Mlq7UGADR-SAePDUD_M9CdPd2VrS5n11JkrrWMj00KQb9flhG8i2VUlKOn2tr5Ny/pub?start=false&loop=false&delayms=3000) at [MOCA2024](https://moca.camp).
-localhost:5000
 
 ## installation
 
@@ -144,6 +132,8 @@ gulp --reset-collab --reset my_operation --delete-data
 
 reset the collab database, do not touch data on opensearch
 
+> operations, users, groups tables are not affected: this is used mostly to delete i.e. all notes/links but leave the existing operations
+
 ~~~bash
 gulp --reset-collab
 ~~~
@@ -165,10 +155,6 @@ gulp --reset my_operation --delete-data
 ### web UI
 
 get it [here](https://github.com/mentat-is/gulpui-web) !
-
-- usage demo, uses the old .NET UI
-
-  [![.NET ui demo](https://img.youtube.com/vi/3WWzySRQZK8/0.jpg)](https://youtu.be/3WWzySRQZK8?t=1349)
 
 ## test
 

@@ -478,7 +478,7 @@ class GulpRestServer:
 
         first_run: bool = False
         if self._check_first_run():
-            # first run, force --reset and --recreate-collab
+            # first run, force --reset and --reset-collab
             self._reset_operation = TEST_OPERATION_ID
             self._reset_collab = True
             first_run = True
@@ -489,15 +489,22 @@ class GulpRestServer:
 
         # check for reset flags
         try:
-            if self._reset_collab:
+            if self._reset_collab or self._reset_operation:
                 from gulp.api.rest.db import db_reset
 
+                if self._reset_operation or first_run:
+                    # collab hard reset
+                    lite_reset = False
+                else:
+                    # collab lite reset
+                    lite_reset = True
                 # reset collab database
                 MutyLogger.get_instance().warning(
-                    "reset_collab set, first_run=%r !" % (first_run)
+                    "reset_collab or reset_operation set, first_run=%r, reset_operation=%s, lite_reset=%r !" % (first_run, self._reset_operation, lite_reset)
                 )
-                await db_reset(delete_data=self._delete_data)
+                await db_reset(delete_data=self._delete_data, create_operation_id=self._reset_operation, lite_reset=lite_reset)
 
+            """
             if self._reset_operation:
                 # delete and recreate operation and index
                 try:
@@ -517,7 +524,7 @@ class GulpRestServer:
                         delete_data=self._delete_data,
                         create_operation_id=self._reset_operation,
                     )
-
+            """
         except Exception as ex:
             if first_run:
                 # allow restart on first run

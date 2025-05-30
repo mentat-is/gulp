@@ -39,21 +39,31 @@ from gulp.process import GulpProcess
 router: APIRouter = APIRouter()
 
 
-async def db_reset(delete_data: bool = False, user_id: str = None, create_operation_id: str=None) -> None:
+async def db_reset(delete_data: bool = False, user_id: str = None, create_operation_id: str=None, lite_reset: bool=False) -> None:
     """
     resets the collab database
 
     Args:
         delete_data (bool, optional): if True, all data on OpenSearch related to the existing operations will be deleted. Defaults to False.
         user_id (str): user id to use to delete the data. If None, "admin" will be used.
-        create_operation_id (str, optional): if set, a new operation with this id will be created.
+        create_operation_id (str, optional): if set, a new operation with this id will be created after reset.
+        lite_reset (bool, optional): if True, database is not dropped and recreated, but only cleared of data related to operations, leaving users and glyphs intact. Defaults to False.
     """
     # check if the database exists
     url = GulpConfig.get_instance().postgres_url()
     collab = GulpCollab.get_instance()
     exists = await collab.db_exists(url)
+    recreate: bool = False
+    
+    if not lite_reset:
+        recreate = True
+        
+    if create_operation_id:
+        lite_reset = False
+        recreate = True
 
     if exists:
+        # if the database exist and we must delete data, do it
         MutyLogger.get_instance().info("collab database exists !")
         try:
             await collab.init(main_process=True)
@@ -71,23 +81,39 @@ async def db_reset(delete_data: bool = False, user_id: str = None, create_operat
                         MutyLogger.get_instance().info(
                             "deleting data for operation %s" % op.id
                         )
-                        await GulpOpenSearch.get_instance().datastream_delete(op.index)
+                        if lite_reset:
+                            # just delete the data for the operation
+                            await GulpOpenSearch.get_instance().delete_data_by_operation(op.index, operation_id=op.id)
+                        else:
+                            # delete the whole datastream
+                            await GulpOpenSearch.get_instance().datastream_delete(op.index)
         except SchemaMismatch as ex:
             MutyLogger.get_instance().warning("collab database schema mismatch, will be recreated!")
     else:
         MutyLogger.get_instance().info("collab database does not exist, creating it...")
+        recreate = True
 
-    # shutdown and recreate the database
-    await GulpCollab.get_instance().shutdown()
+    # reinit, possibly recreating the database
+    MutyLogger.get_instance().info("reinitializing collab database, recreate=%r, lite_reset=%r, create_operation_id=%s" % (recreate, lite_reset, create_operation_id))
+
+    # if recreate is True, the database will be recreated
+    await collab.init(main_process=True, force_recreate=recreate)
     collab = GulpCollab.get_instance()
-    await collab.init(main_process=True, force_recreate=True)
-    await collab.create_default_users()
-    await collab.create_default_glyphs()
+    
+    if lite_reset and not create_operation_id:
+        MutyLogger.get_instance().debug("leaving operations and users table as is...")
+        await collab.clear_tables(exclude=["operation", "user", "glyph", "user_group", "user_associations"])
+    else:
+        # create default users/glyphs
+        await collab.create_default_users()
+        await collab.create_default_glyphs()
+
+
     if create_operation_id:
-        collab = GulpCollab.get_instance()
-        await collab.init(main_process=True)
         await collab.create_default_operation(operation_id=create_operation_id, index=create_operation_id)
-        await GulpOpenSearch.get_instance().datastream_create(ds=create_operation_id)
+        if delete_data:
+            # recreate the datastream for the operation
+            await GulpOpenSearch.get_instance().datastream_create(ds=create_operation_id)
 
     MutyLogger.get_instance().info("collab database reset done !")
 

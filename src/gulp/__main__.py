@@ -73,16 +73,18 @@ use with --delete-data to delete all documents on OpenSearch related to all the 
     )
     parser.add_argument(
         "--reset",
-        help="""reset (or create if not exists) an operation.
+        help="""(re)create an operation on the collab database.
 
-the following tables on the collaboration database will be cleared of "operation_id" related data: notes, highlights, links, request_stats.
+the specified operation will be deleted (if exists) and recreated.
+
+use with --delete-data to delete data on OpenSearch as well.
 """,
         nargs=1,
         metavar=("operation_id"),
     )
     parser.add_argument(
         "--delete-data",
-        help="""to be used with --reset-operation or --reset-collab, to delete all documents on OpenSearch related to one (--reset) or all (--reset-collab) operations.
+        help="""to be used with --reset or --reset-collab to delete documents on OpenSearch related to one (--reset) or all (--reset-collab) operations.
 """,
         action="store_true",
         default=False,
