@@ -79,6 +79,7 @@ then, different entrypoints may be implemented:
 
 - `ingest_raw`: implemented in `ingestion` plugins, this is basically as `_ingest_file` but allows to ingest raw pre-generated `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
+  - **NOTE: this will probably be rearchitected soon**
 
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
@@ -121,7 +122,7 @@ the plugins must implement:
 
 ### ingestion plugins
 
-ingestion plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
+ingestion plugins must implement `ingest_file` or `ingest_raw` (the ingestion entrypoints).
 
 optionally, `ingestion` plugins may implement:
 
