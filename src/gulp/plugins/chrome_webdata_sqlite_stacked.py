@@ -114,6 +114,23 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
 
+        await super().ingest_file(
+                sess=sess,
+                stats=stats,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=original_file_path,
+                plugin_params=plugin_params,
+                flt=flt,
+                **kwargs,
+            )
+
         # set as stacked
         try:
             lower = await self.setup_stacked_plugin("sqlite")

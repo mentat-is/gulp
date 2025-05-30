@@ -8,7 +8,7 @@ from muty.log import MutyLogger
 
 from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
-from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon, _ensure_test_operation
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
 from gulp.api.rest.client.operation import GulpAPIOperation
@@ -71,10 +71,7 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-
+    await _ensure_test_operation()
 
 @pytest.mark.asyncio
 async def test_operation_api():

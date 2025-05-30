@@ -5,22 +5,13 @@ import os
 
 import muty.file
 import pytest
-import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
-from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import GulpAPICommon, _test_ingest_ws_loop, _test_init
-from gulp.api.rest.client.ingest import GulpAPIIngest
-from gulp.api.rest.client.note import GulpAPINote
-from gulp.api.rest.client.object_acl import GulpAPIObjectACL
-from gulp.api.rest.client.operation import GulpAPIOperation
+from gulp.api.rest.client.common import GulpAPICommon
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
-    TEST_CONTEXT_ID,
     TEST_HOST,
     TEST_INDEX,
     TEST_OPERATION_ID,
@@ -29,10 +20,8 @@ from gulp.api.rest.test_values import (
 )
 from gulp.api.ws_api import (
     GulpQueryDonePacket,
-    GulpQueryGroupMatchPacket,
     GulpWsAuthPacket,
 )
-from gulp.structs import GulpMappingParameters
 
 
 @pytest.mark.asyncio

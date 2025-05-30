@@ -2,7 +2,7 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import _test_init
+from gulp.api.rest.client.common import _ensure_reset, _ensure_test_operation
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
@@ -12,10 +12,7 @@ from gulp.api.rest.test_values import TEST_OPERATION_ID
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    """
-    this is called before any test, to initialize the environment
-    """
-    await _test_init(recreate=True)
+    await _ensure_reset()
 
 
 @pytest.mark.asyncio
@@ -109,14 +106,8 @@ async def test_user_vs_operations():
     admin_token = await GulpAPIUser.login("admin", "admin")
     assert admin_token
 
-    # reset collab full
-    await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=True)
-    admin_token = await GulpAPIUser.login("admin", "admin")
-    assert admin_token
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
-    res = await GulpAPIOperation.operation_reset(admin_token, TEST_OPERATION_ID)
-    assert res["id"] == TEST_OPERATION_ID
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx

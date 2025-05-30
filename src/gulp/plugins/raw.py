@@ -3,6 +3,9 @@ a gulp plugin for ingesting `raw` (already processed, i.e. by an agent) GulpDocu
 
 the raw plugin may also be used by other plugins (i.e. `èxternal query` plugins in ingestion mode) to ingest the GulpDocument entries
 they generate from the external source into the Gulp pipeline.
+
+NOTE: should this broadcast ingestion internal event ? at the moment, it doesn't:
+it would slow down a lot and generate really tons of data on postgres!
 """
 
 from typing import override

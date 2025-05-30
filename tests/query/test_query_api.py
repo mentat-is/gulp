@@ -12,7 +12,7 @@ from muty.log import MutyLogger
 from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import _test_ingest_ws_loop, _test_init
+from gulp.api.rest.client.common import _ensure_test_operation, _test_ingest_ws_loop
 from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.note import GulpAPINote
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
@@ -47,13 +47,7 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _test_init()
-    # GulpAPICommon.get_instance().init(
-    #     host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    # )
-    # admin_token = await GulpAPIUser.login("admin", "admin")
-    # assert admin_token
-    # await GulpAPIDb.postgres_reset_collab(admin_token, full_reset=False)
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -421,96 +415,12 @@ async def test_queries():
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
-
     await test_win_evtx()
 
     # test different queries
-    await _test_sigma_group(guest_token)
-    await _test_sigma_single(guest_token)
     await _test_query_gulp(guest_token)
     await _test_query_raw(guest_token)
     await _test_query_single_id(guest_token)
     await _test_query_operations()
 
 
-@pytest.mark.asyncio
-async def test_sigma_single_new():
-    guest_token = await GulpAPIUser.login("guest", "guest")
-    assert guest_token
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
-
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    file_path = os.path.join(
-        current_dir, "sigma/Microsoft-Windows-Windows Defender%4Operational.evtx"
-    )
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
-    await test_win_evtx(file_path=file_path, skip_checks=True)
-
-    await asyncio.sleep(8)
-
-    # read sigma
-    sigma = await muty.file.read_file_async(
-        os.path.join(current_dir, "sigma/win_defender_threat.yml")
-    )
-
-    _, host = TEST_HOST.split("://")
-    ws_url = f"ws://{host}/ws"
-    test_completed = False
-
-    async with websockets.connect(ws_url) as ws:
-        # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(token=guest_token, ws_id=TEST_WS_ID)
-        await ws.send(p.model_dump_json(exclude_none=True))
-
-        # receive responses
-        try:
-            while True:
-                response = await ws.recv()
-                data = json.loads(response)
-
-                if data["type"] == "ws_connected":
-                    # run test
-                    await GulpAPIQuery.query_sigma(
-                        guest_token,
-                        TEST_OPERATION_ID,
-                        sigmas=[
-                            sigma.decode(),
-                        ],
-                    )
-                elif data["type"] == "query_done":
-                    # query done
-                    q_done_packet: GulpQueryDonePacket = (
-                        GulpQueryDonePacket.model_validate(data["data"])
-                    )
-                    MutyLogger.get_instance().debug(
-                        "query done, name=%s", q_done_packet.name
-                    )
-                    if q_done_packet.name == "Windows Defender Threat Detected":
-                        # assert q_done_packet.total_hits == 3
-                        test_completed = True
-                    else:
-                        raise ValueError(
-                            f"unexpected query name: {q_done_packet.name}"
-                        )
-                    break
-
-                # ws delay
-                await asyncio.sleep(0.1)
-
-        except websockets.exceptions.ConnectionClosed as ex:
-            MutyLogger.get_instance().exception(ex)
-
-    assert test_completed
-    MutyLogger.get_instance().info(test_sigma_single_new.__name__ + " succeeded!")
-
-    # try again
-    await GulpAPIQuery.query_sigma(
-        guest_token,
-        TEST_OPERATION_ID,
-        src_ids=["e027a5f1254f620bc62f62ea7fd628437c303ccc"],
-        sigmas=[
-            sigma.decode(),
-        ],
-    )

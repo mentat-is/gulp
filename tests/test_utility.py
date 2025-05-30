@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import GulpAPICommon, _test_init
+from gulp.api.rest.client.common import GulpAPICommon, _ensure_test_operation
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.client.utility import GulpAPIUtility
@@ -19,14 +19,13 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _test_init()
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
 async def test_utility():
     async def _test_plugins():
         # reset first
-        await GulpAPIDb.reset_collab_as_admin()
         if not os.environ.get("PATH_PLUGINS_EXTRA"):
             raise ValueError("PATH_PLUGINS_EXTRA not set")
         MutyLogger.get_instance().info(

@@ -10,7 +10,7 @@ import websockets
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import GulpAPICommon, _test_init
+from gulp.api.rest.client.common import GulpAPICommon
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
@@ -55,14 +55,6 @@ example usage:
         "override_chunk_size": 200
 }'
 """
-
-
-@pytest_asyncio.fixture(scope="function", autouse=True)
-async def _setup():
-    """
-    this is called before any test, to initialize the environment
-    """
-    await _test_init()
 
 
 SPLUNK_RAW_Q = "EventCode=5156"  # all

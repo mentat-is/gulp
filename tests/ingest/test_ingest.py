@@ -19,12 +19,10 @@ from muty.log import MutyLogger
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.rest.client.common import (
-    GulpAPICommon,
+    _ensure_test_operation,
     _test_ingest_generic,
     _test_ingest_ws_loop,
-    _test_init,
 )
-from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
@@ -46,7 +44,7 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _test_init(recreate=True)
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -190,10 +188,10 @@ async def test_ingest_filter():
     )
 
     await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
-
-    await GulpAPIUser.login_admin_and_reset_operation(TEST_OPERATION_ID)
-
+    
     # ingest another part
+    from gulp.api.rest.client.common import _ensure_test_operation
+    await _ensure_test_operation()
     flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
     await GulpAPIIngest.ingest_file(
         token=ingest_token,

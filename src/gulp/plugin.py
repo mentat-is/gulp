@@ -1087,17 +1087,19 @@ class GulpPluginBase(ABC):
         ws_id: str,
         index: str,
         operation_id: str,
-        chunk: list[dict],
+        chunk: Any|list[dict]|bytes,
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
         """
-        ingest a chunk of arbitrary (GulpDocument ?) dictionaries.
+        ingest a chunk of arbitrary data
 
-        it is the responsibility of the plugin to create context and source, from the document.
+        - it is the responsibility of the plugin to process the chunk and convert it to GulpDocuments (if they're not already GulpDocument dictionaries)
+        - it is the responsibility of the plugin to create context and source, from each document.
 
         NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
+        TODO: to rethink (use ingest_file with some parameter ?)
 
         Args:
             sess (AsyncSession): The database session.
@@ -1106,7 +1108,7 @@ class GulpPluginBase(ABC):
             ws_id (str): The websocket ID to stream on
             index (str): The name of the target opensearch/elasticsearch index or datastream.
             operation_id (str): id of the operation on collab database.
-            chunk (list[dict]): The chunk of documents to ingest.
+            chunk: Any|list[dict]|bytes: may be a list of GulpDocuments, a list of arbitrary dictionaries, a raw bytes buffer
             stats (GulpRequestStats, optional): The ingestion stats.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
@@ -1467,36 +1469,39 @@ class GulpPluginBase(ABC):
         **kwargs,
     ) -> "GulpPluginBase":
         """
-        setup the caller plugin as the "lower" plugin in a stack.
+        setup the caller plugin as the "upper" plugin in a stack, and load "plugin" as the lower plugin.
+        
+        this must be called i.e. in "ingest_file"
+        
+        - the caller calls setup_stacked_plugin with the plugin to load as lower plugin
+        - it then calls lower "ingest_file" and let the lower plugin process the file.
 
-        the engine, when processing records, will:
+        the engine takes care of postprocessing data:
 
-        - for any record, call the running plugin _record_to_gulp_document function
-            - if a plugin is stacked above, will call the upper plugin _record_to_gulp_document function
-        - when flushing a chunk of documents to opensearch, call the running plugin _enrich_documents function
-            - if a plugin is stacked above, will call the upper plugin _enrich_documents function
+        - for any record, calls the upper plugin _record_to_gulp_document function after the lower
+        - when flushing a chunk of documents to opensearch, calls the upper plugin _enrich_documents function after the lower
 
         Args:
-            plugin (str): the plugin to load
+            plugin (str): the plugin to load as lower
             *args: additional arguments to pass to the plugin constructor.
             cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
             **kwargs: additional keyword arguments to pass to the plugin constructor.
         Returns:
             PluginBase: the loaded plugin
         """
-        p = await GulpPluginBase.load(
+        lower = await GulpPluginBase.load(
             plugin, extension=False, cache_mode=cache_mode, *args, **kwargs
         )
 
-        # set the upper plugin as stacked, so it can call our (lower) functions
+        # set upper plugin functions in lower, so it can call them after processing data itself
         # pylint: disable=W0212
-        p._upper_record_to_gulp_document_fun = self._record_to_gulp_document
-        p._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
-        p._upper_instance = self
+        lower._upper_record_to_gulp_document_fun = self._record_to_gulp_document
+        lower._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
+        lower._upper_instance = self
 
         # set the lower plugin as stacked
-        p._stacked = True
-        return p
+        lower._stacked = True
+        return lower
 
     def _finalize_process_record(self, doc: GulpDocument) -> list[dict]:
         """

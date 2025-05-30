@@ -2,17 +2,14 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import _test_init
+from gulp.api.rest.client.common import _ensure_test_operation
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.client.user_group import GulpAPIUserGroup
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    """
-    this is called before any test, to initialize the environment
-    """
-    await _test_init(reset_collab=True, recreate=True)
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio

@@ -173,7 +173,9 @@ class GulpPluginParameters(BaseModel):
     )
     override_chunk_size: Optional[int] = Field(
         None,
-        description="this is used to override the websocket chunk size for the request, which is normally taken from configuration 'documents_chunk_size'.",
+        description="""this is used to override the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
+        
+        by default, this is set as configuration 'documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
     )
 
     custom_parameters: Optional[dict] = Field(

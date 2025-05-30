@@ -51,6 +51,52 @@ async def _test_init(
             TEST_OPERATION_ID, recreate=recreate
         )
 
+async def _ensure_reset(
+) -> None:
+    """
+    ensure both opensearch and postgres collab db are reset, and the test operation exists
+    """
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    from gulp.api.rest.client.db import GulpAPIDb
+    from gulp.api.rest.client.user import GulpAPIUser
+
+    admin_token = await GulpAPIUser.login_admin()
+    assert admin_token
+
+    await GulpAPIDb.gulp_reset(admin_token, create_default_operation=True)
+
+
+async def _ensure_test_operation(
+) -> None:
+    """
+    ensure that the test operation exists and its clean
+    """
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+    from gulp.api.rest.client.db import GulpAPIDb
+    from gulp.api.rest.client.user import GulpAPIUser
+    from gulp.api.rest.client.operation import GulpAPIOperation
+
+    # check if the test operation exists
+    admin_token = await GulpAPIUser.login_admin()
+    assert admin_token
+
+    # this may fail if operation does not exist
+    try:
+        await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+    except Exception as e:
+        MutyLogger.get_instance().warning(
+            f"probably operation {TEST_OPERATION_ID} does not exist, ignoring: {e}"
+        )
+    res = await GulpAPIOperation.operation_create(
+        admin_token,
+        TEST_OPERATION_ID,
+        set_default_grants=True,
+    )
+    assert res["id"] == TEST_OPERATION_ID
 
 def _process_file_in_worker_process(
     host: str,
@@ -113,7 +159,10 @@ async def _test_ingest_generic(
     :param flt: ingestion filter
     """
     # this must be called manually since we're in a worker process and the _setup() fixture has not been called there...
-    await _test_init(False)
+    GulpAPICommon.get_instance().init(
+        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+    )
+
 
     # for each file, spawn a process using multiprocessing
     for file in files:

@@ -82,6 +82,12 @@ if [ ! -z $PATH_PAID_PLUGINS ]; then
     if [ $? -ne 0 ]; then
         exit 1
     fi
+
+    python3 -m pytest -v -s -x $_TEST_DIR/ingest/test_ingest.py::test_win_evtx && python3 -m pytest -v -s -x $PATH_PAID_PLUGINS/tests/query/test_sigma_zip.py
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
 fi
 
 # all tests passed

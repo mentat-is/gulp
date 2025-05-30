@@ -7,14 +7,13 @@ import websockets
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.rest.client.common import _test_init
+from gulp.api.rest.client.common import _ensure_test_operation
 from gulp.api.rest.client.db import GulpAPIDb
 from gulp.api.rest.client.operation import GulpAPIOperation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_HOST,
-    TEST_INDEX,
     TEST_OPERATION_ID,
     TEST_WS_ID,
 )
@@ -71,10 +70,7 @@ async def _ws_loop(total: int = None):
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    """
-    this is called before any test, to initialize the environment
-    """
-    await _test_init(recreate=True)
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio

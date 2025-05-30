@@ -6,10 +6,8 @@ import pytest
 import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
-import muty.file
-import os
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import _test_init
+from gulp.api.rest.client.common import _ensure_test_operation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
@@ -20,15 +18,11 @@ from gulp.api.rest.test_values import (
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
-from tests.ingest.test_ingest import test_win_evtx_multiple
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    """
-    this is called before any test, to initialize the environment
-    """
-    await _test_init()
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -113,16 +107,3 @@ async def test_elasticsearch():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
     await _test_raw_external(token=guest_token)
-
-
-    # ingest some data
-    await test_win_evtx_multiple()
-
-    # TODO: better test, this uses gulp's opensearch .... should work, but better to be sure
-    # login
-    guest_token = await GulpAPIUser.login("guest", "guest")
-    assert guest_token
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
-
-    await _test_sigma_external(token=guest_token)
