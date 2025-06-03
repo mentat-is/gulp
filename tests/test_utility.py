@@ -46,9 +46,11 @@ async def test_utility():
         guest_token = await GulpAPIUser.login("guest", "guest")
         assert guest_token
 
-        # guest can list plugins
         l = await GulpAPIUtility.plugin_list(admin_token)
         assert l
+
+        l_ui = await GulpAPIUtility.ui_plugin_list() # tokenless
+        assert l_ui and len(l_ui) == 1 # just one test plugin
 
         # path should be the default path
         found = False
@@ -67,57 +69,11 @@ async def test_utility():
         assert p["path"] == os.path.join(
             GulpConfig.get_instance().path_plugins_default(), test_plugin
         )
-        to_be_uploaded = GulpPluginBase.path_from_plugin(test_plugin)
 
-        await GulpAPIUtility.plugin_upload(
-            guest_token, to_be_uploaded, expected_status=401
-        )
-        p = await GulpAPIUtility.plugin_upload(admin_token, to_be_uploaded)
-        assert os.path.realpath(p["path"]) == os.path.realpath(
-            os.path.join(GulpConfig.get_instance(
-            ).path_plugins_extra(), test_plugin)
-        )
-
-        # list plugin again
-        # csv plugin should be in the list, but its path should be the extra path now (precedence)
-        l = await GulpAPIUtility.plugin_list(guest_token)
-        p = await GulpAPIUtility.plugin_get(admin_token, test_plugin)
-        assert os.path.realpath(p["path"]) == os.path.realpath(
-            os.path.join(GulpConfig.get_instance(
-            ).path_plugins_extra(), test_plugin)
-        )
-        found = False
-        for plugin in l:
-            if plugin["filename"] == test_plugin:
-                assert os.path.realpath(plugin["path"]) == os.path.realpath(
-                    os.path.join(
-                        GulpConfig.get_instance().path_plugins_extra(), test_plugin
-                    )
-                )
-                found = True
-        assert found
-
-        # when deleting a plugin, it should be removed from the extra path but not from the main path
-        # (guest cannot delete plugins)
-        await GulpAPIUtility.plugin_delete(
-            guest_token, plugin=test_plugin, expected_status=401
-        )
-        d = await GulpAPIUtility.plugin_delete(admin_token, plugin=test_plugin)
-        assert os.path.realpath(d["path"]) == os.path.realpath(
-            os.path.join(GulpConfig.get_instance(
-            ).path_plugins_extra(), test_plugin)
-        )
-        l = await GulpAPIUtility.plugin_list(guest_token)
-        found = False
-        for plugin in l:
-            if plugin["filename"] == test_plugin:
-                assert os.path.realpath(plugin["path"]) == os.path.realpath(
-                    os.path.join(
-                        GulpConfig.get_instance().path_plugins_default(), test_plugin
-                    )
-                )
-                found = True
-        assert found
+        # get the sample test ui plugin
+        tsx = await GulpAPIUtility.ui_plugin_get("example_ui_plugin.tsx")
+        assert tsx and isinstance(tsx["content"], str) # base64 encoded string, the plugin TSX content
+        assert tsx["filename"] == "example_ui_plugin.tsx"
 
     async def _test_mapping_files():
         if not os.environ.get("PATH_MAPPING_FILES_EXTRA"):
@@ -165,65 +121,6 @@ async def test_utility():
         assert p["path"] == os.path.join(
             GulpConfig.get_instance().path_mapping_files_default(), test_mapping_file
         )
-        to_be_uploaded = GulpConfig.get_instance().build_mapping_file_path(
-            test_mapping_file
-        )
-        await GulpAPIUtility.mapping_file_upload(
-            guest_token, to_be_uploaded, expected_status=401
-        )
-        p = await GulpAPIUtility.mapping_file_upload(admin_token, to_be_uploaded)
-        assert os.path.realpath(p["path"]) == os.path.realpath(
-            os.path.join(
-                GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
-            )
-        )
-
-        # list mapping files again
-        # mapping file should be in the list, but its path should be the extra path now (precedence)
-        l = await GulpAPIUtility.mapping_file_list(guest_token)
-        p = await GulpAPIUtility.mapping_file_get(admin_token, test_mapping_file)
-        assert os.path.realpath(p["path"]) == os.path.realpath(
-            os.path.join(
-                GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
-            )
-        )
-        found = False
-        for mf in l:
-            if mf["filename"] == test_mapping_file:
-                assert os.path.realpath(mf["path"]) == os.path.realpath(
-                    os.path.join(
-                        GulpConfig.get_instance().path_mapping_files_extra(),
-                        test_mapping_file,
-                    )
-                )
-                found = True
-        assert found
-
-        # when deleting a mapping file, it should be removed from the extra path but not from the main path
-        # (guest cannot delete mapping files)
-        await GulpAPIUtility.mapping_file_delete(
-            guest_token, mapping_file=test_mapping_file, expected_status=401
-        )
-        d = await GulpAPIUtility.mapping_file_delete(
-            admin_token, mapping_file=test_mapping_file
-        )
-        assert os.path.realpath(d["path"]) == os.path.realpath(
-            os.path.join(
-                GulpConfig.get_instance().path_mapping_files_extra(), test_mapping_file
-            )
-        )
-        l = await GulpAPIUtility.mapping_file_list(guest_token)
-        found = False
-        for mf in l:
-            if mf["filename"] == test_mapping_file:
-                assert os.path.realpath(mf["path"]) == os.path.realpath(
-                    os.path.join(
-                        GulpConfig.get_instance().path_mapping_files_default(),
-                        test_mapping_file,
-                    )
-                )
-                found = True
-        assert found
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token

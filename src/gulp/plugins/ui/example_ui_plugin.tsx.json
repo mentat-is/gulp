@@ -1,0 +1,7 @@
+{
+    "display_name": "Example UI Plugin",
+    "desc": "THIS IS A SAMPLE UI PLUGIN!",
+    "version": "1.0.0",
+    "plugin": "some_gulp_plugin.py",
+    "extension": true
+}

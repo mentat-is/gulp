@@ -142,15 +142,13 @@ class GulpAPIUtility:
         return res
 
     @staticmethod
-    async def ui_plugin_list(
-        token: str, req_id: str = None, expected_status: int = 200
+    async def ui_plugin_list(req_id: str = None, expected_status: int = 200
     ) -> dict:
         api_common = GulpAPICommon.get_instance()
         res = await api_common.make_request(
             "GET",
             "ui_plugin_list",
             {"req_id": req_id or api_common.req_id},
-            token=token,
             body=None,
             expected_status=expected_status,
         )
@@ -184,7 +182,6 @@ class GulpAPIUtility:
 
     @staticmethod
     async def ui_plugin_get(
-        token: str,
         plugin: str,
         req_id: str = None,
         expected_status: int = 200,
@@ -200,142 +197,9 @@ class GulpAPIUtility:
             "GET",
             "ui_plugin_get",
             params=params,
-            token=token,
             body=None,
             expected_status=expected_status,
         )
-        return res
-
-    @staticmethod
-    async def plugin_delete(
-        token: str,
-        plugin: str,
-        is_extension: bool = False,
-        req_id: str = None,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-
-        params = {
-            "plugin": plugin,
-            "is_extension": is_extension,
-            "req_id": req_id or api_common.req_id,
-        }
-
-        """Delete plugin"""
-        res = await api_common.make_request(
-            "DELETE",
-            "plugin_delete",
-            params=params,
-            token=token,
-            body=None,
-            expected_status=expected_status,
-        )
-        return res
-
-    @staticmethod
-    async def ui_plugin_delete(
-        token: str,
-        plugin: str,
-        req_id: str = None,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-
-        params = {
-            "plugin": plugin,
-            "req_id": req_id or api_common.req_id,
-        }
-
-        """Delete plugin"""
-        res = await api_common.make_request(
-            "DELETE",
-            "ui_plugin_delete",
-            params=params,
-            token=token,
-            body=None,
-            expected_status=expected_status,
-        )
-        return res
-
-    @staticmethod
-    async def plugin_upload(
-        token: str,
-        plugin_path: str,
-        allow_overwrite: bool = False,
-        is_extension: bool = False,
-        req_id: str = None,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-
-        filename = os.path.basename(plugin_path)
-        params = {
-            "filename": filename,
-            "is_extension": is_extension,
-            "req_id": req_id or api_common.req_id,
-            "allow_overwrite": allow_overwrite,
-        }
-
-        files = {
-            "plugin": (
-                filename,
-                open(plugin_path, "rb"),
-                "application/octet-stream",
-            ),
-        }
-
-        res = await api_common.make_request(
-            "POST",
-            "plugin_upload",
-            params=params,
-            token=token,
-            files=files,
-            expected_status=expected_status,
-        )
-
-        return res
-
-    @staticmethod
-    async def ui_plugin_upload(
-        token: str,
-        plugin_path: str,
-        metadata_path: str,
-        allow_overwrite: bool = False,
-        req_id: str = None,
-        expected_status: int = 200,
-    ) -> dict:
-        api_common = GulpAPICommon.get_instance()
-
-        filename = os.path.basename(plugin_path)
-        params = {
-            "filename": filename,
-            "req_id": req_id or api_common.req_id,
-            "allow_overwrite": allow_overwrite,
-        }
-
-        files = {
-            "plugin": (
-                filename,
-                open(plugin_path, "rb"),
-                "application/octet-stream",
-            ),
-            "metadata": (
-                os.path.basename(metadata_path),
-                open(metadata_path, "rb"),
-                "application/json",
-            ),
-        }
-
-        res = await api_common.make_request(
-            "POST",
-            "ui_plugin_upload",
-            params=params,
-            token=token,
-            files=files,
-            expected_status=expected_status,
-        )
-
         return res
 
     @staticmethod
