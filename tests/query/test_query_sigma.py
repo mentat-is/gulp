@@ -115,12 +115,3 @@ async def test_sigma_single_new():
     assert test_completed
     MutyLogger.get_instance().info(test_sigma_single_new.__name__ + " succeeded!")
 
-    # # try again
-    # await GulpAPIQuery.query_sigma(
-    #     guest_token,
-    #     TEST_OPERATION_ID,
-    #     src_ids=["e027a5f1254f620bc62f62ea7fd628437c303ccc"],
-    #     sigmas=[
-    #         sigma.decode(),
-    #     ],
-    # )

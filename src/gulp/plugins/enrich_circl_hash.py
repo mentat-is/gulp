@@ -115,7 +115,7 @@ class Plugin(GulpPluginBase):
                         if value:
                             #TODO: normalize using normalizing field name helper from muty
                             doc["gulp.%s.%s.%s" % (self.name, f, key)] = value
-                    dd.append(doc)
+            dd.append(doc)
 
         return dd
 

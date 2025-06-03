@@ -409,6 +409,7 @@ class GulpAPICommon:
             r = requests.request(method, url, headers=headers, params=params)
 
         self._log_response(r)
+        MutyLogger.get_instance().debug("response status code: %d", r.status_code)
         assert r.status_code == expected_status
 
         return r.json().get("data") if r.status_code == 200 else {}

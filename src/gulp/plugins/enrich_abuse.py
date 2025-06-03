@@ -124,7 +124,7 @@ class Plugin(GulpPluginBase):
                     for key, value in abuse_data.items():
                         if value:
                             doc["gulp.%s.%s" % (self.name, key)] = value
-                    dd.append(doc)
+            dd.append(doc)
 
         return dd
 

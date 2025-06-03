@@ -298,8 +298,7 @@ class Plugin(GulpPluginBase):
                                 "gulp.%s.%s.%s"
                                 % (self.name, host_field.replace(".", "_"), key)
                             ] = value
-                    dd.append(doc)
-                    self._tot_enriched += 1
+            dd.append(doc)
 
         return dd
 

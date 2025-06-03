@@ -16,6 +16,10 @@ python3 -m pytest -v -x -s $_TESTS_DIR/query
 if [ $? -ne 0 ]; then
     exit 1
 fi
+python3 -m pytest -v -x -s $_TESTS_DIR/extension
+if [ $? -ne 0 ]; then
+    exit 1
+fi
 python3 -m pytest -v -x -s $_TESTS_DIR/test_db.py
 if [ $? -ne 0 ]; then
     exit 1

@@ -1161,6 +1161,7 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
+        self._tot_enriched += len(docs)
         MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
         # update the documents
