@@ -110,14 +110,84 @@ class ServerUtils:
         )
 
     @staticmethod
+    def _validate_json_payload(content: bytes) -> dict:
+        """
+        Validates and parses a JSON payload from the given content.
+
+        Args:
+            content (bytes): The content to validate and parse.
+        Returns:
+            dict: The parsed JSON payload if valid, or an empty dictionary if invalid.
+        """
+        try:
+            # validate the uploaded content
+            payload = content.decode("utf-8")
+            payload_dict = json.loads(payload)
+            MutyLogger.get_instance().debug(
+                "parsed payload: %s" % json.dumps(payload_dict, indent=2)
+            )            
+            return payload_dict
+        except Exception:
+            MutyLogger.get_instance().error(f"invalid payload: {content}")
+            return {}
+
+    @staticmethod
+    async def _get_parts(r: Request) -> tuple[decoder.BodyPart, decoder.BodyPart]:
+        """
+        Extracts the JSON and data parts from a multipart request.
+        Args:
+            r (Request): The FastAPI request object.
+        Returns:
+            tuple[decoder.BodyPart, decoder.BodyPart]: A tuple containing the JSON part (tuple[0]) and the data part (tuple[1]).
+        Raises:
+            ValueError: If the multipart data does not contain both application/json and application/octet-stream parts.
+        """
+
+        # get Content-Type header
+        ct: str = None
+        for h,v in r.headers.items():
+            hh = h.lower()
+            if hh == "content-type":
+                ct = v
+                break
+        if not ct:
+            raise ValueError("Content-Type header is missing in the request")
+        
+        # decode multipart, for each part, check the Content-Type header
+        data = decoder.MultipartDecoder(await r.body(), ct)
+        json_part: decoder.BodyPart = None
+        data_part: decoder.BodyPart = None
+        for part in data.parts:
+            ct: str = None
+            p: decoder.BodyPart = part
+            for h, v in p.headers.items():
+                h = h.decode("utf-8").lower()
+                v = v.decode("utf-8").lower()
+                if h == "content-type":
+                    ct = v
+                    break
+                
+            if ct == "application/json":
+                json_part = part
+            elif ct == "application/octet-stream":
+                data_part = part
+        if not json_part or not data_part:
+            raise ValueError(
+                "Multipart data must contain both application/json and application/octet-stream parts!")
+    
+        return json_part, data_part
+    
+    @staticmethod
     async def handle_multipart_chunked_upload(
         r: Request, operation_id: str, context_name: str
     ) -> Tuple[str, dict, GulpUploadResponse]:
         """
-        Handles a chunked upload request with multipart content (file and json), with resume support.
+        Handles a chunked upload request with multipart content, with resume support.
 
         1. Parse the request headers to get the "continue_offset" and "size" (the TOTAL file size), used to check the upload status.
         2. Decode the multipart data and parses the JSON payload, if any.
+            accepted multiparts are: application/json for the JSON part and application/octet-stream for the file chunk part
+
         3. Extract the "filename" from the Content-Disposition header.
         4. Writes the file chunk to the cache directory using operation_id, context_name, and the original filename to build a unique filename.
         5. Verify the upload status.
@@ -135,17 +205,6 @@ class ServerUtils:
                 - the parsed JSON payload, if any
                 - the upload response object to be returned to the client.
         """
-
-        async def _parse_payload(content: bytes) -> dict:
-            """Parse JSON payload from multipart content."""
-            try:
-                # validate the uploaded content
-                payload = content.decode("utf-8")
-                payload_dict = json.loads(payload)
-                return payload_dict
-            except Exception:
-                MutyLogger.get_instance().error(f"invalid payload: {content}")
-                return None
 
         def _extract_filename(content_disposition: str) -> str:
             """extract filename from Content-Disposition header."""
@@ -183,12 +242,12 @@ class ServerUtils:
                     done=True, continue_offset=None, error="file size is 0"
                 ),
             )
+        
         # decode multipart data
-        data = decoder.MultipartDecoder(await r.body(), r.headers["content-type"])
-        json_part, file_part = data.parts[0], data.parts[1]
+        json_part, file_part = await ServerUtils._get_parts(r)
 
         # parse JSON payload
-        payload_dict = await _parse_payload(json_part.content) or {}
+        payload_dict = ServerUtils._validate_json_payload(json_part.content)
 
         # extract filename and prepare path
         MutyLogger.get_instance().debug("file_part.headers=%s" % (file_part.headers))
@@ -260,3 +319,30 @@ class ServerUtils:
         )
 
         return (cache_file_path, payload_dict, result)
+
+    @staticmethod
+    async def handle_multipart_body(
+        r: Request
+    ) -> Tuple[dict, bytes]:
+        """
+        Handles a multipart request with JSON and data parts.
+
+        1. Decode the multipart data.
+        2. Parse the JSON payload from the application/json part.
+        3. Return the parsed JSON payload and the data part content.
+        Args:
+            r (Request): The FastAPI request object.
+        Returns:
+            Tuple[dict, bytes]: A tuple containing:
+                - The parsed JSON payload as a dictionary.
+                - The content of the data part as bytes.
+        """
+        # decode multipart data
+        json_part: decoder.BodyPart = None
+        data_part: decoder.BodyPart = None
+        json_part, data_part = await ServerUtils._get_parts(r)
+
+        # parse JSON payload
+        payload_dict = ServerUtils._validate_json_payload(json_part.content)
+
+        return payload_dict, data_part.content

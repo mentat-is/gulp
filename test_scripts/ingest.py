@@ -42,11 +42,7 @@ def _parse_args():
         help="user password",
         default="ingest",
     )
-    parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH")
-    parser.add_argument(
-        "--raw",
-        help='a JSON file with raw data for the "raw" plugin, --path is ignored if this is set',
-    )
+    parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH", required=True)
     parser.add_argument("--host", default="http://localhost:8080", help="Gulp host")
     parser.add_argument(
         "--operation_id",
@@ -61,7 +57,7 @@ def _parse_args():
     parser.add_argument(
         "--plugin",
         default="win_evtx",
-        help="Plugin to be used, ignored if --raw is set or file is a zip",
+        help="Plugin to be used",
     )
     parser.add_argument("--ws_id", default=TEST_WS_ID, help="Websocket id")
     parser.add_argument("--req_id", default=TEST_REQ_ID, help="Request id")
@@ -90,14 +86,14 @@ def _parse_args():
     parser.add_argument(
         "--preview-mode",
         action="store_true",
-        help="preview mode: no ingestion, no stats, no ws, ignored with --raw",
+        help="preview mode: no ingestion, no stats, no ws",
         default=False,
     )
     return parser.parse_args()
 
 
-def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict, args):
-    def _create_payload(file_path, raw_chunk, args, is_zip=False):
+def _create_ingest_curl_command(file_path: str, file_total: int, args):
+    def _create_payload(file_path, args, is_zip=False):
         payload = {"flt": json.loads(args.flt) if args.flt else {}}
 
         if not is_zip:
@@ -105,12 +101,10 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
                 json.loads(args.plugin_params) if args.plugin_params else {}
             )
             payload["original_file_path"] = file_path
-        if raw_chunk:
-            payload["chunk"] = raw_chunk
-        else:
-            # add file sha1
-            sha1_hash = asyncio.run(muty.crypto.hash_sha1_file(file_path))
-            payload["file_sha1"] = sha1_hash
+
+        # add file sha1
+        sha1_hash = asyncio.run(muty.crypto.hash_sha1_file(file_path))
+        payload["file_sha1"] = sha1_hash
 
         return json.dumps(payload)
 
@@ -133,77 +127,60 @@ def _create_ingest_curl_command(file_path: str, file_total: int, raw_chunk: dict
     preview_mode = args.preview_mode
     base_url = f"{args.host}"
     command = ["curl", "-v", "-X", "POST"]
-    payload = _create_payload(file_path, raw_chunk, args, is_zip)
+    payload = _create_payload(file_path, args, is_zip)
     temp_file_path = None
 
-    if raw_chunk:
-        # raw request
-        url = f"{base_url}/ingest_raw"
-        params = f"plugin=raw&operation_id={args.operation_id}&context_name={args.context_name}&source=raw_source&ws_id={args.ws_id}&req_id={args.req_id}"
-        command.extend(
-            [
-                "-H",
-                f"token: {args.token or 'null'}",
-                f"{url}?{params}",
-                "-H",
-                "content-type: application/json",
-                "-d",
-                payload,
-            ]
+    full_file_size = os.path.getsize(file_path)
+    continue_offset = int(args.continue_offset)
+    if args.continue_offset > 0:
+        # handling restart using a truncated temp file
+        MutyLogger.get_instance().info(
+            "restarting %s from %d" % (file_path, continue_offset)
         )
+        temp_file_path = "/tmp/%s" % (os.path.basename(file_path))
+        with open(file_path, "rb") as f:
+            f.seek(continue_offset)
+            with open(temp_file_path, "wb") as tf:
+                tf.write(f.read())
+        file_path = temp_file_path
+
+    upload_file_size = os.path.getsize(file_path)
+    MutyLogger.get_instance().info(f"uploading size: {upload_file_size}")
+
+    if is_zip:
+        url = f"{base_url}/ingest_zip"
+        params = f"operation_id={args.operation_id}&context_name={args.context_name}&ws_id={args.ws_id}&req_id={args.req_id}"
+        file_type = "application/zip"
     else:
-        # file upload request
-        full_file_size = os.path.getsize(file_path)
-        continue_offset = int(args.continue_offset)
-        if args.continue_offset > 0:
-            # handling restart using a truncated temp file
-            MutyLogger.get_instance().info(
-                "restarting %s from %d" % (file_path, continue_offset)
-            )
-            temp_file_path = "/tmp/%s" % (os.path.basename(file_path))
-            with open(file_path, "rb") as f:
-                f.seek(continue_offset)
-                with open(temp_file_path, "wb") as tf:
-                    tf.write(f.read())
-            file_path = temp_file_path
+        url = f"{base_url}/ingest_file"
+        params = f"operation_id={args.operation_id}&context_name={args.context_name}&plugin={
+            args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&preview_mode={preview_mode}"
 
-        upload_file_size = os.path.getsize(file_path)
-        MutyLogger.get_instance().info(f"uploading size: {upload_file_size}")
+        file_type = "application/octet-stream"
 
-        if is_zip:
-            url = f"{base_url}/ingest_zip"
-            params = f"operation_id={args.operation_id}&context_name={args.context_name}&ws_id={args.ws_id}&req_id={args.req_id}"
-            file_type = "application/zip"
-        else:
-            url = f"{base_url}/ingest_file"
-            params = f"operation_id={args.operation_id}&context_name={args.context_name}&plugin={
-                args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&preview_mode={preview_mode}"
-
-            file_type = "application/octet-stream"
-
-        command.extend(
-            [
-                f"{url}?{params}",
-                *[
-                    item
-                    for pair in _get_common_headers(args, full_file_size)
-                    for item in pair
-                ],
-                "-F",
-                f"payload={payload}; type=application/json",
-                "-F",
-                f"f=@{file_path};type={file_type}",
-            ]
-        )
+    command.extend(
+        [
+            f"{url}?{params}",
+            *[
+                item
+                for pair in _get_common_headers(args, full_file_size)
+                for item in pair
+            ],
+            "-F",
+            f"payload={payload}; type=application/json",
+            "-F",
+            f"f=@{file_path};type={file_type}",
+        ]
+    )
 
     return command, temp_file_path
 
 
-def _run_curl(file_path: str, file_total: int, raw: dict, args):
+def _run_curl(file_path: str, file_total: int, args):
     MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug("_run_curl")
 
     command, tmp_file_path = _create_ingest_curl_command(
-        file_path, file_total, raw, args
+        file_path, file_total, args
     )
 
     # copy file to a temporary location and truncate to args.continue_offset
@@ -308,13 +285,6 @@ def main():
     MutyLogger.get_instance("test_ingest", level=logging.DEBUG)
     args = _parse_args()
 
-    if args.path and args.raw:
-        MutyLogger.get_instance().error("only one of --path or --raw can be set")
-        sys.exit(1)
-    if not args.path and not args.raw:
-        MutyLogger.get_instance().error("either --path or --raw must be set")
-        sys.exit(1)
-
     if args.reset:
         # reset first
         _reset(args.host, args.req_id, args.ws_id)
@@ -324,20 +294,12 @@ def main():
         args.host, args.username, args.password, args.req_id, args.ws_id
     )
 
-    if args.path:
-        path = os.path.abspath(os.path.expanduser(args.path))
-        if os.path.isdir(path):
-            files = muty.file.list_directory(path, recursive=True, files_only=True)
-        else:
-            files = [path]
-        raw = None
-        MutyLogger.get_instance().info(f"files to ingest: {files}")
+    path = os.path.abspath(os.path.expanduser(args.path))
+    if os.path.isdir(path):
+        files = muty.file.list_directory(path, recursive=True, files_only=True)
     else:
-        # raw data is set, ignore path
-        with open(args.raw) as f:
-            raw = json.loads(f.read())
-        files = None
-        MutyLogger.get_instance().info("raw data loaded.")
+        files = [path]
+    MutyLogger.get_instance().info(f"files to ingest: {files}")
 
     # spawn curl processes
     with Pool() as pool:
@@ -347,12 +309,9 @@ def main():
         )
 
         # run requests
-        if raw:
-            l = pool.starmap(_run_curl, [(None, 1, raw, args)])
-        else:
-            l = pool.starmap(
-                _run_curl, [(file, len(files), None, args) for file in files]
-            )
+        l = pool.starmap(
+            _run_curl, [(file, len(files), args) for file in files]
+        )
 
         # wait for all processes to finish
         pool.close()

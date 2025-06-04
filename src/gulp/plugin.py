@@ -1087,7 +1087,7 @@ class GulpPluginBase(ABC):
         ws_id: str,
         index: str,
         operation_id: str,
-        chunk: Any|list[dict]|bytes,
+        chunk: bytes,
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
@@ -1095,11 +1095,10 @@ class GulpPluginBase(ABC):
         """
         ingest a chunk of arbitrary data
 
-        - it is the responsibility of the plugin to process the chunk and convert it to GulpDocuments (if they're not already GulpDocument dictionaries)
-        - it is the responsibility of the plugin to create context and source, from each document.
+        - it is the responsibility of the plugin to process the chunk and convert it to GulpDocuments ready to be ingested
+        - it is the responsibility of the plugin to create context and source, i.e. from each document data.
 
         NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
-        TODO: to rethink (use ingest_file with some parameter ?)
 
         Args:
             sess (AsyncSession): The database session.
@@ -1108,7 +1107,7 @@ class GulpPluginBase(ABC):
             ws_id (str): The websocket ID to stream on
             index (str): The name of the target opensearch/elasticsearch index or datastream.
             operation_id (str): id of the operation on collab database.
-            chunk: Any|list[dict]|bytes: may be a list of GulpDocuments, a list of arbitrary dictionaries, a raw bytes buffer
+            chunk: bytes: a raw bytes buffer containing the raw data to be converted to GulpDocuments.
             stats (GulpRequestStats, optional): The ingestion stats.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.

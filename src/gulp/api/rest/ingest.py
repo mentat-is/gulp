@@ -354,6 +354,7 @@ async def _ingest_file_internal(
         200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
+the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/octet-stream`) with a chunk of the file.
 
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
 
@@ -791,7 +792,7 @@ async def _ingest_raw_internal(
     user_id: str,
     operation_id: str,
     index: str,
-    chunk: list[dict],
+    chunk: bytes,
     flt: GulpIngestionFilter,
     plugin: str,
     plugin_params: GulpPluginParameters,
@@ -851,19 +852,30 @@ async def _ingest_raw_internal(
     response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
-        100: _EXAMPLE_INCOMPLETE_UPLOAD,
         200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
-ingests a chunk of raw documents, i.e. coming from a gulp SIEM agent or similar.
+ingests a chunk of raw data, i.e. coming from a gulp SIEM agent or ingestion tool.
+
+- the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/octet-stream`) with a chunk of the file.
+
+- **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support multipart**.
+
+### payload
+
+the json payload may contain the following fields:
+
+* `flt` (GulpIngestionFilter): the ingestion filter, to restrict ingestion to a subset of the data specifying a `time_range`
+* `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
 
 ### plugin
 
-by default, the `raw` plugin is used (expects a chunk of `GulpDocument` dictionaries).
+by default, the `raw` plugin is used: the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.
 """,
     summary="ingest raw documents.",
 )
 async def ingest_raw_handler(
+    r: Request,
     token: Annotated[
         str,
         Depends(APIDependencies.param_token),
@@ -876,13 +888,6 @@ async def ingest_raw_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
-    chunk: Annotated[
-        list[Any],
-        Body(description="a chunk of raw documents to be ingested."),
-    ],
-    flt: Annotated[
-        GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional)
-    ] = None,
     plugin: Annotated[
         str,
         Query(
@@ -891,19 +896,13 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             example="raw",
         ),
     ] = None,
-    plugin_params: Annotated[
-        GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params_optional),
-    ] = None,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id),
     ] = None,
 ) -> JSONResponse:
     params = locals()
-    params["flt"] = flt.model_dump(exclude_none=True)
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
-
+    params.pop("r")
     if not plugin:
         plugin = "raw"
         MutyLogger.get_instance().debug("using default raw plugin: %s" % (plugin))
@@ -918,6 +917,13 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             )
             index = operation.index
             user_id = s.user_id
+
+        # get body
+        payload, chunk = await ServerUtils.handle_multipart_body(r)
+        flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(payload.get("flt", GulpIngestionFilter()))
+        plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
+            payload.get("plugin_params", GulpPluginParameters())
+        )
 
         # run ingestion in a coroutine in one of the workers
         MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
@@ -1051,6 +1057,8 @@ async def _process_metadata_json(
     },
     description="""
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
+
+the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/octet-stream`) with a chunk of the file.
 
 ### zip format
 

@@ -8,6 +8,7 @@ NOTE: should this broadcast ingestion internal event ? at the moment, it doesn't
 it would slow down a lot and generate really tons of data on postgres!
 """
 
+import json
 from typing import override
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,11 +65,13 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         index: str,
         operation_id: str,
-        chunk: list[dict],
+        chunk: bytes,
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
+        
+        js: list[dict] = []
         try:
             # initialize plugin
             if not plugin_params:
@@ -85,6 +88,10 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 plugin_params=plugin_params,
             )
+
+            # chunk is a list of dicts, each dict being a GulpDocument record
+            js = json.loads(chunk.decode("utf-8"))
+
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)
@@ -92,7 +99,7 @@ class Plugin(GulpPluginBase):
 
         doc_idx = 0
         try:
-            for rr in chunk:
+            for rr in js:
                 doc_idx += 1
 
                 try:

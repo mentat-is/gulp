@@ -371,7 +371,6 @@ class GulpWsIngestPacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "docs": [autogenerate_model_example_by_class(GulpDocument)],
                     "operation_id": TEST_OPERATION_ID,
                     "ws_id": TEST_WS_ID,
                     "flt": autogenerate_model_example_by_class(GulpIngestionFilter),
@@ -384,10 +383,6 @@ class GulpWsIngestPacket(BaseModel):
         },
     )
 
-    docs: list[Any] = Field(
-        ...,
-        description="a list of documents to be ingested.",
-    )
     index: str = Field(
         ...,
         description="the Gulp index to ingest into.",

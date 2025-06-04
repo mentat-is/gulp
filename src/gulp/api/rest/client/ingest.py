@@ -228,7 +228,7 @@ class GulpAPIIngest:
     @staticmethod
     async def ingest_raw(
         token: str,
-        raw_data: Dict,
+        raw_data: bytes,
         operation_id: str,
         plugin: str = None,
         plugin_params: Optional[GulpPluginParameters] = None,
@@ -237,21 +237,29 @@ class GulpAPIIngest:
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
-        """Ingest raw data using the raw plugin"""
+        """Ingest a chunk of raw data to process"""
         api_common = GulpAPICommon.get_instance()
 
         params = {
             "operation_id": operation_id,
-            "plugin": plugin or "raw",
+            "plugin": plugin,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }
 
-        body = {
+        payload = {
             "flt": flt.model_dump(exclude_none=True) if flt else {},
-            "chunk": raw_data,
             "plugin_params": (
                 plugin_params.model_dump(exclude_none=True) if plugin_params else {}
+            ),
+        }
+
+        files = {
+            "payload": ("payload.json", json.dumps(payload), "application/json"),
+            "f": (
+                'chunk',
+                raw_data,
+                "application/octet-stream",
             ),
         }
 
@@ -259,8 +267,8 @@ class GulpAPIIngest:
             "POST",
             "ingest_raw",
             params=params,
-            body=body,
             token=token,
+            files=files,
             expected_status=expected_status,
         )
 

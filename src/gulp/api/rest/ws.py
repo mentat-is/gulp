@@ -4,7 +4,7 @@ Websocket implementation for the GULP (Generic Unstructured Language Processing)
 This module provides websocket endpoints for real-time bidirectional communication between
 clients and the GULP server. It supports three main connection types:
 1. Default websocket (/ws) - Generic websocket connection for data exchange
-2. Ingest websocket (/ws_ingest_raw) - Specialized for streaming ingestion of documents
+2. Ingest websocket (/ws_ingest_raw) - Specialized for streaming ingestion of raw data
 3. Client data websocket (/ws_client_data) - For routing UI data between connected clients
 
 The websocket protocol follows a simple pattern:
@@ -72,7 +72,9 @@ class InternalWsIngestPacket(BaseModel):
 
     user_id: str = Field(..., description="the user id")
     index: str = Field(..., description="the index to ingest into")
-    data: GulpWsIngestPacket = Field(..., description="a GulpWsIngestPacket dictionary")
+    dict_data: GulpWsIngestPacket = Field(..., description="a GulpWsIngestPacket dictionary")
+    raw_data: bytes = Field(..., description="raw data received from the websocket")
+
 
 
 class WsIngestRawWorker:
@@ -109,12 +111,12 @@ class WsIngestRawWorker:
                     # create a stats that never expire
                     stats: GulpRequestStats = await GulpRequestStats.create(
                         token=None,
-                        ws_id=packet.data.ws_id,
-                        req_id=packet.data.req_id,
+                        ws_id=packet.dict_data.ws_id,
+                        req_id=packet.dict_data.req_id,
                         object_data={
                             "never_expire": True,
                         },
-                        operation_id=packet.data.operation_id,
+                        operation_id=packet.dict_data.operation_id,
                         sess=sess,
                         user_id=packet.user_id,
                     )
@@ -125,21 +127,21 @@ class WsIngestRawWorker:
 
                     # load plugin, force caching so it will be loaded first time only
                     mod: GulpPluginBase = await GulpPluginBase.load(
-                        packet.data.plugin, cache_mode=GulpPluginCacheMode.FORCE
+                        packet.dict_data.plugin, cache_mode=GulpPluginCacheMode.FORCE
                     )
 
-                    # process docs using plugin
+                    # process raw data using plugin
                     await mod.ingest_raw(
                         sess,
                         user_id=packet.user_id,
-                        req_id=packet.data.req_id,
-                        ws_id=packet.data.ws_id,
+                        req_id=packet.dict_data.req_id,
+                        ws_id=packet.dict_data.ws_id,
                         index=packet.index,
                         stats=stats,
-                        operation_id=packet.data.operation_id,
-                        chunk=packet.data.docs,
-                        flt=packet.data.flt,
-                        plugin_params=packet.data.plugin_params,
+                        operation_id=packet.dict_data.operation_id,
+                        chunk=packet.raw_data,
+                        flt=packet.dict_data.flt,
+                        plugin_params=packet.dict_data.plugin_params,
                     )
 
                 except Exception as ex:
@@ -149,7 +151,7 @@ class WsIngestRawWorker:
                         "error":ex,
                     }
                     await stats.update(
-                        sess, d, ws_id=packet.data.ws_id, user_id=packet.user_id
+                        sess, d, ws_id=packet.dict_data.ws_id, user_id=packet.user_id
                     )
 
                 finally:
@@ -438,7 +440,7 @@ class GulpAPIWebsocket:
         1. client sends a json request with GulpWsAuthParameters
         2. server accepts the connection and checks the token (needs INGEST permission) and ws_id
         3. on error, server sends a GulpWsErrorPacket and closes the connection. on success, it sends a GulpWsAcknowledgedPacket and starts the main loop.
-        4. client streams GulpWsIngestPackets over the websocket, the server replies ingested data on GulpWsIngestPacket.ws_id as it would be a normal ingestion using the http API.
+        4. client streams GulpWsIngestPackets each followed by raw data over the websocket, the server replies ingested data on GulpWsIngestPacket.ws_id as it would be a normal ingestion using the http API.
 
         Args:
             websocket (WebSocket): The websocket object.
@@ -508,9 +510,10 @@ class GulpAPIWebsocket:
 
                     # Regular message processing
                     try:
-                        # get packet from ws
+                        # get dict and data from websocket
                         js = await ws.ws.receive_json()
                         ingest_packet = GulpWsIngestPacket.model_validate(js)
+                        raw_data = await ws.ws.receive_bytes()
 
                         # check operation, if not the same, get it (sort of cache)
                         if not operation or operation.id != ingest_packet.operation_id:
@@ -540,7 +543,7 @@ class GulpAPIWebsocket:
 
                         # package data for worker
                         packet = InternalWsIngestPacket(
-                            user_id=user_id, index=operation.index, data=ingest_packet
+                            user_id=user_id, index=operation.index, dict_data=ingest_packet, raw_data=raw_data
                         )
 
                         # and put in the worker queue

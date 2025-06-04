@@ -164,7 +164,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             # finally commit the session
             await sess.commit()
             await sess.refresh(self)
-            MutyLogger.get_instance().info(
+            MutyLogger.get_instance().debug(
                 f"source {src.id}, name={name} added to context {self.id}, src={src}"
             )
             return src, True

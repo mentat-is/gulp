@@ -82,13 +82,14 @@ async def _ingest_ws_raw(args) -> None:
                 for chunk in chunks:
                     # send chunk
                     p: GulpWsIngestPacket = GulpWsIngestPacket(
-                        docs=chunk,
                         index=operation_id,
                         operation_id=operation_id,
                         req_id=req_id,
                         ws_id=ws_id,
                     )
                     await ws.send(p.model_dump_json(exclude_none=True))
+                    raw_chunk = json.dumps(chunk).encode("utf-8")
+                    await ws.send(raw_chunk)
                     await asyncio.sleep(0.1)
                     c += 1
                     MutyLogger.get_instance().info("sent chunk %d of %d documents ..." % (c, len(chunk)))

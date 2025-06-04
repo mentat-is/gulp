@@ -157,25 +157,26 @@ Response from the websocket is a [GulpWsData](../src/gulp/api/ws_api.py) object 
 
 #### ws_ingest_raw
 
-`ws_ingest_raw` is a websocket specifically meant to ingest data using the `raw` plugin.
+`ws_ingest_raw` is a websocket specifically meant to ingest `raw` data in any format.
 
-each `GulpWsIngestPacket` is as follows:
+the websocket must be fed with JSON data (`GulpWsIngestPacket`) followed by a `bytes` chunk (the raw data itself).
 
 ```js
  {
-      "docs": [ { GulpDocument}, { GulpDocument }, ...],
       "index": "TEST_INDEX",
       "operation_id": "TEST_OPERATION_ID",
       "context_name": "context_name",
       "source": "source_name",
       "ws_id": "TEST_WS_ID", // this is the `ws_id` to stream the ingestion data to
       "flt": null
-      "plugin": "raw", // default uses the `raw` plugin
+      "plugin": "raw", // default uses the `raw` plugin, which expects the chunk of data to be a list of GulpDocument dictionaries
       "plugin_params": null 
   }
+  // bytes chunk follow
 ```
 
-and this is the ingestion flow:
+
+the following is the ingestion flow:
 
 ```mermaid
 sequenceDiagram
@@ -188,9 +189,10 @@ sequenceDiagram
     server-->>client: { GulpWsAcknowledgePacket }
     
     client->>server: { GulpWsIngestPacket }
+    client->>server: { raw_data }
     
-    Note over server: Process using GulpWsIngestPacket.plugin
-    server->>plugin_processor: Process documents with specified plugin
+    Note over server: Process raw_data using GulpWsIngestPacket.plugin
+    server->>plugin_processor: Turn raw_data into GulpDocuments with the specified plugin
     plugin_processor->>gulp_storage: Store processed documents
     
     loop For each processed documents chunk

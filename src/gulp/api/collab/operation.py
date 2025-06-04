@@ -144,7 +144,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             await sess.commit()
             await sess.refresh(self)
 
-            MutyLogger.get_instance().info(f"context {name} added to operation {self.id}: {self}")
+            MutyLogger.get_instance().debug(f"context {name} added to operation {self.id}: {self}")
             return ctx, True
         finally:
             await GulpContext.release_advisory_lock(sess, self.id)

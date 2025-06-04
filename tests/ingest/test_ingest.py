@@ -212,7 +212,6 @@ async def test_raw():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
     buf = await muty.file.read_file_async(raw_chunk_path)
-    raw_chunk = json.loads(buf)
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -220,20 +219,23 @@ async def test_raw():
     # ingest raw chunk with "raw" plugin
     await GulpAPIIngest.ingest_raw(
         token=ingest_token,
-        raw_data=raw_chunk,
+        raw_data=buf,
         operation_id=TEST_OPERATION_ID,
     )
     # wait ws
     await _test_ingest_ws_loop(check_ingested=3)  # , check_on_source_done=True)
 
-    # ingest another
+    # ingest another (generate new random data)
+    raw_chunk = json.loads(buf)
     MutyLogger.get_instance().debug("ingesting another chunk ...")
     for r in raw_chunk:
         # randomize event original
         r["event.original"] = muty.string.generate_unique()
+
+    buf = json.dumps(raw_chunk).encode("utf-8")
     await GulpAPIIngest.ingest_raw(
         token=ingest_token,
-        raw_data=raw_chunk,
+        raw_data=buf,
         operation_id=TEST_OPERATION_ID,
     )
     await _test_ingest_ws_loop(
@@ -323,15 +325,18 @@ async def test_ws_raw():
                     for i in range(2):
                         # send chunk
                         p: GulpWsIngestPacket = GulpWsIngestPacket(
-                            docs=_generate_random_chunk(raw_chunk, size=1000),
                             index=TEST_INDEX,
                             operation_id=TEST_OPERATION_ID,
                             context_name=TEST_CONTEXT_NAME,
                             source="test_source",
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
-                        )
+                        )                        
+                        raw_data = json.dumps(_generate_random_chunk(raw_chunk, size=1000)).encode("utf-8")
+
+                        # send json then chunk
                         await ws.send(p.model_dump_json(exclude_none=True))
+                        await ws.send(raw_data)
                         await asyncio.sleep(0.1)
 
                     # TODO: check data, but should be ok ....
