@@ -74,7 +74,7 @@ class Plugin(GulpPluginBase):
             GulpPluginCustomParameter(
                 name="timestamp_field",
                 type="str",
-                desc="field containing the timestamp (e.g. some.nested.timestamp)",
+                desc="field containing the timestamp (e.g. some.nested.timestamp), required when used in standalone (non-stacked) mode if mapping is not provided.",
                 default_value="timestamp",
             ),
             GulpPluginCustomParameter(
@@ -208,6 +208,7 @@ class Plugin(GulpPluginBase):
 
                     for event in events:
                         try:
+                            print(event, type(event))
                             await self.process_record(
                                 event,
                                 doc_idx,

@@ -604,3 +604,42 @@ async def test_lin_syslog():
     files = [os.path.join(current_dir, "../../samples/lin_syslog/auth.log")]
     await _test_ingest_generic(files, "lin_syslog", 70)
     MutyLogger.get_instance().info(test_lin_syslog.__name__ + " (auth.log) succeeded!")
+
+@pytest.mark.asyncio
+async def test_json():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/json/jsonline.json")]
+    plugin_params = GulpPluginParameters(
+        custom_parameters={
+            "json_format": "line",
+            "timestamp_field": "create_datetime",
+        }
+    )
+    await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(test_json.__name__ + " (line) succeeded!")
+    
+    """
+    # another file, reset first
+    await _ensure_test_operation()
+    files = [os.path.join(current_dir, "../../samples/json/jsonlist.json")]
+    plugin_params = GulpPluginParameters(
+        custom_parameters={
+            "json_format": "list",
+            "timestamp_field": "create_datetime",
+        }
+    )
+    await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(test_json.__name__ + " (list) succeeded!")
+
+    # another file, reset first
+    await _ensure_test_operation()
+    files = [os.path.join(current_dir, "../../samples/json/jsondict.json")]
+    plugin_params = GulpPluginParameters(
+        custom_parameters={
+            "json_format": "dict",
+            "timestamp_field": "create_datetime",
+        }
+    )
+    await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(test_json.__name__ + " (dict) succeeded!")
+    """
