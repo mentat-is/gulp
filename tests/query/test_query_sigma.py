@@ -5,10 +5,11 @@ import os
 
 import muty.file
 import pytest
+import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import GulpAPICommon
+from gulp.api.rest.client.common import GulpAPICommon, _ensure_test_operation
 from gulp.api.rest.client.query import GulpAPIQuery
 from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
@@ -23,17 +24,15 @@ from gulp.api.ws_api import (
     GulpWsAuthPacket,
 )
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    await _ensure_test_operation()
+
 
 @pytest.mark.asyncio
 async def test_sigma_single_new():
-    GulpAPICommon.get_instance().init(
-        host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-    )
-
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(
@@ -41,23 +40,23 @@ async def test_sigma_single_new():
         current_dir, "sigma/Microsoft-Windows-Sysmon%4Operational.evtx"
     )
 
-    if os.environ.get("INGEST_DATA") == "1":
-        # ingest some data
+    if os.environ.get("INGEST_DATA", "1") == "1":
+        # ingest data is the default
         from tests.ingest.test_ingest import test_win_evtx
         await test_win_evtx(file_path=file_path, skip_checks=True)
-        await asyncio.sleep(8)
 
     # read sigma
+    # TODO: maybe choose a pair sigma/test file with few documents but with matches: currently, the test just checks that the query runs without errors (even though all the below were tested manually)
     sigma_path = os.path.join(
-        current_dir, "sigma/windows/create_remote_thread/create_remote_thread_win_susp_relevant_source_image.yml" # 13 mathes on test samples win evtx
+        # current_dir, "sigma/windows/create_remote_thread/create_remote_thread_win_susp_relevant_source_image.yml" # 13 matches on FULL test samples win evtx directory
         
         # following matches are for Microsoft-Windows-Sysmon%4Operational.evtx on our sharepoint
 
         # current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml" # 6
         # current_dir, "sigma/windows/create_stream_hash/create_stream_hash_file_sharing_domains_download_susp_extension.yml" # 1
-        # current_dir, "sigma/windows/file/file_change/file_change_win_2022_timestomping.yml" # 4
+        current_dir, "sigma/windows/file/file_change/file_change_win_2022_timestomping.yml" # 4
         #current_dir, "sigma/windows/network_connection/net_connection_win_rdp_outbound_over_non_standard_tools.yml" # 0
-        # current_dir, "sigma/windows/network_connection/net_connection_win_susp_initiated_uncommon_or_suspicious_locations.yml" # 3
+        current_dir, "sigma/windows/network_connection/net_connection_win_susp_initiated_uncommon_or_suspicious_locations.yml" # 3
         # current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml" # 0
         # current_dir, "sigma/windows/process_creation/proc_creation_win_powershell_frombase64string.yml" # 1
         # current_dir, "sigma/windows/process_creation/proc_creation_win_renamed_binary_highly_relevant.yml" # 19
@@ -103,8 +102,12 @@ async def test_sigma_single_new():
                     MutyLogger.get_instance().debug(
                         "query done, name=%s", q_done_packet.name
                     )
-                    test_completed = True
-                    break
+                    expected_hits = 4
+                    if q_done_packet.total_hits == expected_hits:
+                        test_completed = True
+                        break
+                    else:
+                        assert False, "expected hits: %d, got: %d" % (expected_hits, q_done_packet.total_hits)
 
                 # ws delay
                 await asyncio.sleep(0.1)

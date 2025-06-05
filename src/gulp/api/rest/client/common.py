@@ -270,12 +270,17 @@ async def _test_ingest_ws_loop(
                         else:
                             success_test_succeeded = False
 
+                    if skip_checks:
+                        if stats_packet["status"] != "ongoing":
+                            MutyLogger.get_instance().info("request done, checks skipped, breaking the loop!")
+                            test_completed = True
+                            break
+
                     if (
-                        skip_checks or
-                        (ingested_test_succeeded
+                        ingested_test_succeeded
                         and processed_test_succeeded
                         and skipped_test_succeeded
-                        and success_test_succeeded)
+                        and success_test_succeeded
                     ):
                         MutyLogger.get_instance().info(
                             "all tests succeeded, breaking the loop!"
