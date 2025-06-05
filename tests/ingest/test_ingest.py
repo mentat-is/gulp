@@ -569,3 +569,24 @@ async def test_apache_error_clf():
     files = [os.path.join(current_dir, "../../samples/apache_clf/error.log")]
     await _test_ingest_generic(files, "apache_error_clf", 1178)
     MutyLogger.get_instance().info(test_apache_error_clf.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_iis_access():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/iis_access/iis.log")]
+    await _test_ingest_generic(files, "iis_access", 2)
+    MutyLogger.get_instance().info(test_iis_access.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_iis_access_w3c():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/iis_access_w3c/iis_w3c.log")]
+    await _test_ingest_generic(files, "iis_access_w3c", 5)
+    MutyLogger.get_instance().info(test_iis_access_w3c.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_iis_access_ncsa():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/iis_access_ncsa/iis_ncsa.log")]
+    await _test_ingest_generic(files, "iis_access_ncsa", 4)
+    MutyLogger.get_instance().info(test_iis_access_ncsa.__name__ + " succeeded!")
