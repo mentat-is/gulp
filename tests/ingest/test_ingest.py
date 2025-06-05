@@ -590,3 +590,17 @@ async def test_iis_access_ncsa():
     files = [os.path.join(current_dir, "../../samples/iis_access_ncsa/iis_ncsa.log")]
     await _test_ingest_generic(files, "iis_access_ncsa", 4)
     MutyLogger.get_instance().info(test_iis_access_ncsa.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_lin_syslog():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/lin_syslog/syslog")]
+    await _test_ingest_generic(files, "lin_syslog", 2548)
+    MutyLogger.get_instance().info(test_lin_syslog.__name__ + " (syslog) succeeded!")
+
+    # another file, reset first
+    await _ensure_test_operation()
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/lin_syslog/auth.log")]
+    await _test_ingest_generic(files, "lin_syslog", 70)
+    MutyLogger.get_instance().info(test_lin_syslog.__name__ + " (auth.log) succeeded!")
