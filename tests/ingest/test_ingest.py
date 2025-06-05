@@ -643,3 +643,10 @@ async def test_json():
     await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (dict) succeeded!")
     """
+@pytest.mark.asyncio
+async def test_mysql_error():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/mysql_error/mysql_error.log")]
+    await _test_ingest_generic(files, "mysql_error", 61)
+    MutyLogger.get_instance().info(test_mysql_error.__name__ + " succeeded!")
+
