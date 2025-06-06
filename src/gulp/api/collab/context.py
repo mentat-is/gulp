@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
 from gulp.api.ws_api import WSDATA_NEW_SOURCE
+from gulp.structs import GulpMappingParameters
 
 class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     """
@@ -92,6 +93,8 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
         req_id: str = None,
         src_id: str = None,
         color: str = None,
+        plugin: str = None,
+        mapping_parameters: GulpMappingParameters = None
     ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
@@ -104,6 +107,8 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             req_id (str, optional): The request id. Defaults to None.
             src_id (str, optional): The id of the source. If not provided, a new id will be generated.
             color (str, optional): The color of the source. Defaults to "purple".
+            plugin (str, optional): The plugin to use for the source. Defaults to None.
+            mapping_parameters (GulpMappingParameters, optional): The mapping parameters for the source. Defaults to None (ignored if plugin is None).
         Returns:
             tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
@@ -136,6 +141,10 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 "color": color or "purple",
                 "glyph_id": "file",
             }
+            if plugin and mapping_parameters:
+                object_data["plugin"] = plugin
+                object_data["mapping_parameters"] = mapping_parameters.model_dump(exclude_none=True)
+
             # pylint: disable=protected-access
             src = await GulpSource._create_internal(
                 sess,

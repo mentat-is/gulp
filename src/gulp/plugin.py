@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
                                    RequestCanceledError, SourceCanceledError)
 from gulp.api.collab.structs import GulpRequestStatus
@@ -938,10 +939,14 @@ class GulpPluginBase(ABC):
         context: GulpContext = await GulpContext.get_by_id(self._sess, context_id)
 
         # create source
+        plugin = self.bare_filename
+        mapping_parameters = self._plugin_params.mapping_parameters        
         source, _ = await context.add_source(
-            self._sess, self._user_id, source_name, ws_id=self._ws_id, req_id=self._req_id, src_id=src_id
+            self._sess, self._user_id, source_name, ws_id=self._ws_id, req_id=self._req_id, src_id=src_id,
+            plugin=plugin, mapping_parameters=mapping_parameters
         )
 
+        
         # update cache
         self._src_cache[cache_key] = source.id
         return source.id
@@ -2340,6 +2345,19 @@ class GulpPluginBase(ABC):
         ee = "source=%s, %s" % (self._file_path, e)
         self._source_error = ee
 
+    async def _update_source_mapping_parameters(self) -> None:
+        """
+        add mapping parameters to source, to keep track of which mappings has been used for this source
+        """
+        if self._plugin_params.mapping_parameters:
+            d = {
+                "plugin": self.bare_filename,
+                "mapping_parameters": self._plugin_params.mapping_parameters.model_dump(exclude_none=True),
+            }
+            await GulpSource.update_by_id(
+                None, self._source_id, d=d, ws_id=None, req_id=None
+            )
+
     async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
@@ -2382,6 +2400,9 @@ class GulpPluginBase(ABC):
                 status = GulpRequestStatus.CANCELED
             else:
                 status = GulpRequestStatus.DONE
+
+            # add mapping parameters to source
+            await self._update_source_mapping_parameters()
 
             GulpWsSharedQueue.get_instance().put(
                 type=WSDATA_INGEST_SOURCE_DONE,

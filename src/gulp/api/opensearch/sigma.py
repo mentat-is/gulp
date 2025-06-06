@@ -293,7 +293,7 @@ async def sigmas_to_queries(
                 queries.extend(q)
             except Exception as ex:
                 # error converting sigma
-                MutyLogger.get_instance().error("ERROR converting sigma rule:\n%s\n%s", rule_content, ex)
+                MutyLogger.get_instance().exception("ERROR converting sigma rule:\n%s", rule_content)
 
     # log the number of queries generated
     MutyLogger.get_instance().debug(
@@ -301,6 +301,10 @@ async def sigmas_to_queries(
         len(sigmas),
         len(queries),
     )
+    if not queries:
+        # no queries generated
+        raise ValueError("no queries generated from the provided sigma rules, check log/input!")
+
     # count: int = 0
     # for q in queries:
     #     # dump each query
@@ -308,6 +312,7 @@ async def sigmas_to_queries(
     #         "query[%d]: %s" %  (count,  json.dumps(q.q, indent=2))            
     #     )
     #     count += 1
+
     return queries
 
 
@@ -413,6 +418,11 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
             field_name = field
             modifier_suffix = ""
 
+        gulp_document_default_fields: list[str] = ["_id", "@timestamp", "gulp.timestamp", "gulp.timestamp_invalid",
+                                        "gulp.operation_id", "gulp.context_id", "gulp.source_id",
+                                        "log.file.path", "agent.type", "event.original", "event.sequence",
+                                        "event.code", "gulp.event_code", "event.duration"]
+
         # check if the base field name has a mapping
         if field_name in field_mappings:
             # map to one or more ecs fields
@@ -420,11 +430,12 @@ def map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
                 f"{ecs_field}{modifier_suffix}"
                 for ecs_field in field_mappings[field_name]
             ]
+        elif field_name in gulp_document_default_fields:
+            # if the field is one of the default fields, return it as is with modifier
+            return [f"{field_name}{modifier_suffix}"]
         else:
-            # keep original field if no mapping exists
-            # return the unmapped field
-            return [GulpPluginBase.build_unmapped_key(field)]
-            #return [field]
+            # return "gulp.unmapped" field
+            return [f"{GulpPluginBase.build_unmapped_key(field_name)}{modifier_suffix}"]
 
     def _patch_re_selections(detection: dict) -> dict:
         """
@@ -580,7 +591,10 @@ async def sigma_convert_default(
 
     # transform the sigma rule using ECS field mappings
     mapped_sigma = map_sigma_fields_to_ecs(sigma, mappings[mapping_id])
-
+    MutyLogger.get_instance().debug(
+        "sigma_convert_default, mapped sigma rule:\n%s", mapped_sigma
+    )
+    
     # convert the transformed sigma rule to gulp queries
     backend = kwargs.get("backend", OpensearchLuceneBackend())
     output_format = "dsl_lucene"

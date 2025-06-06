@@ -106,7 +106,7 @@ class GulpMappingParameters(BaseModel):
     )
     sigma_mappings: Optional[GulpSigmaMapping] = Field(
         None,
-        description="if set, rules to map `lgosource` for sigma rules referring to this mapping.",
+        description="if set, rules to map `logsource` for sigma rules referring to this mapping.",
     )
     mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
