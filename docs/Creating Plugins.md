@@ -4,6 +4,7 @@
     - [external](#external)
     - [extension](#extension)
     - [enrichment](#enrichment)
+    - [ui plugins](#ui-plugins)
 - [architecture](#architecture)
   - [plugin internals](#plugin-internals)
     - [ingestion plugins](#ingestion-plugins)
@@ -64,6 +65,12 @@ Along side the specific ones we also provide some generic "base" plugins which c
 - [enrich_whois](../src/gulp/plugins/enrich_whois.py) to enrich one or more documents with whois information
 - ...
 
+### ui plugins
+
+this is a `special` type of plugin which resides in `PLUGIN_DIR/ui` and allows the UI to have customized layouts for particular needs.
+
+> this is documented in the [UI repository](https://github.com/mentat-is/gulpui-web/blob/develop/docs/PLUGINS.md) since they're not used at all by the backend, they are just listed via the `ui_plugin_list` API.
+
 # architecture
 
 While plugins can be as complex as needed, a basic plugin **must** implement the functions:
@@ -72,7 +79,7 @@ While plugins can be as complex as needed, a basic plugin **must** implement the
 - `type`: may be `ingestion`, `extension`, `external`
 - `_record_to_gulp_document`: this is called automatically by the engine on each record in the source being processed
 
-then, different entrypoints may be implemented:
+then, different methods may be implemented:
 
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
@@ -84,7 +91,9 @@ then, different entrypoints may be implemented:
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
 
-other optional entrypoints are:
+- `enrich_documents` and `enrich_single_document`: implemented in `enrichment` plugins to enrich one or more document.
+
+other *optional* methods to implement are:
 
 - `custom_parameters`: returned by the `plugin_list` API, this defines each custom parameter the plugin support and may be used by the UI to build a configurator for the plugin.
   - they are passed to the plugin via `GulpPluginParameters.custom_parameters` dict.
@@ -94,6 +103,8 @@ other optional entrypoints are:
 - `version`: the plugin version string
 - `desc`: the plugin description
 - `depends_on`: if the plugin dependens on other plugins, they are listed here.
+
+> a plugin may be of mixed types too: nothing stop to implement both `ingest_file`, `ingest_raw` and `query_external` in a single plugin, and declare its type as `[`ingestion`, `external`]
 
 ## plugin internals
 

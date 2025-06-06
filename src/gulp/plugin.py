@@ -185,7 +185,7 @@ class GulpUiPluginMetadata(BaseModel):
     
     an UI plugin metadata is a companion JSON file with the same name of the ts/tsx plugin + ".json" extension (i.e. my_ui_plugin.tsx.json) in the `$PLUGINS/ui` directory.
 
-    format of the json file is  the following:
+    format of the json file is the following
 
     ```json
     {
@@ -202,6 +202,8 @@ class GulpUiPluginMetadata(BaseModel):
         // filename and path of the TSX plugin to be served will be added by list_ui_plugin API
         // "filename": "test_ui_plugin.tsx",
         // "path": "src/gulp/plugins/ui/test_ui_plugin.tsx"
+        //
+        // other fields may be added as well, they are not used by the engine but may be useful for the UI
     }
     ```
     """
