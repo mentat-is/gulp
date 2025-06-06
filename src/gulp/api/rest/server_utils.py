@@ -169,7 +169,7 @@ class ServerUtils:
                 
             if ct == "application/json":
                 json_part = part
-            elif ct == "application/octet-stream":
+            elif ct == "application/octet-stream" or ct == "application/zip":
                 data_part = part
         if not json_part or not data_part:
             raise ValueError(

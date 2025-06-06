@@ -1083,7 +1083,7 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().warning("external query preview mode enabled !")
 
         # initialize
-        await self._initialize(plugin_params)
+        await self._initialize(plugin_params=plugin_params)
         return (0, 0, None)
 
     async def ingest_raw(
@@ -1407,6 +1407,9 @@ class GulpPluginBase(ABC):
 
         # initialize
         await self._initialize(plugin_params=plugin_params)
+
+        # add mapping parameters to source
+        await self._update_source_mapping_parameters()
         return GulpRequestStatus.ONGOING
 
     async def load_plugin_direct(
@@ -2400,9 +2403,6 @@ class GulpPluginBase(ABC):
                 status = GulpRequestStatus.CANCELED
             else:
                 status = GulpRequestStatus.DONE
-
-            # add mapping parameters to source
-            await self._update_source_mapping_parameters()
 
             GulpWsSharedQueue.get_instance().put(
                 type=WSDATA_INGEST_SOURCE_DONE,

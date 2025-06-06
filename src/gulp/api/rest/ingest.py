@@ -324,21 +324,6 @@ async def _ingest_file_internal(
                     # broadcast ingest internal event
                     mod.broadcast_ingest_internal_event()
 
-                    # update source ingestion info (plugin, plugin_params)
-                    # plugin_params = mod.plugin_params()
-                    # if plugin_params:
-                    #     mapping_params: dict = (
-                    #         plugin_params.mapping_parameters.model_dump()
-                    #     )
-                    # else:
-                    #     mapping_params: dict = None
-                    # d = {
-                    #     "plugin": plugin,
-                    #     "mapping_parameters": mapping_params,
-                    # }
-                    # await GulpSource.update_by_id(
-                    #     None, source_id, d=d, ws_id=None, req_id=None
-                    # )
                 await mod.unload()
 
         return status, preview_chunk
@@ -1058,7 +1043,7 @@ async def _process_metadata_json(
     description="""
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
 
-the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/octet-stream`) with a chunk of the file.
+the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/zip`) with a chunk of the file.
 
 ### zip format
 
