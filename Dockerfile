@@ -62,4 +62,4 @@ RUN python3 -m gulp --version
 
 EXPOSE ${BIND_TO_PORT}
 
-CMD ["gulp", "--log-level", "debug"]
+CMD ["gulp", "--log-level", "warning"]

@@ -393,7 +393,7 @@ class GulpInternalEventsManager:
             MutyLogger.get_instance().debug("deregistering plugin %s from receiving internal events" % (plugin))
             del self._plugins[plugin]
         else:
-            MutyLogger.get_instance().warning("plugin %s not registered to receive internal events" % (plugin))
+            MutyLogger.get_instance().debug("plugin %s not registered to receive internal events" % (plugin))
 
     async def broadcast_event(self, t: str, data: dict) -> None:
         """
@@ -2513,7 +2513,7 @@ class GulpPluginBase(ABC):
         force_load_from_disk: bool = False
         if cache_mode == GulpPluginCacheMode.IGNORE:
             # ignore cache
-            MutyLogger.get_instance().warning(
+            MutyLogger.get_instance().debug(
                 "ignoring cache for plugin %s" % (bare_name)
             )
             force_load_from_disk = True
