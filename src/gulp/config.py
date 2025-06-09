@@ -761,9 +761,9 @@ class GulpConfig:
 
         extra_path = GulpConfig.get_instance().path_mapping_files_extra()
         if extra_path:
-            # use provided
             p = muty.file.safe_path_join(extra_path, filename)
             if os.path.exists(p):
+                # prefer path in extra path if exists
                 return p
 
         # default path

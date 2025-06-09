@@ -2,7 +2,7 @@
 
 ## Overview
 
-The [csv plugin](../../src/gulp/plugins/csv.py) ingests CSV (Comma-Separated Values) files into the system. CSV is a simple text format for storing tabular data where each line represents a row and values are separated by a delimiter (typically a comma). The plugin can be used in standalone mode or as a base for other specialized plugins (in [stacked](../Creating%20Plugins.md#stacked-plugins) mode).
+The [csv plugin](../../src/gulp/plugins/csv.py) ingests CSV (Comma-Separated Values) files into the system. CSV is a simple text format for storing tabular data where each line represents a row and values are separated by a delimiter (typically a comma). The plugin can be used in standalone mode or as a base for other specialized plugins (in [stacked](../Plugins.md#stacked-plugins) mode).
 
 > **NOTE**: Since each document in the system requires a "@timestamp" field, it's strongly recommended to provide a mapping file that includes the "@timestamp" field mapping.
 

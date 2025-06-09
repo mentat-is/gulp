@@ -1,4 +1,6 @@
 - [plugins](#plugins)
+  - [loading plugins](#loading-plugins)
+    - [load order](#load-order)
   - [plugin types](#plugin-types)
     - [ingestion](#ingestion)
     - [external](#external)
@@ -12,6 +14,7 @@
     - [extension plugins](#extension-plugins)
     - [enrichment plugins](#enrichment-plugins)
   - [mapping files](#mapping-files)
+    - [mapping files load order](#mapping-files-load-order)
     - [example](#example)
   - [stacked plugins](#stacked-plugins)
     - [flow](#flow)
@@ -26,8 +29,35 @@ gulp is made of plugins, each serving different purposes:
 - `ingestion` plugins for ingesting data from local sources (i.e. log files)
 - `external` plugins to query external sources (i.e. a SIEM), and possibly ingest data into gulp at the same time
 - `extension` plugins to extend the gulp [REST api](../src/gulp/api/rest/)
+- `ui` plugins to extend the [frontend](https://github.com/mentat-is/gulpui-web) (*just served, not used by the backend*)
 
-currently, we have the following plugins:
+## loading plugins
+
+plugins directory tree is as follows:
+
+- `ingestion` and `external` directories are in the top level `plugins directory`
+- `ui` and `extension` plugins are in the `ui` and `extension` directories respectively
+
+```text
+<plugins directory>
+|
+|__extension
+|  |__<extension plugins here>
+|__ui
+|  |__<extension plugins here>
+|
+|__<ingestion_plugin_a>
+|__<ingestion_plugin_b>
+|__<external_plugin_a>
+|__<external_plugin_b>
+
+```
+
+### load order
+
+if an `extra` plugin directory is defined (either via environment `PATH_PLUGINS_EXTRA` or `path_plugins_extra` in the configuration file), plugins are first searched there before the main plugins directory `$GULPDIR/src/gulp/plugins`.
+
+> this allows to override specific plugins with i.e. new versions or just to add further plugins to the default set.
 
 ## plugin types
 
@@ -282,6 +312,12 @@ while making mappings, try to adhere to one of the following conventions (ordere
 remember, the more standardized the logs we collect are, the easier it will be to create and share detection rules and query snippets!
 
 > [Mapping files](../src/gulp/mapping_files/) are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins.
+
+### mapping files load order
+
+mapping files load order follows the same rules as [plugins](#loading-plugins):
+
+if an `extra` mapping directory is defined (either via environment `PATH_MAPPING_FILES_EXTRA` or `path_maping_files_extra` in the configuration file), mapping files are first searched there before the main mapping files directory `$GULPDIR/src/gulp/mapping_files`.
 
 ### example
 

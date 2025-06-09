@@ -27,6 +27,7 @@ Gulp is a powerful software tool designed to streamline incident response and an
 ## architecture
 
 [GULP architecture](./docs/Architecture.md)
+[Plugins](./docs/Plugins.md)
 
 ### current features
 

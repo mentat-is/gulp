@@ -2707,6 +2707,7 @@ class GulpPluginBase(ABC):
             if extra_path and os.path.exists(extra_path):
                 p = _check_path(muty.file.safe_path_join(extra_path, plugin.lower()))
                 if p:
+                    # prefer path in extra path if exists
                     return p
 
             # then in default path
