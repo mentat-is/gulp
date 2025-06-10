@@ -104,7 +104,15 @@ def use_this_sigma(
     l: int = len(sc)
     passed: int = 0
     sigma_service_names: list[str] = []
-
+    # MutyLogger.get_instance().warning(
+    #     "checking %d sigma rules against filters: levels=%s, products=%s, categories=%s, services=%s, tags=%s",
+    #     l,
+    #     levels,
+    #     products,
+    #     categories,
+    #     services,
+    #     tags,
+    # )
     for r in sc:
         r: SigmaRule
         if levels:
@@ -238,7 +246,7 @@ async def sigmas_to_queries(
         )
         if not use:
             # MutyLogger.get_instance().warning(
-            #     "skipping sigma rule %s, not matching filters !" %  (rule_content)
+            #     "skipping sigma rule %s, not matching filters !" % (rule_content)
             # )
             continue
 
