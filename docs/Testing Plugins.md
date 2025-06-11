@@ -16,7 +16,7 @@ export PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-p
 
 # setting GULP_INTEGRATION_TEST is mandatory when running tests (disables debug features if forgotten activated)
 # we also ensure to start in the most clean way (recreate collab db, create test operation, delete all existing data)
-GULP_INTEGRATION_TEST=1 gulp --reset-collab --reset test_operation --delete-data
+GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation --delete-data
 ~~~
 
 ## running the test suite

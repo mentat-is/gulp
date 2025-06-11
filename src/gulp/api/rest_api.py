@@ -54,7 +54,7 @@ class GulpRestServer:
         self._log_level: int = None
         self._reset_collab: bool = False
         self._delete_data: bool = False
-        self._reset_operation: str = None
+        self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
         self._shutdown: bool = False
         self._restart_signal: asyncio.Event = asyncio.Event()
@@ -290,7 +290,7 @@ class GulpRestServer:
         logger_file_path: str = None,
         level: int = None,
         reset_collab: bool = False,
-        reset_operation: str = None,
+        create_operation: str = None,
         delete_data: bool = False,
     ):
         """
@@ -300,14 +300,14 @@ class GulpRestServer:
             logger_file_path (str, optional): path to the logger file.
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, reset the collab database
-            reset_operation (str, optional): the operation to be reset/created (--reset)
-            delete_data (bool, optional): if True, delete the data on OpenSearch for one (--reset) or all (--reset-full) operations
+            create_operation (str, optional): the operation to be re/created (--create)
+            delete_data (bool, optional): if True, delete the data on OpenSearch for one (--create) or all (--reset-full) operations
         """
         self._logger_file_path = logger_file_path
         self._log_level = level
         self._reset_collab = reset_collab
         self._delete_data = delete_data
-        self._reset_operation = reset_operation
+        self._create_operation = create_operation
 
         # read configuration
         cfg = GulpConfig.get_instance()
@@ -355,8 +355,8 @@ class GulpRestServer:
 
         address, port = GulpConfig.get_instance().bind_to()
         MutyLogger.get_instance().info(
-            "starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, reset_operation=%s ..."
-            % (address, port, logger_file_path, reset_collab, reset_operation)
+            "starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, create_operation=%s ..."
+            % (address, port, logger_file_path, reset_collab, create_operation)
         )
 
         if cfg.enforce_https():
@@ -478,21 +478,21 @@ class GulpRestServer:
 
         first_run: bool = False
         if self._check_first_run():
-            # first run, force --reset and --reset-collab
-            self._reset_operation = TEST_OPERATION_ID
+            # first run, force --create and --reset-collab
+            self._create_operation = TEST_OPERATION_ID
             self._reset_collab = True
             first_run = True
             MutyLogger.get_instance().warning(
                 "FIRST RUN, (re)creating collab database and operation '%s' ..."
-                % (self._reset_operation)
+                % (self._create_operation)
             )
 
         # check for reset flags
         try:
-            if self._reset_collab or self._reset_operation:
+            if self._reset_collab or self._create_operation:
                 from gulp.api.rest.db import db_reset
 
-                if self._reset_operation or first_run:
+                if self._create_operation or first_run:
                     # collab hard reset
                     lite_reset = False
                 else:
@@ -500,31 +500,15 @@ class GulpRestServer:
                     lite_reset = True
                 # reset collab database
                 MutyLogger.get_instance().warning(
-                    "reset_collab or reset_operation set, first_run=%r, reset_operation=%s, lite_reset=%r !" % (first_run, self._reset_operation, lite_reset)
+                    "reset_collab or create_operation set, first_run=%r, create_operation=%s, lite_reset=%r !"
+                    % (first_run, self._create_operation, lite_reset)
                 )
-                await db_reset(delete_data=self._delete_data, create_operation_id=self._reset_operation, lite_reset=lite_reset)
+                await db_reset(
+                    delete_data=self._delete_data,
+                    create_operation_id=self._create_operation,
+                    lite_reset=lite_reset,
+                )
 
-            """
-            if self._reset_operation:
-                # delete and recreate operation and index
-                try:
-                    collab = GulpCollab.get_instance()
-                    await collab.init(main_process=True)
-
-                    # reset operation
-                    from gulp.api.rest.operation import operation_reset
-
-                    async with GulpCollab.get_instance().session() as sess:
-                        await operation_reset(
-                            sess, self._reset_operation, delete_data=self._delete_data
-                        )
-                except SchemaMismatch as ex:
-                    # clear and recreate collab database, then create operation
-                    await db_reset(
-                        delete_data=self._delete_data,
-                        create_operation_id=self._reset_operation,
-                    )
-            """
         except Exception as ex:
             if first_run:
                 # allow restart on first run

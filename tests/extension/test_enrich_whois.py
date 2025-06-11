@@ -26,13 +26,14 @@ from gulp.api.ws_api import (
 )
 from gulp.structs import GulpPluginParameters
 
+
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
     """
     this is called before any test, to initialize the environment
     """
     await _ensure_test_operation()
-    
+
 
 @pytest.mark.asyncio
 async def test_enrich_whois_documents():
@@ -42,6 +43,7 @@ async def test_enrich_whois_documents():
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
+
     await test_win_evtx()
 
     _, host = TEST_HOST.split("://")
@@ -64,22 +66,29 @@ async def test_enrich_whois_documents():
                     await GulpAPIEnrich.enrich_documents(
                         edit_token,
                         TEST_OPERATION_ID,
-                        flt=GulpQueryFilter(time_range=[1467213874345999870,1467213874345999873]),
-                        plugin="enrich_whois")
+                        flt=GulpQueryFilter(
+                            time_range=[1467213874345999870, 1467213874345999873]
+                        ),
+                        plugin="enrich_whois",
+                        req_id="req_enrich_whois",
+                    )
                 elif data["type"] == "enrich_done":
                     # query done
                     q_done_packet: GulpQueryDonePacket = (
                         GulpQueryDonePacket.model_validate(data["data"])
                     )
                     MutyLogger.get_instance().debug(
-                        "GulpQueryDonePacket=%s" %(q_done_packet))
+                        "GulpQueryDonePacket=%s" % (q_done_packet)
+                    )
                     MutyLogger.get_instance().debug(
                         "enrich done, total_enriched=%d", q_done_packet.total_enriched
                     )
                     if q_done_packet.total_enriched == 1:
                         test_completed = True
                     else:
-                        assert False, "enrich done, but total_enriched=%d" % (q_done_packet.total_enriched)
+                        assert False, "enrich done, but total_enriched=%d" % (
+                            q_done_packet.total_enriched
+                        )
                     break
 
                 # ws delay
@@ -91,10 +100,11 @@ async def test_enrich_whois_documents():
     assert test_completed
     MutyLogger.get_instance().info(test_enrich_whois_single.__name__ + " succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_enrich_whois_single():
 
-    doc_id: str = '50edff98db7773ef04378ec20a47f622'    
+    doc_id: str = "50edff98db7773ef04378ec20a47f622"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
@@ -103,6 +113,7 @@ async def test_enrich_whois_single():
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
+
     await test_win_evtx()
 
     _, host = TEST_HOST.split("://")
@@ -110,9 +121,7 @@ async def test_enrich_whois_single():
     test_completed = False
 
     plugin_params: GulpPluginParameters = GulpPluginParameters()
-    plugin_params.custom_parameters = {
-        "host_fields": ["source.ip"]
-    }
+    plugin_params.custom_parameters = {"host_fields": ["source.ip"]}
 
     # guest cannot enrich, verify that
     await GulpAPIEnrich.enrich_single_id(
@@ -121,15 +130,15 @@ async def test_enrich_whois_single():
         doc_id=doc_id,
         plugin="enrich_whois",
         expected_status=401,
-        plugin_params=plugin_params)
-
+        plugin_params=plugin_params
+    )
     doc = await GulpAPIEnrich.enrich_single_id(
         edit_token,
         TEST_OPERATION_ID,
         doc_id=doc_id,
         plugin="enrich_whois",
-        plugin_params=plugin_params)
+        plugin_params=plugin_params
+    )
 
     assert doc.get("gulp.enrich_whois.source_ip.unified_dump") != None
     MutyLogger.get_instance().info(test_enrich_whois_single.__name__ + " succeeded!")
-

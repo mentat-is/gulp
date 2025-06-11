@@ -128,7 +128,7 @@ gulp
 start from scratch with a clean collaboration database (deleting data on Opensearch for **ALL** existing operations), and creates `my_operation` operation in the end.
 
 ~~~bash
-gulp --reset-collab --reset my_operation --delete-data
+gulp --reset-collab --create my_operation --delete-data
 ~~~
 
 reset the collab database, do not touch data on opensearch
@@ -139,16 +139,16 @@ reset the collab database, do not touch data on opensearch
 gulp --reset-collab
 ~~~
 
-reset the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, do not touch operation data on opensearch
+create (or recreates, if exists) the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, do not touch operation data on opensearch
 
 ~~~bash
-gulp --reset my_operation
+gulp --create my_operation
 ~~~
 
-reset the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, deletes operation data on opensearch
+create (or recreates, if exists) the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, deletes operation data on opensearch
 
 ~~~bash
-gulp --reset my_operation --delete-data
+gulp --create my_operation --delete-data
 ~~~
 
 ## clients

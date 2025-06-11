@@ -72,8 +72,8 @@ use with --delete-data to delete all documents on OpenSearch related to all the 
         default=False,
     )
     parser.add_argument(
-        "--reset",
-        help="""(re)create an operation on the collab database.
+        "--create",
+        help="""(re)creates an operation on the collab database.
 
 the specified operation will be deleted (if exists) and recreated.
 
@@ -84,7 +84,7 @@ use with --delete-data to delete data on OpenSearch as well.
     )
     parser.add_argument(
         "--delete-data",
-        help="""to be used with --reset or --reset-collab to delete documents on OpenSearch related to one (--reset) or all (--reset-collab) operations.
+        help="""to be used with --create or --reset-collab to ensure documents on OpenSearch are deleted if exists for one (--create) or all (--reset-collab) operations.
 """,
         action="store_true",
         default=False,
@@ -96,7 +96,7 @@ use with --delete-data to delete data on OpenSearch as well.
         const=True,
         default=False,
     )
-    args = parser.parse_args()        
+    args = parser.parse_args()
     print(". command line args (sys.argv):\n%s" % (sys.argv))
     print(". command line args (parsed):\n%s" % (args))
 
@@ -117,8 +117,8 @@ use with --delete-data to delete data on OpenSearch as well.
             print(ver)
         else:
             reset_operation: str = None
-            if args.reset:
-                reset_operation = args.reset[0]
+            if args.create:
+                reset_operation = args.create[0]
 
             # default
             print("%s\n%s" % (banner, ver))
@@ -126,7 +126,7 @@ use with --delete-data to delete data on OpenSearch as well.
                 logger_file_path=logger_file_path,
                 level=lv,
                 reset_collab=args.reset_collab,
-                reset_operation=reset_operation,
+                create_operation=reset_operation,
                 delete_data=args.delete_data,
             )
     except Exception as ex:

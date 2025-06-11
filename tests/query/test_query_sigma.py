@@ -86,6 +86,7 @@ async def test_sigma_group():
                             sigma_match_some_more.decode(),
                         ],
                         q_options=q_options,
+                        req_id="sigmareq"
                     )
                 elif data["type"] == "query_done":
                     # query done
