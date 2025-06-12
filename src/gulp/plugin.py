@@ -26,24 +26,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    PreviewDone,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import (GulpMapping, GulpMappingField,
-                                     GulpMappingFile)
-from gulp.api.opensearch.filters import (QUERY_DEFAULT_FIELDS,
-                                         GulpDocumentFilterResult,
-                                         GulpIngestionFilter, GulpQueryFilter)
-from gulp.api.opensearch.query import (GulpQuery, GulpQueryHelpers,
-                                       GulpQueryParameters)
+from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
+from gulp.api.opensearch.filters import (
+    QUERY_DEFAULT_FIELDS,
+    GulpDocumentFilterResult,
+    GulpIngestionFilter,
+    GulpQueryFilter,
+)
+from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import (WSDATA_DOCUMENTS_CHUNK, WSDATA_ENRICH_DONE, WSDATA_INGEST_SOURCE_DONE, WSDATA_USER_LOGIN, WSDATA_USER_LOGOUT, GulpDocumentsChunkPacket,
-                             GulpIngestSourceDonePacket, GulpQueryDonePacket,
-                             GulpWsSharedQueue)
+from gulp.api.ws_api import (
+    WSDATA_DOCUMENTS_CHUNK,
+    WSDATA_ENRICH_DONE,
+    WSDATA_INGEST_SOURCE_DONE,
+    WSDATA_USER_LOGIN,
+    WSDATA_USER_LOGOUT,
+    GulpDocumentsChunkPacket,
+    GulpIngestSourceDonePacket,
+    GulpQueryDonePacket,
+    GulpWsSharedQueue,
+)
 from gulp.config import GulpConfig
-from gulp.structs import (GulpMappingParameters, GulpPluginCustomParameter,
-                          GulpPluginParameters, ObjectNotFound)
+from gulp.structs import (
+    GulpMappingParameters,
+    GulpPluginCustomParameter,
+    GulpPluginParameters,
+    ObjectNotFound,
+)
 
 
 class GulpPluginType(StrEnum):
@@ -85,7 +102,7 @@ class GulpInternalEvent(BaseModel):
                 {
                     "event_type": "login",
                     "timestamp_msec": 123456789,
-                    "data": {"user_id": "user123", "ip": "192.168.2.10"}
+                    "data": {"user_id": "user123", "ip": "192.168.2.10"},
                 }
             ]
         },
@@ -102,6 +119,7 @@ class GulpInternalEvent(BaseModel):
         ...,
         description="Arbitrary data for the event.",
     )
+
 
 class GulpPluginEntry(BaseModel):
     """
@@ -180,10 +198,11 @@ class GulpPluginEntry(BaseModel):
         description="HTML frame to be rendered in the UI, i.e. for custom plugin panel.",
     )
 
+
 class GulpUiPluginMetadata(BaseModel):
     """
     metadata for an UI (ts/tsx) plugin served by the backend
-    
+
     an UI plugin metadata is a companion JSON file with the same name of the ts/tsx plugin + ".json" extension (i.e. my_ui_plugin.tsx.json) in the `$PLUGINS/ui` directory.
 
     format of the json file is the following
@@ -208,6 +227,7 @@ class GulpUiPluginMetadata(BaseModel):
     }
     ```
     """
+
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
@@ -218,7 +238,6 @@ class GulpUiPluginMetadata(BaseModel):
                     "extension": True,
                     "version": "1.0.0",
                     "desc": "A description of my UI plugin.",
-
                 }
             ]
         },
@@ -243,6 +262,7 @@ class GulpUiPluginMetadata(BaseModel):
         None,
         description="A description of the plugin.",
     )
+
 
 class GulpPluginCache:
     """
@@ -328,10 +348,9 @@ class GulpInternalEventsManager:
     """
 
     _instance: "GulpInternalEventsManager" = None
-    EVENT_LOGIN: str = WSDATA_USER_LOGIN    # data={ "user_id": str, "ip": str }
+    EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data={ "user_id": str, "ip": str }
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data={ "user_id": str, "ip": str }
     EVENT_INGEST: str = "ingestion"
-
 
     def __init__(self):
         self._initialized: bool = True
@@ -375,13 +394,17 @@ class GulpInternalEventsManager:
         """
         name: str = plugin.bare_filename
         if name not in self._plugins.keys():
-            MutyLogger.get_instance().debug("registering plugin %s to receive internal events: %s" % (name, types))
+            MutyLogger.get_instance().debug(
+                "registering plugin %s to receive internal events: %s" % (name, types)
+            )
             self._plugins[name] = {
                 "plugin_instance": plugin,  # the plugin instance
-                "types": types if types else []
+                "types": types if types else [],
             }
         else:
-            MutyLogger.get_instance().warning("plugin %s already registered to receive internal events" % (name))
+            MutyLogger.get_instance().warning(
+                "plugin %s already registered to receive internal events" % (name)
+            )
 
     def deregister(self, plugin: str) -> None:
         """
@@ -391,10 +414,14 @@ class GulpInternalEventsManager:
             plugin (str): The name of the plugin to unregister.
         """
         if plugin in self._plugins.keys():
-            MutyLogger.get_instance().debug("deregistering plugin %s from receiving internal events" % (plugin))
+            MutyLogger.get_instance().debug(
+                "deregistering plugin %s from receiving internal events" % (plugin)
+            )
             del self._plugins[plugin]
         else:
-            MutyLogger.get_instance().debug("plugin %s not registered to receive internal events" % (plugin))
+            MutyLogger.get_instance().debug(
+                "plugin %s not registered to receive internal events" % (plugin)
+            )
 
     async def broadcast_event(self, t: str, data: dict) -> None:
         """
@@ -406,22 +433,28 @@ class GulpInternalEventsManager:
         Returns:
             None
         """
-        ev: GulpInternalEvent = GulpInternalEvent(type=t, timestamp_msec=muty.time.now_msec(), data=data)
+        ev: GulpInternalEvent = GulpInternalEvent(
+            type=t, timestamp_msec=muty.time.now_msec(), data=data
+        )
         for plugin, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
             if t in entry["types"]:
                 try:
-                    MutyLogger.get_instance().debug("broadcasting event %s to plugin %s" % (t, p.bare_filename))
+                    MutyLogger.get_instance().debug(
+                        "broadcasting event %s to plugin %s" % (t, p.bare_filename)
+                    )
                     await p.internal_event_callback(ev)
                 except Exception as e:
                     MutyLogger.get_instance().exception(e)
+
 
 class GulpPluginBase(ABC):
     """
     Base class for all Gulp plugins.
     """
+
     # these are used to initialize the license stub code
-    _license_stub: "GulpPluginBase" = None 
+    _license_stub: "GulpPluginBase" = None
     _license_func: callable = None
 
     @classmethod
@@ -491,10 +524,10 @@ class GulpPluginBase(ABC):
         """
         # print("********************************** INIT *************************************************")
         super().__init__()
-        
+
         # plugin file path
         self.path: str = path
-        #print("*** GulpPluginBase.__init__ (%s, %s) called!!!! ***" % (path, self.display_name()))
+        # print("*** GulpPluginBase.__init__ (%s, %s) called!!!! ***" % (path, self.display_name()))
 
         # to have faster access to the plugin filename
         self.filename = os.path.basename(self.path)
@@ -723,7 +756,7 @@ class GulpPluginBase(ABC):
             ev (GulpInternalEvent): the event
         """
         return
-    
+
     async def post_init(self, **kwargs):
         """
         this is called after the plugin has been initialized, to allow for any post-initialization tasks.
@@ -740,8 +773,16 @@ class GulpPluginBase(ABC):
         d = {
             "plugin": self.bare_filename,
             "user_id": self._user_id,
-            "plugin_params": self._plugin_params.model_dump(exclude_none=True) if self._plugin_params else None,
-            "status": str(self._stats.status) if self._stats else str(GulpRequestStatus.ONGOING),
+            "plugin_params": (
+                self._plugin_params.model_dump(exclude_none=True)
+                if self._plugin_params
+                else None
+            ),
+            "status": (
+                str(self._stats.status)
+                if self._stats
+                else str(GulpRequestStatus.ONGOING)
+            ),
             "errors": [self._source_error] if self._source_error else [],
             "req_id": self._req_id,
             "ingested": self._tot_ingested_in_source,
@@ -751,10 +792,15 @@ class GulpPluginBase(ABC):
             "source_id": self._source_id,
             "context_id": self._context_id,
             "operation_id": self._operation_id,
-            "file_path": self._original_file_path if self._original_file_path else self._file_path,
+            "file_path": (
+                self._original_file_path
+                if self._original_file_path
+                else self._file_path
+            ),
         }
-        GulpWsSharedQueue.get_instance().put_internal_event(msg=GulpInternalEventsManager.EVENT_INGEST,params=d)
-
+        GulpWsSharedQueue.get_instance().put_internal_event(
+            msg=GulpInternalEventsManager.EVENT_INGEST, params=d
+        )
 
     async def _ingest_chunk_and_or_send_to_ws(
         self,
@@ -894,14 +940,19 @@ class GulpPluginBase(ABC):
 
         # cache miss - create new context (or get existing)
         context_name = doc.get(context_field_name, None)
-        if context_name and context_field_name == 'gulp.context_id':
+        if context_name and context_field_name == "gulp.context_id":
             # name is already a context id, use that (raw documents case)
             ctx_id = context_name
         else:
             ctx_id = None
         context: GulpContext
         context, _ = await self._operation.add_context(
-            self._sess, self._user_id, context_name, self._ws_id, self._req_id, ctx_id=ctx_id
+            self._sess,
+            self._user_id,
+            context_name,
+            self._ws_id,
+            self._req_id,
+            ctx_id=ctx_id,
         )
 
         # update cache
@@ -929,7 +980,7 @@ class GulpPluginBase(ABC):
 
         # cache miss - create new source (or get existing)
         source_name = doc.get(source_field_name, "default")
-        if source_name and source_field_name == 'gulp.source_id':
+        if source_name and source_field_name == "gulp.source_id":
             # name is already a source id, use that (raw documents case)
             src_id = source_name
         else:
@@ -940,13 +991,18 @@ class GulpPluginBase(ABC):
 
         # create source
         plugin = self.bare_filename
-        mapping_parameters = self._plugin_params.mapping_parameters        
+        mapping_parameters = self._plugin_params.mapping_parameters
         source, _ = await context.add_source(
-            self._sess, self._user_id, source_name, ws_id=self._ws_id, req_id=self._req_id, src_id=src_id,
-            plugin=plugin, mapping_parameters=mapping_parameters
+            self._sess,
+            self._user_id,
+            source_name,
+            ws_id=self._ws_id,
+            req_id=self._req_id,
+            src_id=src_id,
+            plugin=plugin,
+            mapping_parameters=mapping_parameters,
         )
 
-        
         # update cache
         self._src_cache[cache_key] = source.id
         return source.id
@@ -969,16 +1025,18 @@ class GulpPluginBase(ABC):
         """
         # get field names from parameters or use defaults
         context_field_name = self._plugin_params.custom_parameters.get(
-            "context_field", None)
+            "context_field", None
+        )
         if not context_field_name:
             # use default field name
-            context_field_name='gulp.context_id'
+            context_field_name = "gulp.context_id"
 
         source_field_name = self._plugin_params.custom_parameters.get(
-            "source_field", None)
+            "source_field", None
+        )
         if not source_field_name:
             # use default field name
-            source_field_name='gulp.source_id'
+            source_field_name = "gulp.source_id"
 
         # for no ingestion case, just get values from doc or use defaults
         # MutyLogger.get_instance().debug("ingest_index: %s, operation=%s" % (self._ingest_index, self._operation))
@@ -1170,17 +1228,22 @@ class GulpPluginBase(ABC):
         self._tot_enriched += len(docs)
         MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
-        # update the documents
+        # update the documents, also ensure no highlight field is left from the query
+        dd: list[dict] = []
+        for d in docs:
+            d.pop("highlight", None)
+            dd.append(d)
+
         last = kwargs.get("last", False)
         await GulpOpenSearch.get_instance().update_documents(
-            self._enrich_index, docs, wait_for_refresh=last
+            self._enrich_index, dd, wait_for_refresh=last
         )
 
         if docs:
             # send the enriched documents to the websocket
             chunk = GulpDocumentsChunkPacket(
-                docs=docs,
-                num_docs=len(docs),
+                docs=dd,
+                num_docs=len(dd),
                 chunk_number=kwargs.get("chunk_num", 0),
                 total_hits=kwargs.get("total_hits", 0),
                 last=last,
@@ -1480,9 +1543,9 @@ class GulpPluginBase(ABC):
     ) -> "GulpPluginBase":
         """
         setup the caller plugin as the "upper" plugin in a stack, and load "plugin" as the lower plugin.
-        
+
         this must be called i.e. in "ingest_file"
-        
+
         - the caller calls setup_stacked_plugin with the plugin to load as lower plugin
         - it then calls lower "ingest_file" and let the lower plugin process the file.
 
@@ -2355,7 +2418,9 @@ class GulpPluginBase(ABC):
         if self._plugin_params.mapping_parameters:
             d = {
                 "plugin": self.bare_filename,
-                "mapping_parameters": self._plugin_params.mapping_parameters.model_dump(exclude_none=True),
+                "mapping_parameters": self._plugin_params.mapping_parameters.model_dump(
+                    exclude_none=True
+                ),
             }
             await GulpSource.update_by_id(
                 None, self._source_id, d=d, ws_id=None, req_id=None
@@ -2449,8 +2514,8 @@ class GulpPluginBase(ABC):
                 MutyLogger.get_instance().warning("request canceled, source_done!")
             finally:
                 self._sess = None
-    
-    def register_internal_events_callback(self, types: list[str]=None) -> None:
+
+    def register_internal_events_callback(self, types: list[str] = None) -> None:
         """
         Register this plugin to be called by the engine for internal events.
 
@@ -2460,7 +2525,7 @@ class GulpPluginBase(ABC):
             types (list[str], optional): List of event types to register for. Defaults to None, which registers for all events.
         """
         GulpInternalEventsManager.get_instance().register(self, types)
-    
+
     def deregister_internal_events_callback(self) -> None:
         """
         Stop listening to internal events.
@@ -2521,10 +2586,10 @@ class GulpPluginBase(ABC):
         # this is set in __reduce__(), which is called when the plugin is pickled(=loaded in another process)
         # pickled=True: running in worker
         # pickled=False: running in main process
-        #pickled = kwargs.get("pickled", False)
+        # pickled = kwargs.get("pickled", False)
         pickled = kwargs.pop("pickled", False)
 
-         # get plugin full path by name
+        # get plugin full path by name
         path = GulpPluginBase.path_from_plugin(
             plugin, extension, raise_if_not_found=True
         )
@@ -2551,7 +2616,8 @@ class GulpPluginBase(ABC):
                 else:
                     # cache disabled
                     MutyLogger.get_instance().warning(
-                        "plugin cache is disabled, loading plugin %s from disk" % (bare_name)
+                        "plugin cache is disabled, loading plugin %s from disk"
+                        % (bare_name)
                     )
                     force_load_from_disk = True
 
@@ -2580,8 +2646,12 @@ class GulpPluginBase(ABC):
             # check each dependency (each is a file name)
             for dep in p.depends_on():
                 # check if dependency is loaded
-                dep_path_noext = GulpPluginBase.path_from_plugin(dep, is_extension=False, raise_if_not_found=False)
-                dep_path_ext = GulpPluginBase.path_from_plugin(dep, is_extension=True, raise_if_not_found=False)
+                dep_path_noext = GulpPluginBase.path_from_plugin(
+                    dep, is_extension=False, raise_if_not_found=False
+                )
+                dep_path_ext = GulpPluginBase.path_from_plugin(
+                    dep, is_extension=True, raise_if_not_found=False
+                )
                 dep_path = dep_path_noext or dep_path_ext
                 if not dep_path:
                     await p.unload()
@@ -2592,7 +2662,10 @@ class GulpPluginBase(ABC):
         # also call post-initialization routine if any
         await p.post_init(**kwargs)
 
-        if cache_mode != GulpPluginCacheMode.IGNORE and GulpConfig.get_instance().plugin_cache_enabled():
+        if (
+            cache_mode != GulpPluginCacheMode.IGNORE
+            and GulpConfig.get_instance().plugin_cache_enabled()
+        ):
             # add to cache
             GulpPluginCache.get_instance().add(m, bare_name)
         return p
@@ -2650,7 +2723,7 @@ class GulpPluginBase(ABC):
 
         if the extra path is set and the plugin exists there, such path is returned.
         either, path in the default plugins path is returned.
-        
+
         Args:
             plugin (str): The name of the plugin, may include ".py/.pyc" extension.
             is_extension (bool, optional): Whether the plugin is an extension. Defaults to False.
@@ -2839,7 +2912,7 @@ class GulpPluginBase(ABC):
 
         Args:
         Returns:
-            list[GulpUiPluginMetadata]: The list of available UI plugins.   
+            list[GulpUiPluginMetadata]: The list of available UI plugins.
         """
 
         async def _list_ui_internal(
@@ -2854,14 +2927,19 @@ class GulpPluginBase(ABC):
             for f in files:
                 # skip non ts/js files
                 f_lower: str = f.lower()
-                if not f_lower.endswith(".ts") and not f_lower.endswith(".js") and not f_lower.endswith(".tsx"):
+                if (
+                    not f_lower.endswith(".ts")
+                    and not f_lower.endswith(".js")
+                    and not f_lower.endswith(".tsx")
+                ):
                     continue
-                
+
                 # we have the plugin path, now build the corresponding metadata file (json) path
                 metadata_file = os.path.join(path, f + ".json")
                 if not await muty.file.exists_async(metadata_file):
                     MutyLogger.get_instance().warning(
-                        "plugin metadata file %s not found, skipping plugin %s" % (metadata_file, f)
+                        "plugin metadata file %s not found, skipping plugin %s"
+                        % (metadata_file, f)
                     )
                     continue
 
@@ -2877,7 +2955,8 @@ class GulpPluginBase(ABC):
                 except ValidationError as ve:
                     MutyLogger.get_instance().exception(ve)
                     MutyLogger.get_instance().warning(
-                        "plugin metadata file %s is not valid, skipping plugin %s:\n%s" % (metadata_file, f, js)
+                        "plugin metadata file %s is not valid, skipping plugin %s:\n%s"
+                        % (metadata_file, f, js)
                     )
                     continue
 
@@ -2888,7 +2967,7 @@ class GulpPluginBase(ABC):
         # list extra folder first, if any
         p = GulpConfig.get_instance().path_plugins_extra()
         if p:
-            await _list_ui_internal(l, os.path.join(p,"ui"))
+            await _list_ui_internal(l, os.path.join(p, "ui"))
             MutyLogger.get_instance().debug(
                 "found %d UI plugins in extra path=%s" % (len(l), p)
             )

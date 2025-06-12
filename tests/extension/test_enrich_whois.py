@@ -27,6 +27,83 @@ from gulp.api.ws_api import (
 from gulp.structs import GulpPluginParameters
 
 
+RAW_DATA: list[dict] = [
+    {
+        "@timestamp": "2019-07-01T00:00:00.000Z",
+        "event.code": "test_event_code_1",
+        "event.original": "some text",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "event.sequence": 0,
+        "source.ip": "3.162.112.100",
+        "host.hostname": "https://repubblica.it",
+    },
+    {
+        "@timestamp": "2019-07-01T00:01:00.000Z",
+        "event.code": "test_event_code_2",
+        "event.original": "some text",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "event.sequence": 1,
+        "source.ip": "3.162.112.100",
+        "host.hostname": "https://repubblica.it",
+    },
+    {
+        "@timestamp": "2019-07-01T00:02:00.000Z",
+        "event.code": "test_event_code_3",
+        "event.original": "some text",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "event.sequence": 2,
+        "source.ip": "2001:4860:4801:53::3b",
+        "host.hostname": "repubblica.it",
+    },
+    {
+        "@timestamp": "2019-07-01T00:03:00.000Z",
+        "event.code": "test_event_code_4",
+        "event.original": "this is the original event text with ip 185.53.36.36, 104.18.4.215 and host=https://microsoft.com and 3.162.112.100 and ipv6=2001:4860:4801:53::3b and some invalid ipv6=ab12r3::ff:00:32 inside",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "source.ip": "2001:4860:4801:53::3b",
+        "event.sequence": 3,
+    },
+    {
+        "@timestamp": "2019-07-01T00:04:00.000Z",
+        "event.code": "test_event_code_5",
+        "event.original": "ipv4=185.53.36.36,ipv4=104.18.4.215,host=https://microsoft.com,ip=3.162.112.100,ip=2001:4860:4801:53::3b,ip=ab12r3::ff:00:32",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "source.ip": "2001:4860:4801:53::3b",
+        "event.sequence": 4,
+    },
+    {
+        "@timestamp": "2019-07-01T00:05:00.000Z",
+        "event.code": "test_event_code_5",
+        "event.original": '{"ip1": 185.53.36.36, "ip2":"104.18.4.215", "host":"https://microsoft.com", "ip3":"3.162.112.100", "ip4":"2001:4860:4801:53::3b", "ip5":"ab12r3::ff:00:32"}',
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "source.ip": "2001:4860:4801:53::3b",
+        "event.sequence": 5,
+    },
+    {
+        "@timestamp": "2019-07-01T00:06:00.000Z",
+        "event.code": "test_event_code_6",
+        "event.original": "[zonetransfer] Zoneid=3 185.53.36.36",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "source.ip": "2001:4860:4801:53::3b",
+        "event.sequence": 5,
+    },
+]
+
+
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
     """
@@ -42,9 +119,9 @@ async def test_enrich_whois_documents():
     assert edit_token
 
     # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+    from tests.ingest.test_ingest import test_raw
 
-    await test_win_evtx()
+    await test_raw(RAW_DATA)
 
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
@@ -60,16 +137,17 @@ async def test_enrich_whois_documents():
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
-
                 if data["type"] == "ws_connected":
                     # run test
+                    plugin_params: GulpPluginParameters = GulpPluginParameters()
+                    plugin_params.custom_parameters = {
+                        "host_fields": ["source.ip", "host.hostname", "event.original"],
+                    }
                     await GulpAPIEnrich.enrich_documents(
                         edit_token,
                         TEST_OPERATION_ID,
-                        flt=GulpQueryFilter(
-                            time_range=[1467213874345999870, 1467213874345999873]
-                        ),
                         plugin="enrich_whois",
+                        plugin_params=plugin_params,
                         req_id="req_enrich_whois",
                     )
                 elif data["type"] == "enrich_done":
@@ -83,7 +161,7 @@ async def test_enrich_whois_documents():
                     MutyLogger.get_instance().debug(
                         "enrich done, total_enriched=%d", q_done_packet.total_enriched
                     )
-                    if q_done_packet.total_enriched == 1:
+                    if q_done_packet.total_enriched == 7:
                         test_completed = True
                     else:
                         assert False, "enrich done, but total_enriched=%d" % (
@@ -104,7 +182,7 @@ async def test_enrich_whois_documents():
 @pytest.mark.asyncio
 async def test_enrich_whois_single():
 
-    doc_id: str = "50edff98db7773ef04378ec20a47f622"
+    doc_id: str = "e321a8ee9c2ab94ecace6415c8da81c6"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
@@ -112,16 +190,19 @@ async def test_enrich_whois_single():
     assert edit_token
 
     # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+    from tests.ingest.test_ingest import test_raw
 
-    await test_win_evtx()
+    await test_raw(RAW_DATA)
 
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
 
     plugin_params: GulpPluginParameters = GulpPluginParameters()
-    plugin_params.custom_parameters = {"host_fields": ["source.ip"]}
+    plugin_params.custom_parameters = {
+        "host_fields": ["source.ip", "host.hostname", "event.original"],
+        "resolve_first_only": False,
+    }
 
     # guest cannot enrich, verify that
     await GulpAPIEnrich.enrich_single_id(
@@ -130,15 +211,16 @@ async def test_enrich_whois_single():
         doc_id=doc_id,
         plugin="enrich_whois",
         expected_status=401,
-        plugin_params=plugin_params
+        plugin_params=plugin_params,
     )
     doc = await GulpAPIEnrich.enrich_single_id(
         edit_token,
         TEST_OPERATION_ID,
         doc_id=doc_id,
         plugin="enrich_whois",
-        plugin_params=plugin_params
+        plugin_params=plugin_params,
     )
 
     assert doc.get("gulp.enrich_whois.source_ip.unified_dump") != None
+    assert doc.get("gulp.enrich_whois.event_original.unified_dump") != None
     MutyLogger.get_instance().info(test_enrich_whois_single.__name__ + " succeeded!")

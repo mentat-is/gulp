@@ -188,9 +188,10 @@ async def test_ingest_filter():
     )
 
     await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
-    
+
     # ingest another part
     from gulp.api.rest.client.common import _ensure_test_operation
+
     await _ensure_test_operation()
     flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
     await GulpAPIIngest.ingest_file(
@@ -208,10 +209,21 @@ async def test_ingest_filter():
 
 @pytest.mark.asyncio
 @pytest.mark.run(order=5)
-async def test_raw():
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
-    buf = await muty.file.read_file_async(raw_chunk_path)
+async def test_raw(raw_data: list[dict] = None):
+    """
+    use raw_data for single test on such buffer
+    """
+    
+    # TODO: only covers "raw gulpdocuments" plugin (raw)
+    if raw_data:
+        # use provided
+        check_size=len(raw_data)
+        buf = json.dumps(raw_data).encode("utf-8")
+    else:
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
+        buf = await muty.file.read_file_async(raw_chunk_path)
+        check_size=3
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -223,24 +235,24 @@ async def test_raw():
         operation_id=TEST_OPERATION_ID,
     )
     # wait ws
-    await _test_ingest_ws_loop(check_ingested=3)  # , check_on_source_done=True)
+    await _test_ingest_ws_loop(check_ingested=check_size)  # , check_on_source_done=True)
+    if not raw_data:
+        # ingest another (generate new random data)
+        raw_chunk = json.loads(buf)
+        MutyLogger.get_instance().debug("ingesting another chunk ...")
+        for r in raw_chunk:
+            # randomize event original
+            r["event.original"] = muty.string.generate_unique()
 
-    # ingest another (generate new random data)
-    raw_chunk = json.loads(buf)
-    MutyLogger.get_instance().debug("ingesting another chunk ...")
-    for r in raw_chunk:
-        # randomize event original
-        r["event.original"] = muty.string.generate_unique()
-
-    buf = json.dumps(raw_chunk).encode("utf-8")
-    await GulpAPIIngest.ingest_raw(
-        token=ingest_token,
-        raw_data=buf,
-        operation_id=TEST_OPERATION_ID,
-    )
-    await _test_ingest_ws_loop(
-        check_ingested=6
-    )  # plus the 3 above, we're using the same req_id
+        buf = json.dumps(raw_chunk).encode("utf-8")
+        await GulpAPIIngest.ingest_raw(
+            token=ingest_token,
+            raw_data=buf,
+            operation_id=TEST_OPERATION_ID,
+        )
+        await _test_ingest_ws_loop(
+            check_ingested=6
+        )  # plus the 3 above, we're using the same req_id
 
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
@@ -331,8 +343,10 @@ async def test_ws_raw():
                             source="test_source",
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
-                        )                        
-                        raw_data = json.dumps(_generate_random_chunk(raw_chunk, size=1000)).encode("utf-8")
+                        )
+                        raw_data = json.dumps(
+                            _generate_random_chunk(raw_chunk, size=1000)
+                        ).encode("utf-8")
 
                         # send json then chunk
                         await ws.send(p.model_dump_json(exclude_none=True))
@@ -377,7 +391,9 @@ async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
         plugin="win_evtx",
     )
 
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7, skip_checks=skip_checks)
+    await _test_ingest_ws_loop(
+        check_ingested=7, check_processed=7, skip_checks=skip_checks
+    )
     MutyLogger.get_instance().info(test_win_evtx.__name__ + " succeeded!")
 
 
@@ -570,12 +586,14 @@ async def test_apache_error_clf():
     await _test_ingest_generic(files, "apache_error_clf", 1178)
     MutyLogger.get_instance().info(test_apache_error_clf.__name__ + " succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_iis_access():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/iis_access/iis.log")]
     await _test_ingest_generic(files, "iis_access", 2)
     MutyLogger.get_instance().info(test_iis_access.__name__ + " succeeded!")
+
 
 @pytest.mark.asyncio
 async def test_iis_access_w3c():
@@ -584,12 +602,14 @@ async def test_iis_access_w3c():
     await _test_ingest_generic(files, "iis_access_w3c", 5)
     MutyLogger.get_instance().info(test_iis_access_w3c.__name__ + " succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_iis_access_ncsa():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/iis_access_ncsa/iis_ncsa.log")]
     await _test_ingest_generic(files, "iis_access_ncsa", 4)
     MutyLogger.get_instance().info(test_iis_access_ncsa.__name__ + " succeeded!")
+
 
 @pytest.mark.asyncio
 async def test_lin_syslog():
@@ -605,6 +625,7 @@ async def test_lin_syslog():
     await _test_ingest_generic(files, "lin_syslog", 70)
     MutyLogger.get_instance().info(test_lin_syslog.__name__ + " (auth.log) succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_json():
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -617,10 +638,10 @@ async def test_json():
     )
     await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (line) succeeded!")
-    
+
     # another file, reset first
     await _ensure_test_operation()
-    files = [os.path.join(current_dir, "../../samples/json/jsonlist.json")] # broken
+    files = [os.path.join(current_dir, "../../samples/json/jsonlist.json")]  # broken
     plugin_params = GulpPluginParameters(
         custom_parameters={
             "json_format": "list",
@@ -632,7 +653,7 @@ async def test_json():
 
     # another file, reset first
     await _ensure_test_operation()
-    files = [os.path.join(current_dir, "../../samples/json/jsondict.json")] # broken
+    files = [os.path.join(current_dir, "../../samples/json/jsondict.json")]  # broken
     plugin_params = GulpPluginParameters(
         custom_parameters={
             "json_format": "dict",
@@ -642,10 +663,10 @@ async def test_json():
     await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (dict) succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_mysql_error():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/mysql_error/mysql_error.log")]
     await _test_ingest_generic(files, "mysql_error", 61)
     MutyLogger.get_instance().info(test_mysql_error.__name__ + " succeeded!")
-
