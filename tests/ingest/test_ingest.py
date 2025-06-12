@@ -640,10 +640,6 @@ async def test_json():
                 )
             }
         ),
-        custom_parameters={
-            "timestamp_field": "create_datetime",
-            "date_format": "%Y-%m-%dT%H:%M:%S.%fZ",
-        },
     )
     await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (line) succeeded!")
