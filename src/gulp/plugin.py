@@ -1929,12 +1929,21 @@ class GulpPluginBase(ABC):
 
         the document is then sent to the configured websocket and, if enabled, ingested in the configured opensearch index.
 
+        if the record fails processing, it is counted as a failure, the failure counter is updated, and this function
+        returns without further processing and without throwing exceptions.
+
+
         Args:
             record (any): The record to process.
             record_idx (int): The index of the record.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
             kwargs: additional keyword arguments, they will be passed to plugin's `_record_to_gulp_documennt`
+
+        Raises:
+            PreviewDone: if in preview mode and the number of accumulated documents reaches the configured limit.
+            SourceCanceledError: if the per-source failure threshold is reached.
+            RequestCanceledError: if the request is canceled.
         """
         if self._external_query:
             # external query, documents have been already filtered by the query

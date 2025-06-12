@@ -43,7 +43,7 @@
 		"python.autoComplete.extraPaths": [
 			"${workspaceFolder}/muty-python",
 		],
-		"workbench.colorTheme": "Dracula Theme",
+		"workbench.colorTheme": "Tomorrow Night Blue",
 		"files.autoSave": "afterDelay",
 		"terminal.integrated.scrollback": 10000,
 		"[python]": {

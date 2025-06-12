@@ -1,18 +1,14 @@
 """
 JSON plugin for GULP - a generic json file processor.
 
-This module provides a plugin to process and ingest JSON data in various formats:
-- list format: a JSON array of objects
-- dict format: a single JSON object
-- line format: one JSON object per line
+This module provides a plugin to process and ingest JSON data in jsonline format (one JSON object per line),
 
-The plugin supports timestamp extraction from JSON fields with automatic or
-custom date parsing, and flattens nested JSON structures for easier indexing.
+NOTE: Used as standalone, it is mandatory to provide a mapping that defines how the JSON keys should be mapped to GULP fields.
 
 It can also be used as base for stacked plugins dealing with specific JSON formats.
 """
 
-import datetime
+from datetime import datetime
 import json
 import os
 from typing import Any, override
@@ -64,64 +60,27 @@ class Plugin(GulpPluginBase):
                 type="str",
                 desc="encoding to use",
                 default_value="utf-8",
-            ),
-            GulpPluginCustomParameter(
-                name="date_format",
-                type="str",
-                desc="format string to parse the timestamp field, if null try autoparse",
-                default_value=None,
-            ),
-            GulpPluginCustomParameter(
-                name="timestamp_field",
-                type="str",
-                desc="field containing the timestamp (e.g. some.nested.timestamp), required when used in standalone (non-stacked) mode if mapping is not provided.",
-                default_value="timestamp",
-            ),
-            GulpPluginCustomParameter(
-                name="json_format",
-                type="str",
-                desc="'line' one object per line, 'dict' standard json object, 'list' list of json objects",
-                default_value="line",
-            ),
+            )
         ]
 
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        timestamp_field: str = kwargs.get("timestamp_field")
-        date_format: str = kwargs.get("date_format")
-        line: str = kwargs.get("line")
-
+        line: str = kwargs.get("__line__")
         d: dict = muty.json.flatten_json(record)
-        #print(timestamp_field, d, record)
-        t: str = d.get(timestamp_field)
-        timestamp: str = None
-        if isinstance(t, str):
-            if t.isnumeric():
-                # if it's a number, use it as is
-                timestamp = t
-            else:
-                if date_format:
-                    timestamp = datetime.datetime.strptime(t, date_format).isoformat()
-                else:
-                    # attempt autoparse of date
-                    timestamp = dateutil.parser.parse(t).isoformat()
-        else:
-            # numeric
-            timestamp = str(t)
-            
+
         # map
         final: dict = {}
         for k, v in d.items():
             mapped = self._process_key(k, v)
             final.update(mapped)
 
+        # MutyLogger.get_instance().debug("final mapped record:\n%s" % (json.dumps(final, indent=2)))
         return GulpDocument(
             self,
             operation_id=self._operation_id,
             context_id=self._context_id,
-            timestamp=timestamp,
             source_id=self._source_id,
             event_original=line,
             event_sequence=record_idx,
@@ -167,82 +126,29 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 **kwargs,
             )
-            if not plugin_params.mapping_parameters.mappings:
-                plugin_params.mapping_parameters.mappings = {}
-
-            mappings = plugin_params.mapping_parameters.mappings.get("default")
-            if not mappings:
-                mappings = {
-                    "default": GulpMapping(
-                        fields={"timestamp": GulpMappingField(ecs="@timestamp")}
-                    )
-                }
-                plugin_params.mapping_parameters.mappings = mappings
+            encoding = self._plugin_params.custom_parameters.get("encoding")
 
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        encoding = self._plugin_params.custom_parameters.get("encoding")
-        timestamp_field = self._plugin_params.custom_parameters.get("timestamp_field")
-        date_format = self._plugin_params.custom_parameters.get("date_format")
-        json_format = self._plugin_params.custom_parameters.get("json_format").lower()
-
-        if not timestamp_field:
-            return GulpRequestStatus.FAILED
-
         # we can process!
         doc_idx = 0
         try:
-            if json_format == "list":
-                with open(file_path, mode="r", encoding=encoding) as file:
-                    # list of objects:
-                    # [ {"a":"b"}, {"b":"c"}]
-                    events = json_s.load(file)
-                    if not isinstance(events, json_s.base.TransientStreamingJSONList):
-                        MutyLogger.get_instance().exception(
-                            f"wrong json format, expected '{json_format}' got {type(events)}"
-                        )
-                        return GulpRequestStatus.FAILED
-
-                    for event in events:
-                        try:
-                            print(event, type(event))
-                            await self.process_record(
-                                event,
-                                doc_idx,
-                                flt=flt,
-                                line=json.dumps(event),
-                                timestamp_field=timestamp_field,
-                                date_format=date_format,
-                            )
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            await self._source_failed(ex)
-                        except PreviewDone:
-                            # preview done, stop processing
-                            pass
-                        doc_idx += 1
-            elif json_format == "dict":
-                # json file:
-                # {"a":"b", "c":"d"}
-                with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-                    if not isinstance(events, json_s.base.TransientStreamingJSON):
-                        MutyLogger.get_instance().exception(
-                            f"wrong json format, expected '{json_format}' got {type(events)}"
-                        )
-                        return GulpRequestStatus.FAILED
-
+            # one record per line:
+            # {"a": "b"}\n
+            # {"b": "c"}\n
+            async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
+                async for line in file:
                     try:
-                        j = json_s.load(file)
+                        parsed = json.loads(line)
+
                         await self.process_record(
-                            j,
+                            parsed,
                             doc_idx,
                             flt=flt,
-                            line=json.dumps(j),
-                            timestamp_field=timestamp_field,
-                            date_format=date_format,
+                            __line__=line,
                         )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
@@ -252,31 +158,6 @@ class Plugin(GulpPluginBase):
                         pass
 
                     doc_idx += 1
-            elif json_format == "line":
-                # one record per line:
-                # {"a": "b"}\n
-                # {"b": "c"}\n
-                async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-                    async for line in file:
-                        try:
-                            parsed = json.loads(line)
-
-                            await self.process_record(
-                                parsed,
-                                doc_idx,
-                                flt=flt,
-                                line=line,
-                                timestamp_field=timestamp_field,
-                                date_format=date_format,
-                            )
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            await self._source_failed(ex)
-                        except PreviewDone:
-                            # preview done, stop processing
-                            pass
-
-                        doc_idx += 1
 
         except Exception as ex:
             await self._source_failed(ex)

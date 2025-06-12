@@ -213,17 +213,17 @@ async def test_raw(raw_data: list[dict] = None):
     """
     use raw_data for single test on such buffer
     """
-    
+
     # TODO: only covers "raw gulpdocuments" plugin (raw)
     if raw_data:
         # use provided
-        check_size=len(raw_data)
+        check_size = len(raw_data)
         buf = json.dumps(raw_data).encode("utf-8")
     else:
         current_dir = os.path.dirname(os.path.realpath(__file__))
         raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
         buf = await muty.file.read_file_async(raw_chunk_path)
-        check_size=3
+        check_size = 3
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -235,7 +235,9 @@ async def test_raw(raw_data: list[dict] = None):
         operation_id=TEST_OPERATION_ID,
     )
     # wait ws
-    await _test_ingest_ws_loop(check_ingested=check_size)  # , check_on_source_done=True)
+    await _test_ingest_ws_loop(
+        check_ingested=check_size
+    )  # , check_on_source_done=True)
     if not raw_data:
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
@@ -631,37 +633,20 @@ async def test_json():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/json/jsonline.json")]
     plugin_params = GulpPluginParameters(
+        mapping_parameters=GulpMappingParameters(
+            mappings={
+                "test_mapping": GulpMapping(
+                    fields={"create_datetime": GulpMappingField(ecs="@timestamp")}
+                )
+            }
+        ),
         custom_parameters={
-            "json_format": "line",
             "timestamp_field": "create_datetime",
-        }
+            "date_format": "%Y-%m-%dT%H:%M:%S.%fZ",
+        },
     )
     await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (line) succeeded!")
-
-    # another file, reset first
-    await _ensure_test_operation()
-    files = [os.path.join(current_dir, "../../samples/json/jsonlist.json")]  # broken
-    plugin_params = GulpPluginParameters(
-        custom_parameters={
-            "json_format": "list",
-            "timestamp_field": "create_datetime",
-        }
-    )
-    await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
-    MutyLogger.get_instance().info(test_json.__name__ + " (list) succeeded!")
-
-    # another file, reset first
-    await _ensure_test_operation()
-    files = [os.path.join(current_dir, "../../samples/json/jsondict.json")]  # broken
-    plugin_params = GulpPluginParameters(
-        custom_parameters={
-            "json_format": "dict",
-            "timestamp_field": "create_datetime",
-        }
-    )
-    await _test_ingest_generic(files, "json", 5, plugin_params=plugin_params)
-    MutyLogger.get_instance().info(test_json.__name__ + " (dict) succeeded!")
 
 
 @pytest.mark.asyncio

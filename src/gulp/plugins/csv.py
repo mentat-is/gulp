@@ -109,11 +109,6 @@ class Plugin(GulpPluginBase):
             mapped = self._process_key(k, v)
             d.update(mapped)
 
-        # timestamp = d.get("@timestamp")
-        # if not timestamp:
-        #     # not mapped, last resort is to use the timestamp field, if set
-        #     timestamp = record.get(self.selected_mapping().timestamp_field)
-
         if date_format:
             d["@timestamp"] = datetime.strptime(d["@timestamp"], date_format)
 
