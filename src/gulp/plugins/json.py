@@ -172,15 +172,17 @@ class Plugin(GulpPluginBase):
                         # otherwise, put the value as a single item
                         q.put_nowait(json_stream.to_standard_types(v))
 
-            MutyLogger.get_instance().debug(
-                "file %s finished stream reading!" % (file_path)
-            )
-
         except Exception as ex:
             # close file
             MutyLogger.get_instance().exception(ex)
+        finally:
             if f:
                 f.close()
+            q.put_nowait(None)
+
+            MutyLogger.get_instance().debug(
+                "file %s finished stream reading!" % (file_path)
+            )
 
     async def _ingest_jsonlist_and_jsondict(
         self,
@@ -199,7 +201,8 @@ class Plugin(GulpPluginBase):
         # offload processing to a thread which fills the queue
         q: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
+        MutyLogger.get_instance().debug("starting thread to read file %s" % file_path)
+        fut: asyncio.Future = loop.run_in_executor(
             GulpProcess.get_instance().thread_pool,
             self._read_file,
             q,
@@ -207,24 +210,20 @@ class Plugin(GulpPluginBase):
             encoding,
             keys,
         )
+        MutyLogger.get_instance().debug("starting processing file %s" % file_path)
 
         # and process it asynchronously until the queue is empty
-        count: int = 0
         try:
             while True:
                 record: dict = None
-                try:
-                    record = q.get_nowait()
-                except asyncio.QueueEmpty:
-                    if count > 2:
-                        # no more records, stop processing
-                        break
-
-                    # no records in the queue, wait a bit and try again
-                    count += 1
-                    await asyncio.sleep(0.5)
-                    continue
-
+                record = await q.get()
+                q.task_done()
+                if record is None:
+                    # end of file reached
+                    MutyLogger.get_instance().debug(
+                        "end of file %s reached, breaking loop!" % (file_path)
+                    )
+                    break
                 try:
                     await self.process_record(
                         record,
@@ -241,6 +240,15 @@ class Plugin(GulpPluginBase):
                     break
 
                 doc_idx += 1
+
+            # after the loop, wait for the reader task (thread) to fully complete.
+            # this also allows any exception from _read_file to be propagated here.
+            MutyLogger.get_instance().debug(
+                "processing loop finished for %s, awaiting reader thread completion."
+                % (file_path)
+            )
+            await fut
+
         except Exception as ex:
             await self._source_failed(ex)
         finally:

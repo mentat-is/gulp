@@ -629,6 +629,27 @@ async def test_lin_syslog():
 
 
 @pytest.mark.asyncio
+async def test_json_list():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    # list
+    files = [os.path.join(current_dir, "../../samples/json/million_logs.json")]
+    mp = GulpMappingParameters(
+        mappings={
+            "test_mapping": GulpMapping(
+                fields={"create_datetime": GulpMappingField(ecs="@timestamp")}
+            )
+        }
+    )
+    plugin_params = GulpPluginParameters(
+        custom_parameters={"mode": "list"},
+        mapping_parameters=mp,
+    )
+    await _test_ingest_generic(files, "json", 1000000, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(test_json.__name__ + " (list) succeeded!")
+
+
+@pytest.mark.asyncio
 async def test_json():
     # line
     current_dir = os.path.dirname(os.path.realpath(__file__))
