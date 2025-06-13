@@ -1,24 +1,26 @@
 """
 JSON plugin for GULP - a generic json file processor.
 
-This module provides a plugin to process and ingest JSON data in jsonline format (one JSON object per line),
+This module provides a plugin to process and ingest JSON data in different formats:
+
+- JSON Lines (one JSON object per line)
+- JSON List (a list of JSON objects)
+- JSON Dictionary (a dictionary with (one or more) keys containing lists of JSON objects)
 
 NOTE: Used as standalone, it is mandatory to provide a mapping that defines how the JSON keys should be mapped to GULP fields.
 
 It can also be used as base for stacked plugins dealing with specific JSON formats.
 """
 
-from datetime import datetime
+import asyncio
 import json
 import os
 from typing import Any, override
 
 import aiofiles
-import dateutil
-import muty.dict
+import json_stream.base
 import muty.json
 import muty.os
-import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,16 +31,15 @@ from gulp.api.collab.stats import (
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.process import GulpProcess
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
-import dateutil.parser
 
 # pylint: disable=C0411
 muty.os.check_and_install_package("json-stream", ">=2.3.3,<3.0.0")
-import json_stream as json_s
+import json_stream
 
 
 class Plugin(GulpPluginBase):
@@ -60,7 +61,19 @@ class Plugin(GulpPluginBase):
                 type="str",
                 desc="encoding to use",
                 default_value="utf-8",
-            )
+            ),
+            GulpPluginCustomParameter(
+                name="mode",
+                type="str",
+                desc="'line' for jsonline, 'list' for a list of JSON objects, 'dict' for a JSON object with a key containing the list of objects",
+                default_value="line",
+            ),
+            GulpPluginCustomParameter(
+                name="keys",
+                type="list",
+                desc="if set and 'mode' is 'dict', only include the keys in the list",
+                default_value=None,
+            ),
         ]
 
     @override
@@ -87,6 +100,152 @@ class Plugin(GulpPluginBase):
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **final,
         )
+
+    async def _ingest_jsonline(
+        self, file_path: str, encoding: str = None, flt: GulpIngestionFilter = None
+    ) -> GulpRequestStatus:
+        doc_idx: int = 0
+        try:
+            # one record per line:
+            # {"a": "b"}\n
+            # {"b": "c"}\n
+            async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
+                async for line in file:
+                    try:
+                        parsed = json.loads(line)
+
+                        await self.process_record(
+                            parsed,
+                            doc_idx,
+                            flt=flt,
+                            __line__=line,
+                        )
+                    except (RequestCanceledError, SourceCanceledError) as ex:
+                        MutyLogger.get_instance().exception(ex)
+                        await self._source_failed(ex)
+                        break
+                    except PreviewDone:
+                        # preview done, stop processing
+                        break
+
+                    doc_idx += 1
+
+        except Exception as ex:
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+        return self._stats_status()
+
+    def _read_file(
+        self, q: asyncio.Queue, file_path: str, encoding: str, keys: list[str] = None
+    ):
+        """
+        runs in a thread to read the file and put each JSON object in an asyncio queue, to be spooled by the main thread.
+
+        Args:
+            q (asyncio.Queue): the queue to put the JSON objects in
+            file_path (str): the path to the file to read
+            encoding (str): the encoding to use to read the file
+            keys (list[str]): if provided, only include the keys in the list
+        """
+        f = None
+        try:
+            # read the file and put each JSON object in the queue
+            f = open(file_path, mode="r", encoding=encoding)
+            data = json_stream.load(f)
+            if isinstance(data, json_stream.base.TransientStreamingJSONList):
+                # if the data is a list, put each item in the queue
+                for d in data:
+                    # put the JSON object in the queue
+                    q.put_nowait(json_stream.to_standard_types(d))
+            elif isinstance(data, json_stream.base.TransientStreamingJSONObject):
+                for k, v in data.items():
+                    if keys and k not in keys:
+                        # skip keys not in the list
+                        continue
+
+                    # if the value is a list, put each item in the queue
+                    if isinstance(v, json_stream.base.TransientStreamingJSONList):
+                        for vv in v:
+                            q.put_nowait(json_stream.to_standard_types(vv))
+                    elif isinstance(v, json_stream.base.TransientStreamingJSONObject):
+                        # otherwise, put the value as a single item
+                        q.put_nowait(json_stream.to_standard_types(v))
+
+            MutyLogger.get_instance().debug(
+                "file %s finished stream reading!" % (file_path)
+            )
+
+        except Exception as ex:
+            # close file
+            MutyLogger.get_instance().exception(ex)
+            if f:
+                f.close()
+
+    async def _ingest_jsonlist_and_jsondict(
+        self,
+        file_path: str,
+        encoding: str = None,
+        flt: GulpIngestionFilter = None,
+    ) -> GulpRequestStatus:
+
+        # one record per object:
+        # [{"a": "b"}, {"b": "c"}]
+        # or multiple dicts/lists in a dict:
+        # {"key": [{"a": "b"}, {"b": "c"}], "other_key": {"c": "d"}, "another_key": [{"e": "f"}]}
+        doc_idx: int = 0
+        keys: list[str] = self._plugin_params.custom_parameters.get("keys")
+
+        # offload processing to a thread which fills the queue
+        q: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            GulpProcess.get_instance().thread_pool,
+            self._read_file,
+            q,
+            file_path,
+            encoding,
+            keys,
+        )
+
+        # and process it asynchronously until the queue is empty
+        count: int = 0
+        try:
+            while True:
+                record: dict = None
+                try:
+                    record = q.get_nowait()
+                except asyncio.QueueEmpty:
+                    if count > 2:
+                        # no more records, stop processing
+                        break
+
+                    # no records in the queue, wait a bit and try again
+                    count += 1
+                    await asyncio.sleep(0.5)
+                    continue
+
+                try:
+                    await self.process_record(
+                        record,
+                        doc_idx,
+                        flt=flt,
+                        __line__=str(record),
+                    )
+                except (RequestCanceledError, SourceCanceledError) as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    await self._source_failed(ex)
+                    break
+                except PreviewDone:
+                    # preview done, stop processing
+                    break
+
+                doc_idx += 1
+        except Exception as ex:
+            await self._source_failed(ex)
+        finally:
+            await self._source_done(flt)
+        return self._stats_status()
 
     @override
     async def ingest_file(
@@ -126,41 +285,22 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 **kwargs,
             )
-            encoding = self._plugin_params.custom_parameters.get("encoding")
 
         except Exception as ex:
             await self._source_failed(ex)
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
-        # we can process!
-        doc_idx = 0
-        try:
-            # one record per line:
-            # {"a": "b"}\n
-            # {"b": "c"}\n
-            async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-                async for line in file:
-                    try:
-                        parsed = json.loads(line)
+        encoding: str = self._plugin_params.custom_parameters.get("encoding")
+        mode: str = self._plugin_params.custom_parameters.get("mode")
+        if mode == "line":
+            return await self._ingest_jsonline(file_path, encoding=encoding, flt=flt)
+        elif mode == "list" or mode == "dict":
+            return await self._ingest_jsonlist_and_jsondict(
+                file_path, encoding=encoding, flt=flt
+            )
 
-                        await self.process_record(
-                            parsed,
-                            doc_idx,
-                            flt=flt,
-                            __line__=line,
-                        )
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                    except PreviewDone:
-                        # preview done, stop processing
-                        pass
-
-                    doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        # failed
+        await self._source_failed(ValueError(f"Unsupported mode: {mode}"))
+        await self._source_done(flt)
+        return GulpRequestStatus.FAILED
