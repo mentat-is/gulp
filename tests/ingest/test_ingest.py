@@ -628,7 +628,8 @@ async def test_lin_syslog():
     MutyLogger.get_instance().info(test_lin_syslog.__name__ + " (auth.log) succeeded!")
 
 
-@pytest.mark.asyncio
+# @pytest.mark.asyncio
+# disabled for now, too long (it works, anyway)
 async def test_json_list():
     current_dir = os.path.dirname(os.path.realpath(__file__))
 

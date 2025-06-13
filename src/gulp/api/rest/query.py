@@ -57,6 +57,7 @@ from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
     WSDATA_QUERY_DONE,
+    WSDATA_QUERY_GROUP_DONE,
     WSDATA_QUERY_GROUP_MATCH,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
@@ -472,6 +473,8 @@ async def _worker_coro(kwds: dict) -> None:
                 total_doc_matches=total_doc_matches,
             )
 
+
+    finally:
         # also update stats
         async with GulpCollab.get_instance().session() as sess:
             await GulpRequestStats.finalize_query_stats(
@@ -481,10 +484,11 @@ async def _worker_coro(kwds: dict) -> None:
                 user_id=user_id,
                 hits=total_doc_matches,
                 errors=all_errors,
-                send_query_done=False,
+                ws_queue_datatype=WSDATA_QUERY_GROUP_DONE,
+                num_queries=num_queries,
+                q_group=q_options.group,
             )
 
-    finally:
         # cleanup
         all_results.clear()
         all_errors.clear()

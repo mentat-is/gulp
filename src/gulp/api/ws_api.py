@@ -38,7 +38,7 @@ class GulpWsType(StrEnum):
     WS_DEFAULT = "default"
     WS_INGEST = "ingest"
     WS_CLIENT_DATA = "client_data"
-    
+
 
 # data types for the websocket
 WSDATA_ERROR = "ws_error"
@@ -50,7 +50,8 @@ WSDATA_USER_LOGOUT = "user_logout"
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
 WSDATA_COLLAB_DELETE = "collab_delete"
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"
-WSDATA_QUERY_DONE = "query_done"
+WSDATA_QUERY_DONE = "query_done" # this is sent in the end of each individual query
+WSDATA_QUERY_GROUP_DONE = "query_group_done" # this is sent in the end of the query task, being it single or group(i.e. sigma) query
 WSDATA_ENRICH_DONE = "enrich_done"
 WSDATA_TAG_DONE = "tag_done"
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"
@@ -62,7 +63,8 @@ WSDATA_NEW_CONTEXT = "new_context"
 WSDATA_GENERIC = "generic"
 
 # special token used to monitor also logins
-WSTOKEN_MONITOR= "monitor"
+WSTOKEN_MONITOR = "monitor"
+
 
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
@@ -446,6 +448,7 @@ class GulpWsAuthPacket(BaseModel):
         description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
     )
 
+
 class GulpDocumentsChunkPacket(BaseModel):
     """
     Represents a chunk of GulpDocument dictionaries returned by a query or sent during ingestion.
@@ -519,10 +522,11 @@ class GulpWsData(BaseModel):
     timestamp: int = Field(
         ..., description="The timestamp of the data.", alias="@timestamp"
     )
-    type: str = Field(
-        ..., description="The type of data carried by the websocket."
+    type: str = Field(..., description="The type of data carried by the websocket.")
+    ws_id: Optional[str] = Field(
+        None,
+        description="The target WebSocket ID, may be None only if `internal` is set.",
     )
-    ws_id: Optional[str] = Field(None, description="The target WebSocket ID, may be None only if `internal` is set.")
     user_id: Optional[str] = Field(None, description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
     operation_id: Optional[str] = Field(
@@ -539,6 +543,8 @@ class GulpWsData(BaseModel):
         False,
         description="Used internally (i.e. to broadcast internal events to plugins).",
     )
+
+
 class WsQueueMessagePool:
     """
     message pool for the ws to reduce memory pressure and gc
@@ -623,7 +629,7 @@ class GulpConnectedSocket:
         self.ws = ws
         self.ws_id = ws_id
         self._msg_pool = WsQueueMessagePool()
-        self.types = types        
+        self.types = types
         self.operation_ids = operation_ids
         self.send_task = None
         self.receive_task = None
@@ -1146,6 +1152,7 @@ class GulpConnectedSockets:
         Returns:
             bool: True if message was routed, False otherwise
         """
+
         async def _route(data: GulpWsData, client_ws: GulpConnectedSocket):
             """put message in the target websocket queue"""
             message = data.model_dump(
@@ -1153,7 +1160,7 @@ class GulpConnectedSockets:
             )
 
             await client_ws.put_message(message)
-            
+
         # skip if not a default socket
         if client_ws.socket_type != GulpWsType.WS_DEFAULT:
             return False
@@ -1165,7 +1172,7 @@ class GulpConnectedSockets:
         # check operation filter
         if client_ws.operation_ids and data.operation_id not in client_ws.operation_ids:
             return False
-        
+
         # handle private messages
         if data.private and data.type != WSDATA_USER_LOGIN:
             if client_ws.ws_id != data.ws_id:
@@ -1201,7 +1208,10 @@ class GulpConnectedSockets:
         # for now, just log it
         # self._logger.debug(f"processing internal message: {data}")
         from gulp.plugin import GulpInternalEventsManager
-        await GulpInternalEventsManager.get_instance().broadcast_event(data.type, data.data)
+
+        await GulpInternalEventsManager.get_instance().broadcast_event(
+            data.type, data.data
+        )
 
     async def broadcast_message(
         self, data: GulpWsData, skip_list: list[str] = None
@@ -1217,7 +1227,7 @@ class GulpConnectedSockets:
             # this is an internal message, skip routing and process directly
             await self._process_internal_message(data)
             return
-        
+
         # create copy to avoid modification during iteration
         socket_items = list(self._sockets.items())
 
@@ -1594,9 +1604,7 @@ class GulpWsSharedQueue:
         self._shared_q.join()
         MutyLogger.get_instance().debug(f"Flushed {counter} messages from shared queue")
 
-    def put_internal_event(self,
-                            msg: str,
-                            params: dict = None) -> None:
+    def put_internal_event(self, msg: str, params: dict = None) -> None:
         """
         Puts a GulpInternalEvent (not websocket related) into the shared queue.
 
@@ -1605,7 +1613,7 @@ class GulpWsSharedQueue:
         Args:
             msg (str): The message type.
             params (dict, optional): The parameters for the message.
-        """        
+        """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=msg,
@@ -1613,7 +1621,7 @@ class GulpWsSharedQueue:
             internal=True,
         )
         self._shared_q.put(wsd)
-        
+
     def put(
         self,
         type: str,
@@ -1693,4 +1701,3 @@ class GulpWsSharedQueue:
             f"{self.MAX_RETRIES} attempts (queue size: {queue_size})"
         )
         raise WsQueueFullException(f"queue full for ws {ws_id}")
-

@@ -549,6 +549,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         ws_queue_datatype: str = WSDATA_QUERY_DONE,
         errors: list[str] = None,
         send_query_done: bool = True,
+        num_queries: int = 0,
+        q_group: str = None,
     ) -> dict:
         """
         sets the final status of a query stats
@@ -563,6 +565,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             ws_queue_datatype(str, optional): the websocket queue data type (default: WSDATA_QUERY_DONE)
             errors(list[str], optional): the list of errors (default: None)
             send_query_done(bool, optional): whether to send the query done packet to the websocket (default: True)
+            num_queries(int, optional): the number of queries performed (default: 0)
+            q_group(str, optional): the query group (default: None)
+
+        Returns:
+            dict: the updated stats as a dictionary
         """
         try:
             await GulpRequestStats.acquire_advisory_lock(sess, req_id)
@@ -600,12 +607,14 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             return dd
 
         # inform the websocket
-        MutyLogger.get_instance().debug(f"sending query done packet, errors={errors}")
+        MutyLogger.get_instance().debug(f"sending query done packet, datatype={ws_queue_datatype}, errors={errors}")
         p = GulpQueryDonePacket(
             status=dd["status"],
             errors=errors or [],
             total_hits=hits,
+            queries=num_queries,
             name=q_name,
+            group=q_group,
         )
 
         GulpWsSharedQueue.get_instance().put(
