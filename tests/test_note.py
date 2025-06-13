@@ -1,4 +1,3 @@
-
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
@@ -192,3 +191,62 @@ async def test_note():
     )
     assert len(l) == 2
     MutyLogger.get_instance().info(test_note.__name__ + " passed")
+
+
+@pytest.mark.asyncio
+async def test_note_many():
+    """
+    test notes and ACL
+    """
+
+    # ingest some data
+    from tests.ingest.test_ingest import test_win_evtx
+
+    await test_win_evtx()
+    source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
+    doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
+
+    # create note
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+    edit_token = await GulpAPIUser.login("editor", "editor")
+    assert edit_token
+
+    for i in range(123):
+        # create 123 notes
+        await GulpAPINote.note_create(
+            edit_token,
+            operation_id=TEST_OPERATION_ID,
+            context_id=TEST_CONTEXT_ID,
+            source_id=source_id,
+            text=f"note {i}",
+            time_pin=1000000 + i * 1000,
+            name=f"test_note_{i}",
+            tags=["test"],
+            color="blue",
+        )
+
+    # list with filter, 10 notes each
+    ll: list = []
+    offset = 0
+    while True:
+        l = await GulpAPINote.note_list(
+            guest_token,
+            GulpCollabFilter(
+                operation_ids=[TEST_OPERATION_ID],
+                context_ids=[TEST_CONTEXT_ID],
+                source_ids=[source_id],
+                limit=10,  # limit to 10 notes
+                offset=offset,  # start from the first note
+            ),
+        )
+        if not l:
+            break
+        ll.extend(l)
+        offset += 10
+
+    assert len(ll) == 123  # we created 100 notes
+    assert ll[0]["text"] == "note 0"
+    assert ll[22]["text"] == "note 22"
+    assert ll[-1]["text"] == "note 122"
+    MutyLogger.get_instance().info(test_note_many.__name__ + " passed")
