@@ -7,6 +7,7 @@ RUN apt update && export DEBIAN_FRONTEND=noninteractive && \
     rustc \
     libsystemd-dev \
     jq \
+    inetutils-ping \
     libpqxx-dev \
     git-lfs
 
