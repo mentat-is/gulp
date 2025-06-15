@@ -345,7 +345,7 @@ Here's a commented example, further details in the [model definition source](../
       // optional: if set, only matching fields in the source document are processed and included in the generated document/s.
       "include": ["field1", "field2"],
       // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
-      "allow_prefixed": true
+      "allow_prefixed": true,
 
       // the fields to map: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
@@ -358,6 +358,11 @@ Here's a commented example, further details in the [model definition source](../
           "ecs": "gulp.html.form.field.value",
           // if "force_type" is set, value is converted to "int", "str" or "float" PRIOR to being ingested
           "force_type": "int"
+        },
+        "extract_this": {
+          "ecs": "extracted_value",
+          // if extract is set, i.e. to "my_key.nested.my_list[1], "extracted_value" will be set to 2 in the document
+          "extract": { "my_key": { "nested": { "my_list": [1,2,3]}}}
         },
         "date_created": {
           // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.

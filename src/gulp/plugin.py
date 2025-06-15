@@ -1754,6 +1754,69 @@ class GulpPluginBase(ABC):
 
         return d
 
+    def _handle_extract_key(d: dict | list, k: str) -> Any:
+        """
+        Extracts a value from a dictionary or list using a dot-notation key.
+
+        Args:
+            d (dict | list): The data structure to extract from.
+            k (str): The key in dot notation, e.g. "key1.key2[0]", "[0].key1.key2[1]", ...
+        
+        Returns:
+            Any: The extracted value.
+        Raises:
+            KeyError: If the key is invalid or not found.
+        """
+        if k is None or k == "":
+            return d
+            
+        # remove all spaces for simplicity and efficiency
+        k_clean = k.replace(' ', '')
+        n = len(k_clean)
+        tokens = []
+        i = 0
+        while i < n:
+            if k_clean[i] == '.':
+                i += 1
+                continue
+            elif k_clean[i] == '[':
+                i += 1  # Skip '['
+                start = i
+                # Find next ']'
+                while i < n and k_clean[i] != ']':
+                    i += 1
+                if i == n:
+                    raise KeyError(f"Unclosed bracket in key: {k}")
+                num_str = k_clean[start:i]
+                if not num_str.isdigit():
+                    raise KeyError(f"Invalid index: {num_str} in key: {k}")
+                tokens.append(int(num_str))
+                i += 1  # Skip ']'
+            else:
+                start = i
+                # Advance until next '.' or '[' or end
+                while i < n and k_clean[i] not in ['.', '[']:
+                    i += 1
+                token_str = k_clean[start:i]
+                tokens.append(token_str)
+        
+        # traverse the data structure using tokens
+        current = d
+        for token in tokens:
+            if isinstance(token, int):
+                if not isinstance(current, list):
+                    raise KeyError(f"Expected list at index token {token}, got {type(current).__name__}")
+                if token < 0 or token >= len(current):
+                    raise KeyError(f"Index {token} out of range for list of length {len(current)}")
+                current = current[token]
+            else:
+                if not isinstance(current, dict):
+                    raise KeyError(f"Expected dict at key token '{token}', got {type(current).__name__}")
+                if token not in current:
+                    raise KeyError(f"Key '{token}' not found in dictionary")
+                current = current[token]
+        return current
+    
     def _process_key(self, source_key: str, source_value: Any) -> dict:
         """
         Maps the source key, generating a dictionary to be merged in the final gulp document.
@@ -1790,6 +1853,20 @@ class GulpPluginBase(ABC):
             return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
+        if fields_mapping.extract:
+            # field value must be extracted from the source_value, which may be a dict or list
+            try:
+                if isinstance(source_value, (dict, list)):
+                    # extract the value from the source_value using the extract key
+                    source_value = self._handle_extract_key(source_value, fields_mapping.extract)
+                elif isinstance(source_value, str):
+                    # if source_value is a string, we can try to parse it as JSON
+                    source_value = json.loads(source_value)
+            except Exception as ex:
+                #MutyLogger.get_instance().exception(ex)
+                # ignore
+                return {}
+                
         if fields_mapping.force_type:
             # force value to the given type
             t = fields_mapping.force_type
@@ -1831,6 +1908,7 @@ class GulpPluginBase(ABC):
 
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
+            # note that "ecs" is ignored if set 
             mapped = self._try_map_ecs(fields_mapping, d, source_key, source_value)
             for k, _ in mapped.items():
                 extra[k] = None
@@ -1840,6 +1918,7 @@ class GulpPluginBase(ABC):
             # we also add this key to the main document
             return mapped
 
+        # map to the "ecs" value
         m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
         return m
 

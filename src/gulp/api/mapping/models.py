@@ -11,6 +11,7 @@ Key components:
 - GulpMappingFileMetadata: Metadata for mapping files, including plugin associations
 - GulpMappingFile: Container for multiple mappings that can be loaded from JSON
 """
+
 from typing import Literal, Optional
 
 from muty.pydantic import autogenerate_model_example_by_class
@@ -20,6 +21,15 @@ from pydantic import BaseModel, ConfigDict, Field
 class GulpMappingField(BaseModel):
     """
     defines how to map a single field, including field-specific options.
+
+    field options are processed in the following order:
+    1. if `extract` is set, the source field is expected to be a dictionary and the value is extracted from it.
+    2. if `force_type` is set, the value is forced to this type
+    3. if `multiplier` is set, the value is multiplied by this value.
+    4. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
+    5. finally, the value is mapped to ECS fields as defined in `ecs`.
+
+    if 'extra_doc_with_event_code' is set, step 5 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of this field.
     """
 
     model_config = ConfigDict(
@@ -43,7 +53,7 @@ class GulpMappingField(BaseModel):
     extra_doc_with_event_code: Optional[str] = Field(
         None,
         description="""
-if this is set, the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
+if this is set, `ecs` is ignored and the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
 
 in this setting, the mapping file should:
 
@@ -63,7 +73,17 @@ check `mftecmd_csv.json` for an example of this setting.
         description="if set and > 1, the corresponding value is multiplied by this value.",
     )
     force_type: Optional[Literal["str", "int", "float"]] = Field(
-        None, description="if set, the corresponding value is forced to this type before ingestion.")
+        None,
+        description="if set, the corresponding value is forced to this type before ingestion.",
+    )
+
+    extract: Optional[str] = Field(
+        None,
+        description="""
+if set, the source is expected to be a dictionary and the given key is extracted.
+i.e. if the source field is `{"key": { "k": [1,2,3] } }`, and `extract` is set to `"key.k[1]"`, the resulting value will be `2`.
+""",
+    )
 
 
 class GulpMapping(BaseModel):
@@ -80,7 +100,7 @@ class GulpMapping(BaseModel):
                     "description": "test description.",
                     "agent_type": "win_evtx",
                     "event_code": "1234",
-                    "allow_prefixed": False
+                    "allow_prefixed": False,
                 }
             ]
         },
@@ -136,6 +156,7 @@ class GulpMappingFileMetadata(BaseModel):
         description="one or more plugin names that this mapping file is associated with.",
     )
 
+
 class GulpSigmaMapping(BaseModel):
     """
     defines a logsource -> gulp document mapping
@@ -150,7 +171,7 @@ class GulpSigmaMapping(BaseModel):
                     "description": "test description.",
                     "agent_type": "win_evtx",
                     "event_code": "1234",
-                    "allow_prefixed": False
+                    "allow_prefixed": False,
                 }
             ]
         },
@@ -171,6 +192,7 @@ class GulpSigmaMapping(BaseModel):
         description="list of (substring) values for the `service_name` field.",
         examples=[["Microsoft-Windows-Windows Defender"]],
     )
+
 
 class GulpMappingFile(BaseModel):
     """
