@@ -133,8 +133,9 @@ class Plugin(GulpPluginBase):
         d["event.code"] = str(muty.crypto.hash_xxh64_int(event["From"]))
 
         # map
-        for k, v in muty.json.flatten_json(email_dict).items():
-            mapped = self._process_key(k, v)
+        rec: dict = muty.json.flatten_json(email_dict)
+        for k, v in rec.items():
+            mapped = await self._process_key(k, v, rec, **kwargs)
             d.update(mapped)
 
         return GulpDocument(

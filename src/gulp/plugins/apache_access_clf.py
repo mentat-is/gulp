@@ -115,7 +115,7 @@ class Plugin(GulpPluginBase):
 
         # map
         for k, v in event.items():
-            mapped = self._process_key(k, v)
+            mapped = await self._process_key(k, v, event, **kwargs)
             d.update(mapped)
 
         null_param_key = 0
@@ -127,7 +127,7 @@ class Plugin(GulpPluginBase):
             )
 
             k = "gulp.http.query.params.%s" % (pk)
-            mapped = self._process_key(k, pv)
+            mapped = await self._process_key(k, pv, event, **kwargs)
             d.update(mapped)
 
         return GulpDocument(

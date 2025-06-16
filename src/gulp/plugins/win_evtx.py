@@ -108,7 +108,7 @@ class Plugin(GulpPluginBase):
 
         return {}
 
-    def _process_leaf(self, path: str, value: Any, result: dict):
+    async def _process_leaf(self, path: str, value: Any, result: dict, root: dict, **kwargs) -> None:
         if not value or path.endswith("xmlns"):
             # skip these
             return
@@ -127,16 +127,18 @@ class Plugin(GulpPluginBase):
             return
 
         # map the key
-        mapped = self._process_key(path, value)
+        mapped = await self._process_key(path, value, root, **kwargs)
         result.update(mapped)
 
-    def _parse_dict(self, data: dict, path_segments: list = None) -> dict:
+    async def _parse_dict(self, data: dict, path_segments: list = None, root: dict = None, **kwargs) -> dict:
         """
         recursively parse dictionary and call process_leaf() for each leaf node
 
         Args:
             data: Dictionary to parse
             path_segments: List of path segments (used in recursion)
+            root: The root dictionary (used in recursion)
+            **kwargs: Additional keyword arguments for processing
         Returns:
             dict
         """
@@ -152,7 +154,7 @@ class Plugin(GulpPluginBase):
 
             elif isinstance(value, dict):
                 if value:
-                    nested_results = self._parse_dict(value, current_path)
+                    nested_results = await self._parse_dict(value, path_segments=current_path, root=data, **kwargs)
                     result.update(nested_results)
 
             elif isinstance(value, list):
@@ -160,18 +162,18 @@ class Plugin(GulpPluginBase):
                     for i, item in enumerate(value):
                         if isinstance(item, dict):
                             if item:
-                                nested_results = self._parse_dict(
-                                    item, current_path + [str(i)]
+                                nested_results = await self._parse_dict(
+                                    item, path_segments=current_path + [str(i)], root=data, **kwargs
                                 )
                                 result.update(nested_results)
                         else:
                             if item not in (None, ""):
-                                self._process_leaf(
-                                    "_".join(current_path + [str(i)]), item, result
+                                await self._process_leaf(
+                                    "_".join(current_path + [str(i)]), item, result, data, **kwargs
                                 )
             else:
                 if value != "":
-                    self._process_leaf("_".join(current_path), value, result)
+                    await self._process_leaf("_".join(current_path), value, result, data, **kwargs)
 
         return result
 
@@ -185,7 +187,7 @@ class Plugin(GulpPluginBase):
 
         # parse record
         js_record = json.loads(event_original)
-        d = self._parse_dict(js_record)
+        d = await self._parse_dict(js_record, root=js_record, **kwargs)
 
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))

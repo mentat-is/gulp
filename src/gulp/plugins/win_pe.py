@@ -120,12 +120,13 @@ class Plugin(GulpPluginBase):
 
         # apply mappings
         final = {}
-        for k, v in muty.json.flatten_json(
+        rec: dict = muty.json.flatten_json(
             d, normalize=pretty, expand_lists=False
-        ).items():
+        )
+        for k, v in rec.items():
             if isinstance(v, bytes):
                 v = v.encode(encoding)
-            mapped = self._process_key(str(k), str(v))
+            mapped = await self._process_key(str(k), str(v), rec, **kwargs)
             final.update(mapped)
 
         if record.is_dll():

@@ -299,19 +299,17 @@ a preliminary example is [here](../src/gulp/plugins/enrich_example.py).
 
 `ingestion` and `external` plugins both support mapping files through [GulpPluginParameters](../src/gulp/structs.py), to customize mapping for both ingested documents and/or documents returned from an `external` query.
 
-mapping files may be used standalone (i.e. with the `csv` plugin without having another plugin) or together with an existing one by setting parameters when the plugin calls `_initialize`.
+a mapping file basically instructs a plugin how to parse fields from the log, using a simplified `json` stucture.
 
-a mapping file basically instructs an existing plugin how to parse fields from the log, using a simplified `json` stucture.
-
-while making mappings, try to adhere to one of the following conventions (ordered from most to least preferred):
+in creating mappings try to adhere to one of the following conventions (ordered from most to least preferred):
 
   1. `ECS` standard defined by elastic [here](https://www.elastic.co/guide/en/ecs/current/index.html)
-  2. `gulp.<meaningful_name>.*` such as `gulp.http.query.params.<name>` or `gulp.pcap.<protocol>.field`
+  2. `gulp.<meaningful_name>.*` such as `gulp.http.query_params_<name>` or `gulp.pcap.<protocol_field>`
   3. anything else
 
 remember, the more standardized the logs we collect are, the easier it will be to create and share detection rules and query snippets!
 
-> [Mapping files](../src/gulp/mapping_files/) are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins.
+> [Mapping files](../src/gulp/mapping_files/) are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins: just with a mapping file, one may i.e. use the `csv` plugin to parse a log without creating a full python plugin!
 
 ### mapping files load order
 
@@ -346,8 +344,22 @@ Here's a commented example, further details in the [model definition source](../
       "include": ["field1", "field2"],
       // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
       "allow_prefixed": true,
-
-      // the fields to map: source fields not listed here will be stored with `gulp.unmapped.` prefix.
+      // "fields" represents the fields to map
+      // 
+      // each field option is processed in the following order:
+      //
+      // 1. if `extract` is set, the source field is expected to be a dictionary or a list, and the value is extracted from it
+      // 2. if `force_type` is set, the value is forced to this type
+      // 3. if `multiplier` is set, the value is multiplied by this value.
+      // 4. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
+      // 5. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
+      // 6. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
+      // 7. finally, the value is mapped to ECS fields as defined in `ecs`.
+      //
+      // if 'extra_doc_with_event_code' is set, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of this field.
+      // this allows to i.e. use something as context after extracting it from a json field.      
+      //
+      // NOTE: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
         // the field name
         "name": {
@@ -363,6 +375,18 @@ Here's a commented example, further details in the [model definition source](../
           "ecs": "extracted_value",
           // if extract is set, i.e. to "my_key.nested.my_list[1], "extracted_value" will be set to 2 in the document
           "extract": { "my_key": { "nested": { "my_list": [1,2,3]}}}
+        },
+        "my_context": {
+          // if this is set, it can be used to generate a GulpContext on the fly based on the value of "my_context" field, setting the `gulp.context_id` of the GulpDocument being generated.
+          // this may also have an `ecs` mapping set: in such case, the field is also  mapped as normally to the given name.
+          // 
+          // note that this overrides any context passed with the `ingest` API, if set.
+          "is_context": true
+        },
+        "my_source": {
+          // to set `gulp.source_id` on the fly: same exact functionality as `is_context`, but for GulpSource.
+          // note that if this is set, it is **mandatory** that also `is_context` is set.
+          "is_source": true
         },
         "date_created": {
           // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.

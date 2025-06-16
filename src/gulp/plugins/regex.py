@@ -91,8 +91,9 @@ class Plugin(GulpPluginBase):
         d: dict = {}
 
         # map
-        for k, v in event.groupdict().items():
-            mapped = self._process_key(k, v)
+        rec: dict = event.groupdict()
+        for k, v in rec.items():
+            mapped = await self._process_key(k, v, rec, **kwargs)
             d.update(mapped)
 
         if date_format:

@@ -21,15 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field
 class GulpMappingField(BaseModel):
     """
     defines how to map a single field, including field-specific options.
-
-    field options are processed in the following order:
-    1. if `extract` is set, the source field is expected to be a dictionary and the value is extracted from it.
-    2. if `force_type` is set, the value is forced to this type
-    3. if `multiplier` is set, the value is multiplied by this value.
-    4. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
-    5. finally, the value is mapped to ECS fields as defined in `ecs`.
-
-    if 'extra_doc_with_event_code' is set, step 5 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of this field.
     """
 
     model_config = ConfigDict(
@@ -68,6 +59,26 @@ check `mftecmd_csv.json` for an example of this setting.
         False,
         description="if set, the corresponding value is a `webkit timestamp` (from 1601) and will be converted to nanoseconds from the unix epoch.",
     )
+    is_context: Optional[bool] = Field(
+        False,
+        description="""
+if set, the corresponding value is the 'name' of a GulpContext, which is created (if not existent) and its `id` set as `gulp.context_id` in the resulting document."
+
+if this is set, another field in this record's mapping must be set to `is_source` to indicate the source.
+
+this also overrides 'context' passed during ingestion, if any.
+""",
+    )
+    is_source: Optional[bool] = Field(
+        False,
+        description="""
+if set, the corresponding value is the 'name' of a GulpSource, which is created (if not existent) and its `id` set as `gulp.source_id` in the resulting document.
+
+if this is set, another field in this record's mapping must be set to `is_context` to indicate the context of the source.
+
+this also overrides 'source' passed during ingestion, if any.
+""",
+    )
     multiplier: Optional[float] = Field(
         None,
         description="if set and > 1, the corresponding value is multiplied by this value.",
@@ -80,7 +91,7 @@ check `mftecmd_csv.json` for an example of this setting.
     extract: Optional[str] = Field(
         None,
         description="""
-if set, the source is expected to be a dictionary and the given key is extracted.
+if set, the source is expected to be a dictionary or a list and the given key is extracted.
 i.e. if the source field is `{"key": { "k": [1,2,3] } }`, and `extract` is set to `"key.k[1]"`, the resulting value will be `2`.
 """,
     )
@@ -131,6 +142,7 @@ class GulpMapping(BaseModel):
         None,
         description="if set, only these fields are processed and included in the generated document/s.",
     )
+
     # TODO: consider if this is needed or we can just deprecate/remove this.... it is used only by the win_evtx plugin and probably it is not needed even there.
     allow_prefixed: Optional[bool] = Field(
         False,

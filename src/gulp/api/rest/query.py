@@ -170,6 +170,10 @@ async def _query_internal(
                     q_options=q_options,
                     index=index,
                 )
+                if index:
+                    # broadcast ingest internal event        
+                    mod.broadcast_ingest_internal_event()
+                
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
@@ -488,6 +492,7 @@ async def _worker_coro(kwds: dict) -> None:
                 num_queries=num_queries,
                 q_group=q_options.group,
             )
+
 
         # cleanup
         all_results.clear()
@@ -978,6 +983,7 @@ async def query_external_handler(
                 q_options=q_options,
                 plugin=plugin,
                 plugin_params=plugin_params,
+                sess=sess,
             )
             return JSONResponse(
                 JSendResponse.success(

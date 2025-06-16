@@ -80,7 +80,7 @@ class Plugin(GulpPluginBase):
         # map
         # TODO: consider mapping also to syslog.msgid, priority, procid, etc...
         for k, v in event.items():
-            mapped = self._process_key(k, v)
+            mapped = await self._process_key(k, v, event, **kwargs)
             d.update(mapped)
 
         return GulpDocument(

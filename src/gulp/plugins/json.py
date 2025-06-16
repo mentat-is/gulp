@@ -86,7 +86,7 @@ class Plugin(GulpPluginBase):
         # map
         final: dict = {}
         for k, v in d.items():
-            mapped = self._process_key(k, v)
+            mapped = await self._process_key(k, v, d, **kwargs)
             final.update(mapped)
 
         # MutyLogger.get_instance().debug("final mapped record:\n%s" % (json.dumps(final, indent=2)))

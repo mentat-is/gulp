@@ -122,18 +122,6 @@ class Plugin(GulpPluginBase):
                 desc="if True, connect to elasticsearch, otherwise connect to opensearch.",
                 default_value=True,
             ),
-            GulpPluginCustomParameter(
-                name="context_field",
-                type="str",
-                desc="the field representing a GulpContext.",
-                default_value="host",
-            ),
-            GulpPluginCustomParameter(
-                name="source_field",
-                type="str",
-                desc="the field representing a GulpSource.",
-                default_value=None,
-            ),
         ]
 
     @override
@@ -148,14 +136,9 @@ class Plugin(GulpPluginBase):
             "timestamp_field", "@timestamp"
         )
 
-        # get context and source
-        self._context_id, self._source_id = await self._add_context_and_source_from_doc(
-            doc
-        )
-        # MutyLogger.get_instance().debug(f"ctx_id={self._context_id}, src_id={self._source_id}")
-
         # convert timestamp to nanoseconds
         _, ts_nsec, _ = GulpDocument.ensure_timestamp(doc[timestamp_field])
+
         # strip timestamp
         doc.pop(timestamp_field, None)
 
@@ -163,15 +146,13 @@ class Plugin(GulpPluginBase):
         d = {}
         for k, v in doc.items():
             # do not
-            mapped = self._process_key(k, v)
+            mapped = await self._process_key(k, v, doc, **kwargs)
             d.update(mapped)
 
         # MutyLogger.get_instance().debug(
-        #     "operation_id=%s, context_id=%s, source_id=%s, doc=\n%s"
+        #     "operation_id=%s, doc=\n%s"
         #     % (
         #         self._operation_id,
-        #         self._context_id,
-        #         self._source_id,
         #         json.dumps(d, indent=2),
         #     )
         # )
@@ -183,8 +164,6 @@ class Plugin(GulpPluginBase):
                 ts_nsec + (offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS)
             ),
             operation_id=self._operation_id,
-            context_id=self._context_id,
-            source_id=self._source_id,
             event_original=str(doc),
             event_sequence=record_idx,
             **d,

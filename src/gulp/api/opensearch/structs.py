@@ -73,12 +73,14 @@ class GulpBasicDocument(BaseModel):
         description='"gulp.operation_id": the operation ID the document is associated with.',
         alias="gulp.operation_id",
     )
-    context_id: str = Field(
-        description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
+    context_id: Optional[str] = Field(
+        None,
+        description='"gulp.context_id": the context (i.e. an host name) the document is associated with (this may be overridden by setting "is_context" in the mapping).',
         alias="gulp.context_id",
     )
-    source_id: str = Field(
-        description='"gulp.source_id": the source the document is associated with.',
+    source_id: Optional[str] = Field(
+        None,
+        description='"gulp.source_id": the source the document is associated with (this may be overridden by setting "is_source" in the mapping)',
         alias="gulp.source_id",
     )
 
@@ -187,9 +189,9 @@ class GulpDocument(GulpBasicDocument):
         self,
         plugin_instance,
         operation_id: str | int,
-        context_id: str,
-        source_id: str,
         event_original: str,
+        context_id: str = None,
+        source_id: str = None,
         event_sequence: int = None,
         timestamp: str = None,
         event_code: str = "0",
@@ -203,9 +205,9 @@ class GulpDocument(GulpBasicDocument):
         Args:
             plugin_instance: The calling PluginBase
             operation_id (str): The operation id on gulp collab database.
-            context_id (str): The context id on gulp collab database.
-            source_id (str): The source id on gulp collab database.
             event_original (str): The original event data.
+            context_id (str): The context id on gulp collab database. if None, it will be attempted to be set from mapping.context_fallback.
+            source_id (str): The source id on gulp collab database. if None, it will be attempted to be set from mapping.source_fallback.
             event_sequence (int, optional): The sequence number of the event.
             timestamp (str, optional): the time string, will be converted to iso8601 time string (ignored if "timestamp" is in kwargs). Defaults to None.
             event_code (str, optional): The event code. Defaults to "0".
@@ -226,9 +228,26 @@ class GulpDocument(GulpBasicDocument):
 
         # build initial data dict
         mapping: GulpMapping = plugin_instance.selected_mapping()
+
+        # gulp.context_id and gulp.source_id may have been overridden by mapping
+        ctx_id = kwargs.pop("context_id", context_id)
+        src_id = kwargs.pop("source_id", source_id)
+        if not ctx_id:
+            # use fallback context id
+            from gulp.api.collab.operation import DEFAULT_CONTEXT_ID
+
+            ctx_id = "%s_%s" % (plugin_instance._operation_id, DEFAULT_CONTEXT_ID)
+
+        if not src_id:
+            # use fallback source id
+            from gulp.api.collab.operation import DEFAULT_SOURCE_ID
+
+            src_id = "%s_%s" % (plugin_instance._operation_id, DEFAULT_SOURCE_ID)
+
         data = {
             "operation_id": operation_id,
-            "context_id": context_id,
+            "context_id": ctx_id,
+            "source_id": src_id,
             # force agent type from mapping or default to plugin name
             "agent_type": (
                 mapping.agent_type
@@ -243,7 +262,6 @@ class GulpDocument(GulpBasicDocument):
                 else event_code
             ),
             "event_duration": event_duration,
-            "source_id": source_id,
             "log_file_path": log_file_path,
             # add each kwargs as an attribute as-is (may contain event.code, @timestamp, and other fields previously set above, they will be overwritten)
             # @timestamp may have been mapped and already checked for validity in plugin._process_key()
@@ -253,7 +271,6 @@ class GulpDocument(GulpBasicDocument):
             data["event_sequence"] = event_sequence
 
         data.update(kwargs)
-
         if "timestamp" not in data:
             # use timestamp from argument, if not among the kwargs
             data["timestamp"] = timestamp
@@ -265,7 +282,7 @@ class GulpDocument(GulpBasicDocument):
         if invalid or ts_nanos == 0:
             data["invalid_timestamp"] = invalid
 
-        # add gulp_event_code (event code as a number)        
+        # add gulp_event_code (event code as a number)
         data["gulp_event_code"] = (
             int(data["event_code"])
             if data["event_code"].isnumeric()

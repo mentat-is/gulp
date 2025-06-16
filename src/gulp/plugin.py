@@ -560,14 +560,15 @@ class GulpPluginBase(ABC):
         self._user_id: str = None
         # current gulp operation
         self._operation_id: str = None
-        # current gulp context
+        # current gulp context id
         self._context_id: str = None
+        # current gulp source id
+        self._source_id: str = None
+        
         # current file being ingested
         self._file_path: str = None
         # original file path, if any
         self._original_file_path: str = None
-        # current source id
-        self._source_id: str = None
         # opensearch index to ingest into
         self._ingest_index: str = None
         self._raw_ingestion: bool = False
@@ -923,66 +924,69 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
         return l, skipped
 
-    async def _get_or_create_context(self, doc: dict, context_field_name: str) -> str:
+    async def _context_id_from_doc_value(self, k: str, v: str) -> str:
         """
-        get context from cache or create new one
+        get "gulp.context_id" from cache or create new one based on the key and value
 
         Args:
-            doc (dict): document containing context info
-            context_field_name (str): field name for context id
-
+            k (str): name of the field (i.e. "gulp.context_id")
+            v (str): field's value
         Returns:
-            str: context id
+            str: gulp.context_id
+
         """
         # check cache first
-        if context_field_name in self._ctx_cache:
-            return self._ctx_cache[context_field_name]
+        if v in self._ctx_cache:
+            return self._ctx_cache[v]
 
         # cache miss - create new context (or get existing)
-        context_name = doc.get(context_field_name, None)
-        if context_name and context_field_name == "gulp.context_id":
+        if k == "gulp.context_id":
             # name is already a context id, use that (raw documents case)
-            ctx_id = context_name
+            ctx_id = v
         else:
             ctx_id = None
+
+        if not self._operation:
+            # we need the operation object, lazy load                
+            self._operation = await GulpOperation.get_by_id(
+                self._sess, self._operation_id
+            )
+
         context: GulpContext
         context, _ = await self._operation.add_context(
             self._sess,
             self._user_id,
-            context_name,
+            v,
             self._ws_id,
             self._req_id,
             ctx_id=ctx_id,
         )
 
         # update cache
-        self._ctx_cache[context_field_name] = context.id
+        self._ctx_cache[v] = context.id
         return context.id
 
-    async def _get_or_create_source(
-        self, doc: dict, context_id: str, source_field_name: str, cache_key: str
-    ) -> str:
+    async def _source_id_from_doc_value(self, context_id: str, k: str, v: str) -> str:
         """
-        get source from cache or create new one
+        get "gulp.source_id" from cache or create new one based on the key and value
 
         Args:
-            doc (dict): document containing source info
             context_id (str): parent context id
-            source_field (str): field name for source id
-            cache_key (str): cache key for source
-
+            k (str): name of the field (i.e. "gulp.source_id")
+            v (str): field's value
         Returns:
-            str: source id
+            str: gulp.source_id
+
         """
         # check cache first
+        cache_key: str = f"{context_id}-{v}"
         if cache_key in self._src_cache:
             return self._src_cache[cache_key]
 
         # cache miss - create new source (or get existing)
-        source_name = doc.get(source_field_name, "default")
-        if source_name and source_field_name == "gulp.source_id":
+        if k == "gulp.source_id":
             # name is already a source id, use that (raw documents case)
-            src_id = source_name
+            src_id = v
         else:
             src_id = None
 
@@ -995,7 +999,7 @@ class GulpPluginBase(ABC):
         source, _ = await context.add_source(
             self._sess,
             self._user_id,
-            source_name,
+            v,
             ws_id=self._ws_id,
             req_id=self._req_id,
             src_id=src_id,
@@ -1006,69 +1010,6 @@ class GulpPluginBase(ABC):
         # update cache
         self._src_cache[cache_key] = source.id
         return source.id
-
-    async def _add_context_and_source_from_doc(self, doc: dict) -> tuple[str, str]:
-        """
-        this function extracts context ID and source ID from the document, and creates the corresponding GulpContext and/or GulpSource if they do not exists.
-
-        a cache is used to limit the queries.
-
-        NOTE: plugin_params.custom_parameters should have "context_field" and "source_field" set to indicate the context/source name fields in the document.
-            such fields will be used to generate context/source ids and create proper GulpContext/GulpSource on the collab database.
-            in case "context_field" and/or "source_field" are not set, they are set to "gulp.context_id" and "gulp.source_id".
-
-        Args:
-            doc (dict): the document to extract context and source from.
-
-        Returns:
-            tuple[str, str]: the context and source id.
-        """
-        # get field names from parameters or use defaults
-        context_field_name = self._plugin_params.custom_parameters.get(
-            "context_field", None
-        )
-        if not context_field_name:
-            # use default field name
-            context_field_name = "gulp.context_id"
-
-        source_field_name = self._plugin_params.custom_parameters.get(
-            "source_field", None
-        )
-        if not source_field_name:
-            # use default field name
-            source_field_name = "gulp.source_id"
-
-        # for no ingestion case, just get values from doc or use defaults
-        # MutyLogger.get_instance().debug("ingest_index: %s, operation=%s" % (self._ingest_index, self._operation))
-        if not self._ingest_index:
-            self._context_id = doc.get(context_field_name, "default")
-            self._source_id = doc.get(source_field_name, "default")
-            return self._context_id, self._source_id
-
-        # lazy load operation object
-        if not self._operation:
-            self._operation = await GulpOperation.get_by_id(
-                self._sess, self._operation_id
-            )
-
-        # create cache key for source lookup
-        source_cache_key = f"{context_field_name}-{source_field_name}"
-
-        # check if we have both context and source in cache (if we have source in cache, we have context too)
-        if source_cache_key in self._src_cache:
-            context_id = self._ctx_cache[context_field_name]
-            source_id = self._src_cache[source_cache_key]
-            return context_id, source_id
-
-        # handle context creation/retrieval
-        context_id = await self._get_or_create_context(doc, context_field_name)
-
-        # handle source creation/retrieval
-        source_id = await self._get_or_create_source(
-            doc, context_id, source_field_name, source_cache_key
-        )
-
-        return context_id, source_id
 
     async def query_external(
         self,
@@ -1761,7 +1702,7 @@ class GulpPluginBase(ABC):
         Args:
             d (dict | list): The data structure to extract from.
             k (str): The key in dot notation, e.g. "key1.key2[0]", "[0].key1.key2[1]", ...
-        
+
         Returns:
             Any: The extracted value.
         Raises:
@@ -1769,21 +1710,21 @@ class GulpPluginBase(ABC):
         """
         if k is None or k == "":
             return d
-            
+
         # remove all spaces for simplicity and efficiency
-        k_clean = k.replace(' ', '')
+        k_clean = k.replace(" ", "")
         n = len(k_clean)
         tokens = []
         i = 0
         while i < n:
-            if k_clean[i] == '.':
+            if k_clean[i] == ".":
                 i += 1
                 continue
-            elif k_clean[i] == '[':
+            elif k_clean[i] == "[":
                 i += 1  # Skip '['
                 start = i
                 # Find next ']'
-                while i < n and k_clean[i] != ']':
+                while i < n and k_clean[i] != "]":
                     i += 1
                 if i == n:
                     raise KeyError(f"Unclosed bracket in key: {k}")
@@ -1795,29 +1736,37 @@ class GulpPluginBase(ABC):
             else:
                 start = i
                 # Advance until next '.' or '[' or end
-                while i < n and k_clean[i] not in ['.', '[']:
+                while i < n and k_clean[i] not in [".", "["]:
                     i += 1
                 token_str = k_clean[start:i]
                 tokens.append(token_str)
-        
+
         # traverse the data structure using tokens
         current = d
         for token in tokens:
             if isinstance(token, int):
                 if not isinstance(current, list):
-                    raise KeyError(f"Expected list at index token {token}, got {type(current).__name__}")
+                    raise KeyError(
+                        f"Expected list at index token {token}, got {type(current).__name__}"
+                    )
                 if token < 0 or token >= len(current):
-                    raise KeyError(f"Index {token} out of range for list of length {len(current)}")
+                    raise KeyError(
+                        f"Index {token} out of range for list of length {len(current)}"
+                    )
                 current = current[token]
             else:
                 if not isinstance(current, dict):
-                    raise KeyError(f"Expected dict at key token '{token}', got {type(current).__name__}")
+                    raise KeyError(
+                        f"Expected dict at key token '{token}', got {type(current).__name__}"
+                    )
                 if token not in current:
                     raise KeyError(f"Key '{token}' not found in dictionary")
                 current = current[token]
         return current
-    
-    def _process_key(self, source_key: str, source_value: Any) -> dict:
+
+    async def _process_key(
+        self, source_key: str, source_value: Any, doc: dict, **kwargs
+    ) -> dict:
         """
         Maps the source key, generating a dictionary to be merged in the final gulp document.
 
@@ -1825,8 +1774,10 @@ class GulpPluginBase(ABC):
         to be post-processed in _finalize_process_record().
 
         Args:
-            source_key (str): The source key to map.
-            source_value (any): The source value to map.
+            source_key (str): The source key, in doc,  to map.
+            source_value (any): value of doc[source_key] in doc
+            doc (dict): The whole document **BEFORE** any mapping applied: this is the unmodified record coming from the source, as a dict
+            **kwargs: additional keyword arguments
         Returns:
             a dictionary to be merged in the final gulp document
         """
@@ -1853,20 +1804,23 @@ class GulpPluginBase(ABC):
             return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
+        #MutyLogger.get_instance().error(json.dumps(doc, indent=2))
         if fields_mapping.extract:
             # field value must be extracted from the source_value, which may be a dict or list
             try:
                 if isinstance(source_value, (dict, list)):
                     # extract the value from the source_value using the extract key
-                    source_value = self._handle_extract_key(source_value, fields_mapping.extract)
+                    source_value = self._handle_extract_key(
+                        source_value, fields_mapping.extract
+                    )
                 elif isinstance(source_value, str):
                     # if source_value is a string, we can try to parse it as JSON
                     source_value = json.loads(source_value)
             except Exception as ex:
-                #MutyLogger.get_instance().exception(ex)
+                # MutyLogger.get_instance().exception(ex)
                 # ignore
                 return {}
-                
+
         if fields_mapping.force_type:
             # force value to the given type
             t = fields_mapping.force_type
@@ -1898,6 +1852,39 @@ class GulpPluginBase(ABC):
                 int(source_value)
             )
 
+        if fields_mapping.is_context:
+            # this is a context field, get or create a new context
+            ctx_id: str = await self._context_id_from_doc_value(
+                source_key, source_value
+            )
+
+            # also map the value if there's ecs set
+            m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
+            m["gulp.context_id"] = ctx_id
+            return m
+
+        if fields_mapping.is_source:
+            # walk mapping and get the field set as 'is_context', as we need the context_id
+            for k, v in mapping.fields.items():
+                if v.is_context:
+                    d: dict = await self._process_key(k, doc.get(k,None), doc, **kwargs)
+                    ctx_id: str = d.get("gulp.context_id")
+                    if not ctx_id:
+                        # no context_id, cannot process source
+                        MutyLogger.get_instance().error(
+                            f"cannot set source {source_key} without context"
+                        )
+                        return {}
+                    
+                    # get/create the source
+                    src_id: str = await self._source_id_from_doc_value(
+                        ctx_id, source_key, source_value
+                    )
+                    # also map the value if there's ecs set
+                    m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
+                    m["gulp.source_id"] = src_id
+                    return m
+
         if fields_mapping.extra_doc_with_event_code:
             # this will trigger the creation of an extra document
             # with the given event code in _finalize_process_record()
@@ -1908,7 +1895,7 @@ class GulpPluginBase(ABC):
 
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
-            # note that "ecs" is ignored if set 
+            # note that "ecs" is ignored if set
             mapped = self._try_map_ecs(fields_mapping, d, source_key, source_value)
             for k, _ in mapped.items():
                 extra[k] = None

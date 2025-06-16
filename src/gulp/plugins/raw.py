@@ -40,17 +40,10 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
 
-        # create context/source if they do not exists
-        self._context_id, self._source_id = await self._add_context_and_source_from_doc(
-            record
-        )
-
         # create GulpDocument as is
         return GulpDocument(
             self,
             operation_id=self._operation_id,
-            context_id=self._context_id,
-            source_id=self._source_id,
             event_original=None, # taken from the record
             event_sequence=None, # taken from the record
             **record,

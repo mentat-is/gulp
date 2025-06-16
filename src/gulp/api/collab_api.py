@@ -403,8 +403,10 @@ class GulpCollab:
             # extract table names from result
             tables = [row[0] for row in result.fetchall()]
         return tables
-    
-    async def clear_tables(self, tables: list[str] = None, exclude: list[str] = None) -> None:
+
+    async def clear_tables(
+        self, tables: list[str] = None, exclude: list[str] = None
+    ) -> None:
         """
         clears (delete data without dropping the table) the database tables
 
@@ -423,15 +425,17 @@ class GulpCollab:
                         "---> skipping clearing table: %s (excluded)" % (t)
                     )
                     continue
-                
+
                 MutyLogger.get_instance().debug("clearing table: %s ..." % (t))
-                await conn.execute(text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t)))
+                await conn.execute(
+                    text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
+                )
 
     async def create_default_operation(
         self, operation_id: str = None, index: str = None
     ) -> None:
         """
-        create the default operation with a context and a source.
+        create the default operation.
 
         Args:
             operation_id (str, optional): The operation ID to use. Defaults to TEST_OPERATION_ID.
@@ -465,18 +469,16 @@ class GulpCollab:
                 owner_id=admin_user.id,
             )
 
-            # add sources to context and context to operation
-            # ctx: GulpContext
-            # ctx, _ = await operation.add_context(
-            #     sess,
-            #     user_id=admin_user.id,
-            #     name=TEST_CONTEXT_NAME,
-            # )
-            # await ctx.add_source(sess, admin_user.id, TEST_SOURCE_NAME)
-
             # add default grants (groups and users)
             await operation.add_default_grants(sess)
 
+            # create default source and context
+            await operation.create_default_source_and_context(
+                sess,
+                user_id=admin_user.id,
+            )
+
+            # just for debugging
             operations: list[GulpOperation] = await GulpOperation.get_by_filter(
                 sess, user_id="admin"
             )
