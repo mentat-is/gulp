@@ -67,6 +67,7 @@ async def link_create_handler(
     doc_id_from: Annotated[str, Query(description="the source document ID.")],
     doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -80,6 +81,7 @@ async def link_create_handler(
             glyph_id=glyph_id,
             tags=tags,
             color=color or "red",
+            description=description,
             name=name,
             doc_id_from=doc_id_from,
             doc_ids=doc_ids,
@@ -129,6 +131,7 @@ async def link_update_handler(
         list[str], Body(description="One or more target document IDs.")
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -136,13 +139,13 @@ async def link_update_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if not any([doc_ids, name, tags, glyph_id, color]):
+        if not any([doc_ids, name, description, tags, glyph_id, color]):
             raise ValueError(
-                "At least one of doc_ids, name, tags, glyph_id, color must be provided."
+                "At least one of doc_ids, name, description, tags, glyph_id, color must be provided."
             )
         d = {}
         d["doc_ids"] = doc_ids
-
+        d["description"] = description
         d["name"] = name
         d["tags"] = tags
         d["glyph_id"] = glyph_id

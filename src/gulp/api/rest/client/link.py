@@ -14,6 +14,7 @@ class GulpAPILink:
         doc_id_from: str,
         doc_ids: list[str],
         name: str = None,
+        description: str = None,
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
@@ -38,6 +39,7 @@ class GulpAPILink:
         body = {
             "doc_ids": doc_ids,
             "tags": tags,
+            "description": description,
         }
 
         res = await api_common.make_request(
@@ -56,6 +58,7 @@ class GulpAPILink:
         obj_id: str,
         doc_ids: list = None,
         name: str = None,
+        description: str = None,
         tags: list[str] = None,
         glyph_id: str = None,
         color: str = None,
@@ -68,6 +71,7 @@ class GulpAPILink:
             "obj_id": obj_id,
             "ws_id": ws_id or api_common.ws_id,
             "name": name,
+            "description": description,
             "color": color,
             "glyph_id": glyph_id,
             "req_id": req_id or api_common.req_id,

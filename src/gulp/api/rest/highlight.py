@@ -73,6 +73,7 @@ async def highlight_create_handler(
         ),
     ],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -86,6 +87,7 @@ async def highlight_create_handler(
             glyph_id=glyph_id,
             tags=tags,
             color=color or "green",
+            description=description,
             name=name,
             source_id=source_id,
             time_range=time_range,
@@ -138,6 +140,7 @@ async def highlight_update_handler(
         ),
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -145,13 +148,14 @@ async def highlight_update_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        if not any([time_range, name, tags, glyph_id, color]):
+        if not any([time_range, name, tags, glyph_id, color, description]):
             raise ValueError(
-                "at least one of time_range, name, tags, glyph_id, color must be set."
+                "at least one of time_range, name, description, tags, glyph_id, color must be set."
             )
         d = {}
         d["time_range"] = list(time_range) if time_range else None
         d["name"] = name
+        d["description"] = description
         d["tags"] = tags
         d["glyph_id"] = glyph_id
         d["color"] = color
