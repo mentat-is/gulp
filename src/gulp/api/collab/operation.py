@@ -16,7 +16,7 @@ including the ability to add contexts and manage access permissions.
 """
 
 from typing import Optional, override
-
+import muty.string
 from muty.log import MutyLogger
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -24,18 +24,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.context import GulpContext
-from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabBase, GulpUserPermission
+from gulp.api.collab.structs import (
+    COLLABTYPE_OPERATION,
+    GulpCollabBase,
+    GulpUserPermission,
+)
+from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import WSDATA_NEW_CONTEXT
+from gulp.structs import ObjectAlreadyExists
 
 # every operation have a default context and source which are used to associate data when no specific context or source is provided.
 DEFAULT_CONTEXT_ID = "default_context"
 DEFAULT_SOURCE_ID = "default_source"
 
+
 class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
     """
     Represents an operation in the gulp system.
     """
+
     index: Mapped[str] = mapped_column(
         String,
         doc="The gulp opensearch index to associate the operation with.",
@@ -74,7 +82,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 else []
             )
         return d
-    
+
     async def create_default_source_and_context(
         self,
         sess: AsyncSession,
@@ -98,7 +106,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             sess,
             user_id=user_id,
             name=DEFAULT_CONTEXT_ID,
-            ctx_id='%s_%s' % (self.id, DEFAULT_CONTEXT_ID),
+            ctx_id="%s_%s" % (self.id, DEFAULT_CONTEXT_ID),
             ws_id=ws_id,
             req_id=req_id,
         )
@@ -107,10 +115,119 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             sess,
             user_id=user_id,
             name=DEFAULT_SOURCE_ID,
-            src_id='%s_%s' % (self.id, DEFAULT_SOURCE_ID),
+            src_id="%s_%s" % (self.id, DEFAULT_SOURCE_ID),
             ws_id=ws_id,
             req_id=req_id,
         )
+
+    @staticmethod
+    async def create_wrapper(
+        name: str,
+        user_id: str,
+        index: str = None,
+        description: str = None,
+        glyph_id: str = None,
+        grant_to_users: list[str] = None,
+        grant_to_groups: list[str] = None,
+        set_default_grants: bool = False,
+        fail_if_exists: bool = True,
+        index_template: dict = None,
+        ws_id: str = None,
+        req_id: str = None,
+        keep_data: bool = False,
+    ) -> dict:
+        """
+        creates a new operation with the given name and index.
+
+        if the operation already exists, it will either raise an error or delete the existing operation before creating a new one,
+
+        Args:
+            name (str): The name of the operation.
+            user_id (str): The id of the user creating the operation.
+            index (str, optional): The index to associate with the operation. If not provided, it will be derived from the name.
+            description (str, optional): A description for the operation.
+            glyph_id (str, optional): The glyph id for the operation.
+            grant_to_users (list[str], optional): List of user ids to grant access to the operation. Defaults to None.
+            grant_to_groups (list[str], optional): List of group ids to grant access to the operation. Defaults to None.
+            set_default_grants (bool, optional): Whether to set default grants for default users for the operation. Defaults to False.
+            fail_if_exists (bool, optional): Whether to raise an error if the operation already exists. Defaults to True.
+            index_template (dict, optional): The index template to use for creating the index. Defaults to None.
+            ws_id (str, optional): The websocket id to stream creation of default context/default source to. Defaults to None.
+            req_id (str, optional): The request id. Defaults to None.
+
+        Returns:
+            dict: The created operation as a dictionary.
+
+        Raises:
+            ObjectAlreadyExists: If the operation already exists and `fail_if_exists` is True.
+        """
+        operation_id = muty.string.ensure_no_space_no_special(name.lower())
+        if not index:
+            index = operation_id
+
+            async with GulpCollab.get_instance().session() as sess:
+                op: GulpOperation = await GulpOperation.get_by_id(
+                    sess, operation_id, throw_if_not_found=False
+                )
+                if op:
+                    if fail_if_exists:
+                        # fail if the operation already exists
+                        raise ObjectAlreadyExists(
+                            f"operation_id={operation_id} already exists."
+                        )
+                    # delete
+                    await op.delete(sess)
+
+        if not keep_data:
+            # re/create the index
+            from gulp.api.opensearch_api import GulpOpenSearch
+
+            await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
+                index, index_template=index_template
+            )
+
+        # either we keep the data by do not deleting the index
+
+        # create the operation
+        d = {
+            "index": index,
+            "name": name,
+            "description": description,
+            "glyph_id": glyph_id or "box",
+            "operation_data": {},
+        }
+        if set_default_grants:
+            MutyLogger.get_instance().info(
+                "setting default grants for operation=%s" % (name)
+            )
+            d["granted_user_ids"] = ["admin", "guest", "ingest", "power", "editor"]
+            if grant_to_users:
+                d["granted_user_ids"].extend(grant_to_users)
+            d["granted_user_group_ids"] = [ADMINISTRATORS_GROUP_ID]
+            if grant_to_groups:
+                d["granted_user_group_ids"].extend(grant_to_groups)
+
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                op = await GulpOperation._create_internal(
+                    sess, d, obj_id=operation_id, owner_id=user_id, commit=False
+                )
+
+                # create default source and context
+                await op.create_default_source_and_context(
+                    sess,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                )
+
+                # done
+                return op.to_dict(exclude_none=True)
+
+        except Exception as exx:
+            # fail, delete the previously created index
+            await GulpOpenSearch.get_instance().datastream_delete(index)
+            raise exx
 
     @classmethod
     @override
@@ -141,9 +258,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
 
         # create default source and context
         async with GulpCollab.get_instance().session() as sess:
-            op: GulpOperation = await GulpOperation.get_by_id(
-                sess, obj_id=d["id"]
-            )
+            op: GulpOperation = await GulpOperation.get_by_id(sess, obj_id=d["id"])
             await op.create_default_source_and_context(
                 sess,
                 user_id=d["owner_user_id"],
@@ -153,7 +268,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
 
         return d
 
-
     async def add_context(
         self,
         sess: AsyncSession,
@@ -161,7 +275,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         name: str,
         ws_id: str = None,
         req_id: str = None,
-        ctx_id: str=None,
+        ctx_id: str = None,
         color: str = None,
     ) -> tuple[GulpContext, bool]:
         """
@@ -190,9 +304,11 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 sess, obj_id=ctx_id, throw_if_not_found=False
             )
             if ctx:
-                MutyLogger.get_instance().debug(f"context {name} already added to operation {self.id}.")
+                MutyLogger.get_instance().debug(
+                    f"context {name} already added to operation {self.id}."
+                )
                 return ctx, False
-            
+
             # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)
 
             # create new context and link it to operation
@@ -201,7 +317,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 "name": name,
                 "color": color or "white",
                 "glyph_id": "box",
-
             }
             # pylint: disable=protected-access
             ctx = await GulpContext._create_internal(
@@ -225,13 +340,17 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             await sess.commit()
             await sess.refresh(self)
 
-            MutyLogger.get_instance().debug(f"context {name} added to operation {self.id}: {self}")
+            MutyLogger.get_instance().debug(
+                f"context {name} added to operation {self.id}: {self}"
+            )
             return ctx, True
         finally:
             await GulpContext.release_advisory_lock(sess, self.id)
 
     @override
-    async def add_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
+    async def add_user_grant(
+        self, sess: AsyncSession, user_id: str, commit: bool = True
+    ) -> None:
         # add grant to the operation
         await super().add_user_grant(sess, user_id, commit=False)
         if not self.contexts:
@@ -247,7 +366,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         await sess.commit()
 
     @override
-    async def remove_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
+    async def remove_user_grant(
+        self, sess: AsyncSession, user_id: str, commit: bool = True
+    ) -> None:
         # remove grant from the operation
         await super().remove_user_grant(sess, user_id, commit=False)
         if not self.contexts:
@@ -263,7 +384,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         await sess.commit()
 
     @override
-    async def add_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
+    async def add_group_grant(
+        self, sess: AsyncSession, group_id: str, commit: bool = True
+    ) -> None:
         # add grant to the operation
         await super().add_group_grant(sess, group_id, commit=False)
         if not self.contexts:
@@ -280,7 +403,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         await sess.commit()
 
     @override
-    async def remove_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
+    async def remove_group_grant(
+        self, sess: AsyncSession, group_id: str, commit: bool = True
+    ) -> None:
         # remove grant from the operation
         await super().remove_group_grant(sess, group_id, commit=False)
         if not self.contexts:
@@ -292,5 +417,5 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             await ctx.remove_group_grant(sess, group_id, commit=False)
             if ctx.sources:
                 for src in ctx.sources:
-                    await src.remove_group_grant(sess, group_id,commit=False)
+                    await src.remove_group_grant(sess, group_id, commit=False)
         await sess.commit()

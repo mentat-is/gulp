@@ -73,7 +73,6 @@ async def operation_create_handler(
 if set, the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
 
 **NOTE**: `index` is **created** if it doesn't exist, and **recreated** if it exists.""",
-            example=TEST_INDEX,
         ),
     ] = None,
     description: Annotated[
@@ -90,63 +89,36 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
             description="if set, default grants (READ access to default users) are set for the operation. Defaults to `False, this is intended mostly for DEBUGGING`."
         ),
     ] = False,
-    index_template: Annotated[Optional[dict], Body(description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)")]=None,
+    index_template: Annotated[
+        Optional[dict],
+        Body(
+            description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)"
+        ),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
     try:
-        operation_id = muty.string.ensure_no_space_no_special(name.lower())
-        if not index:
-            index = operation_id
-
         async with GulpCollab.get_instance().session() as sess:
             # check token
-            await GulpUserSession.check_token(
+            s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.INGEST
             )
+            user_id = s.user_id
 
-            # fail if the operation already exists
-            op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id, throw_if_not_found=False
-            )
-            if op:
-                raise ObjectAlreadyExists(
-                    f"operation_id={operation_id} already exists."
-                )
+        d: dict = await GulpOperation.create_wrapper(
+            name,
+            user_id,
+            index=index,
+            description=description,
+            glyph_id=glyph_id,
+            set_default_grants=set_default_grants,
+            index_template=index_template,
+            req_id=req_id,
+        )
 
-        # recreate the index first
-        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(index, index_template=index_template)
-
-        # create the operation
-        d = {
-            "index": index,
-            "name": name,
-            "description": description,
-            "glyph_id": glyph_id,
-            "operation_data": {},
-        }
-        if set_default_grants:
-            MutyLogger.get_instance().info(
-                "setting default grants for operation=%s" % (name)
-            )
-            d["granted_user_ids"] = ["admin", "guest", "ingest", "power", "editor"]
-            d["granted_user_group_ids"] = [ADMINISTRATORS_GROUP_ID]
-        try:
-            dd = await GulpOperation.create(
-                token,
-                ws_id=None,  # do not propagate on the websocket
-                req_id=req_id,
-                object_data=d,
-                permission=[GulpUserPermission.INGEST],
-                obj_id=operation_id,
-            )
-        except Exception as exx:
-            # fail, delete the previously created index
-            await GulpOpenSearch.get_instance().datastream_delete(index)
-            raise exx
-
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -455,6 +427,7 @@ async def context_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.get(
     "/context_get_by_id",
     tags=["operation"],
@@ -490,6 +463,7 @@ async def context_get_by_id_handler(
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.delete(
     "/context_delete",
@@ -671,6 +645,7 @@ async def source_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.get(
     "/source_get_by_id",
     tags=["operation"],
@@ -706,6 +681,7 @@ async def source_get_by_id_handler(
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.post(
     "/source_create",
@@ -850,5 +826,3 @@ async def source_delete_handler(
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-
-

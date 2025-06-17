@@ -23,7 +23,11 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus, GulpUserPermission
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpRequestStatus,
+    GulpUserPermission,
+)
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch.filters import GulpQueryFilter
@@ -39,83 +43,91 @@ from gulp.process import GulpProcess
 router: APIRouter = APIRouter()
 
 
-async def db_reset(delete_data: bool = False, user_id: str = None, create_operation_id: str=None, lite_reset: bool=False) -> None:
+async def db_reset(
+    user_id: str = None,
+    keep_data: bool = False,
+    operation_id: str = None,
+    delete_all_operations: bool = False,
+) -> None:
     """
     resets the collab database
 
     Args:
-        delete_data (bool, optional): if True, all data on OpenSearch related to the existing operations will be deleted. Defaults to False.
-        user_id (str): user id to use to delete the data. If None, "admin" will be used.
-        create_operation_id (str, optional): if set, a new operation with this id will be created after reset.
-        lite_reset (bool, optional): if True, database is not dropped and recreated, but only cleared of data related to operations, leaving users and glyphs intact. Defaults to False.
+        user_id (str, optional): user id to use to delete the data. If None, "admin" will be used.
+        keep_data (bool, optional): if True, existing operations data on OpenSearch will not be deleted. Defaults to False.
+        operation_id (str, optional): if set, a new operation with this id will be created after reset.
     """
+    MutyLogger.get_instance().debug(
+        "db_reset called with params: user_id=%s, keep_data=%s, operation_id=%s, delete_all_operations=%s"
+        % (user_id, keep_data, operation_id, delete_all_operations)
+    )
+
     # check if the database exists
     url = GulpConfig.get_instance().postgres_url()
     collab = GulpCollab.get_instance()
+    await collab.init(main_process=True)
     exists = await collab.db_exists(url)
-    recreate: bool = False
-    
-    if not lite_reset:
-        recreate = True
-        
-    if create_operation_id:
-        lite_reset = False
-        recreate = True
 
-    if exists:
-        # if the database exist and we must delete data, do it
-        MutyLogger.get_instance().info("collab database exists !")
-        try:
-            await collab.init(main_process=True)
-            if delete_data:
-                MutyLogger.get_instance().info("deleting data in all operations...")
-                # enumerate all operations
-                async with GulpCollab.get_instance().session() as sess:
-                    ops = await GulpOperation.get_by_filter(
-                        sess,
-                        user_id=user_id or "admin",
-                        throw_if_not_found=False
-                    )
-                    for op in ops:
-                        # delete all data related to the operation
-                        MutyLogger.get_instance().info(
-                            "deleting data for operation %s" % op.id
-                        )
-                        if lite_reset:
-                            # just delete the data for the operation
-                            await GulpOpenSearch.get_instance().delete_data_by_operation(op.index, operation_id=op.id)
-                        else:
-                            # delete the whole datastream
-                            await GulpOpenSearch.get_instance().datastream_delete(op.index)
-        except SchemaMismatch as ex:
-            MutyLogger.get_instance().warning("collab database schema mismatch, will be recreated!")
-    else:
-        MutyLogger.get_instance().info("collab database does not exist, creating it...")
-        recreate = True
+    if user_id is None:
+        # if user_id is not specified, use "admin"
+        user_id = "admin"
 
-    # reinit, possibly recreating the database
-    MutyLogger.get_instance().info("reinitializing collab database, recreate=%r, lite_reset=%r, create_operation_id=%s" % (recreate, lite_reset, create_operation_id))
+    if not exists:
+        MutyLogger.get_instance().warning(
+            "collab database does not exist, creating it..."
+        )
 
-    # if recreate is True, the database will be recreated
-    await collab.init(main_process=True, force_recreate=recreate)
-    collab = GulpCollab.get_instance()
-    
-    if lite_reset and not create_operation_id:
-        MutyLogger.get_instance().debug("leaving operations and users table as is...")
-        await collab.clear_tables(exclude=["operation", "user", "glyph", "user_group", "user_associations"])
-    else:
-        # create default users/glyphs
+        # reset
+        await collab.init(main_process=True, force_recreate=True)
+        collab = GulpCollab.get_instance()
         await collab.create_default_users()
         await collab.create_default_glyphs()
 
+        # create default operation
+        operation_id = operation_id or TEST_OPERATION_ID
+        MutyLogger.get_instance().debug(
+            "reset done (db did not exist), creating operation=%s" % (operation_id)
+        )
+        await GulpOperation.create_wrapper(
+            operation_id, user_id=user_id, set_default_grants=True
+        )
+        return
 
-    if create_operation_id:
-        await collab.create_default_operation(operation_id=create_operation_id, index=create_operation_id)
-        if delete_data:
-            # recreate the datastream for the operation
-            await GulpOpenSearch.get_instance().datastream_create(ds=create_operation_id)
+    # collab database exists, delete all data for all or just for the specific operation
+    MutyLogger.get_instance().warning("collab database exists !")
+    async with GulpCollab.get_instance().session() as sess:
+        # enumerate all operations
+        ops = await GulpOperation.get_by_filter(
+            sess, user_id=user_id, throw_if_not_found=False
+        )
 
-    MutyLogger.get_instance().info("collab database reset done !")
+        for op in ops:
+            op: GulpOperation
+            # if operation_id is specified, only delete that operation (unless delete_all_operations is True)
+            if (operation_id and op.id != operation_id) and not delete_all_operations:
+                # skip this operation
+                MutyLogger.get_instance().debug(
+                    "skipping deleting operation_id=%s" % (op.id)
+                )
+                continue
+
+            if not keep_data:
+                MutyLogger.get_instance().info(
+                    "deleting data for operation %s" % (op.id)
+                )
+                # delete the whole datastream
+                await GulpOpenSearch.get_instance().datastream_delete(op.index)
+
+            # delete the operation itself
+            await op.delete(sess)
+
+    if operation_id:
+        MutyLogger.get_instance().debug(
+            "reset done, creating operation=%s" % (operation_id)
+        )
+        await GulpOperation.create_wrapper(
+            operation_id, user_id=user_id, set_default_grants=True, keep_data=keep_data
+        )
 
 
 @router.post(
@@ -175,7 +187,12 @@ async def gulp_reset_handler(
             )
 
         # reset
-        await db_reset(delete_data, user_id=s.user_id, create_operation_id=TEST_OPERATION_ID if create_default_operation else None)
+        keep_data: bool = not delete_data
+        await db_reset(
+            s.user_id,
+            keep_data,
+            operation_id=TEST_OPERATION_ID if create_default_operation else None,
+        )
         if restart_processes:
             # restart the process pool
             await GulpProcess.get_instance().init_gulp_process()
@@ -386,6 +403,7 @@ optional custom rebase script to run on the documents.
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.delete(
     "/opensearch_delete_index",

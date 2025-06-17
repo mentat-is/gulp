@@ -63,28 +63,21 @@ def main():
     )
     parser.add_argument(
         "--reset-collab",
-        help="""deletes and recreate the collab database (useful when schema changes).
-this also creates the database if it does not exist.
-
-use with --delete-data to delete all documents on OpenSearch related to all the existing operations as well.
+        help="""deletes (if exists) and recreate the whole collab database: all the existing operations, their collab objects and data on Opensearch are deleted as well.
         """,
         action="store_true",
         default=False,
     )
     parser.add_argument(
         "--create",
-        help="""(re)creates an operation on the collab database.
-
-the specified operation will be deleted (if exists) and recreated.
-
-use with --delete-data to delete data on OpenSearch as well.
-""",
+        help="""deletes (if exists) and recreates the specified operation: all the related collab objects and data on Opensearch are deleted as well.
+        """,
         nargs=1,
         metavar=("operation_id"),
     )
     parser.add_argument(
-        "--delete-data",
-        help="""to be used with --create or --reset-collab to ensure documents on OpenSearch are deleted if exists for one (--create) or all (--reset-collab) operations.
+        "--keep-data",
+        help="""to be used with --create or --reset-collab to keep (not delete) operation/s data on OpenSearch.
 """,
         action="store_true",
         default=False,
@@ -116,9 +109,9 @@ use with --delete-data to delete data on OpenSearch as well.
             # print version string and exit
             print(ver)
         else:
-            reset_operation: str = None
+            create_operation: str = None
             if args.create:
-                reset_operation = args.create[0]
+                create_operation = args.create[0]
 
             # default
             print("%s\n%s" % (banner, ver))
@@ -126,8 +119,8 @@ use with --delete-data to delete data on OpenSearch as well.
                 logger_file_path=logger_file_path,
                 level=lv,
                 reset_collab=args.reset_collab,
-                create_operation=reset_operation,
-                delete_data=args.delete_data,
+                create_operation=create_operation,
+                keep_data=args.keep_data,
             )
     except Exception as ex:
         # print exception and exit

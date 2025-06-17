@@ -431,62 +431,6 @@ class GulpCollab:
                     text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
                 )
 
-    async def create_default_operation(
-        self, operation_id: str = None, index: str = None
-    ) -> None:
-        """
-        create the default operation.
-
-        Args:
-            operation_id (str, optional): The operation ID to use. Defaults to TEST_OPERATION_ID.
-            index (str, optional): The index name to use. Defaults to TEST_INDEX.
-        """
-        from gulp.api.collab.context import GulpContext
-        from gulp.api.collab.glyph import GulpGlyph
-        from gulp.api.collab.operation import GulpOperation
-        from gulp.api.collab.user import GulpUser
-
-        if operation_id is None:
-            operation_id = TEST_OPERATION_ID
-        if index is None:
-            index = TEST_INDEX
-
-        async with self._collab_sessionmaker() as sess:
-            admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            operation_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "book-dashed")
-            # MutyLogger.get_instance().debug("operation_glyph: %s" % (operation_glyph))
-
-            # create default operation
-            # pylint: disable=protected-access
-            operation: GulpOperation = await GulpOperation._create_internal(
-                sess,
-                object_data={
-                    "name": operation_id,
-                    "index": index,
-                    "glyph_id": operation_glyph.id,
-                },
-                obj_id=operation_id,
-                owner_id=admin_user.id,
-            )
-
-            # add default grants (groups and users)
-            await operation.add_default_grants(sess)
-
-            # create default source and context
-            await operation.create_default_source_and_context(
-                sess,
-                user_id=admin_user.id,
-            )
-
-            # just for debugging
-            operations: list[GulpOperation] = await GulpOperation.get_by_filter(
-                sess, user_id="admin"
-            )
-            for op in operations:
-                MutyLogger.get_instance().debug(
-                    json.dumps(op.to_dict(nested=True), indent=4)
-                )
-
     async def create_default_users(self) -> None:
         """
         create default users and user groups

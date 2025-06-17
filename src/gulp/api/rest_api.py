@@ -53,7 +53,7 @@ class GulpRestServer:
         self._logger_file_path: str = None
         self._log_level: int = None
         self._reset_collab: bool = False
-        self._delete_data: bool = False
+        self._keep_data: bool = False
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
         self._shutdown: bool = False
@@ -291,7 +291,7 @@ class GulpRestServer:
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
-        delete_data: bool = False,
+        keep_data: bool = False,
     ):
         """
         starts the server.
@@ -301,12 +301,12 @@ class GulpRestServer:
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, reset the collab database
             create_operation (str, optional): the operation to be re/created (--create)
-            delete_data (bool, optional): if True, delete the data on OpenSearch for one (--create) or all (--reset-full) operations
+            keep_data (bool, optional): if True, keeps the operation data on OpenSearch when resetting or creating an operation (--keep-data)
         """
         self._logger_file_path = logger_file_path
         self._log_level = level
         self._reset_collab = reset_collab
-        self._delete_data = delete_data
+        self._keep_data = keep_data
         self._create_operation = create_operation
 
         # read configuration
@@ -477,6 +477,7 @@ class GulpRestServer:
         GulpConfig.get_instance()
 
         first_run: bool = False
+
         if self._check_first_run():
             # first run, force --create and --reset-collab
             self._create_operation = TEST_OPERATION_ID
@@ -488,26 +489,16 @@ class GulpRestServer:
             )
 
         # check for reset flags
-        try:
+        from gulp.api.rest.db import db_reset
+        try:            
             if self._reset_collab or self._create_operation:
-                from gulp.api.rest.db import db_reset
-
-                if self._create_operation or first_run:
-                    # collab hard reset
-                    lite_reset = False
-                else:
-                    # collab lite reset
-                    lite_reset = True
                 # reset collab database
+                delete_all_operations = self._reset_collab and self._create_operation
                 MutyLogger.get_instance().warning(
-                    "reset_collab or create_operation set, first_run=%r, create_operation=%s, lite_reset=%r !"
-                    % (first_run, self._create_operation, lite_reset)
+                    "reset_collab or create_operation set, first_run=%r, create_operation=%s, keep_data=%r, delete_all_operations=%r !"
+                    % (first_run, self._create_operation, self._keep_data, delete_all_operations)
                 )
-                await db_reset(
-                    delete_data=self._delete_data,
-                    create_operation_id=self._create_operation,
-                    lite_reset=lite_reset,
-                )
+                await db_reset(keep_data=self._keep_data, operation_id=self._create_operation, delete_all_operations=delete_all_operations)
 
         except Exception as ex:
             if first_run:

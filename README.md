@@ -125,30 +125,28 @@ gulp
 
 > to detect if gulp has already run once check for `~/.config/gulp/.first_run_done` and delete it to revert to first run on the next run.
 
-start from scratch with a clean collaboration database (deleting data on Opensearch for **ALL** existing operations), and creates `my_operation` operation in the end.
-
-~~~bash
-gulp --reset-collab --create my_operation --delete-data
-~~~
-
-reset the collab database, do not touch data on opensearch
-
-> operations, users, groups tables are not affected: this is used mostly to delete i.e. all notes/links but leave the existing operations
+deletes data related to all existing operations, both on collaboration database and OpenSearch
 
 ~~~bash
 gulp --reset-collab
 ~~~
 
-create (or recreates, if exists) the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, do not touch operation data on opensearch
+deletes data related to all existing operations, both on collaboration database and OpenSearch, in the end creates/recreates `my_operation`
+
+~~~bash
+gulp --reset-collab --create my_operation
+~~~
+
+acts only on `my_operation`: creates/recreates operation, delete collaboration objects and OpenSearch data
 
 ~~~bash
 gulp --create my_operation
 ~~~
 
-create (or recreates, if exists) the operation `my_operation`, deleting all its collaboration objects and stats on the collab database, deletes operation data on opensearch
+acts only on `my_operation`: creates/recreates operation, delete collaboration objects, do not touch OpenSearch data
 
 ~~~bash
-gulp --create my_operation --delete-data
+gulp --create my_operation --keep-data
 ~~~
 
 ## clients
