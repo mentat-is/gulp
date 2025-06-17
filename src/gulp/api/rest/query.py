@@ -27,7 +27,16 @@ import muty.pydantic
 import muty.string
 import muty.time
 import muty.uploadfile
-from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile, BackgroundTasks
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    Query,
+    Request,
+    UploadFile,
+    BackgroundTasks,
+)
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -56,9 +65,11 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
+    WSDATA_PROGRESS,
     WSDATA_QUERY_DONE,
     WSDATA_QUERY_GROUP_DONE,
     WSDATA_QUERY_GROUP_MATCH,
+    GulpProgressPacket,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpWsSharedQueue,
@@ -171,9 +182,8 @@ async def _query_internal(
                     index=index,
                 )
                 if index:
-                    # broadcast ingest internal event        
+                    # broadcast ingest internal event
                     mod.broadcast_ingest_internal_event()
-                
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
@@ -427,9 +437,11 @@ async def _worker_coro(kwds: dict) -> None:
         MutyLogger.get_instance().info(
             "will spawn %d queries in batches of %d !" % (num_queries, batch_size)
         )
+        print("will spawn %d queries in batches of %d !" % (num_queries, batch_size))
         num_batches = (num_queries // batch_size) + 1
 
         # build batches of batch_size
+        processed: int = 0
         for i in range(0, num_queries, batch_size):
             current_batch = i // batch_size + 1
             batch = queries[i : i + batch_size]
@@ -451,6 +463,26 @@ async def _worker_coro(kwds: dict) -> None:
                     num_batches=num_batches,
                 )
             )
+            processed += batch_size
+            if processed % 100:
+                # send progress packet to the websocket (this may be a lenghty operation)
+                p = GulpProgressPacket(
+                    total=num_queries,
+                    current=processed,                    
+                    msg="processing queries...",
+                    total_matches=total_doc_matches,
+                )
+                GulpWsSharedQueue.get_instance().put(
+                    type=WSDATA_PROGRESS,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    req_id=req_id,
+                    data=p.model_dump(exclude_none=True),
+                )
+                print(
+                    "processed %d queries, total=%d, total_matches=%d"
+                    % (processed, num_queries, total_doc_matches)
+                )
 
             # accumulate results for later processing if needed
             all_results.extend(batch_results)
@@ -465,6 +497,22 @@ async def _worker_coro(kwds: dict) -> None:
             % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
 
+        # send progress packet to the websocket (this may be a lenghty operation)
+        p = GulpProgressPacket(
+            total=num_queries,
+            current=num_queries,
+            msg="queries done!",
+            done=True,
+            total_matches=total_doc_matches,
+        )
+        GulpWsSharedQueue.get_instance().put(
+            type=WSDATA_PROGRESS,
+            ws_id=ws_id,
+            user_id=user_id,
+            req_id=req_id,
+            data=p.model_dump(exclude_none=True),
+        )
+
         # if query groups is set and all queries in the group matched, update note tags and send notification
         if q_options.group and (num_queries > 1 and query_matched_total == num_queries):
             await _handle_query_group_match(
@@ -476,7 +524,6 @@ async def _worker_coro(kwds: dict) -> None:
                 query_names=all_query_names,
                 total_doc_matches=total_doc_matches,
             )
-
 
     finally:
         # also update stats
@@ -492,7 +539,6 @@ async def _worker_coro(kwds: dict) -> None:
                 num_queries=num_queries,
                 q_group=q_options.group,
             )
-
 
         # cleanup
         all_results.clear()
@@ -575,7 +621,7 @@ async def _spawn_query_group_workers(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     flt: GulpQueryFilter = None,
-    create_stats: bool=True
+    create_stats: bool = True,
 ) -> None:
     """
     spawns worker tasks for each query and wait them all
@@ -721,7 +767,9 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             queries.append(gq)
 
         # add query to history (first one only)
-        await GulpUser.add_query_history_entry(user_id, queries[0].q, q_options=q_options)
+        await GulpUser.add_query_history_entry(
+            user_id, queries[0].q, q_options=q_options
+        )
 
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -843,8 +891,10 @@ async def query_gulp_handler(
             )
 
         # add query to history
-        await GulpUser.add_query_history_entry(user_id, gq.q, q_options=q_options,flt=flt)
-        
+        await GulpUser.add_query_history_entry(
+            user_id, gq.q, q_options=q_options, flt=flt
+        )
+
         # spawn worker
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -998,7 +1048,14 @@ async def query_external_handler(
             queries.append(gq)
 
         # add query to history (first one only)
-        await GulpUser.add_query_history_entry(user_id, queries[0].q, q_options=q_options, plugin=plugin, plugin_params=plugin_params, external=True)
+        await GulpUser.add_query_history_entry(
+            user_id,
+            queries[0].q,
+            q_options=q_options,
+            plugin=plugin,
+            plugin_params=plugin_params,
+            external=True,
+        )
 
         await _spawn_query_group_workers(
             user_id=user_id,
@@ -1174,8 +1231,11 @@ async def query_sigma_handler(
                 products=products,
                 categories=categories,
                 services=services,
-                tags=tags)
-            
+                tags=tags,
+                req_id=req_id,
+                ws_id=ws_id,
+            )
+
         if q_options.preview_mode:
             if len(sigmas) > 1:
                 raise ValueError(
@@ -1198,7 +1258,9 @@ async def query_sigma_handler(
             )
 
         # add query to history (first one only)
-        await GulpUser.add_query_history_entry(user_id, queries[0].q, q_options=q_options, flt=flt, sigma=sigmas[0])
+        await GulpUser.add_query_history_entry(
+            user_id, queries[0].q, q_options=q_options, flt=flt, sigma=sigmas[0]
+        )
 
         # spawn one aio task, it will spawn n multiprocessing workers and wait them
         await _spawn_query_group_workers(
@@ -1279,7 +1341,9 @@ async def query_single_id_handler(
                         "status": "success",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                        "data": autogenerate_model_example_by_class(GulpUserDataQueryHistoryEntry),
+                        "data": autogenerate_model_example_by_class(
+                            GulpUserDataQueryHistoryEntry
+                        ),
                     }
                 }
             }
@@ -1307,6 +1371,7 @@ async def query_history_get_handler(
         return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.post(
     "/query_max_min_per_field",
@@ -1617,6 +1682,7 @@ async def query_fields_by_source_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 async def _export_json_worker_internal(
     index: str,
     dsl: dict,
@@ -1625,16 +1691,16 @@ async def _export_json_worker_internal(
 ) -> str:
     """
     worker function that runs in a separate process to perform json export.
-    
+
     Args:
         index (str): index to query
         dsl (dict): opensearch dsl query
         req_id (str): request id
         q_options (GulpQueryParameters): query options
-        
+
     Returns:
         str: path to the exported file
-        
+
     Throws:
         Exception: if export operation fails
     """
@@ -1648,6 +1714,7 @@ async def _export_json_worker_internal(
         MutyLogger.get_instance().exception(ex)
         raise ex
 
+
 @router.post(
     "/query_gulp_export_json",
     response_model=JSendResponse,
@@ -1656,15 +1723,7 @@ async def _export_json_worker_internal(
     responses={
         200: {
             "content": {
-                "application/json": {
-                    "examples": {
-                        "default": {
-                            "value": {
-                                "docs": [{}]
-                            }
-                        }
-                    }
-                }
+                "application/json": {"examples": {"default": {"value": {"docs": [{}]}}}}
             }
         }
     },
@@ -1690,10 +1749,10 @@ async def query_gulp_export_json_handler(
 ) -> FileResponse:
     """
     export documents as json file and stream to client.
-    
+
     performs the same operation as query_gulp but returns a json file instead of websocket results.
     uses worker process to avoid blocking other requests during export.
-    
+
     Args:
         bt (BackgroundTasks): background tasks for cleanup operations
         token (str): authentication token
@@ -1701,10 +1760,10 @@ async def query_gulp_export_json_handler(
         flt (GulpQueryFilter, optional): query filter parameters
         q_options (GulpQueryParameters, optional): query execution options
         req_id (str, optional): request identifier
-        
+
     Returns:
         FileResponse: the exported json file for streaming to client
-        
+
     Throws:
         JSendException: if authentication fails or export operation fails
     """
@@ -1749,7 +1808,7 @@ async def query_gulp_export_json_handler(
                 req_id=req_id,
                 q_options=q_options,
             )
-            
+
             # execute export operation in worker process (non-blocking)
             file_path = await GulpProcess.get_instance().process_pool.apply(
                 _export_json_worker_internal, kwds=kwds
@@ -1758,7 +1817,7 @@ async def query_gulp_export_json_handler(
             async def _cleanup(file_path: str) -> None:
                 """
                 cleanup function to remove temporary export file after response is sent.
-                
+
                 Args:
                     file_path (str): path to the file to cleanup
                 """
@@ -1770,12 +1829,12 @@ async def query_gulp_export_json_handler(
 
             # schedule cleanup after response is sent to client
             bt.add_task(_cleanup, file_path)
-            
+
             # return file response for streaming to client
             return FileResponse(
                 file_path,
                 media_type="application/json",
-                filename=f"gulp_export_{req_id}.json"
+                filename=f"gulp_export_{req_id}.json",
             )
 
     except Exception as ex:

@@ -50,8 +50,8 @@ WSDATA_USER_LOGOUT = "user_logout"
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
 WSDATA_COLLAB_DELETE = "collab_delete"
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"
-WSDATA_QUERY_DONE = "query_done" # this is sent in the end of each individual query
-WSDATA_QUERY_GROUP_DONE = "query_group_done" # this is sent in the end of the query task, being it single or group(i.e. sigma) query
+WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of each individual query
+WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
 WSDATA_ENRICH_DONE = "enrich_done"
 WSDATA_TAG_DONE = "tag_done"
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"
@@ -60,6 +60,7 @@ WSDATA_CLIENT_DATA = "client_data"
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_NEW_SOURCE = "new_source"
 WSDATA_NEW_CONTEXT = "new_context"
+WSDATA_PROGRESS = "progress"
 WSDATA_GENERIC = "generic"
 
 # special token used to monitor also logins
@@ -189,7 +190,6 @@ class GulpQueryDonePacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "req_id": TEST_REQ_ID,
                     "status": GulpRequestStatus.DONE,
                     "name": "the query name",
                     "total_hits": 100,
@@ -205,6 +205,33 @@ class GulpQueryDonePacket(BaseModel):
     errors: Optional[list[str]] = Field([], description="The error message/s, if any.")
     total_hits: Optional[int] = Field(
         None, description="The total number of hits for the query."
+    )
+
+
+class GulpProgressPacket(BaseModel):
+    """
+    Used to signal progress on the websocket.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "current": 50,
+                    "total": 100,
+                    "msg": "Progressing ....",
+                }
+            ]
+        },
+    )
+    current: int = Field(0, description="The current progress.")
+    done: Optional[bool] = Field(
+        False, description="If the progress is done, i.e. reached the total."
+    )
+    total: Optional[int] = Field(0, description="The total to be reached.")
+    msg: Optional[str] = Field(
+        None, description="An optional message to display with the progress."
     )
 
 

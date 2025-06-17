@@ -32,6 +32,7 @@ import aiofiles.os
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
+from gulp.api.ws_api import WSDATA_PROGRESS, GulpProgressPacket, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters
@@ -176,6 +177,7 @@ async def sigmas_to_queries(
     tags: list[str] = None,
     paths: bool = False,
     req_id: str = None,
+    ws_id: str = None,
 ) -> list["GulpQuery"]:
     """
     convert a list of sigma rules to GulpQuery objects.
@@ -211,7 +213,8 @@ async def sigmas_to_queries(
     queries: list[GulpQuery] = []
     count: int = 0
     used: int = 0
-    passed: int = 0
+    generated_q: int = 0
+    total: int = len(sigmas)
     for sigma in sigmas:
         if count % 50 == 0 and req_id:
             # check if the request is cancelled
@@ -219,7 +222,6 @@ async def sigmas_to_queries(
             if canceled:
                 raise Exception("request canceled")
 
-        count += 1
         # check if this sigma should be used
         if paths:
             # the sigma is a path to a file
@@ -235,7 +237,7 @@ async def sigmas_to_queries(
             # the rule itself
             rule_content = sigma
 
-        passed += 1
+        count += 1
         use, sigma_service_names = use_this_sigma(
             rule_content,
             levels=levels,
@@ -251,6 +253,31 @@ async def sigmas_to_queries(
             continue
 
         used += 1
+        if count % 100 == 0:
+            print(
+                "processed %d sigma rules, total=%d, used=%d" % (count, total, used)
+            )
+            if ws_id and req_id:
+                # send progress packet to the websocket (this may be a lenghty operation)
+                p = GulpProgressPacket(
+                    total=total,
+                    current=count,
+                    used=used,
+                    generated_q=generated_q,
+                    msg="converting sigma rules..."
+                )
+                GulpWsSharedQueue.get_instance().put(
+                    type=WSDATA_PROGRESS,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    req_id=req_id,
+                    data=p.model_dump(exclude_none=True),
+                )
+
+            MutyLogger.get_instance().debug(
+                "processed %d sigma rules, total=%d, used=%d" % (count, total, used)
+            )
+
         for src_id in src_ids:
             # for each source, we convert this sigma using mapping specific for this source
             src: GulpSource = await GulpSource.get_by_id(sess, src_id)
@@ -313,6 +340,8 @@ async def sigmas_to_queries(
                     qq.q = new_q
 
                 queries.extend(q)
+                generated_q+=len(q)
+
             except Exception as ex:
                 # error converting sigma
                 MutyLogger.get_instance().exception(
@@ -321,11 +350,34 @@ async def sigmas_to_queries(
 
     # log the number of queries generated
     MutyLogger.get_instance().debug(
-        "converted sigma rules (passed=%d, used=%d) to %d GulpQuery objects",
-        passed,
+        "converted sigma rules (total=%d, used=%d) to %d GulpQuery objects",
+        total,
         used,
         len(queries),
     )
+    print(
+        "converted sigma rules (total=%d, used=%d) to %d GulpQuery objects"
+        % (total, used, len(queries))
+    )
+
+    if ws_id and req_id:
+        # send progress packet to the websocket (this may be a lenghty operation)
+        p = GulpProgressPacket(
+            total=total,
+            current=total,
+            used=used,
+            generated_q=generated_q,
+            done=True,
+            msg="sigma rules conversion done!",
+        )
+        GulpWsSharedQueue.get_instance().put(
+            type=WSDATA_PROGRESS,
+            ws_id=ws_id,
+            user_id=user_id,
+            req_id=req_id,
+            data=p.model_dump(exclude_none=True),
+        )
+
     if not queries:
         # no queries generated
         raise ValueError(
