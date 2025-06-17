@@ -151,7 +151,7 @@ class Plugin(GulpPluginBase):
 
         # map
         for k, v in flattened.items():
-            mapped = await self._process_key(k, v, flattened, **kwargs)
+            mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
         # normalize timestamp

@@ -127,7 +127,7 @@ class Plugin(GulpPluginBase):
             return
 
         # map the key
-        mapped = await self._process_key(path, value, root, **kwargs)
+        mapped = await self._process_key(path, value, result, **kwargs)
         result.update(mapped)
 
     async def _parse_dict(self, data: dict, path_segments: list = None, root: dict = None, **kwargs) -> dict:

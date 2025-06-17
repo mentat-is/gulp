@@ -198,7 +198,7 @@ class Plugin(GulpPluginBase):
 
         d: dict = {}
         for k, v in flent.items():
-            mapped = await self._process_key(k, v, flent, **kwargs)
+            mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
         # map timestamp and event code manually

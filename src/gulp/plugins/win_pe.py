@@ -126,7 +126,7 @@ class Plugin(GulpPluginBase):
         for k, v in rec.items():
             if isinstance(v, bytes):
                 v = v.encode(encoding)
-            mapped = await self._process_key(str(k), str(v), rec, **kwargs)
+            mapped = await self._process_key(str(k), str(v), final, **kwargs)
             final.update(mapped)
 
         if record.is_dll():

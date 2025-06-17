@@ -182,7 +182,7 @@ async def test_enrich_whois_documents():
 @pytest.mark.asyncio
 async def test_enrich_whois_single():
 
-    doc_id: str = "e321a8ee9c2ab94ecace6415c8da81c6"
+    doc_id: str = "d926fb9c59ce9074d9eefb5e3bf04346"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 

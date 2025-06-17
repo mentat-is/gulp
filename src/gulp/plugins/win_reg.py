@@ -117,7 +117,7 @@ class Plugin(GulpPluginBase):
         # map
         rec: dict = muty.json.flatten_json(regkey)
         for k, v in rec.items():
-            mapped = await self._process_key(k, v, **kwargs)
+            mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
         return GulpDocument(

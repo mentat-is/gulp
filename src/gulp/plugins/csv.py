@@ -106,7 +106,7 @@ class Plugin(GulpPluginBase):
         # map all keys for this record
         d = {}
         for k, v in record.items():
-            mapped = await self._process_key(k, v, record, **kwargs)
+            mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
         if date_format:

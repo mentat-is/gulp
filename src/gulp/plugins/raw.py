@@ -48,14 +48,13 @@ class Plugin(GulpPluginBase):
 
         d: dict = record
         m = await self._process_key(
-            "gulp.context_id", record["gulp.context_id"], record, **kwargs
+            "gulp.context_id", record["gulp.context_id"], d, **kwargs
         )
         d.update(m)
         m = await self._process_key(
             "gulp.source_id", d["gulp.source_id"], d, **kwargs
         )
         d.update(m)
-
         # create GulpDocument as is
         return GulpDocument(
             self,

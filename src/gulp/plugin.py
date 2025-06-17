@@ -1663,6 +1663,7 @@ class GulpPluginBase(ABC):
         d: dict,
         source_key: str,
         source_value: Any,
+        skip_unmapped: bool = False,
     ) -> dict:
         """
         tries to map a source key to an ECS key.
@@ -1672,6 +1673,7 @@ class GulpPluginBase(ABC):
             d (dict): The document to update.
             source_key (str): The source key to map.
             source_value (any): The source value to map.
+            skip_unmapped (bool): whether to skip unmapped keys, defaults to False.
         Returns:
             dict: a dict with the mapped key and value.
         """
@@ -1691,7 +1693,8 @@ class GulpPluginBase(ABC):
                     d[kk] = vv
         else:
             # unmapped key
-            d[GulpPluginBase.build_unmapped_key(source_key)] = source_value
+            if not skip_unmapped:
+                d[GulpPluginBase.build_unmapped_key(source_key)] = source_value
 
         return d
 
@@ -1859,7 +1862,9 @@ class GulpPluginBase(ABC):
             )
 
             # also map the value if there's ecs set
-            m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
+            m = self._try_map_ecs(
+                fields_mapping, d, source_key, source_value, skip_unmapped=True
+            )
             m["gulp.context_id"] = ctx_id
             return m
 
@@ -1886,7 +1891,9 @@ class GulpPluginBase(ABC):
                         ctx_id, source_key, source_value
                     )
                     # also map the value if there's ecs set
-                    m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
+                    m = self._try_map_ecs(
+                        fields_mapping, d, source_key, source_value, skip_unmapped=True
+                    )
                     m["gulp.source_id"] = src_id
                     return m
 

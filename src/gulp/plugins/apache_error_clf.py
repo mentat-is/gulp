@@ -98,7 +98,7 @@ class Plugin(GulpPluginBase):
 
         # map
         for k, v in event.items():
-            mapped = await self._process_key(k, v, event, **kwargs)
+            mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
         return GulpDocument(

@@ -146,7 +146,7 @@ class Plugin(GulpPluginBase):
         d = {}
         for k, v in doc.items():
             # do not
-            mapped = await self._process_key(k, v, doc, **kwargs)
+            mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
         # MutyLogger.get_instance().debug(
