@@ -13,13 +13,19 @@ from typing import override
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError, SourceCanceledError
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
+
 
 class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:
@@ -40,13 +46,23 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
 
+        d: dict = record
+        m = await self._process_key(
+            "gulp.context_id", record["gulp.context_id"], record, **kwargs
+        )
+        d.update(m)
+        m = await self._process_key(
+            "gulp.source_id", d["gulp.source_id"], d, **kwargs
+        )
+        d.update(m)
+
         # create GulpDocument as is
         return GulpDocument(
             self,
             operation_id=self._operation_id,
-            event_original=None, # taken from the record
-            event_sequence=None, # taken from the record
-            **record,
+            event_original=None,  # taken from the record
+            event_sequence=None,  # taken from the record
+            **d,
         )
 
     @override
@@ -63,12 +79,23 @@ class Plugin(GulpPluginBase):
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
     ) -> GulpRequestStatus:
-        
+
         js: list[dict] = []
         try:
             # initialize plugin
-            if not plugin_params:
-                plugin_params = GulpPluginParameters()
+            if not plugin_params or plugin_params.mapping_parameters.is_empty():
+                # using default mapping parameters
+                mp: GulpMappingParameters = GulpMappingParameters(
+                    mappings={
+                        "raw_doc": GulpMapping(
+                            fields={
+                                "gulp.context_id": GulpMappingField(is_context=True),
+                                "gulp.source_id": GulpMappingField(is_source=True),
+                            }
+                        ),
+                    }
+                )
+                plugin_params = GulpPluginParameters(mapping_parameters=mp)
             await super().ingest_raw(
                 sess=sess,
                 user_id=user_id,

@@ -564,7 +564,7 @@ class GulpPluginBase(ABC):
         self._context_id: str = None
         # current gulp source id
         self._source_id: str = None
-        
+
         # current file being ingested
         self._file_path: str = None
         # original file path, if any
@@ -937,33 +937,32 @@ class GulpPluginBase(ABC):
         """
         # check cache first
         if v in self._ctx_cache:
+            # MutyLogger.get_instance().debug(f"found context {v} in cache, returning id {self._ctx_cache[v]}")
+            # return cached context id
             return self._ctx_cache[v]
 
         # cache miss - create new context (or get existing)
-        if k == "gulp.context_id":
-            # name is already a context id, use that (raw documents case)
-            ctx_id = v
-        else:
-            ctx_id = None
-
         if not self._operation:
-            # we need the operation object, lazy load                
+            # we need the operation object, lazy load
             self._operation = await GulpOperation.get_by_id(
                 self._sess, self._operation_id
             )
 
         context: GulpContext
-        context, _ = await self._operation.add_context(
+        context, created = await self._operation.add_context(
             self._sess,
             self._user_id,
             v,
             self._ws_id,
             self._req_id,
-            ctx_id=ctx_id,
         )
 
         # update cache
         self._ctx_cache[v] = context.id
+        MutyLogger.get_instance().debug(
+            "context name=%s, id=%s added to cache, created=%r"
+            % (v, context.id, created)
+        )
         return context.id
 
     async def _source_id_from_doc_value(self, context_id: str, k: str, v: str) -> str:
@@ -981,14 +980,11 @@ class GulpPluginBase(ABC):
         # check cache first
         cache_key: str = f"{context_id}-{v}"
         if cache_key in self._src_cache:
+            # MutyLogger.get_instance().debug(f"found source {v} in cache for context {context_id}, returning id {self._src_cache[cache_key]}")
+            # return cached source id
             return self._src_cache[cache_key]
 
         # cache miss - create new source (or get existing)
-        if k == "gulp.source_id":
-            # name is already a source id, use that (raw documents case)
-            src_id = v
-        else:
-            src_id = None
 
         # fetch context object
         context: GulpContext = await GulpContext.get_by_id(self._sess, context_id)
@@ -996,19 +992,23 @@ class GulpPluginBase(ABC):
         # create source
         plugin = self.bare_filename
         mapping_parameters = self._plugin_params.mapping_parameters
-        source, _ = await context.add_source(
+        source, created = await context.add_source(
             self._sess,
             self._user_id,
             v,
             ws_id=self._ws_id,
             req_id=self._req_id,
-            src_id=src_id,
             plugin=plugin,
             mapping_parameters=mapping_parameters,
         )
 
         # update cache
         self._src_cache[cache_key] = source.id
+        MutyLogger.get_instance().debug(
+            "source name=%s, context_id=%s, id=%s added to cache, created=%r"
+            % (v, context_id, source.id, created)
+        )
+
         return source.id
 
     async def query_external(
@@ -1804,7 +1804,7 @@ class GulpPluginBase(ABC):
             return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
-        #MutyLogger.get_instance().error(json.dumps(doc, indent=2))
+        # MutyLogger.get_instance().error(json.dumps(doc, indent=2))
         if fields_mapping.extract:
             # field value must be extracted from the source_value, which may be a dict or list
             try:
@@ -1867,15 +1867,20 @@ class GulpPluginBase(ABC):
             # walk mapping and get the field set as 'is_context', as we need the context_id
             for k, v in mapping.fields.items():
                 if v.is_context:
-                    d: dict = await self._process_key(k, doc.get(k,None), doc, **kwargs)
-                    ctx_id: str = d.get("gulp.context_id")
+                    ctx_id: str = doc.get("gulp.context_id")
                     if not ctx_id:
-                        # no context_id, cannot process source
-                        MutyLogger.get_instance().error(
-                            f"cannot set source {source_key} without context"
+                        # is_context not yet processed, do it now
+                        d: dict = await self._process_key(
+                            k, doc.get(k, None), doc, **kwargs
                         )
-                        return {}
-                    
+                        ctx_id: str = d.get("gulp.context_id")
+                        if not ctx_id:
+                            # no context_id, cannot process source
+                            MutyLogger.get_instance().error(
+                                f"cannot set source {source_key} without context"
+                            )
+                            return {}
+
                     # get/create the source
                     src_id: str = await self._source_id_from_doc_value(
                         ctx_id, source_key, source_value

@@ -238,6 +238,7 @@ async def test_raw(raw_data: list[dict] = None):
     await _test_ingest_ws_loop(
         check_ingested=check_size
     )  # , check_on_source_done=True)
+    
     if not raw_data:
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
