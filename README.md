@@ -117,7 +117,7 @@ to use HTTPS, the following certificates must be available:
 
 ## commandline examples
 
-default startup, creates collab database with an operation names "test_operation" on the very first run.
+default startup, creates collab database with an operation names `test_operation` on the very first run.
 
 ~~~bash
 gulp

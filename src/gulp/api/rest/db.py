@@ -65,16 +65,23 @@ async def db_reset(
     # check if the database exists
     url = GulpConfig.get_instance().postgres_url()
     collab = GulpCollab.get_instance()
-    await collab.init(main_process=True)
+    reset = False
+    try:
+        await collab.init(main_process=True)
+    except SchemaMismatch as ex:
+        MutyLogger.get_instance().warning(
+            "collab database schema mismatch, resetting it: %s" % (ex)
+        )
+        reset = True
     exists = await collab.db_exists(url)
 
     if user_id is None:
         # if user_id is not specified, use "admin"
         user_id = "admin"
 
-    if not exists:
+    if not exists or reset:
         MutyLogger.get_instance().warning(
-            "collab database does not exist, creating it..."
+            "collab database does not exist/must be reset, creating it..."
         )
 
         # reset
