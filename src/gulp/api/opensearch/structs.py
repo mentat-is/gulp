@@ -21,6 +21,7 @@ These structures form the foundation for document handling in the Gulp OpenSearc
 from typing import Optional, TypeVar, override
 
 import muty.crypto
+from muty.log import MutyLogger
 import muty.time
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -229,20 +230,13 @@ class GulpDocument(GulpBasicDocument):
         # build initial data dict
         mapping: GulpMapping = plugin_instance.selected_mapping()
 
-        # gulp.context_id and gulp.source_id may have been overridden by mapping
+        # gulp.context_id and gulp.source_id may have been overridden by mapping and put into kwargs
         ctx_id = kwargs.pop("context_id", context_id)
         src_id = kwargs.pop("source_id", source_id)
         if not ctx_id:
-            # use fallback context id
-            from gulp.api.collab.operation import DEFAULT_CONTEXT_ID
-
-            ctx_id = "%s_%s" % (plugin_instance._operation_id, DEFAULT_CONTEXT_ID)
-
+            raise ValueError("gulp.context_id is not set, skipping document!")
         if not src_id:
-            # use fallback source id
-            from gulp.api.collab.operation import DEFAULT_SOURCE_ID
-
-            src_id = "%s_%s" % (plugin_instance._operation_id, DEFAULT_SOURCE_ID)
+            raise ValueError("gulp.source_id is not set, skipping document!")
 
         data = {
             "operation_id": operation_id,

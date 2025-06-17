@@ -214,12 +214,12 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 )
 
                 # create default source and context
-                await op.create_default_source_and_context(
-                    sess,
-                    user_id=user_id,
-                    ws_id=ws_id,
-                    req_id=req_id,
-                )
+                # await op.create_default_source_and_context(
+                #     sess,
+                #     user_id=user_id,
+                #     ws_id=ws_id,
+                #     req_id=req_id,
+                # )
 
                 # done
                 return op.to_dict(exclude_none=True)
@@ -229,44 +229,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             await GulpOpenSearch.get_instance().datastream_delete(index)
             raise exx
 
-    @classmethod
-    @override
-    async def create(
-        cls,
-        token: str,
-        ws_id: str,
-        req_id: str,
-        object_data: dict,
-        permission: list[GulpUserPermission] = None,
-        obj_id: str = None,
-        private: bool = True,
-        operation_id: str = None,
-        **kwargs,
-    ) -> dict:
-        # create operation
-        d: dict = await super().create(
-            token=token,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=object_data,
-            permission=permission,
-            obj_id=obj_id,
-            private=private,
-            operation_id=operation_id,
-            **kwargs,
-        )
-
-        # create default source and context
-        async with GulpCollab.get_instance().session() as sess:
-            op: GulpOperation = await GulpOperation.get_by_id(sess, obj_id=d["id"])
-            await op.create_default_source_and_context(
-                sess,
-                user_id=d["owner_user_id"],
-                ws_id=ws_id,
-                req_id=req_id,
-            )
-
-        return d
 
     async def add_context(
         self,
