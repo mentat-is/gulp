@@ -133,7 +133,7 @@ async def db_reset(
             "reset done, creating operation=%s" % (operation_id)
         )
         await GulpOperation.create_wrapper(
-            operation_id, user_id=user_id, set_default_grants=True, keep_data=keep_data
+            operation_id, user_id=user_id, set_default_grants=True, keep_data=keep_data, fail_if_exists=False
         )
 
 
