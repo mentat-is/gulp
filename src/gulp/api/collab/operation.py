@@ -210,7 +210,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         try:
             async with GulpCollab.get_instance().session() as sess:
                 op = await GulpOperation._create_internal(
-                    sess, d, obj_id=operation_id, owner_id=user_id, commit=False
+                    sess, d, obj_id=operation_id, owner_id=user_id
                 )
 
                 # create default source and context
