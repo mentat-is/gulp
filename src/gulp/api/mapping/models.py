@@ -64,8 +64,6 @@ check `mftecmd_csv.json` for an example of this setting.
         description="""
 if set, the corresponding value is the 'name' of a GulpContext, which is created (if not existent) and its `id` set as `gulp.context_id` in the resulting document."
 
-if this is set, another field in this record's mapping must be set to `is_source` to indicate the source.
-
 this also overrides 'context' passed during ingestion, if any.
 """,
     )
@@ -74,9 +72,14 @@ this also overrides 'context' passed during ingestion, if any.
         description="""
 if set, the corresponding value is the 'name' of a GulpSource, which is created (if not existent) and its `id` set as `gulp.source_id` in the resulting document.
 
-if this is set, another field in this record's mapping must be set to `is_context` to indicate the context of the source.
-
 this also overrides 'source' passed during ingestion, if any.
+""",
+    )
+    context_key: Optional[str] = Field(
+        "gulp.context_id",
+        description="""
+only used if `is_source` is set, to indicate the context key to build the GulpSource.
+if not specified, it is expected the document has a `gulp.context_id` key set.
 """,
     )
     multiplier: Optional[float] = Field(

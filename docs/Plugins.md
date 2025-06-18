@@ -15,12 +15,13 @@
     - [enrichment plugins](#enrichment-plugins)
   - [mapping files](#mapping-files)
     - [mapping files load order](#mapping-files-load-order)
+    - [context and source](#context-and-source)
     - [example](#example)
   - [stacked plugins](#stacked-plugins)
     - [flow](#flow)
   - [extension plugins](#extension-plugins-1)
 - [addendum](#addendum)
-  - [external queries](#external-queries)
+  - [external plugins](#external-plugins-1)
 
 # plugins
 
@@ -317,6 +318,14 @@ mapping files load order follows the same rules as [plugins](#loading-plugins):
 
 if an `extra` mapping directory is defined (either via environment `PATH_MAPPING_FILES_EXTRA` or `path_maping_files_extra` in the configuration file), mapping files are first searched there before the main mapping files directory `$GULPDIR/src/gulp/mapping_files`.
 
+### context and source
+
+when performing ingestion via external plugins (or using the `ingest_raw` or `ws_ingest_raw` API with a custom raw plugin different than the [default](../src/gulp/plugins/raw.py)), it is particularly important to use the `is_context`, `is_source`, `context_field` mapping field parameters to indicate which fields in the records are the `context` and/or the `source.
+
+> Gulp needs to group data in a `GulpOperation` in one or more `GulpContext`(i.e. the hosts involved), each one having one or more `GulpSource`: each source corresponds to a `timeline` horizontal band in the UI.
+
+when using the `ingest_file` API this is usually not needed, since you pass `context` and `source` as parameters (`source` is derived from the filename): anyway, overriding with mappings is possible there as well if needed, i.e. when having a file which have the context/source information internally.
+
 ### example
 
 Here's a commented example, further details in the [model definition source](../src/gulp/api/mapping/models.py)
@@ -380,13 +389,17 @@ Here's a commented example, further details in the [model definition source](../
           // if this is set, it can be used to generate a GulpContext on the fly based on the value of "my_context" field, setting the `gulp.context_id` of the GulpDocument being generated.
           // this may also have an `ecs` mapping set: in such case, the field is also  mapped as normally to the given name.
           // 
-          // note that this overrides any context passed with the `ingest` API, if set.
+          // note that this overrides any context passed with the `ingest_file` API, if set.
           "is_context": true
         },
         "my_source": {
-          // to set `gulp.source_id` on the fly: same exact functionality as `is_context`, but for GulpSource.
-          // note that if this is set, it is **mandatory** that also `is_context` is set.
-          "is_source": true
+          // if this is set, it can be used to generate a GulpSource on the fly based on the value of "my_source" field, setting the `gulp.source_id` of the GulpDocument being generated.
+          // this may also have an `ecs` mapping set: in such case, the field is also  mapped as normally to the given name.
+          //
+          // note that this overrides any context passed with the `ingest_file` API, if set.
+          "is_source": true,
+          // this indicates the corresponding source field (each GulpSource is tied to a GulpContext): it is automatically set to `gulp.context_id` if not specified.
+          "context_field": "my_context"
         },
         "date_created": {
           // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.
@@ -436,7 +449,6 @@ Here's a commented example, further details in the [model definition source](../
         "Microsoft-Windows-Windows Defender",
     ]
   }
-
 }
 ```
 
@@ -477,7 +489,7 @@ they may be used to extend gulp API, i.e. implement new sign-in code, ...
 
 # addendum
 
-## external queries
+## external plugins
 
 to query an external source with an `external plugin`, we use the `query_external` API:
 

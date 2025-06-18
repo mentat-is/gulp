@@ -1869,12 +1869,11 @@ class GulpPluginBase(ABC):
             return m
 
         if fields_mapping.is_source:
-            # walk mapping and get the field set as 'is_context', as we need the context_id
-            for k, v in mapping.fields.items():
-                if v.is_context:
-                    ctx_id: str = doc.get("gulp.context_id")
-                    if not ctx_id:
-                        # is_context not yet processed, do it now
+            ctx_id: str = doc.get(fields_mapping.context_key, None)
+            if not ctx_id:
+                for k, v in mapping.fields.items():
+                    # walk mapping and get the field set as 'is_context', as we need the context_id
+                    if v.is_context:
                         d: dict = await self._process_key(
                             k, doc.get(k, None), doc, **kwargs
                         )
@@ -1885,17 +1884,17 @@ class GulpPluginBase(ABC):
                                 f"cannot set source {source_key} without context"
                             )
                             return {}
-
-                    # get/create the source
-                    src_id: str = await self._source_id_from_doc_value(
-                        ctx_id, source_key, source_value
-                    )
-                    # also map the value if there's ecs set
-                    m = self._try_map_ecs(
-                        fields_mapping, d, source_key, source_value, skip_unmapped=True
-                    )
-                    m["gulp.source_id"] = src_id
-                    return m
+            # get/create the source
+            src_id: str = await self._source_id_from_doc_value(
+                ctx_id, source_key, source_value
+            )
+            # also map the value if there's ecs set
+            m = self._try_map_ecs(
+                fields_mapping, d, source_key, source_value, skip_unmapped=True
+            )
+            m["gulp.source_id"] = src_id
+            m["gulp.context_id"] = ctx_id
+            return m
 
         if fields_mapping.extra_doc_with_event_code:
             # this will trigger the creation of an extra document
