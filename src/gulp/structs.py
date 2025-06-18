@@ -98,15 +98,11 @@ class GulpMappingParameters(BaseModel):
     )
     mapping_file: Optional[str] = Field(
         None,
-        description="used for ingestion only: mapping file name in `gulp/mapping_files` directory to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
+        description="mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
     )
     mapping_id: Optional[str] = Field(
         None,
-        description="used for ingestion only: the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
-    )
-    sigma_mappings: Optional[GulpSigmaMapping] = Field(
-        None,
-        description="if set, rules to map `logsource` for sigma rules referring to this mapping.",
+        description="the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
     )
     mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
@@ -118,11 +114,16 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
     additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
         None,
         description="""
-if this is set, allows to specify further mapping files and mapping IDs with a tuple of (mapping_file, mapping_id) to load and merge additional mappings from another file.
+if this is set, it allows to specify further mappings from other mapping files.
 
-- each mapping loaded from `additional_mapping_files` will be merged with the main `mapping file.mapping_id` fields.
+each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` from `other_mapping_file` will be loaded and merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`.
+
 - ignored if `mappings` is set.
 """,
+    )
+    sigma_mappings: Optional[GulpSigmaMapping] = Field(
+        None,
+        description="if set, rules to map sigma rules `logsource`, in reference to the mapping expressed by mapping_file/mappings/additional_mapping_files.",
     )
 
     def is_empty(self) -> bool:

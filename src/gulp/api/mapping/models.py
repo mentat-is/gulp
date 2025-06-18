@@ -174,7 +174,12 @@ class GulpMappingFileMetadata(BaseModel):
 
 class GulpSigmaMapping(BaseModel):
     """
-    defines a logsource -> gulp document mapping
+    maps sigma rule logsource attributes to document fields for targeted querying.
+
+    used during sigma rule conversion to:
+
+    1. filter applicable rules by `logsource.service`
+    2. restrict queries to documents matching specific field values
     """
 
     model_config = ConfigDict(
@@ -182,11 +187,11 @@ class GulpSigmaMapping(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "fields": {"field1": {"ecs": ["test.mapped"]}},
-                    "description": "test description.",
-                    "agent_type": "win_evtx",
-                    "event_code": "1234",
-                    "allow_prefixed": False,
+                    "service_name": "windefend",
+                    "service_field": "winlog.channel",
+                    "service_values": [
+                        "Microsoft-Windows-Windows Defender"
+                    ]
                 }
             ]
         },
@@ -194,17 +199,17 @@ class GulpSigmaMapping(BaseModel):
 
     service_name: str = Field(
         ...,
-        description="`logsource.service` in the sigma rule.",
+        description="sigma rule's `logsource.service` value that this mapping applies to (case-insensitive match)",
         examples=["windefend"],
     )
     service_field: str = Field(
         ...,
-        description="field name corresponding to `service_name` in the documents.",
+        description="document field to query for `service_name` value (case-sensitive substring match)",
         examples=["winlog.channel"],
     )
     service_values: list[str] = Field(
         ...,
-        description="list of (substring) values for the `service_name` field.",
+        description="values to match in `service_field` when applying sigma rules (case-sensitive substring match)",
         examples=[["Microsoft-Windows-Windows Defender"]],
     )
 
