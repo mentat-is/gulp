@@ -453,10 +453,6 @@ class GulpPluginBase(ABC):
     Base class for all Gulp plugins.
     """
 
-    # these are used to initialize the license stub code
-    _license_stub: "GulpPluginBase" = None
-    _license_func: callable = None
-
     @classmethod
     def load_pickled(
         cls, path: str, extension: bool, cache_mode: GulpPluginCacheMode
@@ -626,8 +622,11 @@ class GulpPluginBase(ABC):
         self._preview_mode = False
         self._preview_chunk: list[dict] = []
 
-    @staticmethod
-    def _init_license_stub(**kwargs) -> None:
+        # these are used to initialize the license stub code
+        self._license_stub: "GulpPluginBase" = None
+        self._license_func: callable = None
+
+    def _init_license_stub(self, **kwargs) -> None:
         """
         to be called in __init__ to set the license stub and function pointers
 
@@ -640,13 +639,17 @@ class GulpPluginBase(ABC):
 
             if any of the needed kwargs is not provided, the plugin runs as not licensed (no checks)
         """
-        # print("********************************** INIT LICENSE STUB *************************************************")
-        # print("GulpPluginBase._init_license_stub called with kwargs: %s" % (kwargs))
-        GulpPluginBase._license_stub = kwargs.get("license_stub", None)
-        GulpPluginBase._license_func = kwargs.get("license_func", None)
+        # print(
+        #     "********************************** INIT LICENSE STUB *************************************************"
+        # )
+        self._license_stub = kwargs.get("license_stub")
+        self._license_func = kwargs.get("license_func")
+        # print(
+        #     "INIT_LICENSE_STUB, %s, license_stub=%s, license_func=%s"
+        #     % (self, self._license_stub, self._license_func)
+        # )
 
-    @staticmethod
-    def _check_license() -> None:
+    def _check_license(self) -> None:
         """
         check the license for the plugin, if the plugin is licensed.
         this is called by the plugin when it needs to check the license out of its __init__ method.
@@ -654,10 +657,15 @@ class GulpPluginBase(ABC):
         Raises:
             Exception: if the license is not valid or expired
         """
-        # print("********************************** CHECK LICENSE *************************************************")
-        # print("GulpPluginBase._license_func: %s, GulpPluginBase._license_stub: %s" % (GulpPluginBase._license_func, GulpPluginBase._license_stub))
-        if GulpPluginBase._license_func and GulpPluginBase._license_stub:
-            GulpPluginBase._license_func(GulpPluginBase._license_stub)
+        # print(
+        #     "********************************** CHECK LICENSE *************************************************"
+        # )
+        # print(
+        #     "CHECK_LICENSE, %s, license_stub=%s, license_func=%s"
+        #     % (self, self._license_stub, self._license_func)
+        # )
+        if self._license_func and self._license_stub:
+            self._license_func(self._license_stub)
 
     @abstractmethod
     def display_name(self) -> str:

@@ -28,6 +28,7 @@ from gulp.api.ws_api import (
     GulpWsAuthPacket,
 )
 
+
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
     if os.environ.get("INGEST_DATA", "1") == "1":
@@ -37,12 +38,14 @@ async def _setup():
             host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
         )
 
+
 @pytest.mark.asyncio
 async def test_sigma_group():
     if os.environ.get("INGEST_DATA", "1"):
         # use the default test data
         await _ensure_test_operation()
         from tests.ingest.test_ingest import test_win_evtx
+
         await test_win_evtx()
 
     guest_token = await GulpAPIUser.login("guest", "guest")
@@ -86,7 +89,7 @@ async def test_sigma_group():
                             sigma_match_some_more.decode(),
                         ],
                         q_options=q_options,
-                        req_id="sigmareq"
+                        req_id="sigmareq",
                     )
                 elif data["type"] == "query_done":
                     # query done
@@ -98,15 +101,10 @@ async def test_sigma_group():
                     )
                     if q_done_packet.name == "match_some_event_sequence_numbers":
                         assert q_done_packet.total_hits == 3
-                    elif (
-                        q_done_packet.name
-                        == "match_some_more_event_sequence_numbers"
-                    ):
+                    elif q_done_packet.name == "match_some_more_event_sequence_numbers":
                         assert q_done_packet.total_hits == 2
                     else:
-                        raise ValueError(
-                            f"unexpected query name: {q_done_packet.name}"
-                        )
+                        raise ValueError(f"unexpected query name: {q_done_packet.name}")
                 elif data["type"] == "query_group_match":
                     # query done
                     q_group_match_packet: GulpQueryGroupMatchPacket = (
@@ -147,7 +145,7 @@ async def test_sigma_group():
 async def test_sigma_single():
     async def _test_sigma_single_internal(token: str, path: str, expected_matches: int):
         sigma = await muty.file.read_file_async(path)
-        
+
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -185,7 +183,11 @@ async def test_sigma_single():
                             test_completed = True
                             break
                         else:
-                            assert False, "expected hits: %d, got: %d, sigma=\n%s" % (expected_hits, q_done_packet.total_hits, sigma)
+                            assert False, "expected hits: %d, got: %d, sigma=\n%s" % (
+                                expected_hits,
+                                q_done_packet.total_hits,
+                                sigma,
+                            )
 
                     # ws delay
                     await asyncio.sleep(0.1)
@@ -201,12 +203,14 @@ async def test_sigma_single():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(
         # current_dir, "sigma/Microsoft-Windows-Windows Defender%4Operational.evtx"
-        current_dir, "sigma/Microsoft-Windows-Sysmon%4Operational.evtx"
+        current_dir,
+        "sigma/Microsoft-Windows-Sysmon%4Operational.evtx",
     )
 
     if os.environ.get("INGEST_DATA", "1") == "1":
         # ingest data is the default
         from tests.ingest.test_ingest import test_win_evtx
+
         await test_win_evtx(file_path=file_path, skip_checks=True)
 
     # read sigma
@@ -226,18 +230,21 @@ async def test_sigma_single():
     # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_script_exec_from_env_folder.yml" # 0
     # current_dir, "sigma/windows/process_creation/proc_creation_win_susp_script_exec_from_temp.yml" # 5
     # current_dir, "sigma/windows/registry/registry_set/registry_set_renamed_sysinternals_eula_accepted.yml" # 7
-    #current_dir, "sigma/win_defender_threat.yml"
+    # current_dir, "sigma/win_defender_threat.yml"
 
     # rule 1
     sigma_path = os.path.join(
-        current_dir, "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml"
-    )    
+        current_dir,
+        "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml",
+    )
     await _test_sigma_single_internal(guest_token, sigma_path, expected_matches=6)
 
     # rule 2
     sigma_path = os.path.join(
-        current_dir, "sigma/windows/file/file_change/file_change_win_2022_timestomping.yml")
-        
+        current_dir,
+        "sigma/windows/file/file_change/file_change_win_2022_timestomping.yml",
+    )
+
     await _test_sigma_single_internal(guest_token, sigma_path, expected_matches=4)
 
     # add other ?
@@ -245,4 +252,3 @@ async def test_sigma_single():
 
     # done
     MutyLogger.get_instance().info(test_sigma_single.__name__ + " succeeded!")
-
