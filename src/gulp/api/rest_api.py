@@ -31,6 +31,7 @@ from muty.log import MutyLogger
 from opensearchpy import RequestError
 from starlette.middleware.sessions import SessionMiddleware
 
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.rest.test_values import TEST_OPERATION_ID
 from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
@@ -538,6 +539,10 @@ class GulpRestServer:
         MutyLogger.get_instance().info("gulp shutting down!")
         self.set_shutdown()
 
+        # delete pending stats
+        await GulpRequestStats.delete_pending()
+
+        # unload extension plugins
         await self._unload_extension_plugins()
 
         # close shared ws and process pool

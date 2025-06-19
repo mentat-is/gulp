@@ -35,10 +35,12 @@ from sqlalchemy.types import Enum as SQLEnum
 from gulp.api.collab.structs import (
     COLLABTYPE_REQUEST_STATS,
     GulpCollabBase,
+    GulpCollabFilter,
     GulpRequestStatus,
     GulpUserPermission,
     T,
 )
+from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import (
     WSDATA_COLLAB_DELETE,
     WSDATA_QUERY_DONE,
@@ -162,6 +164,19 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 d[f"gulp.{key}"] = d.pop(key)
 
         return d
+
+    @staticmethod
+    async def delete_pending():
+        """
+        delete all ongoing stats that are not completed.
+        """
+        async with GulpCollab.get_instance().session() as sess:
+            flt = GulpCollabFilter(status=["ongoing"])
+            deleted = await GulpRequestStats.delete_by_filter(
+                sess, flt, throw_if_not_found=False
+            )
+            MutyLogger.get_instance().info("deleted %d pending stats" % (deleted))
+            return deleted
 
     @classmethod
     @override
