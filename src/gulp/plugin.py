@@ -1941,7 +1941,6 @@ class GulpPluginBase(ABC):
                 )
             )
             d = {
-                "source_id": self._source_id,
                 "records_skipped": skipped,
                 "records_ingested": ingested,
                 "records_processed": self._records_processed_per_chunk,
@@ -2494,7 +2493,7 @@ class GulpPluginBase(ABC):
         )
 
         # add source info
-        ee = "source=%s, %s" % (self._file_path, e)
+        ee = "source=%s,id=%s,err=%s" % (self._file_path, self._source_id, e)
         self._source_error = ee
 
     async def _update_source_mapping_parameters(self) -> None:
@@ -2578,7 +2577,6 @@ class GulpPluginBase(ABC):
                     1 if (self._is_source_failed and not self._raw_ingestion) else 0
                 ),
                 "source_processed": 1 if not self._raw_ingestion else 0,
-                "source_id": self._source_id,
                 "records_ingested": ingested,
                 "records_skipped": skipped,
                 "records_failed": self._records_failed_per_chunk,

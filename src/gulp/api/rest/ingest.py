@@ -258,8 +258,6 @@ async def _ingest_file_internal(
                 req_id=req_id,
                 object_data={
                     "source_total": file_total,
-                    "source_id": source_id,
-                    "context_id": context_id,
                 },
                 operation_id=operation_id,
                 sess=sess,

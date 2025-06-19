@@ -77,16 +77,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         nullable=True,
         doc="The operation associated with the stats.",
     )
-    context_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("context.id", ondelete="CASCADE"),
-        doc="The context associated with the stats.",
-        nullable=True,
-    )
-    source_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("source.id", ondelete="CASCADE"),
-        doc="The source associated with the stats.",
-        nullable=True,
-    )
     status: Mapped[str] = mapped_column(
         String,
         default=GulpRequestStatus.ONGOING.value,
@@ -157,7 +147,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         d = super().to_dict(nested, hybrid_attributes, exclude, exclude_none)
 
         # convert keys to gulp namespaced format
-        for key in ["operation_id", "context_id", "source_id"]:
+        for key in ["operation_id"]:
             if key in d:
                 d[f"gulp.{key}"] = d.pop(key)
 
@@ -188,8 +178,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             req_id (str): The request ID.
             object_data (dict): The data to create the stats with, pass None to use the below default:
                 - source_total (int, optional): The total number of sources to be processed by the request to which this stats belong. Defaults to 1.
-                - source_id (str, optional): The source associated with the stats. Defaults to None.
-                - context_id (str): The context associated with the stats. Defaults to None if not present (i.e. for queries).
                 - never_expire (bool, optional): Whether the stats should never expire, ignoring the configuration. Defaults to False.
             permission (list[GulpUserPermission], optional): ignored
             obj_id (str, optional): ignored, req_id is used
@@ -205,18 +193,14 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             object_data = {}
 
         source_total: int = object_data.get("source_total", 1)
-        source_id: str = object_data.get("source_id", None)
-        context_id: str = object_data.get("context_id", None)
         never_expire: bool = object_data.get("never_expire", False)
         sess: AsyncSession = kwargs["sess"]
         user_id: str = kwargs["user_id"]
 
         MutyLogger.get_instance().debug(
-            "---> create stats: id=%s, operation_id=%s, context_id=%s, source_id=%s, source_total=%d, sess=%s, user_id=%s",
+            "---> create stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s",
             req_id,
             operation_id,
-            context_id,
-            source_id,
             source_total,
             sess,
             user_id,
@@ -255,8 +239,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             object_data = {
                 "time_expire": time_expire,
                 "operation_id": operation_id,
-                "context_id": context_id,
-                "source_id": source_id,
                 "source_total": source_total,
             }
             return await super()._create_internal(
@@ -288,7 +270,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         d: dict = {
             "status": GulpRequestStatus.CANCELED,
             "time_expire": time_expire,
-            "completed": "1",
             "time_finished": muty.time.now_msec(),
         }
 
@@ -359,7 +340,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 records_ingested (int, optional): the number of records that were ingested. defaults to 0.
                 error (str | Exception | list[str], optional): the error message or exception that occurred. defaults to none.
                 status (GulpRequestStatus, optional): force a specific status. defaults to none.
-                source_id (str, optional): update the source id associated with the stats. defaults to none.
             ws_id (str, optional): the websocket id. defaults to none.
             user_id (str, optional): the user id updating the stats. defaults to none.
             ws_queue_datatype (str, optional): the websocket queue data type for notification. defaults to WSDATA_STATS_UPDATE.
@@ -403,8 +383,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             self.records_skipped += d.get("records_skipped", 0)
             self.records_processed += d.get("records_processed", 0)
             self.records_ingested += d.get("records_ingested", 0)
-            if "source_id" in d:
-                self.source_id = d["source_id"]
 
             # process errors
             error: Union[Exception, str, list[str]] = d.get("error")
