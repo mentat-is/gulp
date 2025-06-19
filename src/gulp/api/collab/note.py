@@ -21,9 +21,10 @@ from typing import List, Optional, override
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from opensearchpy import Field
+import muty.crypto
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, String, insert
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Insert, String
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -116,7 +117,6 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             }
         )
         return d
-
 
     @override
     @classmethod
@@ -233,9 +233,9 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             text = ""
             if highlights:
                 # if highlights are present, add highlights to the text
-                text+= "### matches\n\n"
-                text+="````json" + "\n" + json.dumps(highlights, indent=2) + "\n````"
-            
+                text += "### matches\n\n"
+                text += "````json" + "\n" + json.dumps(highlights, indent=2) + "\n````"
+
             text += "\n\n### query:\n\n"
             text += f"````text\n{str(source_q)}````"
 
@@ -251,43 +251,50 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 text=text,
                 docs=[associated_doc],
             )
-
+            obj_id: str = muty.crypto.hash_xxh128(str(object_data))
             note_dict = GulpNote.build_base_object_dict(
-                object_data=object_data, owner_id=user_id, private=False
+                object_data=object_data, owner_id=user_id, private=False, obj_id=obj_id
             )
             notes.append(note_dict)
 
-        # bulk insert
-        await sess.execute(insert(GulpNote).values(notes))
+        # bulk insert (handles duplicates)
+        stmt: Insert = insert(GulpNote).values(notes)
+        stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
+        stmt = stmt.returning(GulpNote.id)
+        res = await sess.execute(stmt)
         await sess.commit()
-        MutyLogger.get_instance().info("written %d notes on collab db" % len(notes))
-
-        # send over the websocket
-        MutyLogger.get_instance().debug(
-            "sending %d notes on the websocket %s " % (len(notes), ws_id)
+        inserted_ids = [row[0] for row in res]
+        MutyLogger.get_instance().info(
+            "written %d notes on collab db" % len(inserted_ids)
         )
 
-        # operation is always the same
-        operation_id = notes[0].get("operation_id")
-        data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
-            data=notes,
-            bulk=True,
-            type=COLLABTYPE_NOTE,
-            created=True,
-            bulk_size=len(notes),
-        )
-        GulpWsSharedQueue.get_instance().put(
-            WSDATA_COLLAB_UPDATE,
-            ws_id=ws_id,
-            user_id=user_id,
-            operation_id=operation_id,
-            req_id=req_id,
-            data=data,
-        )
-        MutyLogger.get_instance().debug(
-            "sent %d notes on the websocket %s " % (len(notes), ws_id)
-        )
-
+        # in notes to be sent on ws, only keep the ones inserted
+        notes = [note for note in notes if note["id"] in inserted_ids]
+        if notes:
+            # operation is always the same
+            operation_id = notes[0].get("operation_id")
+            data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
+                data=notes,
+                bulk=True,
+                type=COLLABTYPE_NOTE,
+                created=True,
+                bulk_size=len(inserted_ids),
+            )
+            GulpWsSharedQueue.get_instance().put(
+                WSDATA_COLLAB_UPDATE,
+                ws_id=ws_id,
+                user_id=user_id,
+                operation_id=operation_id,
+                req_id=req_id,
+                data=data,
+            )
+            MutyLogger.get_instance().debug(
+                "sent %d notes on the websocket %s " % (len(notes), ws_id)
+            )
+        else:
+            MutyLogger.get_instance().warning(
+                "no notes to send on the websocket %s " % (ws_id)
+            )
         return len(notes)
 
     @staticmethod
