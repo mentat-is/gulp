@@ -278,12 +278,13 @@ class GulpRestServer:
             **kwargs: additional arguments to FastAPI.add_api_route
         """
         # find and remove existing route
-        for route in self._app.routes:
-            if route.path == path:
-                self._app.router.routes.remove(route)
+        if self._app:
+            for route in self._app.routes:
+                if route.path == path:
+                    self._app.router.routes.remove(route)
 
-        # add route
-        self._app.add_api_route(path, handler, **kwargs)
+            # add route
+            self._app.add_api_route(path, handler, **kwargs)
 
     def start(
         self,

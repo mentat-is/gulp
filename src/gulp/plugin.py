@@ -453,10 +453,6 @@ class GulpPluginBase(ABC):
     Base class for all Gulp plugins.
     """
 
-    # these are used to initialize the license stub code
-    _license_stub: "GulpPluginBase" = None
-    _license_func: callable = None
-
     @classmethod
     def load_pickled(
         cls, path: str, extension: bool, cache_mode: GulpPluginCacheMode
@@ -625,8 +621,11 @@ class GulpPluginBase(ABC):
         self._preview_mode = False
         self._preview_chunk: list[dict] = []
 
-    @staticmethod
-    def _init_license_stub(**kwargs) -> None:
+        # these are used to initialize the license stub code
+        self._license_stub: "GulpPluginBase" = None
+        self._license_func: callable = None
+
+    def _init_license_stub(self, **kwargs) -> None:
         """
         to be called in __init__ to set the license stub and function pointers
 
@@ -639,13 +638,17 @@ class GulpPluginBase(ABC):
 
             if any of the needed kwargs is not provided, the plugin runs as not licensed (no checks)
         """
-        # print("********************************** INIT LICENSE STUB *************************************************")
-        # print("GulpPluginBase._init_license_stub called with kwargs: %s" % (kwargs))
-        GulpPluginBase._license_stub = kwargs.get("license_stub", None)
-        GulpPluginBase._license_func = kwargs.get("license_func", None)
+        # print(
+        #     "********************************** INIT LICENSE STUB *************************************************"
+        # )
+        self._license_stub = kwargs.get("license_stub")
+        self._license_func = kwargs.get("license_func")
+        # print(
+        #     "INIT_LICENSE_STUB, %s, license_stub=%s, license_func=%s"
+        #     % (self, self._license_stub, self._license_func)
+        # )
 
-    @staticmethod
-    def _check_license() -> None:
+    def _check_license(self) -> None:
         """
         check the license for the plugin, if the plugin is licensed.
         this is called by the plugin when it needs to check the license out of its __init__ method.
@@ -653,10 +656,15 @@ class GulpPluginBase(ABC):
         Raises:
             Exception: if the license is not valid or expired
         """
-        # print("********************************** CHECK LICENSE *************************************************")
-        # print("GulpPluginBase._license_func: %s, GulpPluginBase._license_stub: %s" % (GulpPluginBase._license_func, GulpPluginBase._license_stub))
-        if GulpPluginBase._license_func and GulpPluginBase._license_stub:
-            GulpPluginBase._license_func(GulpPluginBase._license_stub)
+        # print(
+        #     "********************************** CHECK LICENSE *************************************************"
+        # )
+        # print(
+        #     "CHECK_LICENSE, %s, license_stub=%s, license_func=%s"
+        #     % (self, self._license_stub, self._license_func)
+        # )
+        if self._license_func and self._license_stub:
+            self._license_func(self._license_stub)
 
     @abstractmethod
     def display_name(self) -> str:
@@ -1761,7 +1769,7 @@ class GulpPluginBase(ABC):
         Args:
             d (dict | list): The data structure to extract from.
             k (str): The key in dot notation, e.g. "key1.key2[0]", "[0].key1.key2[1]", ...
-        
+
         Returns:
             Any: The extracted value.
         Raises:
@@ -1769,21 +1777,21 @@ class GulpPluginBase(ABC):
         """
         if k is None or k == "":
             return d
-            
+
         # remove all spaces for simplicity and efficiency
-        k_clean = k.replace(' ', '')
+        k_clean = k.replace(" ", "")
         n = len(k_clean)
         tokens = []
         i = 0
         while i < n:
-            if k_clean[i] == '.':
+            if k_clean[i] == ".":
                 i += 1
                 continue
-            elif k_clean[i] == '[':
+            elif k_clean[i] == "[":
                 i += 1  # Skip '['
                 start = i
                 # Find next ']'
-                while i < n and k_clean[i] != ']':
+                while i < n and k_clean[i] != "]":
                     i += 1
                 if i == n:
                     raise KeyError(f"Unclosed bracket in key: {k}")
@@ -1795,28 +1803,34 @@ class GulpPluginBase(ABC):
             else:
                 start = i
                 # Advance until next '.' or '[' or end
-                while i < n and k_clean[i] not in ['.', '[']:
+                while i < n and k_clean[i] not in [".", "["]:
                     i += 1
                 token_str = k_clean[start:i]
                 tokens.append(token_str)
-        
+
         # traverse the data structure using tokens
         current = d
         for token in tokens:
             if isinstance(token, int):
                 if not isinstance(current, list):
-                    raise KeyError(f"Expected list at index token {token}, got {type(current).__name__}")
+                    raise KeyError(
+                        f"Expected list at index token {token}, got {type(current).__name__}"
+                    )
                 if token < 0 or token >= len(current):
-                    raise KeyError(f"Index {token} out of range for list of length {len(current)}")
+                    raise KeyError(
+                        f"Index {token} out of range for list of length {len(current)}"
+                    )
                 current = current[token]
             else:
                 if not isinstance(current, dict):
-                    raise KeyError(f"Expected dict at key token '{token}', got {type(current).__name__}")
+                    raise KeyError(
+                        f"Expected dict at key token '{token}', got {type(current).__name__}"
+                    )
                 if token not in current:
                     raise KeyError(f"Key '{token}' not found in dictionary")
                 current = current[token]
         return current
-    
+
     def _process_key(self, source_key: str, source_value: Any) -> dict:
         """
         Maps the source key, generating a dictionary to be merged in the final gulp document.
@@ -1858,15 +1872,17 @@ class GulpPluginBase(ABC):
             try:
                 if isinstance(source_value, (dict, list)):
                     # extract the value from the source_value using the extract key
-                    source_value = self._handle_extract_key(source_value, fields_mapping.extract)
+                    source_value = self._handle_extract_key(
+                        source_value, fields_mapping.extract
+                    )
                 elif isinstance(source_value, str):
                     # if source_value is a string, we can try to parse it as JSON
                     source_value = json.loads(source_value)
             except Exception as ex:
-                #MutyLogger.get_instance().exception(ex)
+                # MutyLogger.get_instance().exception(ex)
                 # ignore
                 return {}
-                
+
         if fields_mapping.force_type:
             # force value to the given type
             t = fields_mapping.force_type
@@ -1908,7 +1924,7 @@ class GulpPluginBase(ABC):
 
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
-            # note that "ecs" is ignored if set 
+            # note that "ecs" is ignored if set
             mapped = self._try_map_ecs(fields_mapping, d, source_key, source_value)
             for k, _ in mapped.items():
                 extra[k] = None
