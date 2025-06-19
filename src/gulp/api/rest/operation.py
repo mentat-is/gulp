@@ -90,7 +90,18 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
             description="if set, default grants (READ access to default users) are set for the operation. Defaults to `False, this is intended mostly for DEBUGGING`."
         ),
     ] = False,
-    index_template: Annotated[Optional[dict], Body(description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)")]=None,
+    index_template: Annotated[
+        Optional[dict],
+        Body(
+            description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)"
+        ),
+    ] = None,
+    create_index: Annotated[
+        Optional[bool],
+        Query(
+            description="if `True`, re/create the corresponding OpenSearch index (will be overwritten if exists). Defaults to `True`."
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -115,8 +126,11 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                     f"operation_id={operation_id} already exists."
                 )
 
-        # recreate the index first
-        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(index, index_template=index_template)
+        if create_index:
+            # recreate the index first
+            await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
+                index, index_template=index_template
+            )
 
         # create the operation
         d = {
@@ -142,8 +156,9 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 obj_id=operation_id,
             )
         except Exception as exx:
-            # fail, delete the previously created index
-            await GulpOpenSearch.get_instance().datastream_delete(index)
+            if create_index:
+                # fail, delete the previously created index
+                await GulpOpenSearch.get_instance().datastream_delete(index)
             raise exx
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
@@ -455,6 +470,7 @@ async def context_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.get(
     "/context_get_by_id",
     tags=["operation"],
@@ -490,6 +506,7 @@ async def context_get_by_id_handler(
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.delete(
     "/context_delete",
@@ -671,6 +688,7 @@ async def source_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.get(
     "/source_get_by_id",
     tags=["operation"],
@@ -706,6 +724,7 @@ async def source_get_by_id_handler(
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.post(
     "/source_create",
@@ -850,5 +869,3 @@ async def source_delete_handler(
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-
-

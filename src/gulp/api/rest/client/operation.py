@@ -17,6 +17,7 @@ class GulpAPIOperation:
         glyph_id: str = None,
         set_default_grants: bool = False,
         index_template: str = None,
+        create_index: bool = True,
         req_id: str = None,
         expected_status: int = 200,
     ) -> dict:
@@ -33,6 +34,7 @@ class GulpAPIOperation:
             "index": index,
             "glyph_id": glyph_id,
             "set_default_grants": set_default_grants,
+            "create_index": create_index,
             "req_id": req_id or api_common.req_id,
         }
         body = {

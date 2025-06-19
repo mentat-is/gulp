@@ -12,7 +12,11 @@ from muty.log import MutyLogger
 from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import _ensure_test_operation, _test_ingest_ws_loop
+from gulp.api.rest.client.common import (
+    GulpAPICommon,
+    _ensure_test_operation,
+    _test_ingest_ws_loop,
+)
 from gulp.api.rest.client.ingest import GulpAPIIngest
 from gulp.api.rest.client.note import GulpAPINote
 from gulp.api.rest.client.object_acl import GulpAPIObjectACL
@@ -22,7 +26,9 @@ from gulp.api.rest.client.user import GulpAPIUser
 from gulp.api.rest.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
+    TEST_INDEX,
     TEST_OPERATION_ID,
+    TEST_REQ_ID,
     TEST_WS_ID,
 )
 from gulp.api.ws_api import (
@@ -47,7 +53,11 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    ingest = os.getenv("INGEST", "1")
+    if ingest == "1":
+        await _ensure_test_operation()
+    else:
+        await _ensure_test_operation(delete_data=False)
 
 
 @pytest.mark.asyncio
@@ -148,7 +158,8 @@ async def test_queries():
                             "query done, name=%s", q_done_packet.name
                         )
                         if q_done_packet.name == "test_gulp_query":
-                            assert q_done_packet.total_hits == 7
+                            hits_to_check = 7 #98633
+                            assert q_done_packet.total_hits == hits_to_check
                             test_completed = True
                         else:
                             raise ValueError(
@@ -256,14 +267,15 @@ async def test_queries():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
-    await test_win_evtx()
+    ingest = os.getenv("INGEST", "1")
+    if ingest == "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
+
+        await test_win_evtx()
 
     # test different queries
     await _test_query_gulp(guest_token)
     await _test_query_raw(guest_token)
     await _test_query_single_id(guest_token)
     await _test_query_operations()
-
-

@@ -51,8 +51,8 @@ async def _test_init(
             TEST_OPERATION_ID, recreate=recreate
         )
 
-async def _ensure_reset(
-) -> None:
+
+async def _ensure_reset() -> None:
     """
     ensure both opensearch and postgres collab db are reset, and the test operation exists
     """
@@ -68,10 +68,12 @@ async def _ensure_reset(
     await GulpAPIDb.gulp_reset(admin_token, create_default_operation=True)
 
 
-async def _ensure_test_operation(
-) -> None:
+async def _ensure_test_operation(delete_data: bool = True) -> None:
     """
     ensure that the test operation exists and its clean
+
+    Args:
+        delete_data: if True, delete the data in the operation on OpenSearch
     """
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
@@ -86,17 +88,25 @@ async def _ensure_test_operation(
 
     # this may fail if operation does not exist
     try:
-        await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+        await GulpAPIOperation.operation_delete(
+            admin_token, TEST_OPERATION_ID, delete_data=delete_data
+        )
     except Exception as e:
         MutyLogger.get_instance().warning(
             f"probably operation {TEST_OPERATION_ID} does not exist, ignoring: {e}"
         )
+    create_index: bool = True
+    if not delete_data:
+        # if we don't delete data, we don't want to create the index again
+        create_index = False
     res = await GulpAPIOperation.operation_create(
         admin_token,
         TEST_OPERATION_ID,
         set_default_grants=True,
+        create_index=create_index,
     )
     assert res["id"] == TEST_OPERATION_ID
+
 
 def _process_file_in_worker_process(
     host: str,
@@ -162,7 +172,6 @@ async def _test_ingest_generic(
     GulpAPICommon.get_instance().init(
         host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
     )
-
 
     # for each file, spawn a process using multiprocessing
     for file in files:
@@ -272,7 +281,9 @@ async def _test_ingest_ws_loop(
 
                     if skip_checks:
                         if stats_packet["status"] != "ongoing":
-                            MutyLogger.get_instance().info("request done, checks skipped, breaking the loop!")
+                            MutyLogger.get_instance().info(
+                                "request done, checks skipped, breaking the loop!"
+                            )
                             test_completed = True
                             break
 
@@ -361,9 +372,7 @@ class GulpAPICommon:
         if not params:
             params = {}
         MutyLogger.get_instance().debug(f"REQUEST {method} {url}")
-        MutyLogger.get_instance().debug(
-            f"REQUEST PARAMS: {params}"
-        )
+        MutyLogger.get_instance().debug(f"REQUEST PARAMS: {params}")
 
     def _log_response(self, r: requests.Response):
         if not self._log_res:
