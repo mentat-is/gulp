@@ -494,11 +494,15 @@ class GulpRestServer:
             if self._reset_collab or self._create_operation:
                 # reset collab database
                 delete_all_operations = self._reset_collab and self._create_operation
+                if self._reset_collab or first_run:
+                    force_create: bool=True
+                else:
+                    force_create: bool=False
                 MutyLogger.get_instance().warning(
-                    "reset_collab or create_operation set, first_run=%r, create_operation=%s, keep_data=%r, delete_all_operations=%r !"
-                    % (first_run, self._create_operation, self._keep_data, delete_all_operations)
+                    "reset_collab or create_operation set, first_run=%r, force_create=%r, create_operation=%s, keep_data=%r, delete_all_operations=%r !"
+                    % (first_run, force_create, self._create_operation, self._keep_data, delete_all_operations)
                 )
-                await db_reset(keep_data=self._keep_data, operation_id=self._create_operation, delete_all_operations=delete_all_operations)
+                await db_reset(keep_data=self._keep_data, operation_id=self._create_operation, delete_all_operations=delete_all_operations, force_create=True)
 
         except Exception as ex:
             if first_run:

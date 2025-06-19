@@ -127,6 +127,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         index: str = None,
         description: str = None,
         glyph_id: str = None,
+        create_index: bool = True,
         grant_to_users: list[str] = None,
         grant_to_groups: list[str] = None,
         set_default_grants: bool = False,
@@ -147,6 +148,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             index (str, optional): The index to associate with the operation. If not provided, it will be derived from the name.
             description (str, optional): A description for the operation.
             glyph_id (str, optional): The glyph id for the operation.
+            create_index (bool, optional): Whether to create the index for the operation. Defaults to True.
             grant_to_users (list[str], optional): List of user ids to grant access to the operation. Defaults to None.
             grant_to_groups (list[str], optional): List of group ids to grant access to the operation. Defaults to None.
             set_default_grants (bool, optional): Whether to set default grants for default users for the operation. Defaults to False.
@@ -178,7 +180,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     # delete
                     await op.delete(sess)
 
-        if not keep_data:
+        if not keep_data and create_index:
             # re/create the index
             from gulp.api.opensearch_api import GulpOpenSearch
 
@@ -225,8 +227,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 return op.to_dict(exclude_none=True)
 
         except Exception as exx:
-            # fail, delete the previously created index
-            await GulpOpenSearch.get_instance().datastream_delete(index)
+            if create_index:
+                # fail, delete the previously created index
+                await GulpOpenSearch.get_instance().datastream_delete(index)
             raise exx
 
 

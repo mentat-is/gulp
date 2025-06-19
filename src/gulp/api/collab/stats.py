@@ -607,9 +607,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             return dd
 
         # inform the websocket
-        MutyLogger.get_instance().debug(f"sending query done packet, datatype={ws_queue_datatype}, errors={errors}")
+        MutyLogger.get_instance().debug(
+            f"sending query done packet, datatype={ws_queue_datatype}, errors={errors}"
+        )
         p = GulpQueryDonePacket(
-            status=dd["status"],
+            status=dd.get("status", GulpRequestStatus.DONE.value),
             errors=errors or [],
             total_hits=hits,
             queries=num_queries,

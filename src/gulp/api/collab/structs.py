@@ -308,7 +308,9 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         )
         return exists(subq)
 
-    def _to_query_internal(self, q: Select|Delete, obj_type: T) -> Select[Tuple]|Delete[Tuple]:
+    def _to_query_internal(
+        self, q: Select | Delete, obj_type: T
+    ) -> Select[Tuple] | Delete[Tuple]:
         """
         convert the filter to a select or delete query
 
@@ -323,7 +325,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         # pylint: disable=E1133,E1136
 
         if self.ids:
-            q = q.filter(self._case_insensitive_or_ilike(obj_type.id, self.ids))            
+            q = q.filter(self._case_insensitive_or_ilike(obj_type.id, self.ids))
         if self.types:
             # match if equal to any in the list
             q = q.filter(obj_type.type.in_(self.types))
@@ -362,7 +364,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.texts and "text" in obj_type.columns:
             q = q.filter(self._case_insensitive_or_ilike(obj_type.text, self.texts))
 
-        if self.model_extra:            
+        if self.model_extra:
             # handle granted_user_ids and granted_group_ids as special case first
             granted_user_ids = self.model_extra.pop("granted_user_ids", None)
             granted_group_ids = self.model_extra.pop("granted_user_group_ids", None)
@@ -401,7 +403,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                         q = q.filter(self._array_contains_any(col, v))
                     else:
                         q = q.filter(self._case_insensitive_or_ilike(col, v))
-                    
+
                     continue
 
         if self.doc_ids and "doc_ids" in obj_type.columns:
@@ -421,7 +423,6 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 q = q.where(obj_type.time_created >= self.time_created_range[0])
             if self.time_created_range[1]:
                 q = q.where(obj_type.time_created <= self.time_created_range[1])
-
 
         if self.doc_ids and "docs" in obj_type.columns:
             # returns all collab objects that have at least one document with _id in doc_ids
@@ -516,7 +517,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             Delete[Tuple]: the delete query
         """
         return self._to_query_internal(delete(obj_type), obj_type)
-    
+
+
 class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMixin):
     """
     base for everything on the collab database
@@ -697,8 +699,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     nested_rel_name = nested_rel.key
                     # create chain of relationship loading
                     options.append(
-                        selectinload(getattr(cls, rel_name))
-                        .selectinload(getattr(target_class, nested_rel_name))
+                        selectinload(getattr(cls, rel_name)).selectinload(
+                            getattr(target_class, nested_rel_name)
+                        )
                     )
 
                     # avoid going too deep with recursion
@@ -707,7 +710,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         nested_seen.add(nested_target)
 
         return options
-
 
     @classmethod
     def build_base_object_dict(
@@ -783,7 +785,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_data: dict = None,
         req_id: str = None,
         private: bool = True,
-        commit: bool=True
+        commit: bool = True,
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -844,6 +846,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         if not ws_queue_datatype:
             from gulp.api.ws_api import WSDATA_COLLAB_UPDATE
+
             ws_queue_datatype = WSDATA_COLLAB_UPDATE
 
         # use provided data or serialize the instance
@@ -894,10 +897,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # add group grants
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+
         await self.add_group_grant(sess, ADMINISTRATORS_GROUP_ID, commit=False)
         await sess.commit()
 
-    async def add_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
+    async def add_group_grant(
+        self, sess: AsyncSession, group_id: str, commit: bool = True
+    ) -> None:
         """
         grant a user group access to the object
 
@@ -910,6 +916,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         # will except if the group do not exist!
         from gulp.api.collab.user_group import GulpUserGroup
+
         await GulpUserGroup.get_by_id(sess, group_id)
 
         if group_id not in self.granted_user_group_ids:
@@ -929,7 +936,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "user group %s already granted on object %s" % (group_id, self.id)
             )
 
-    async def remove_group_grant(self, sess: AsyncSession, group_id: str, commit: bool=True) -> None:
+    async def remove_group_grant(
+        self, sess: AsyncSession, group_id: str, commit: bool = True
+    ) -> None:
         """
         remove a user group access to the object
 
@@ -942,6 +951,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         # will except if the group do not exist!
         from gulp.api.collab.user_group import GulpUserGroup
+
         await GulpUserGroup.get_by_id(sess, group_id)
 
         if group_id in self.granted_user_group_ids:
@@ -962,7 +972,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "user group %s not in granted list on object %s" % (group_id, self.id)
             )
 
-    async def add_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
+    async def add_user_grant(
+        self, sess: AsyncSession, user_id: str, commit: bool = True
+    ) -> None:
         """
         grant a user access to the object
 
@@ -975,6 +987,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
+
         await GulpUser.get_by_id(sess, user_id)
 
         if user_id not in self.granted_user_ids:
@@ -994,7 +1007,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "user %s already granted on object %s" % (user_id, self.id)
             )
 
-    async def remove_user_grant(self, sess: AsyncSession, user_id: str, commit: bool=True) -> None:
+    async def remove_user_grant(
+        self, sess: AsyncSession, user_id: str, commit: bool = True
+    ) -> None:
         """
         remove a user access to the object
 
@@ -1007,6 +1022,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
+
         await GulpUser.get_by_id(sess, user_id)
 
         if user_id in self.granted_user_ids:
@@ -1055,7 +1071,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj_id: str = self.id
         try:
             await self.__class__.acquire_advisory_lock(sess, obj_id)
-            MutyLogger.get_instance().debug("deleting object %s.%s, operation=%s" % (self.__class__, obj_id, operation_id))
+            MutyLogger.get_instance().debug(
+                "deleting object %s.%s, operation=%s"
+                % (self.__class__, obj_id, operation_id)
+            )
             await sess.delete(self)
             await sess.commit()
         finally:
@@ -1073,6 +1092,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         if not ws_queue_datatype:
             from gulp.api.ws_api import WSDATA_COLLAB_DELETE
+
             ws_queue_datatype = WSDATA_COLLAB_DELETE
 
         if ws_data:
@@ -1266,6 +1286,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         if not ws_queue_datatype:
             from gulp.api.ws_api import WSDATA_COLLAB_UPDATE
+
             ws_queue_datatype = WSDATA_COLLAB_UPDATE
 
         # notify the websocket of the collab object update
@@ -1422,10 +1443,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if user_id:
             # get user info (its groups and admin status)
             from gulp.api.collab.user import GulpUser
+
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
-            # MutyLogger.get_instance().debug("user=%s, admin=%r, groups=%s" % (u.to_dict(), is_admin, group_ids))
 
         # build and run query (ensure eager loading)
         if is_admin:
@@ -1438,6 +1459,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             flt.granted_user_ids = [user_id]
             flt.granted_user_group_ids = group_ids
 
+        # MutyLogger.get_instance().debug("pre to_select_query: user=%s, admin=%r, groups=%s, flt=%s" % (u.to_dict(), is_admin, group_ids, flt))
         q = flt.to_select_query(cls)
         q = q.options(*cls._build_eager_loading_options(recursive=recursive))
         MutyLogger.get_instance().debug(
@@ -1484,6 +1506,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if user_id:
             # get user info (its groups and admin status)
             from gulp.api.collab.user import GulpUser
+
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
@@ -1512,13 +1535,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
             return 0
         deleted_count = res.rowcount
-            
+
         # commit the transaction
-        await sess.commit()        
+        await sess.commit()
         MutyLogger.get_instance().debug(
             "user_id=%s, deleted %d objects (optimized)" % (user_id, deleted_count)
         )
-        
+
         return deleted_count
 
     @classmethod
@@ -1625,10 +1648,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
-            MutyLogger.get_instance().debug(
-                "get_by_filter, user_id=%s"
-                % (user_id)
-            )
+            MutyLogger.get_instance().debug("get_by_filter, user_id=%s" % (user_id))
 
             objs = await cls.get_by_filter(
                 sess,
@@ -1706,7 +1726,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         req_id: str,
         d: dict = None,
         permission: list[GulpUserPermission] = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         helper to update an object by ID, handling session
@@ -1820,9 +1840,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             return n.to_dict(exclude_none=True)
 
 
-class GulpCollabObject(
-    GulpCollabBase, type=COLLABTYPE_GENERIC, abstract=True
-):
+class GulpCollabObject(GulpCollabBase, type=COLLABTYPE_GENERIC, abstract=True):
     """
     base for all collaboration objects (notes, links, stories, highlights) related to an operation.
 

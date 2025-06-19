@@ -95,6 +95,12 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
             description="if set, the custom `index template` to use (refer to https://docs.opensearch.org/docs/latest/im-plugin/index-templates/)"
         ),
     ] = None,
+    create_index: Annotated[
+        Optional[bool],
+        Query(
+            description="if `True`, re/create the corresponding OpenSearch index (will be overwritten if exists). Defaults to `True`."
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -113,6 +119,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
             index=index,
             description=description,
             glyph_id=glyph_id,
+            create_index=create_index,
             set_default_grants=set_default_grants,
             index_template=index_template,
             req_id=req_id,
