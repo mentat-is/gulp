@@ -2224,23 +2224,6 @@ class GulpPluginBase(ABC):
 
         return mappings, mapping_id
 
-    async def _handle_stacked_mappings(self) -> None:
-        """
-        pass mappings to the upper plugin in stacked configuration
-        """
-        # pylint: disable=W0212
-        MutyLogger.get_instance().debug("----> _handle_stacked_mappings: stacked=%r, upper_instance=%s, mapping_id=%s, mappings=%s"
-              % (self._stacked, self._upper_instance, self._mapping_id, self._mappings))
-        if not self._stacked:
-            return
-
-        # pass our mappings to the upper plugin (i.e. lower regex -> upper regex_teamviewer_stacked)
-        if not self._upper_instance._mapping_id:
-            self._upper_instance._mapping_id = self._mapping_id
-
-        if not self._upper_instance._mappings:
-            self._upper_instance._mappings = self._mappings
-
     async def _fetch_index_type_mappings(self) -> None:
         """
         get the type mappings for the current index on OpenSearch
@@ -2299,9 +2282,6 @@ class GulpPluginBase(ABC):
                     self._plugin_params.mapping_parameters
                 )
             )
-
-        # handle stacked plugin mappings
-        # await self._handle_stacked_mappings()
 
         # initialize index type mappings
         await self._fetch_index_type_mappings()
