@@ -106,7 +106,7 @@ class Plugin(GulpPluginBase):
 
         # map timestamp manually
         time_str = event.pop("datetime")
-        d["@timestamp"] = datetime.datetime.strptime(
+        timestamp = datetime.datetime.strptime(
             time_str,
             self._plugin_params.custom_parameters.get(
                 "date_format", "%d/%b/%Y:%H:%M:%S %z"
@@ -138,6 +138,7 @@ class Plugin(GulpPluginBase):
             event_original=record,
             event_sequence=record_idx,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
+            timestamp=timestamp,
             **d,
         )
 

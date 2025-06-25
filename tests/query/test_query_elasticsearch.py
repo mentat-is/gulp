@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.api.rest.client.common import _ensure_test_operation
 from gulp.api.rest.client.query import GulpAPIQuery
@@ -17,7 +18,7 @@ from gulp.api.rest.test_values import (
     TEST_WS_ID,
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -46,16 +47,29 @@ async def test_elasticsearch():
                     if data["type"] == "ws_connected":
                         # run test
                         q_options = GulpQueryParameters()
-                        plugin_params: GulpPluginParameters = GulpPluginParameters()
                         q_options.name = "test_external_elasticsearch"
-                        q_options.group = "test group"
-                        plugin_params.mapping_parameters.mapping_file = "windows.json"
-                        plugin_params.custom_parameters["uri"] = "http://localhost:9200"
-                        plugin_params.custom_parameters["username"] = "admin"
-                        plugin_params.custom_parameters["password"] = "Gulp1234!"
-                        plugin_params.custom_parameters["index"] = TEST_INDEX
-                        plugin_params.custom_parameters["is_elasticsearch"] = (
-                            False  # we are querying gulp's opensearch
+                        plugin_params = GulpPluginParameters(
+
+                            mapping_parameters=GulpMappingParameters(
+                                mappings={
+                                    "test_mapping": GulpMapping(
+                                        fields={
+                                            "gulp.context_id": GulpMappingField(ecs="gulp.context_id"),
+                                            "gulp.operation_id": GulpMappingField(ecs="gulp.operation_id"),
+                                            "gulp.source_id": GulpMappingField(ecs="gulp.source_id"),
+                                            "gulp.event_sequence": GulpMappingField(ecs="gulp.event_sequence"),
+                                            "gulp.event_original": GulpMappingField(ecs="gulp.event_original"),
+                                        }
+                                    )
+                                }
+                            ),
+                            custom_parameters={
+                                "uri": "http://localhost:9200",
+                                "username": "admin",
+                                "password": "Gulp1234!",
+                                "index": TEST_INDEX,
+                                "is_elasticsearch": False,  # we are querying gulp's opensearch
+                            },
                         )
 
                         # 1 hits
@@ -107,3 +121,4 @@ async def test_elasticsearch():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
     await _test_raw_external(token=guest_token)
+    await _test_raw_external(token=ingest_token, ingest=True)

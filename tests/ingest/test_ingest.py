@@ -238,7 +238,7 @@ async def test_raw(raw_data: list[dict] = None):
     await _test_ingest_ws_loop(
         check_ingested=check_size
     )  # , check_on_source_done=True)
-    
+
     if not raw_data:
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
@@ -695,3 +695,11 @@ async def test_mysql_error():
     files = [os.path.join(current_dir, "../../samples/mysql_error/mysql_error.log")]
     await _test_ingest_generic(files, "mysql_error", 61)
     MutyLogger.get_instance().info(test_mysql_error.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_mysql_general():
+    # TODO: broken
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/mysql_general/example.general.log")]
+    await _test_ingest_generic(files, "mysql_general", 4056)
+    MutyLogger.get_instance().info(test_mysql_general.__name__ + " succeeded!")

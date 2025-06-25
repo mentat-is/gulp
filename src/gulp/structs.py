@@ -57,7 +57,9 @@ class GulpAPIParameter(BaseModel):
         default="query", description="where the parameter is located, for API requests."
     )
     required: Optional[bool] = Field(False, description="is the parameter required ?")
-
+    example: Optional[Any] = Field(
+        None, description="an example value for the parameter, if any."
+    )
 
 class GulpAPIMethod(BaseModel):
     """
@@ -175,7 +177,7 @@ class GulpPluginParameters(BaseModel):
     override_chunk_size: Optional[int] = Field(
         None,
         description="""this is used to override the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
-        
+
         by default, this is set as configuration 'documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
     )
 

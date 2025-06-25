@@ -128,7 +128,6 @@ class Plugin(GulpPluginBase):
 
         d: dict = {}
 
-        # map timestamp and event code manually
         d["@timestamp"] = event["Date"]
         d["event.code"] = str(muty.crypto.hash_xxh64_int(event["From"]))
 

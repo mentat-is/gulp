@@ -109,17 +109,18 @@ class Plugin(GulpPluginBase):
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
+        timestamp: str = None
         if date_format:
-            d["@timestamp"] = datetime.strptime(d["@timestamp"], date_format)
+            timestamp = datetime.strptime(d["@timestamp"], date_format).isoformat()
 
         return GulpDocument(
             self,
-            # timestamp=timestamp,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
+            timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )

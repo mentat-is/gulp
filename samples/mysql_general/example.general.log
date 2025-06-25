@@ -1,0 +1,4056 @@
+/opt/bitnami/mariadb/sbin/mysqld, Version: 10.4.13-MariaDB-log (Source distribution). started with:
+Tcp port: 3306  Unix socket: /opt/bitnami/mariadb/tmp/mysql.sock
+Time		    Id Command	Argument
+200827 10:05:46	    17 Connect	root@localhost as anonymous on 
+		    17 Statistics	
+		    17 Quit	
+200827 10:05:50	    18 Connect	root@172.25.244.171 as anonymous on mysql
+		    18 Query	SET lock_wait_timeout=2
+		    18 Query	SELECT @@version
+		    18 Query	SELECT @@query_response_time_stats
+		    18 Query	SHOW ALL SLAVES STATUS
+		    18 Query	SHOW GLOBAL STATUS
+		    18 Query	SHOW GLOBAL VARIABLES
+		    18 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    18 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    18 Quit	
+200827 10:05:56	    19 Connect	root@localhost as anonymous on 
+		    19 Statistics	
+		    19 Quit	
+200827 10:06:00	    20 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		    20 Query	SET NAMES utf8
+		    20 Query	use `develop_project`
+		    20 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    20 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    20 Close stmt	
+		    20 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    20 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    20 Close stmt	
+		    20 Prepare	select `tag` from `telescope_monitoring`
+		    20 Execute	select `tag` from `telescope_monitoring`
+		    20 Close stmt	
+		    20 Quit	
+200827 10:06:05	    21 Connect	root@172.25.244.171 as anonymous on mysql
+		    21 Query	SET lock_wait_timeout=2
+		    21 Query	SELECT @@version
+		    21 Query	SELECT @@query_response_time_stats
+		    21 Query	SHOW ALL SLAVES STATUS
+		    21 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    21 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    21 Query	SHOW GLOBAL VARIABLES
+		    21 Query	SHOW GLOBAL STATUS
+		    21 Quit	
+200827 10:06:06	    22 Connect	root@localhost as anonymous on 
+		    22 Statistics	
+		    22 Quit	
+200827 10:06:16	    23 Connect	root@localhost as anonymous on 
+		    23 Statistics	
+		    23 Quit	
+200827 10:06:20	    24 Connect	root@172.25.244.171 as anonymous on mysql
+		    24 Query	SET lock_wait_timeout=2
+		    24 Query	SELECT @@version
+		    24 Query	SELECT @@query_response_time_stats
+		    24 Query	SHOW GLOBAL STATUS
+		    24 Query	SHOW GLOBAL VARIABLES
+		    24 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    24 Query	SHOW ALL SLAVES STATUS
+		    24 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    24 Quit	
+200827 10:06:26	    25 Connect	root@localhost as anonymous on 
+		    25 Statistics	
+		    25 Quit	
+200827 10:06:35	    26 Connect	root@172.25.244.171 as anonymous on mysql
+		    26 Query	SET lock_wait_timeout=2
+		    26 Query	SELECT @@version
+		    26 Query	SELECT @@query_response_time_stats
+		    26 Query	SHOW GLOBAL STATUS
+		    26 Query	SHOW GLOBAL VARIABLES
+		    26 Query	SHOW ALL SLAVES STATUS
+		    26 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    26 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    26 Quit	
+200827 10:06:36	    27 Connect	root@localhost as anonymous on 
+		    27 Statistics	
+		    27 Quit	
+200827 10:06:46	    28 Connect	root@localhost as anonymous on 
+		    28 Statistics	
+		    28 Quit	
+200827 10:06:50	    29 Connect	root@172.25.244.171 as anonymous on mysql
+		    29 Query	SET lock_wait_timeout=2
+		    29 Query	SELECT @@version
+		    29 Query	SELECT @@query_response_time_stats
+		    29 Query	SHOW ALL SLAVES STATUS
+		    29 Query	SHOW GLOBAL STATUS
+		    29 Query	SHOW GLOBAL VARIABLES
+		    29 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    29 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    29 Quit	
+200827 10:06:56	    30 Connect	root@localhost as anonymous on 
+		    30 Statistics	
+		    30 Quit	
+200827 10:07:00	    31 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		    31 Query	SET NAMES utf8
+		    31 Query	use `develop_project`
+		    31 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    31 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    31 Close stmt	
+		    31 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    31 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    31 Close stmt	
+		    31 Prepare	select `tag` from `telescope_monitoring`
+		    31 Close stmt	
+		    31 Quit	
+200827 10:07:05	    32 Connect	root@172.25.244.171 as anonymous on mysql
+		    32 Query	SET lock_wait_timeout=2
+		    32 Query	SELECT @@version
+		    32 Query	SELECT @@query_response_time_stats
+		    32 Query	SHOW GLOBAL STATUS
+		    32 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    32 Query	SHOW ALL SLAVES STATUS
+		    32 Query	SHOW GLOBAL VARIABLES
+		    32 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    32 Quit	
+200827 10:07:06	    33 Connect	root@localhost as anonymous on 
+		    33 Statistics	
+		    33 Quit	
+200827 10:07:16	    34 Connect	root@localhost as anonymous on 
+		    34 Statistics	
+		    34 Quit	
+200827 10:07:19	    35 Connect	root@localhost as anonymous on 
+		    35 Statistics	
+		    35 Quit	
+200827 10:07:20	    36 Connect	root@172.25.244.171 as anonymous on mysql
+		    36 Query	SET lock_wait_timeout=2
+		    36 Query	SELECT @@version
+		    36 Query	SELECT @@query_response_time_stats
+		    36 Query	SHOW GLOBAL STATUS
+		    36 Query	SHOW GLOBAL VARIABLES
+		    36 Query	SHOW ALL SLAVES STATUS
+		    36 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    36 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    36 Quit	
+200827 10:07:26	    37 Connect	root@localhost as anonymous on 
+		    37 Statistics	
+		    37 Quit	
+200827 10:07:29	    38 Connect	root@localhost as anonymous on 
+		    38 Statistics	
+		    38 Quit	
+200827 10:07:35	    39 Connect	root@172.25.244.171 as anonymous on mysql
+		    39 Query	SET lock_wait_timeout=2
+		    39 Query	SELECT @@version
+		    39 Query	SELECT @@query_response_time_stats
+		    39 Query	SHOW ALL SLAVES STATUS
+		    39 Query	SHOW GLOBAL STATUS
+		    39 Query	SHOW GLOBAL VARIABLES
+		    39 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    39 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    39 Quit	
+200827 10:07:36	    40 Connect	root@localhost as anonymous on 
+		    40 Statistics	
+		    40 Quit	
+200827 10:07:39	    41 Connect	root@localhost as anonymous on 
+		    41 Statistics	
+		    41 Quit	
+200827 10:07:46	    42 Connect	root@localhost as anonymous on 
+		    42 Statistics	
+		    42 Quit	
+200827 10:07:49	    43 Connect	root@localhost as anonymous on 
+		    43 Statistics	
+		    43 Quit	
+200827 10:07:50	    44 Connect	root@172.25.244.171 as anonymous on mysql
+		    44 Query	SET lock_wait_timeout=2
+		    44 Query	SELECT @@version
+		    44 Query	SELECT @@query_response_time_stats
+		    44 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    44 Query	SHOW GLOBAL VARIABLES
+		    44 Query	SHOW ALL SLAVES STATUS
+		    44 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    44 Query	SHOW GLOBAL STATUS
+		    44 Quit	
+200827 10:07:56	    45 Connect	root@localhost as anonymous on 
+		    45 Statistics	
+		    45 Quit	
+200827 10:07:59	    46 Connect	root@localhost as anonymous on 
+		    46 Statistics	
+		    46 Quit	
+200827 10:08:00	    47 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		    47 Query	SET NAMES utf8
+		    47 Query	use `develop_project`
+		    47 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    47 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    47 Close stmt	
+		    47 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    47 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    47 Close stmt	
+		    47 Prepare	select `tag` from `telescope_monitoring`
+		    47 Close stmt	
+		    47 Quit	
+200827 10:08:05	    48 Connect	root@172.25.244.171 as anonymous on mysql
+		    48 Query	SET lock_wait_timeout=2
+		    48 Query	SELECT @@version
+		    48 Query	SELECT @@query_response_time_stats
+		    48 Query	SHOW ALL SLAVES STATUS
+		    48 Query	SHOW GLOBAL STATUS
+		    48 Query	SHOW GLOBAL VARIABLES
+		    48 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    48 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    48 Quit	
+200827 10:08:06	    49 Connect	root@localhost as anonymous on 
+		    49 Statistics	
+		    49 Quit	
+200827 10:08:09	    50 Connect	root@localhost as anonymous on 
+		    50 Statistics	
+		    50 Quit	
+200827 10:08:16	    51 Connect	root@localhost as anonymous on 
+		    51 Statistics	
+		    51 Quit	
+200827 10:08:19	    52 Connect	root@localhost as anonymous on 
+		    52 Statistics	
+		    52 Quit	
+200827 10:08:20	    53 Connect	root@172.25.244.171 as anonymous on mysql
+		    53 Query	SET lock_wait_timeout=2
+		    53 Query	SELECT @@version
+		    53 Query	SELECT @@query_response_time_stats
+		    53 Query	SHOW ALL SLAVES STATUS
+		    53 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    53 Query	SHOW GLOBAL STATUS
+		    53 Query	SHOW GLOBAL VARIABLES
+		    53 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    53 Quit	
+200827 10:08:26	    54 Connect	root@localhost as anonymous on 
+		    54 Statistics	
+		    54 Quit	
+200827 10:08:29	    55 Connect	root@localhost as anonymous on 
+		    55 Statistics	
+		    55 Quit	
+200827 10:08:35	    56 Connect	root@172.25.244.171 as anonymous on mysql
+		    56 Query	SET lock_wait_timeout=2
+		    56 Query	SELECT @@version
+		    56 Query	SELECT @@query_response_time_stats
+		    56 Query	SHOW GLOBAL STATUS
+		    56 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    56 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    56 Query	SHOW GLOBAL VARIABLES
+		    56 Query	SHOW ALL SLAVES STATUS
+		    56 Quit	
+200827 10:08:36	    57 Connect	root@localhost as anonymous on 
+		    57 Statistics	
+		    57 Quit	
+200827 10:08:39	    58 Connect	root@localhost as anonymous on 
+		    58 Statistics	
+		    58 Quit	
+200827 10:08:46	    59 Connect	root@localhost as anonymous on 
+		    59 Statistics	
+		    59 Quit	
+200827 10:08:49	    60 Connect	root@localhost as anonymous on 
+		    60 Statistics	
+		    60 Quit	
+200827 10:08:50	    61 Connect	root@172.25.244.171 as anonymous on mysql
+		    61 Query	SET lock_wait_timeout=2
+		    61 Query	SELECT @@version
+		    61 Query	SELECT @@query_response_time_stats
+		    61 Query	SHOW GLOBAL VARIABLES
+		    61 Query	SHOW GLOBAL STATUS
+		    61 Query	SHOW ALL SLAVES STATUS
+		    61 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    61 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    61 Quit	
+200827 10:08:54	    62 Connect	root@localhost as anonymous on 
+		    62 Query	SHOW GLOBAL STATUS LIKE 'wsrep_%'
+		    62 Quit	
+200827 10:08:56	    63 Connect	root@localhost as anonymous on 
+		    63 Statistics	
+		    63 Quit	
+200827 10:08:59	    64 Connect	root@localhost as anonymous on 
+		    64 Statistics	
+		    64 Quit	
+200827 10:09:00	    65 Connect	project@172.25.113.178 as anonymous on project
+		    65 Query	SET NAMES utf8
+		    65 Query	use `project`
+		    65 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    65 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    65 Close stmt	
+		    65 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    65 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    65 Close stmt	
+		    65 Prepare	select `tag` from `telescope_monitoring`
+		    65 Execute	select `tag` from `telescope_monitoring`
+		    65 Close stmt	
+		    65 Quit	
+200827 10:09:05	    66 Connect	root@172.25.244.171 as anonymous on mysql
+		    66 Query	SET lock_wait_timeout=2
+		    66 Query	SELECT @@version
+		    66 Query	SELECT @@query_response_time_stats
+		    66 Query	SHOW ALL SLAVES STATUS
+		    66 Query	SHOW GLOBAL STATUS
+		    66 Query	SHOW GLOBAL VARIABLES
+		    66 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+200827 10:09:06	    66 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    66 Quit	
+		    67 Connect	root@localhost as anonymous on 
+		    67 Statistics	
+		    67 Quit	
+200827 10:09:09	    68 Connect	root@localhost as anonymous on 
+		    68 Statistics	
+		    68 Quit	
+200827 10:09:16	    69 Connect	root@localhost as anonymous on 
+		    69 Statistics	
+		    69 Quit	
+200827 10:09:19	    70 Connect	root@localhost as anonymous on 
+		    70 Statistics	
+		    70 Quit	
+200827 10:09:20	    71 Connect	root@172.25.244.171 as anonymous on mysql
+		    71 Query	SET lock_wait_timeout=2
+		    71 Query	SELECT @@version
+		    71 Query	SELECT @@query_response_time_stats
+		    71 Query	SHOW ALL SLAVES STATUS
+		    71 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    71 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    71 Query	SHOW GLOBAL VARIABLES
+		    71 Query	SHOW GLOBAL STATUS
+		    71 Quit	
+200827 10:09:26	    72 Connect	root@localhost as anonymous on 
+		    72 Statistics	
+		    72 Quit	
+200827 10:09:29	    73 Connect	root@localhost as anonymous on 
+		    73 Statistics	
+		    73 Quit	
+200827 10:09:35	    74 Connect	root@172.25.244.171 as anonymous on mysql
+		    74 Query	SET lock_wait_timeout=2
+		    74 Query	SELECT @@version
+		    74 Query	SELECT @@query_response_time_stats
+		    74 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    74 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    74 Query	SHOW GLOBAL STATUS
+		    74 Query	SHOW GLOBAL VARIABLES
+		    74 Query	SHOW ALL SLAVES STATUS
+		    74 Quit	
+200827 10:09:36	    75 Connect	root@localhost as anonymous on 
+		    75 Statistics	
+		    75 Quit	
+200827 10:09:39	    76 Connect	root@localhost as anonymous on 
+		    76 Statistics	
+		    76 Quit	
+200827 10:09:46	    77 Connect	root@localhost as anonymous on 
+		    77 Statistics	
+		    77 Quit	
+200827 10:09:49	    78 Connect	root@localhost as anonymous on 
+		    78 Statistics	
+		    78 Quit	
+200827 10:09:50	    79 Connect	root@172.25.244.171 as anonymous on mysql
+		    79 Query	SET lock_wait_timeout=2
+		    79 Query	SELECT @@version
+		    79 Query	SELECT @@query_response_time_stats
+		    79 Query	SHOW ALL SLAVES STATUS
+		    79 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    79 Query	SHOW GLOBAL VARIABLES
+		    79 Query	SHOW GLOBAL STATUS
+		    79 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    79 Quit	
+200827 10:09:56	    80 Connect	root@localhost as anonymous on 
+		    80 Statistics	
+		    80 Quit	
+200827 10:09:59	    81 Connect	root@localhost as anonymous on 
+		    81 Statistics	
+		    81 Quit	
+200827 10:10:00	    82 Connect	project@172.25.113.178 as anonymous on project
+		    82 Query	SET NAMES utf8
+		    82 Query	use `project`
+		    82 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    82 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    82 Close stmt	
+		    82 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    82 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    82 Close stmt	
+		    82 Prepare	select `tag` from `telescope_monitoring`
+		    82 Close stmt	
+		    82 Quit	
+		    83 Connect	review_project@172.25.113.135 as anonymous on review_project
+		    83 Query	SET NAMES utf8
+		    83 Query	use `review_project`
+		    83 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    83 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		    83 Close stmt	
+		    83 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    83 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		    83 Close stmt	
+		    83 Prepare	select `tag` from `telescope_monitoring`
+		    83 Execute	select `tag` from `telescope_monitoring`
+		    83 Close stmt	
+200827 10:10:01	    83 Quit	
+200827 10:10:05	    84 Connect	root@172.25.244.171 as anonymous on mysql
+		    84 Query	SET lock_wait_timeout=2
+		    84 Query	SELECT @@version
+		    84 Query	SELECT @@query_response_time_stats
+		    84 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    84 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    84 Query	SHOW ALL SLAVES STATUS
+		    84 Query	SHOW GLOBAL STATUS
+		    84 Query	SHOW GLOBAL VARIABLES
+		    84 Quit	
+200827 10:10:06	    85 Connect	root@localhost as anonymous on 
+		    85 Statistics	
+		    85 Quit	
+200827 10:10:09	    86 Connect	root@localhost as anonymous on 
+		    86 Statistics	
+		    86 Quit	
+200827 10:10:16	    87 Connect	root@localhost as anonymous on 
+		    87 Statistics	
+		    87 Quit	
+200827 10:10:19	    88 Connect	root@localhost as anonymous on 
+		    88 Statistics	
+		    88 Quit	
+200827 10:10:20	    89 Connect	root@172.25.244.171 as anonymous on mysql
+		    89 Query	SET lock_wait_timeout=2
+		    89 Query	SELECT @@version
+		    89 Query	SELECT @@query_response_time_stats
+		    89 Query	SHOW GLOBAL STATUS
+		    89 Query	SHOW GLOBAL VARIABLES
+200827 10:10:21	    89 Query	SHOW ALL SLAVES STATUS
+		    89 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    89 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    89 Quit	
+200827 10:10:26	    90 Connect	root@localhost as anonymous on 
+		    90 Statistics	
+		    90 Quit	
+200827 10:10:29	    91 Connect	root@localhost as anonymous on 
+		    91 Statistics	
+		    91 Quit	
+200827 10:10:35	    92 Connect	root@172.25.244.171 as anonymous on mysql
+		    92 Query	SET lock_wait_timeout=2
+		    92 Query	SELECT @@version
+		    92 Query	SELECT @@query_response_time_stats
+		    92 Query	SHOW GLOBAL VARIABLES
+		    92 Query	SHOW ALL SLAVES STATUS
+		    92 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    92 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    92 Query	SHOW GLOBAL STATUS
+		    92 Quit	
+200827 10:10:36	    93 Connect	root@localhost as anonymous on 
+		    93 Statistics	
+		    93 Quit	
+200827 10:10:39	    94 Connect	root@localhost as anonymous on 
+		    94 Statistics	
+		    94 Quit	
+200827 10:10:46	    95 Connect	root@localhost as anonymous on 
+		    95 Statistics	
+		    95 Quit	
+200827 10:10:49	    96 Connect	root@localhost as anonymous on 
+		    96 Statistics	
+		    96 Quit	
+200827 10:10:50	    97 Connect	root@172.25.244.171 as anonymous on mysql
+		    97 Query	SET lock_wait_timeout=2
+		    97 Query	SELECT @@version
+		    97 Query	SELECT @@query_response_time_stats
+		    97 Query	SHOW ALL SLAVES STATUS
+		    97 Query	SHOW GLOBAL STATUS
+		    97 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		    97 Query	SHOW GLOBAL VARIABLES
+		    97 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		    97 Quit	
+200827 10:10:56	    98 Connect	root@localhost as anonymous on 
+		    98 Statistics	
+		    98 Quit	
+200827 10:10:59	    99 Connect	root@localhost as anonymous on 
+		    99 Statistics	
+		    99 Quit	
+200827 10:11:00	   100 Connect	project@172.25.113.178 as anonymous on project
+		   100 Query	SET NAMES utf8
+		   100 Query	use `project`
+		   100 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   100 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   100 Close stmt	
+		   100 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   100 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   100 Close stmt	
+		   100 Prepare	select `tag` from `telescope_monitoring`
+		   100 Close stmt	
+		   100 Quit	
+200827 10:11:05	   101 Connect	root@172.25.244.171 as anonymous on mysql
+		   101 Query	SET lock_wait_timeout=2
+		   101 Query	SELECT @@version
+		   101 Query	SELECT @@query_response_time_stats
+		   101 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   101 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   101 Query	SHOW GLOBAL STATUS
+		   101 Query	SHOW GLOBAL VARIABLES
+		   101 Query	SHOW ALL SLAVES STATUS
+		   101 Quit	
+200827 10:11:06	   102 Connect	root@localhost as anonymous on 
+		   102 Statistics	
+		   102 Quit	
+200827 10:11:09	   103 Connect	root@localhost as anonymous on 
+		   103 Statistics	
+		   103 Quit	
+200827 10:11:16	   104 Connect	root@localhost as anonymous on 
+		   104 Statistics	
+		   104 Quit	
+200827 10:11:19	   105 Connect	root@localhost as anonymous on 
+		   105 Statistics	
+		   105 Quit	
+200827 10:11:20	   106 Connect	root@172.25.244.171 as anonymous on mysql
+		   106 Query	SET lock_wait_timeout=2
+		   106 Query	SELECT @@version
+		   106 Query	SELECT @@query_response_time_stats
+		   106 Query	SHOW GLOBAL STATUS
+		   106 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   106 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   106 Query	SHOW GLOBAL VARIABLES
+		   106 Query	SHOW ALL SLAVES STATUS
+		   106 Quit	
+200827 10:11:26	   107 Connect	root@localhost as anonymous on 
+		   107 Statistics	
+		   107 Quit	
+200827 10:11:29	   108 Connect	root@localhost as anonymous on 
+		   108 Statistics	
+		   108 Quit	
+200827 10:11:35	   109 Connect	root@172.25.244.171 as anonymous on mysql
+		   109 Query	SET lock_wait_timeout=2
+		   109 Query	SELECT @@version
+		   109 Query	SELECT @@query_response_time_stats
+		   109 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   109 Query	SHOW GLOBAL VARIABLES
+		   109 Query	SHOW GLOBAL STATUS
+		   109 Query	SHOW ALL SLAVES STATUS
+		   109 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   109 Quit	
+200827 10:11:36	   110 Connect	root@localhost as anonymous on 
+		   110 Statistics	
+		   110 Quit	
+200827 10:11:39	   111 Connect	root@localhost as anonymous on 
+		   111 Statistics	
+		   111 Quit	
+200827 10:11:46	   112 Connect	root@localhost as anonymous on 
+		   112 Statistics	
+		   112 Quit	
+200827 10:11:49	   113 Connect	root@localhost as anonymous on 
+		   113 Statistics	
+		   113 Quit	
+200827 10:11:50	   114 Connect	root@172.25.244.171 as anonymous on mysql
+		   114 Query	SET lock_wait_timeout=2
+		   114 Query	SELECT @@version
+		   114 Query	SELECT @@query_response_time_stats
+		   114 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   114 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   114 Query	SHOW ALL SLAVES STATUS
+		   114 Query	SHOW GLOBAL STATUS
+		   114 Query	SHOW GLOBAL VARIABLES
+		   114 Quit	
+200827 10:11:56	   115 Connect	root@localhost as anonymous on 
+		   115 Statistics	
+		   115 Quit	
+200827 10:11:59	   116 Connect	root@localhost as anonymous on 
+		   116 Statistics	
+		   116 Quit	
+200827 10:12:05	   117 Connect	root@172.25.244.171 as anonymous on mysql
+		   117 Query	SET lock_wait_timeout=2
+		   117 Query	SELECT @@version
+		   117 Query	SELECT @@query_response_time_stats
+		   117 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   117 Query	SHOW ALL SLAVES STATUS
+		   117 Query	SHOW GLOBAL STATUS
+		   117 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   117 Query	SHOW GLOBAL VARIABLES
+		   117 Quit	
+200827 10:12:06	   118 Connect	root@localhost as anonymous on 
+		   118 Statistics	
+		   118 Quit	
+200827 10:12:09	   119 Connect	root@localhost as anonymous on 
+		   119 Statistics	
+		   119 Quit	
+200827 10:12:16	   120 Connect	root@localhost as anonymous on 
+		   120 Statistics	
+		   120 Quit	
+200827 10:12:19	   121 Connect	root@localhost as anonymous on 
+		   121 Statistics	
+		   121 Quit	
+200827 10:12:20	   122 Connect	root@172.25.244.171 as anonymous on mysql
+		   122 Query	SET lock_wait_timeout=2
+		   122 Query	SELECT @@version
+		   122 Query	SELECT @@query_response_time_stats
+		   122 Query	SHOW ALL SLAVES STATUS
+		   122 Query	SHOW GLOBAL STATUS
+		   122 Query	SHOW GLOBAL VARIABLES
+		   122 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   122 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   122 Quit	
+200827 10:12:26	   123 Connect	root@localhost as anonymous on 
+		   123 Statistics	
+		   123 Quit	
+200827 10:12:29	   124 Connect	root@localhost as anonymous on 
+		   124 Statistics	
+		   124 Quit	
+200827 10:12:35	   125 Connect	root@172.25.244.171 as anonymous on mysql
+		   125 Query	SET lock_wait_timeout=2
+		   125 Query	SELECT @@version
+		   125 Query	SELECT @@query_response_time_stats
+		   125 Query	SHOW GLOBAL VARIABLES
+		   125 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   125 Query	SHOW GLOBAL STATUS
+		   125 Query	SHOW ALL SLAVES STATUS
+		   125 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   125 Quit	
+200827 10:12:36	   126 Connect	root@localhost as anonymous on 
+		   126 Statistics	
+		   126 Quit	
+200827 10:12:39	   127 Connect	root@localhost as anonymous on 
+		   127 Statistics	
+		   127 Quit	
+200827 10:12:46	   128 Connect	root@localhost as anonymous on 
+		   128 Statistics	
+		   128 Quit	
+200827 10:12:49	   129 Connect	root@localhost as anonymous on 
+		   129 Statistics	
+		   129 Quit	
+200827 10:12:50	   130 Connect	root@172.25.244.171 as anonymous on mysql
+		   130 Query	SET lock_wait_timeout=2
+		   130 Query	SELECT @@version
+		   130 Query	SELECT @@query_response_time_stats
+		   130 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   130 Query	SHOW ALL SLAVES STATUS
+		   130 Query	SHOW GLOBAL STATUS
+		   130 Query	SHOW GLOBAL VARIABLES
+		   130 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   130 Quit	
+200827 10:12:56	   131 Connect	root@localhost as anonymous on 
+		   131 Statistics	
+		   131 Quit	
+200827 10:12:59	   132 Connect	root@localhost as anonymous on 
+		   132 Statistics	
+		   132 Quit	
+200827 10:13:00	   133 Connect	project@172.25.113.178 as anonymous on project
+		   133 Query	SET NAMES utf8
+		   133 Query	use `project`
+		   133 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   133 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   133 Close stmt	
+		   133 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   133 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   133 Close stmt	
+		   133 Prepare	select `tag` from `telescope_monitoring`
+		   133 Close stmt	
+		   133 Quit	
+		   134 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   134 Query	SET NAMES utf8
+		   134 Query	use `develop_project`
+		   134 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   134 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   134 Close stmt	
+		   134 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   134 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   134 Close stmt	
+		   134 Prepare	select `tag` from `telescope_monitoring`
+		   134 Close stmt	
+		   134 Quit	
+200827 10:13:05	   135 Connect	root@172.25.244.171 as anonymous on mysql
+		   135 Query	SET lock_wait_timeout=2
+		   135 Query	SELECT @@version
+		   135 Query	SELECT @@query_response_time_stats
+		   135 Query	SHOW ALL SLAVES STATUS
+		   135 Query	SHOW GLOBAL STATUS
+		   135 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   135 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   135 Query	SHOW GLOBAL VARIABLES
+		   135 Quit	
+200827 10:13:06	   136 Connect	root@localhost as anonymous on 
+		   136 Statistics	
+		   136 Quit	
+200827 10:13:09	   137 Connect	root@localhost as anonymous on 
+		   137 Statistics	
+		   137 Quit	
+200827 10:13:16	   138 Connect	root@localhost as anonymous on 
+		   138 Statistics	
+		   138 Quit	
+200827 10:13:19	   139 Connect	root@localhost as anonymous on 
+		   139 Statistics	
+		   139 Quit	
+200827 10:13:20	   140 Connect	root@172.25.244.171 as anonymous on mysql
+		   140 Query	SET lock_wait_timeout=2
+		   140 Query	SELECT @@version
+		   140 Query	SELECT @@query_response_time_stats
+		   140 Query	SHOW GLOBAL STATUS
+		   140 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   140 Query	SHOW GLOBAL VARIABLES
+		   140 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   140 Query	SHOW ALL SLAVES STATUS
+		   140 Quit	
+200827 10:13:26	   141 Connect	root@localhost as anonymous on 
+		   141 Statistics	
+		   141 Quit	
+200827 10:13:29	   142 Connect	root@localhost as anonymous on 
+		   142 Statistics	
+		   142 Quit	
+200827 10:13:35	   143 Connect	root@172.25.244.171 as anonymous on mysql
+		   143 Query	SET lock_wait_timeout=2
+		   143 Query	SELECT @@version
+		   143 Query	SELECT @@query_response_time_stats
+		   143 Query	SHOW ALL SLAVES STATUS
+		   143 Query	SHOW GLOBAL STATUS
+		   143 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   143 Query	SHOW GLOBAL VARIABLES
+		   143 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   143 Quit	
+200827 10:13:36	   144 Connect	root@localhost as anonymous on 
+		   144 Statistics	
+		   144 Quit	
+200827 10:13:39	   145 Connect	root@localhost as anonymous on 
+		   145 Statistics	
+		   145 Quit	
+200827 10:13:46	   146 Connect	root@localhost as anonymous on 
+		   146 Statistics	
+		   146 Quit	
+200827 10:13:49	   147 Connect	root@localhost as anonymous on 
+		   147 Statistics	
+		   147 Quit	
+200827 10:13:50	   148 Connect	root@172.25.244.171 as anonymous on mysql
+		   148 Query	SET lock_wait_timeout=2
+		   148 Query	SELECT @@version
+		   148 Query	SELECT @@query_response_time_stats
+		   148 Query	SHOW ALL SLAVES STATUS
+		   148 Query	SHOW GLOBAL STATUS
+		   148 Query	SHOW GLOBAL VARIABLES
+		   148 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   148 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   148 Quit	
+200827 10:13:56	   149 Connect	root@localhost as anonymous on 
+		   149 Statistics	
+		   149 Quit	
+200827 10:13:59	   150 Connect	root@localhost as anonymous on 
+		   150 Statistics	
+		   150 Quit	
+200827 10:14:05	   151 Connect	root@172.25.244.171 as anonymous on mysql
+		   151 Query	SET lock_wait_timeout=2
+		   151 Query	SELECT @@version
+		   151 Query	SELECT @@query_response_time_stats
+		   151 Query	SHOW GLOBAL STATUS
+		   151 Query	SHOW GLOBAL VARIABLES
+		   151 Query	SHOW ALL SLAVES STATUS
+		   151 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   151 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   151 Quit	
+200827 10:14:06	   152 Connect	root@localhost as anonymous on 
+		   152 Statistics	
+		   152 Quit	
+200827 10:14:09	   153 Connect	root@localhost as anonymous on 
+		   153 Statistics	
+		   153 Quit	
+200827 10:14:16	   154 Connect	root@localhost as anonymous on 
+		   154 Statistics	
+		   154 Quit	
+200827 10:14:19	   155 Connect	root@localhost as anonymous on 
+		   155 Statistics	
+		   155 Quit	
+200827 10:14:20	   156 Connect	root@172.25.244.171 as anonymous on mysql
+		   156 Query	SET lock_wait_timeout=2
+		   156 Query	SELECT @@version
+		   156 Query	SELECT @@query_response_time_stats
+		   156 Query	SHOW ALL SLAVES STATUS
+		   156 Query	SHOW GLOBAL STATUS
+		   156 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   156 Query	SHOW GLOBAL VARIABLES
+		   156 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   156 Quit	
+200827 10:14:26	   157 Connect	root@localhost as anonymous on 
+		   157 Statistics	
+		   157 Quit	
+200827 10:14:29	   158 Connect	root@localhost as anonymous on 
+		   158 Statistics	
+		   158 Quit	
+200827 10:14:35	   159 Connect	root@172.25.244.171 as anonymous on mysql
+		   159 Query	SET lock_wait_timeout=2
+		   159 Query	SELECT @@version
+		   159 Query	SELECT @@query_response_time_stats
+		   159 Query	SHOW GLOBAL VARIABLES
+		   159 Query	SHOW ALL SLAVES STATUS
+		   159 Query	SHOW GLOBAL STATUS
+		   159 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   159 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   159 Quit	
+200827 10:14:36	   160 Connect	root@localhost as anonymous on 
+		   160 Statistics	
+		   160 Quit	
+200827 10:14:39	   161 Connect	root@localhost as anonymous on 
+		   161 Statistics	
+		   161 Quit	
+200827 10:14:46	   162 Connect	root@localhost as anonymous on 
+		   162 Statistics	
+		   162 Quit	
+200827 10:14:49	   163 Connect	root@localhost as anonymous on 
+		   163 Statistics	
+		   163 Quit	
+200827 10:14:50	   164 Connect	root@172.25.244.171 as anonymous on mysql
+		   164 Query	SET lock_wait_timeout=2
+		   164 Query	SELECT @@version
+		   164 Query	SELECT @@query_response_time_stats
+		   164 Query	SHOW GLOBAL STATUS
+		   164 Query	SHOW GLOBAL VARIABLES
+		   164 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   164 Query	SHOW ALL SLAVES STATUS
+		   164 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   164 Quit	
+200827 10:14:56	   165 Connect	root@localhost as anonymous on 
+		   165 Statistics	
+		   165 Quit	
+200827 10:14:59	   166 Connect	root@localhost as anonymous on 
+		   166 Statistics	
+		   166 Quit	
+200827 10:15:00	   167 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   167 Query	SET NAMES utf8
+		   167 Query	use `review_project`
+		   167 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   167 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   167 Close stmt	
+		   167 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   167 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   167 Close stmt	
+		   167 Prepare	select `tag` from `telescope_monitoring`
+		   167 Close stmt	
+200827 10:15:01	   167 Quit	
+200827 10:15:05	   168 Connect	root@172.25.244.171 as anonymous on mysql
+		   168 Query	SET lock_wait_timeout=2
+		   168 Query	SELECT @@version
+		   168 Query	SELECT @@query_response_time_stats
+		   168 Query	SHOW GLOBAL VARIABLES
+		   168 Query	SHOW GLOBAL STATUS
+		   168 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   168 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   168 Query	SHOW ALL SLAVES STATUS
+		   168 Quit	
+200827 10:15:06	   169 Connect	root@localhost as anonymous on 
+		   169 Statistics	
+		   169 Quit	
+200827 10:15:09	   170 Connect	root@localhost as anonymous on 
+		   170 Statistics	
+		   170 Quit	
+200827 10:15:16	   171 Connect	root@localhost as anonymous on 
+		   171 Statistics	
+		   171 Quit	
+200827 10:15:19	   172 Connect	root@localhost as anonymous on 
+		   172 Statistics	
+		   172 Quit	
+200827 10:15:20	   173 Connect	root@172.25.244.171 as anonymous on mysql
+		   173 Query	SET lock_wait_timeout=2
+		   173 Query	SELECT @@version
+		   173 Query	SELECT @@query_response_time_stats
+		   173 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   173 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   173 Query	SHOW GLOBAL STATUS
+		   173 Query	SHOW GLOBAL VARIABLES
+		   173 Query	SHOW ALL SLAVES STATUS
+		   173 Quit	
+200827 10:15:26	   174 Connect	root@localhost as anonymous on 
+		   174 Statistics	
+		   174 Quit	
+200827 10:15:29	   175 Connect	root@localhost as anonymous on 
+		   175 Statistics	
+		   175 Quit	
+200827 10:15:35	   176 Connect	root@172.25.244.171 as anonymous on mysql
+		   176 Query	SET lock_wait_timeout=2
+		   176 Query	SELECT @@version
+		   176 Query	SELECT @@query_response_time_stats
+		   176 Query	SHOW ALL SLAVES STATUS
+		   176 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   176 Query	SHOW GLOBAL STATUS
+		   176 Query	SHOW GLOBAL VARIABLES
+		   176 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   176 Quit	
+200827 10:15:36	   177 Connect	root@localhost as anonymous on 
+		   177 Statistics	
+		   177 Quit	
+200827 10:15:39	   178 Connect	root@localhost as anonymous on 
+		   178 Statistics	
+		   178 Quit	
+200827 10:15:46	   179 Connect	root@localhost as anonymous on 
+		   179 Statistics	
+		   179 Quit	
+200827 10:15:49	   180 Connect	root@localhost as anonymous on 
+		   180 Statistics	
+		   180 Quit	
+200827 10:15:50	   181 Connect	root@172.25.244.171 as anonymous on mysql
+		   181 Query	SET lock_wait_timeout=2
+		   181 Query	SELECT @@version
+		   181 Query	SELECT @@query_response_time_stats
+		   181 Query	SHOW ALL SLAVES STATUS
+		   181 Query	SHOW GLOBAL STATUS
+		   181 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   181 Query	SHOW GLOBAL VARIABLES
+		   181 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   181 Quit	
+200827 10:15:56	   182 Connect	root@localhost as anonymous on 
+		   182 Statistics	
+		   182 Quit	
+200827 10:15:59	   183 Connect	root@localhost as anonymous on 
+		   183 Statistics	
+		   183 Quit	
+200827 10:16:00	   184 Connect	project@172.25.113.178 as anonymous on project
+		   184 Query	SET NAMES utf8
+		   184 Query	use `project`
+		   184 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   184 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   184 Close stmt	
+		   184 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   184 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   184 Close stmt	
+		   184 Prepare	select `tag` from `telescope_monitoring`
+		   184 Close stmt	
+		   184 Quit	
+		   185 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   185 Query	SET NAMES utf8
+		   185 Query	use `review_project`
+		   185 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   185 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   185 Close stmt	
+		   185 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   185 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   185 Close stmt	
+		   185 Prepare	select `tag` from `telescope_monitoring`
+		   185 Close stmt	
+		   185 Quit	
+200827 10:16:05	   186 Connect	root@172.25.244.171 as anonymous on mysql
+		   186 Query	SET lock_wait_timeout=2
+		   186 Query	SELECT @@version
+		   186 Query	SELECT @@query_response_time_stats
+		   186 Query	SHOW ALL SLAVES STATUS
+		   186 Query	SHOW GLOBAL STATUS
+		   186 Query	SHOW GLOBAL VARIABLES
+		   186 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   186 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   186 Quit	
+200827 10:16:06	   187 Connect	root@localhost as anonymous on 
+		   187 Statistics	
+		   187 Quit	
+200827 10:16:09	   188 Connect	root@localhost as anonymous on 
+		   188 Statistics	
+		   188 Quit	
+200827 10:16:16	   189 Connect	root@localhost as anonymous on 
+		   189 Statistics	
+		   189 Quit	
+200827 10:16:19	   190 Connect	root@localhost as anonymous on 
+		   190 Statistics	
+		   190 Quit	
+200827 10:16:20	   191 Connect	root@172.25.244.171 as anonymous on mysql
+		   191 Query	SET lock_wait_timeout=2
+		   191 Query	SELECT @@version
+		   191 Query	SELECT @@query_response_time_stats
+		   191 Query	SHOW ALL SLAVES STATUS
+		   191 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   191 Query	SHOW GLOBAL STATUS
+		   191 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   191 Query	SHOW GLOBAL VARIABLES
+		   191 Quit	
+200827 10:16:26	   192 Connect	root@localhost as anonymous on 
+		   192 Statistics	
+		   192 Quit	
+200827 10:16:29	   193 Connect	root@localhost as anonymous on 
+		   193 Statistics	
+		   193 Quit	
+200827 10:16:35	   194 Connect	root@172.25.244.171 as anonymous on mysql
+		   194 Query	SET lock_wait_timeout=2
+		   194 Query	SELECT @@version
+		   194 Query	SELECT @@query_response_time_stats
+		   194 Query	SHOW GLOBAL VARIABLES
+		   194 Query	SHOW GLOBAL STATUS
+		   194 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   194 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   194 Query	SHOW ALL SLAVES STATUS
+		   194 Quit	
+200827 10:16:36	   195 Connect	root@localhost as anonymous on 
+		   195 Statistics	
+		   195 Quit	
+200827 10:16:39	   196 Connect	root@localhost as anonymous on 
+		   196 Statistics	
+		   196 Quit	
+200827 10:16:46	   197 Connect	root@localhost as anonymous on 
+		   197 Statistics	
+		   197 Quit	
+200827 10:16:49	   198 Connect	root@localhost as anonymous on 
+		   198 Statistics	
+		   198 Quit	
+200827 10:16:50	   199 Connect	root@172.25.244.171 as anonymous on mysql
+		   199 Query	SET lock_wait_timeout=2
+		   199 Query	SELECT @@version
+		   199 Query	SELECT @@query_response_time_stats
+		   199 Query	SHOW ALL SLAVES STATUS
+		   199 Query	SHOW GLOBAL VARIABLES
+		   199 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   199 Query	SHOW GLOBAL STATUS
+		   199 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   199 Quit	
+200827 10:16:56	   200 Connect	root@localhost as anonymous on 
+		   200 Statistics	
+		   200 Quit	
+200827 10:16:59	   201 Connect	root@localhost as anonymous on 
+		   201 Statistics	
+		   201 Quit	
+200827 10:17:05	   202 Connect	root@172.25.244.171 as anonymous on mysql
+		   202 Query	SET lock_wait_timeout=2
+		   202 Query	SELECT @@version
+		   202 Query	SELECT @@query_response_time_stats
+		   202 Query	SHOW GLOBAL STATUS
+		   202 Query	SHOW GLOBAL VARIABLES
+		   202 Query	SHOW ALL SLAVES STATUS
+		   202 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   202 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   202 Quit	
+200827 10:17:06	   203 Connect	root@localhost as anonymous on 
+		   203 Statistics	
+		   203 Quit	
+200827 10:17:09	   204 Connect	root@localhost as anonymous on 
+		   204 Statistics	
+		   204 Quit	
+200827 10:17:16	   205 Connect	root@localhost as anonymous on 
+		   205 Statistics	
+		   205 Quit	
+200827 10:17:19	   206 Connect	root@localhost as anonymous on 
+		   206 Statistics	
+		   206 Quit	
+200827 10:17:20	   207 Connect	root@172.25.244.171 as anonymous on mysql
+		   207 Query	SET lock_wait_timeout=2
+		   207 Query	SELECT @@version
+		   207 Query	SELECT @@query_response_time_stats
+		   207 Query	SHOW ALL SLAVES STATUS
+		   207 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   207 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   207 Query	SHOW GLOBAL VARIABLES
+		   207 Query	SHOW GLOBAL STATUS
+		   207 Quit	
+200827 10:17:26	   208 Connect	root@localhost as anonymous on 
+		   208 Statistics	
+		   208 Quit	
+200827 10:17:29	   209 Connect	root@localhost as anonymous on 
+		   209 Statistics	
+		   209 Quit	
+200827 10:17:35	   210 Connect	root@172.25.244.171 as anonymous on mysql
+		   210 Query	SET lock_wait_timeout=2
+		   210 Query	SELECT @@version
+		   210 Query	SELECT @@query_response_time_stats
+		   210 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   210 Query	SHOW GLOBAL VARIABLES
+		   210 Query	SHOW GLOBAL STATUS
+		   210 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   210 Query	SHOW ALL SLAVES STATUS
+		   210 Quit	
+200827 10:17:36	   211 Connect	root@localhost as anonymous on 
+		   211 Statistics	
+		   211 Quit	
+200827 10:17:39	   212 Connect	root@localhost as anonymous on 
+		   212 Statistics	
+		   212 Quit	
+200827 10:17:46	   213 Connect	root@localhost as anonymous on 
+		   213 Statistics	
+		   213 Quit	
+200827 10:17:49	   214 Connect	root@localhost as anonymous on 
+		   214 Statistics	
+		   214 Quit	
+200827 10:17:50	   215 Connect	root@172.25.244.171 as anonymous on mysql
+		   215 Query	SET lock_wait_timeout=2
+		   215 Query	SELECT @@version
+		   215 Query	SELECT @@query_response_time_stats
+		   215 Query	SHOW GLOBAL STATUS
+		   215 Query	SHOW ALL SLAVES STATUS
+		   215 Query	SHOW GLOBAL VARIABLES
+		   215 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   215 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   215 Quit	
+200827 10:17:56	   216 Connect	root@localhost as anonymous on 
+		   216 Statistics	
+		   216 Quit	
+200827 10:17:59	   217 Connect	root@localhost as anonymous on 
+		   217 Statistics	
+		   217 Quit	
+200827 10:18:05	   218 Connect	root@172.25.244.171 as anonymous on mysql
+		   218 Query	SET lock_wait_timeout=2
+		   218 Query	SELECT @@version
+		   218 Query	SELECT @@query_response_time_stats
+		   218 Query	SHOW GLOBAL STATUS
+		   218 Query	SHOW GLOBAL VARIABLES
+		   218 Query	SHOW ALL SLAVES STATUS
+		   218 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   218 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   218 Quit	
+200827 10:18:06	   219 Connect	root@localhost as anonymous on 
+		   219 Statistics	
+		   219 Quit	
+200827 10:18:09	   220 Connect	root@localhost as anonymous on 
+		   220 Statistics	
+		   220 Quit	
+200827 10:18:16	   221 Connect	root@localhost as anonymous on 
+		   221 Statistics	
+		   221 Quit	
+200827 10:18:19	   222 Connect	root@localhost as anonymous on 
+		   222 Statistics	
+		   222 Quit	
+200827 10:18:20	   223 Connect	root@172.25.244.171 as anonymous on mysql
+		   223 Query	SET lock_wait_timeout=2
+		   223 Query	SELECT @@version
+		   223 Query	SELECT @@query_response_time_stats
+		   223 Query	SHOW GLOBAL STATUS
+		   223 Query	SHOW GLOBAL VARIABLES
+		   223 Query	SHOW ALL SLAVES STATUS
+		   223 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   223 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   223 Quit	
+200827 10:18:26	   224 Connect	root@localhost as anonymous on 
+		   224 Statistics	
+		   224 Quit	
+200827 10:18:29	   225 Connect	root@localhost as anonymous on 
+		   225 Statistics	
+		   225 Quit	
+200827 10:18:35	   226 Connect	root@172.25.244.171 as anonymous on mysql
+		   226 Query	SET lock_wait_timeout=2
+		   226 Query	SELECT @@version
+		   226 Query	SELECT @@query_response_time_stats
+		   226 Query	SHOW ALL SLAVES STATUS
+		   226 Query	SHOW GLOBAL STATUS
+		   226 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   226 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   226 Query	SHOW GLOBAL VARIABLES
+		   226 Quit	
+200827 10:18:36	   227 Connect	root@localhost as anonymous on 
+		   227 Statistics	
+		   227 Quit	
+200827 10:18:39	   228 Connect	root@localhost as anonymous on 
+		   228 Statistics	
+		   228 Quit	
+200827 10:18:46	   229 Connect	root@localhost as anonymous on 
+		   229 Statistics	
+		   229 Quit	
+200827 10:18:49	   230 Connect	root@localhost as anonymous on 
+		   230 Statistics	
+		   230 Quit	
+200827 10:18:50	   231 Connect	root@172.25.244.171 as anonymous on mysql
+		   231 Query	SET lock_wait_timeout=2
+		   231 Query	SELECT @@version
+		   231 Query	SELECT @@query_response_time_stats
+		   231 Query	SHOW GLOBAL STATUS
+		   231 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   231 Query	SHOW ALL SLAVES STATUS
+		   231 Query	SHOW GLOBAL VARIABLES
+		   231 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   231 Quit	
+200827 10:18:56	   232 Connect	root@localhost as anonymous on 
+		   232 Statistics	
+		   232 Quit	
+200827 10:18:59	   233 Connect	root@localhost as anonymous on 
+		   233 Statistics	
+		   233 Quit	
+200827 10:19:00	   234 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   234 Query	SET NAMES utf8
+		   234 Query	use `review_project`
+		   234 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   234 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   234 Close stmt	
+		   234 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   234 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   234 Close stmt	
+		   234 Prepare	select `tag` from `telescope_monitoring`
+		   234 Close stmt	
+200827 10:19:01	   234 Quit	
+200827 10:19:05	   235 Connect	root@172.25.244.171 as anonymous on mysql
+		   235 Query	SET lock_wait_timeout=2
+		   235 Query	SELECT @@version
+		   235 Query	SHOW GLOBAL VARIABLES
+		   235 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   235 Query	SHOW GLOBAL STATUS
+		   235 Query	SELECT @@query_response_time_stats
+		   235 Query	SHOW ALL SLAVES STATUS
+		   235 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   235 Quit	
+200827 10:19:06	   236 Connect	root@localhost as anonymous on 
+		   236 Statistics	
+		   236 Quit	
+200827 10:19:09	   237 Connect	root@localhost as anonymous on 
+		   237 Statistics	
+		   237 Quit	
+200827 10:19:16	   238 Connect	root@localhost as anonymous on 
+		   238 Statistics	
+		   238 Quit	
+200827 10:19:19	   239 Connect	root@localhost as anonymous on 
+		   239 Statistics	
+		   239 Quit	
+200827 10:19:20	   240 Connect	root@172.25.244.171 as anonymous on mysql
+		   240 Query	SET lock_wait_timeout=2
+		   240 Query	SELECT @@version
+		   240 Query	SELECT @@query_response_time_stats
+		   240 Query	SHOW ALL SLAVES STATUS
+		   240 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   240 Query	SHOW GLOBAL STATUS
+		   240 Query	SHOW GLOBAL VARIABLES
+		   240 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   240 Quit	
+200827 10:19:26	   241 Connect	root@localhost as anonymous on 
+		   241 Statistics	
+		   241 Quit	
+200827 10:19:29	   242 Connect	root@localhost as anonymous on 
+		   242 Statistics	
+		   242 Quit	
+200827 10:19:35	   243 Connect	root@172.25.244.171 as anonymous on mysql
+		   243 Query	SET lock_wait_timeout=2
+		   243 Query	SELECT @@version
+		   243 Query	SELECT @@query_response_time_stats
+		   243 Query	SHOW GLOBAL VARIABLES
+		   243 Query	SHOW ALL SLAVES STATUS
+		   243 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   243 Query	SHOW GLOBAL STATUS
+		   243 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   243 Quit	
+200827 10:19:36	   244 Connect	root@localhost as anonymous on 
+		   244 Statistics	
+		   244 Quit	
+200827 10:19:39	   245 Connect	root@localhost as anonymous on 
+		   245 Statistics	
+		   245 Quit	
+200827 10:19:46	   246 Connect	root@localhost as anonymous on 
+		   246 Statistics	
+		   246 Quit	
+200827 10:19:49	   247 Connect	root@localhost as anonymous on 
+		   247 Statistics	
+		   247 Quit	
+200827 10:19:50	   248 Connect	root@172.25.244.171 as anonymous on mysql
+		   248 Query	SET lock_wait_timeout=2
+		   248 Query	SELECT @@version
+		   248 Query	SELECT @@query_response_time_stats
+		   248 Query	SHOW ALL SLAVES STATUS
+		   248 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   248 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   248 Query	SHOW GLOBAL STATUS
+		   248 Query	SHOW GLOBAL VARIABLES
+		   248 Quit	
+200827 10:19:56	   249 Connect	root@localhost as anonymous on 
+		   249 Statistics	
+		   249 Quit	
+200827 10:19:59	   250 Connect	root@localhost as anonymous on 
+		   250 Statistics	
+		   250 Quit	
+200827 10:20:00	   251 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   251 Query	SET NAMES utf8
+		   251 Query	use `review_project`
+		   251 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   251 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   251 Close stmt	
+		   251 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   251 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   251 Close stmt	
+		   251 Prepare	select `tag` from `telescope_monitoring`
+		   251 Close stmt	
+200827 10:20:01	   251 Quit	
+200827 10:20:05	   252 Connect	root@172.25.244.171 as anonymous on mysql
+		   252 Query	SET lock_wait_timeout=2
+		   252 Query	SELECT @@version
+		   252 Query	SELECT @@query_response_time_stats
+		   252 Query	SHOW GLOBAL VARIABLES
+		   252 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   252 Query	SHOW ALL SLAVES STATUS
+		   252 Query	SHOW GLOBAL STATUS
+		   252 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   252 Quit	
+200827 10:20:06	   253 Connect	root@localhost as anonymous on 
+		   253 Statistics	
+		   253 Quit	
+200827 10:20:09	   254 Connect	root@localhost as anonymous on 
+		   254 Statistics	
+		   254 Quit	
+200827 10:20:16	   255 Connect	root@localhost as anonymous on 
+		   255 Statistics	
+		   255 Quit	
+200827 10:20:19	   256 Connect	root@localhost as anonymous on 
+		   256 Statistics	
+		   256 Quit	
+200827 10:20:20	   257 Connect	root@172.25.244.171 as anonymous on mysql
+		   257 Query	SET lock_wait_timeout=2
+		   257 Query	SELECT @@version
+		   257 Query	SELECT @@query_response_time_stats
+		   257 Query	SHOW ALL SLAVES STATUS
+		   257 Query	SHOW GLOBAL STATUS
+		   257 Query	SHOW GLOBAL VARIABLES
+		   257 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   257 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   257 Quit	
+200827 10:20:26	   258 Connect	root@localhost as anonymous on 
+		   258 Statistics	
+		   258 Quit	
+200827 10:20:29	   259 Connect	root@localhost as anonymous on 
+		   259 Statistics	
+		   259 Quit	
+200827 10:20:35	   260 Connect	root@172.25.244.171 as anonymous on mysql
+		   260 Query	SET lock_wait_timeout=2
+		   260 Query	SELECT @@version
+		   260 Query	SHOW GLOBAL VARIABLES
+		   260 Query	SELECT @@query_response_time_stats
+		   260 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   260 Query	SHOW GLOBAL STATUS
+		   260 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   260 Query	SHOW ALL SLAVES STATUS
+		   260 Quit	
+200827 10:20:36	   261 Connect	root@localhost as anonymous on 
+		   261 Statistics	
+		   261 Quit	
+200827 10:20:39	   262 Connect	root@localhost as anonymous on 
+		   262 Statistics	
+		   262 Quit	
+200827 10:20:46	   263 Connect	root@localhost as anonymous on 
+		   263 Statistics	
+		   263 Quit	
+200827 10:20:49	   264 Connect	root@localhost as anonymous on 
+		   264 Statistics	
+		   264 Quit	
+200827 10:20:50	   265 Connect	root@172.25.244.171 as anonymous on mysql
+		   265 Query	SET lock_wait_timeout=2
+		   265 Query	SELECT @@version
+		   265 Query	SELECT @@query_response_time_stats
+		   265 Query	SHOW GLOBAL STATUS
+		   265 Query	SHOW GLOBAL VARIABLES
+		   265 Query	SHOW ALL SLAVES STATUS
+		   265 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   265 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   265 Quit	
+200827 10:20:56	   266 Connect	root@localhost as anonymous on 
+		   266 Statistics	
+		   266 Quit	
+200827 10:20:59	   267 Connect	root@localhost as anonymous on 
+		   267 Statistics	
+		   267 Quit	
+200827 10:21:00	   268 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   268 Query	SET NAMES utf8
+		   268 Query	use `develop_project`
+		   268 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   268 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   268 Close stmt	
+		   268 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   268 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   268 Close stmt	
+		   268 Prepare	select `tag` from `telescope_monitoring`
+		   268 Close stmt	
+		   268 Quit	
+200827 10:21:05	   269 Connect	root@172.25.244.171 as anonymous on mysql
+		   269 Query	SET lock_wait_timeout=2
+		   269 Query	SELECT @@version
+		   269 Query	SELECT @@query_response_time_stats
+		   269 Query	SHOW GLOBAL STATUS
+		   269 Query	SHOW GLOBAL VARIABLES
+		   269 Query	SHOW ALL SLAVES STATUS
+		   269 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   269 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   269 Quit	
+200827 10:21:06	   270 Connect	root@localhost as anonymous on 
+		   270 Statistics	
+		   270 Quit	
+200827 10:21:09	   271 Connect	root@localhost as anonymous on 
+		   271 Statistics	
+		   271 Quit	
+200827 10:21:16	   272 Connect	root@localhost as anonymous on 
+		   272 Statistics	
+		   272 Quit	
+200827 10:21:19	   273 Connect	root@localhost as anonymous on 
+		   273 Statistics	
+		   273 Quit	
+200827 10:21:20	   274 Connect	root@172.25.244.171 as anonymous on mysql
+		   274 Query	SET lock_wait_timeout=2
+		   274 Query	SELECT @@version
+		   274 Query	SELECT @@query_response_time_stats
+		   274 Query	SHOW GLOBAL VARIABLES
+		   274 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   274 Query	SHOW ALL SLAVES STATUS
+		   274 Query	SHOW GLOBAL STATUS
+		   274 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   274 Quit	
+200827 10:21:26	   275 Connect	root@localhost as anonymous on 
+		   275 Statistics	
+		   275 Quit	
+200827 10:21:29	   276 Connect	root@localhost as anonymous on 
+		   276 Statistics	
+		   276 Quit	
+200827 10:21:35	   277 Connect	root@172.25.244.171 as anonymous on mysql
+		   277 Query	SET lock_wait_timeout=2
+		   277 Query	SELECT @@version
+		   277 Query	SELECT @@query_response_time_stats
+		   277 Query	SHOW ALL SLAVES STATUS
+		   277 Query	SHOW GLOBAL STATUS
+		   277 Query	SHOW GLOBAL VARIABLES
+		   277 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   277 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   277 Quit	
+200827 10:21:36	   278 Connect	root@localhost as anonymous on 
+		   278 Statistics	
+		   278 Quit	
+200827 10:21:39	   279 Connect	root@localhost as anonymous on 
+		   279 Statistics	
+		   279 Quit	
+200827 10:21:46	   280 Connect	root@localhost as anonymous on 
+		   280 Statistics	
+		   280 Quit	
+200827 10:21:49	   281 Connect	root@localhost as anonymous on 
+		   281 Statistics	
+		   281 Quit	
+200827 10:21:50	   282 Connect	root@172.25.244.171 as anonymous on mysql
+		   282 Query	SET lock_wait_timeout=2
+		   282 Query	SELECT @@version
+		   282 Query	SELECT @@query_response_time_stats
+		   282 Query	SHOW GLOBAL STATUS
+		   282 Query	SHOW GLOBAL VARIABLES
+		   282 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   282 Query	SHOW ALL SLAVES STATUS
+		   282 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   282 Quit	
+200827 10:21:56	   283 Connect	root@localhost as anonymous on 
+		   283 Statistics	
+		   283 Quit	
+200827 10:21:59	   284 Connect	root@localhost as anonymous on 
+		   284 Statistics	
+		   284 Quit	
+200827 10:22:00	   285 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   285 Query	SET NAMES utf8
+		   285 Query	use `develop_project`
+		   285 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   285 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   285 Close stmt	
+		   285 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   285 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   285 Close stmt	
+		   285 Prepare	select `tag` from `telescope_monitoring`
+		   285 Close stmt	
+		   285 Quit	
+		   286 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   286 Query	SET NAMES utf8
+		   286 Query	use `review_project`
+		   286 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   286 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   286 Close stmt	
+		   286 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   286 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   286 Close stmt	
+		   286 Prepare	select `tag` from `telescope_monitoring`
+		   286 Close stmt	
+		   286 Quit	
+200827 10:22:05	   287 Connect	root@172.25.244.171 as anonymous on mysql
+		   287 Query	SET lock_wait_timeout=2
+		   287 Query	SELECT @@version
+		   287 Query	SELECT @@query_response_time_stats
+		   287 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   287 Query	SHOW ALL SLAVES STATUS
+		   287 Query	SHOW GLOBAL STATUS
+		   287 Query	SHOW GLOBAL VARIABLES
+		   287 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   287 Quit	
+200827 10:22:06	   288 Connect	root@localhost as anonymous on 
+		   288 Statistics	
+		   288 Quit	
+200827 10:22:09	   289 Connect	root@localhost as anonymous on 
+		   289 Statistics	
+		   289 Quit	
+200827 10:22:16	   290 Connect	root@localhost as anonymous on 
+		   290 Statistics	
+		   290 Quit	
+200827 10:22:19	   291 Connect	root@localhost as anonymous on 
+		   291 Statistics	
+		   291 Quit	
+200827 10:22:20	   292 Connect	root@172.25.244.171 as anonymous on mysql
+		   292 Query	SET lock_wait_timeout=2
+		   292 Query	SELECT @@version
+		   292 Query	SELECT @@query_response_time_stats
+		   292 Query	SHOW GLOBAL STATUS
+		   292 Query	SHOW GLOBAL VARIABLES
+		   292 Query	SHOW ALL SLAVES STATUS
+		   292 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   292 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   292 Quit	
+200827 10:22:26	   293 Connect	root@localhost as anonymous on 
+		   293 Statistics	
+		   293 Quit	
+200827 10:22:29	   294 Connect	root@localhost as anonymous on 
+		   294 Statistics	
+		   294 Quit	
+200827 10:22:35	   295 Connect	root@172.25.244.171 as anonymous on mysql
+		   295 Query	SET lock_wait_timeout=2
+		   295 Query	SELECT @@version
+		   295 Query	SELECT @@query_response_time_stats
+		   295 Query	SHOW ALL SLAVES STATUS
+		   295 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   295 Query	SHOW GLOBAL VARIABLES
+		   295 Query	SHOW GLOBAL STATUS
+		   295 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   295 Quit	
+200827 10:22:36	   296 Connect	root@localhost as anonymous on 
+		   296 Statistics	
+		   296 Quit	
+200827 10:22:39	   297 Connect	root@localhost as anonymous on 
+		   297 Statistics	
+		   297 Quit	
+200827 10:22:46	   298 Connect	root@localhost as anonymous on 
+		   298 Statistics	
+		   298 Quit	
+200827 10:22:49	   299 Connect	root@localhost as anonymous on 
+		   299 Statistics	
+		   299 Quit	
+200827 10:22:50	   300 Connect	root@172.25.244.171 as anonymous on mysql
+		   300 Query	SET lock_wait_timeout=2
+		   300 Query	SELECT @@version
+		   300 Query	SELECT @@query_response_time_stats
+		   300 Query	SHOW GLOBAL VARIABLES
+		   300 Query	SHOW GLOBAL STATUS
+		   300 Query	SHOW ALL SLAVES STATUS
+		   300 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   300 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   300 Quit	
+200827 10:22:56	   301 Connect	root@localhost as anonymous on 
+		   301 Statistics	
+		   301 Quit	
+200827 10:22:59	   302 Connect	root@localhost as anonymous on 
+		   302 Statistics	
+		   302 Quit	
+200827 10:23:00	   303 Connect	project@172.25.113.178 as anonymous on project
+		   303 Query	SET NAMES utf8
+		   303 Query	use `project`
+		   303 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   303 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   303 Close stmt	
+		   303 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   303 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   303 Close stmt	
+		   303 Prepare	select `tag` from `telescope_monitoring`
+		   303 Close stmt	
+		   303 Quit	
+		   304 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   304 Query	SET NAMES utf8
+		   304 Query	use `develop_project`
+		   304 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   304 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   304 Close stmt	
+		   304 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   304 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   304 Close stmt	
+		   304 Prepare	select `tag` from `telescope_monitoring`
+		   304 Close stmt	
+		   304 Quit	
+200827 10:23:05	   305 Connect	root@172.25.244.171 as anonymous on mysql
+		   305 Query	SET lock_wait_timeout=2
+		   305 Query	SELECT @@version
+		   305 Query	SELECT @@query_response_time_stats
+		   305 Query	SHOW ALL SLAVES STATUS
+		   305 Query	SHOW GLOBAL STATUS
+		   305 Query	SHOW GLOBAL VARIABLES
+		   305 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   305 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   305 Quit	
+200827 10:23:06	   306 Connect	root@localhost as anonymous on 
+		   306 Statistics	
+		   306 Quit	
+200827 10:23:09	   307 Connect	root@localhost as anonymous on 
+		   307 Statistics	
+		   307 Quit	
+200827 10:23:16	   308 Connect	root@localhost as anonymous on 
+		   308 Statistics	
+		   308 Quit	
+200827 10:23:19	   309 Connect	root@localhost as anonymous on 
+		   309 Statistics	
+		   309 Quit	
+200827 10:23:20	   310 Connect	root@172.25.244.171 as anonymous on mysql
+		   310 Query	SET lock_wait_timeout=2
+		   310 Query	SELECT @@version
+		   310 Query	SELECT @@query_response_time_stats
+		   310 Query	SHOW GLOBAL STATUS
+		   310 Query	SHOW GLOBAL VARIABLES
+		   310 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   310 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   310 Query	SHOW ALL SLAVES STATUS
+		   310 Quit	
+200827 10:23:26	   311 Connect	root@localhost as anonymous on 
+		   311 Statistics	
+		   311 Quit	
+200827 10:23:29	   312 Connect	root@localhost as anonymous on 
+		   312 Statistics	
+		   312 Quit	
+200827 10:23:35	   313 Connect	root@172.25.244.171 as anonymous on mysql
+		   313 Query	SET lock_wait_timeout=2
+		   313 Query	SELECT @@version
+		   313 Query	SELECT @@query_response_time_stats
+		   313 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   313 Query	SHOW GLOBAL STATUS
+		   313 Query	SHOW ALL SLAVES STATUS
+		   313 Query	SHOW GLOBAL VARIABLES
+		   313 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   313 Quit	
+200827 10:23:36	   314 Connect	root@localhost as anonymous on 
+		   314 Statistics	
+		   314 Quit	
+200827 10:23:39	   315 Connect	root@localhost as anonymous on 
+		   315 Statistics	
+		   315 Quit	
+200827 10:23:46	   316 Connect	root@localhost as anonymous on 
+		   316 Statistics	
+		   316 Quit	
+200827 10:23:49	   317 Connect	root@localhost as anonymous on 
+		   317 Statistics	
+		   317 Quit	
+200827 10:23:50	   318 Connect	root@172.25.244.171 as anonymous on mysql
+		   318 Query	SET lock_wait_timeout=2
+		   318 Query	SELECT @@version
+		   318 Query	SELECT @@query_response_time_stats
+		   318 Query	SHOW ALL SLAVES STATUS
+		   318 Query	SHOW GLOBAL VARIABLES
+		   318 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   318 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   318 Query	SHOW GLOBAL STATUS
+		   318 Quit	
+200827 10:23:56	   319 Connect	root@localhost as anonymous on 
+		   319 Statistics	
+		   319 Quit	
+200827 10:23:59	   320 Connect	root@localhost as anonymous on 
+		   320 Statistics	
+		   320 Quit	
+200827 10:24:00	   321 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   321 Query	SET NAMES utf8
+		   321 Query	use `develop_project`
+		   321 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   321 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   321 Close stmt	
+		   321 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   321 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   321 Close stmt	
+		   321 Prepare	select `tag` from `telescope_monitoring`
+		   321 Close stmt	
+		   321 Quit	
+200827 10:24:05	   322 Connect	root@172.25.244.171 as anonymous on mysql
+		   322 Query	SET lock_wait_timeout=2
+		   322 Query	SELECT @@version
+		   322 Query	SELECT @@query_response_time_stats
+		   322 Query	SHOW GLOBAL STATUS
+		   322 Query	SHOW ALL SLAVES STATUS
+		   322 Query	SHOW GLOBAL VARIABLES
+		   322 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   322 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   322 Quit	
+200827 10:24:06	   323 Connect	root@localhost as anonymous on 
+		   323 Statistics	
+		   323 Quit	
+200827 10:24:09	   324 Connect	root@localhost as anonymous on 
+		   324 Statistics	
+		   324 Quit	
+200827 10:24:16	   325 Connect	root@localhost as anonymous on 
+		   325 Statistics	
+		   325 Quit	
+200827 10:24:19	   326 Connect	root@localhost as anonymous on 
+		   326 Statistics	
+		   326 Quit	
+200827 10:24:20	   327 Connect	root@172.25.244.171 as anonymous on mysql
+		   327 Query	SET lock_wait_timeout=2
+		   327 Query	SELECT @@version
+		   327 Query	SELECT @@query_response_time_stats
+		   327 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   327 Query	SHOW GLOBAL STATUS
+		   327 Query	SHOW GLOBAL VARIABLES
+		   327 Query	SHOW ALL SLAVES STATUS
+		   327 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   327 Quit	
+200827 10:24:26	   328 Connect	root@localhost as anonymous on 
+		   328 Statistics	
+		   328 Quit	
+200827 10:24:29	   329 Connect	root@localhost as anonymous on 
+		   329 Statistics	
+		   329 Quit	
+200827 10:24:35	   330 Connect	root@172.25.244.171 as anonymous on mysql
+		   330 Query	SET lock_wait_timeout=2
+		   330 Query	SELECT @@version
+		   330 Query	SHOW GLOBAL VARIABLES
+		   330 Query	SHOW GLOBAL STATUS
+		   330 Query	SHOW ALL SLAVES STATUS
+		   330 Query	SELECT @@query_response_time_stats
+		   330 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   330 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   330 Quit	
+200827 10:24:36	   331 Connect	root@localhost as anonymous on 
+		   331 Statistics	
+		   331 Quit	
+200827 10:24:39	   332 Connect	root@localhost as anonymous on 
+		   332 Statistics	
+		   332 Quit	
+200827 10:24:46	   333 Connect	root@localhost as anonymous on 
+		   333 Statistics	
+		   333 Quit	
+200827 10:24:49	   334 Connect	root@localhost as anonymous on 
+		   334 Statistics	
+		   334 Quit	
+200827 10:24:50	   335 Connect	root@172.25.244.171 as anonymous on mysql
+		   335 Query	SET lock_wait_timeout=2
+		   335 Query	SELECT @@version
+		   335 Query	SHOW ALL SLAVES STATUS
+		   335 Query	SHOW GLOBAL STATUS
+		   335 Query	SHOW GLOBAL VARIABLES
+		   335 Query	SELECT @@query_response_time_stats
+		   335 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   335 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   335 Quit	
+200827 10:24:56	   336 Connect	root@localhost as anonymous on 
+		   336 Statistics	
+		   336 Quit	
+200827 10:24:59	   337 Connect	root@localhost as anonymous on 
+		   337 Statistics	
+		   337 Quit	
+200827 10:25:00	   338 Connect	project@172.25.113.178 as anonymous on project
+		   338 Query	SET NAMES utf8
+		   338 Query	use `project`
+		   338 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   338 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   338 Close stmt	
+		   338 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   338 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   338 Close stmt	
+		   338 Prepare	select `tag` from `telescope_monitoring`
+		   338 Close stmt	
+		   338 Quit	
+		   339 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   339 Query	SET NAMES utf8
+		   339 Query	use `develop_project`
+		   339 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   339 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   339 Close stmt	
+		   339 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   339 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   339 Close stmt	
+		   339 Prepare	select `tag` from `telescope_monitoring`
+		   339 Close stmt	
+		   339 Quit	
+200827 10:25:05	   340 Connect	root@172.25.244.171 as anonymous on mysql
+		   340 Query	SET lock_wait_timeout=2
+		   340 Query	SELECT @@version
+		   340 Query	SELECT @@query_response_time_stats
+		   340 Query	SHOW GLOBAL STATUS
+		   340 Query	SHOW GLOBAL VARIABLES
+		   340 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   340 Query	SHOW ALL SLAVES STATUS
+		   340 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   340 Quit	
+200827 10:25:06	   341 Connect	root@localhost as anonymous on 
+		   341 Statistics	
+		   341 Quit	
+200827 10:25:09	   342 Connect	root@localhost as anonymous on 
+		   342 Statistics	
+		   342 Quit	
+200827 10:25:16	   343 Connect	root@localhost as anonymous on 
+		   343 Statistics	
+		   343 Quit	
+200827 10:25:19	   344 Connect	root@localhost as anonymous on 
+		   344 Statistics	
+		   344 Quit	
+200827 10:25:20	   345 Connect	root@172.25.244.171 as anonymous on mysql
+		   345 Query	SET lock_wait_timeout=2
+		   345 Query	SELECT @@version
+		   345 Query	SELECT @@query_response_time_stats
+		   345 Query	SHOW ALL SLAVES STATUS
+		   345 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   345 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   345 Query	SHOW GLOBAL STATUS
+		   345 Query	SHOW GLOBAL VARIABLES
+		   345 Quit	
+200827 10:25:26	   346 Connect	root@localhost as anonymous on 
+		   346 Statistics	
+		   346 Quit	
+200827 10:25:29	   347 Connect	root@localhost as anonymous on 
+		   347 Statistics	
+		   347 Quit	
+200827 10:25:35	   348 Connect	root@172.25.244.171 as anonymous on mysql
+		   348 Query	SET lock_wait_timeout=2
+		   348 Query	SELECT @@version
+		   348 Query	SELECT @@query_response_time_stats
+		   348 Query	SHOW GLOBAL STATUS
+		   348 Query	SHOW GLOBAL VARIABLES
+		   348 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   348 Query	SHOW ALL SLAVES STATUS
+		   348 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   348 Quit	
+200827 10:25:36	   349 Connect	root@localhost as anonymous on 
+		   349 Statistics	
+		   349 Quit	
+200827 10:25:39	   350 Connect	root@localhost as anonymous on 
+		   350 Statistics	
+		   350 Quit	
+200827 10:25:46	   351 Connect	root@localhost as anonymous on 
+		   351 Statistics	
+		   351 Quit	
+200827 10:25:49	   352 Connect	root@localhost as anonymous on 
+		   352 Statistics	
+		   352 Quit	
+200827 10:25:50	   353 Connect	root@172.25.244.171 as anonymous on mysql
+		   353 Query	SET lock_wait_timeout=2
+		   353 Query	SELECT @@version
+		   353 Query	SELECT @@query_response_time_stats
+		   353 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   353 Query	SHOW ALL SLAVES STATUS
+		   353 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   353 Query	SHOW GLOBAL VARIABLES
+		   353 Query	SHOW GLOBAL STATUS
+		   353 Quit	
+200827 10:25:56	   354 Connect	root@localhost as anonymous on 
+		   354 Statistics	
+		   354 Quit	
+200827 10:25:59	   355 Connect	root@localhost as anonymous on 
+		   355 Statistics	
+		   355 Quit	
+200827 10:26:00	   356 Connect	project@172.25.113.178 as anonymous on project
+		   356 Query	SET NAMES utf8
+		   356 Query	use `project`
+		   356 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   356 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   356 Close stmt	
+		   356 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   356 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   356 Close stmt	
+		   356 Prepare	select `tag` from `telescope_monitoring`
+		   356 Close stmt	
+		   356 Quit	
+		   357 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   357 Query	SET NAMES utf8
+		   357 Query	use `develop_project`
+		   357 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   357 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   357 Close stmt	
+		   357 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   357 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   357 Close stmt	
+		   357 Prepare	select `tag` from `telescope_monitoring`
+		   357 Close stmt	
+		   357 Quit	
+200827 10:26:05	   358 Connect	root@172.25.244.171 as anonymous on mysql
+		   358 Query	SET lock_wait_timeout=2
+		   358 Query	SELECT @@version
+		   358 Query	SELECT @@query_response_time_stats
+		   358 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   358 Query	SHOW GLOBAL VARIABLES
+		   358 Query	SHOW ALL SLAVES STATUS
+		   358 Query	SHOW GLOBAL STATUS
+		   358 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   358 Quit	
+200827 10:26:06	   359 Connect	root@localhost as anonymous on 
+		   359 Statistics	
+		   359 Quit	
+200827 10:26:09	   360 Connect	root@localhost as anonymous on 
+		   360 Statistics	
+		   360 Quit	
+200827 10:26:16	   361 Connect	root@localhost as anonymous on 
+		   361 Statistics	
+		   361 Quit	
+200827 10:26:19	   362 Connect	root@localhost as anonymous on 
+		   362 Statistics	
+		   362 Quit	
+200827 10:26:20	   363 Connect	root@172.25.244.171 as anonymous on mysql
+		   363 Query	SET lock_wait_timeout=2
+		   363 Query	SELECT @@version
+		   363 Query	SELECT @@query_response_time_stats
+		   363 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   363 Query	SHOW GLOBAL VARIABLES
+		   363 Query	SHOW ALL SLAVES STATUS
+		   363 Query	SHOW GLOBAL STATUS
+		   363 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   363 Quit	
+200827 10:26:26	   364 Connect	root@localhost as anonymous on 
+		   364 Statistics	
+		   364 Quit	
+200827 10:26:29	   365 Connect	root@localhost as anonymous on 
+		   365 Statistics	
+		   365 Quit	
+200827 10:26:35	   366 Connect	root@172.25.244.171 as anonymous on mysql
+		   366 Query	SET lock_wait_timeout=2
+		   366 Query	SELECT @@version
+		   366 Query	SELECT @@query_response_time_stats
+		   366 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   366 Query	SHOW GLOBAL STATUS
+		   366 Query	SHOW GLOBAL VARIABLES
+		   366 Query	SHOW ALL SLAVES STATUS
+		   366 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   366 Quit	
+200827 10:26:36	   367 Connect	root@localhost as anonymous on 
+		   367 Statistics	
+		   367 Quit	
+200827 10:26:39	   368 Connect	root@localhost as anonymous on 
+		   368 Statistics	
+		   368 Quit	
+200827 10:26:46	   369 Connect	root@localhost as anonymous on 
+		   369 Statistics	
+		   369 Quit	
+200827 10:26:49	   370 Connect	root@localhost as anonymous on 
+		   370 Statistics	
+		   370 Quit	
+200827 10:26:50	   371 Connect	root@172.25.244.171 as anonymous on mysql
+		   371 Query	SET lock_wait_timeout=2
+		   371 Query	SELECT @@version
+		   371 Query	SELECT @@query_response_time_stats
+		   371 Query	SHOW ALL SLAVES STATUS
+		   371 Query	SHOW GLOBAL VARIABLES
+		   371 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   371 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   371 Query	SHOW GLOBAL STATUS
+		   371 Quit	
+200827 10:26:56	   372 Connect	root@localhost as anonymous on 
+		   372 Statistics	
+		   372 Quit	
+200827 10:26:59	   373 Connect	root@localhost as anonymous on 
+		   373 Statistics	
+		   373 Quit	
+200827 10:27:05	   374 Connect	root@172.25.244.171 as anonymous on mysql
+		   374 Query	SET lock_wait_timeout=2
+		   374 Query	SELECT @@version
+		   374 Query	SELECT @@query_response_time_stats
+		   374 Query	SHOW ALL SLAVES STATUS
+		   374 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   374 Query	SHOW GLOBAL STATUS
+		   374 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   374 Query	SHOW GLOBAL VARIABLES
+		   374 Quit	
+200827 10:27:06	   375 Connect	root@localhost as anonymous on 
+		   375 Statistics	
+		   375 Quit	
+200827 10:27:09	   376 Connect	root@localhost as anonymous on 
+		   376 Statistics	
+		   376 Quit	
+200827 10:27:16	   377 Connect	root@localhost as anonymous on 
+		   377 Statistics	
+		   377 Quit	
+200827 10:27:19	   378 Connect	root@localhost as anonymous on 
+		   378 Statistics	
+		   378 Quit	
+200827 10:27:20	   379 Connect	root@172.25.244.171 as anonymous on mysql
+		   379 Query	SET lock_wait_timeout=2
+		   379 Query	SELECT @@version
+		   379 Query	SELECT @@query_response_time_stats
+		   379 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   379 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   379 Query	SHOW GLOBAL VARIABLES
+		   379 Query	SHOW ALL SLAVES STATUS
+		   379 Query	SHOW GLOBAL STATUS
+		   379 Quit	
+200827 10:27:26	   380 Connect	root@localhost as anonymous on 
+		   380 Statistics	
+		   380 Quit	
+200827 10:27:29	   381 Connect	root@localhost as anonymous on 
+		   381 Statistics	
+		   381 Quit	
+200827 10:27:35	   382 Connect	root@172.25.244.171 as anonymous on mysql
+		   382 Query	SET lock_wait_timeout=2
+		   382 Query	SELECT @@version
+		   382 Query	SELECT @@query_response_time_stats
+		   382 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   382 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   382 Query	SHOW GLOBAL STATUS
+		   382 Query	SHOW ALL SLAVES STATUS
+		   382 Query	SHOW GLOBAL VARIABLES
+		   382 Quit	
+200827 10:27:36	   383 Connect	root@localhost as anonymous on 
+		   383 Statistics	
+		   383 Quit	
+200827 10:27:39	   384 Connect	root@localhost as anonymous on 
+		   384 Statistics	
+		   384 Quit	
+200827 10:27:46	   385 Connect	root@localhost as anonymous on 
+		   385 Statistics	
+		   385 Quit	
+200827 10:27:49	   386 Connect	root@localhost as anonymous on 
+		   386 Statistics	
+		   386 Quit	
+200827 10:27:50	   387 Connect	root@172.25.244.171 as anonymous on mysql
+		   387 Query	SET lock_wait_timeout=2
+		   387 Query	SELECT @@version
+		   387 Query	SELECT @@query_response_time_stats
+		   387 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   387 Query	SHOW GLOBAL STATUS
+		   387 Query	SHOW GLOBAL VARIABLES
+		   387 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   387 Query	SHOW ALL SLAVES STATUS
+		   387 Quit	
+200827 10:27:56	   388 Connect	root@localhost as anonymous on 
+		   388 Statistics	
+		   388 Quit	
+200827 10:27:59	   389 Connect	root@localhost as anonymous on 
+		   389 Statistics	
+		   389 Quit	
+200827 10:28:05	   390 Connect	root@172.25.244.171 as anonymous on mysql
+		   390 Query	SET lock_wait_timeout=2
+		   390 Query	SELECT @@version
+		   390 Query	SELECT @@query_response_time_stats
+		   390 Query	SHOW ALL SLAVES STATUS
+		   390 Query	SHOW GLOBAL VARIABLES
+		   390 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   390 Query	SHOW GLOBAL STATUS
+		   390 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   390 Quit	
+200827 10:28:06	   391 Connect	root@localhost as anonymous on 
+		   391 Statistics	
+		   391 Quit	
+200827 10:28:09	   392 Connect	root@localhost as anonymous on 
+		   392 Statistics	
+		   392 Quit	
+200827 10:28:16	   393 Connect	root@localhost as anonymous on 
+		   393 Statistics	
+		   393 Quit	
+200827 10:28:19	   394 Connect	root@localhost as anonymous on 
+		   394 Statistics	
+		   394 Quit	
+200827 10:28:20	   395 Connect	root@172.25.244.171 as anonymous on mysql
+		   395 Query	SET lock_wait_timeout=2
+		   395 Query	SELECT @@version
+		   395 Query	SHOW ALL SLAVES STATUS
+		   395 Query	SHOW GLOBAL VARIABLES
+		   395 Query	SELECT @@query_response_time_stats
+		   395 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   395 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   395 Query	SHOW GLOBAL STATUS
+		   395 Quit	
+200827 10:28:26	   396 Connect	root@localhost as anonymous on 
+		   396 Statistics	
+		   396 Quit	
+200827 10:28:29	   397 Connect	root@localhost as anonymous on 
+		   397 Statistics	
+		   397 Quit	
+200827 10:28:35	   398 Connect	root@172.25.244.171 as anonymous on mysql
+		   398 Query	SET lock_wait_timeout=2
+		   398 Query	SELECT @@version
+		   398 Query	SELECT @@query_response_time_stats
+		   398 Query	SHOW ALL SLAVES STATUS
+		   398 Query	SHOW GLOBAL STATUS
+		   398 Query	SHOW GLOBAL VARIABLES
+		   398 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   398 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   398 Quit	
+200827 10:28:36	   399 Connect	root@localhost as anonymous on 
+		   399 Statistics	
+		   399 Quit	
+200827 10:28:39	   400 Connect	root@localhost as anonymous on 
+		   400 Statistics	
+		   400 Quit	
+200827 10:28:46	   401 Connect	root@localhost as anonymous on 
+		   401 Statistics	
+		   401 Quit	
+200827 10:28:49	   402 Connect	root@localhost as anonymous on 
+		   402 Statistics	
+		   402 Quit	
+200827 10:28:50	   403 Connect	root@172.25.244.171 as anonymous on mysql
+		   403 Query	SET lock_wait_timeout=2
+		   403 Query	SELECT @@version
+		   403 Query	SELECT @@query_response_time_stats
+		   403 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   403 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   403 Query	SHOW GLOBAL VARIABLES
+		   403 Query	SHOW GLOBAL STATUS
+		   403 Query	SHOW ALL SLAVES STATUS
+		   403 Quit	
+200827 10:28:56	   404 Connect	root@localhost as anonymous on 
+		   404 Statistics	
+		   404 Quit	
+200827 10:28:59	   405 Connect	root@localhost as anonymous on 
+		   405 Statistics	
+		   405 Quit	
+200827 10:29:00	   406 Connect	project@172.25.113.178 as anonymous on project
+		   406 Query	SET NAMES utf8
+		   406 Query	use `project`
+		   406 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   406 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   406 Close stmt	
+		   406 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   406 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   406 Close stmt	
+		   406 Prepare	select `tag` from `telescope_monitoring`
+		   406 Close stmt	
+		   406 Quit	
+200827 10:29:05	   407 Connect	root@172.25.244.171 as anonymous on mysql
+		   407 Query	SET lock_wait_timeout=2
+		   407 Query	SELECT @@version
+		   407 Query	SELECT @@query_response_time_stats
+		   407 Query	SHOW ALL SLAVES STATUS
+		   407 Query	SHOW GLOBAL STATUS
+		   407 Query	SHOW GLOBAL VARIABLES
+		   407 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   407 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   407 Quit	
+200827 10:29:06	   408 Connect	root@localhost as anonymous on 
+		   408 Statistics	
+		   408 Quit	
+200827 10:29:09	   409 Connect	root@localhost as anonymous on 
+		   409 Statistics	
+		   409 Quit	
+200827 10:29:16	   410 Connect	root@localhost as anonymous on 
+		   410 Statistics	
+		   410 Quit	
+200827 10:29:19	   411 Connect	root@localhost as anonymous on 
+		   411 Statistics	
+		   411 Quit	
+200827 10:29:20	   412 Connect	root@172.25.244.171 as anonymous on mysql
+		   412 Query	SET lock_wait_timeout=2
+		   412 Query	SELECT @@version
+		   412 Query	SELECT @@query_response_time_stats
+		   412 Query	SHOW GLOBAL STATUS
+		   412 Query	SHOW GLOBAL VARIABLES
+		   412 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   412 Query	SHOW ALL SLAVES STATUS
+		   412 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   412 Quit	
+200827 10:29:26	   413 Connect	root@localhost as anonymous on 
+		   413 Statistics	
+		   413 Quit	
+200827 10:29:29	   414 Connect	root@localhost as anonymous on 
+		   414 Statistics	
+		   414 Quit	
+200827 10:29:35	   415 Connect	root@172.25.244.171 as anonymous on mysql
+		   415 Query	SET lock_wait_timeout=2
+		   415 Query	SELECT @@version
+		   415 Query	SELECT @@query_response_time_stats
+		   415 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   415 Query	SHOW ALL SLAVES STATUS
+		   415 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   415 Query	SHOW GLOBAL VARIABLES
+		   415 Query	SHOW GLOBAL STATUS
+		   415 Quit	
+200827 10:29:36	   416 Connect	root@localhost as anonymous on 
+		   416 Statistics	
+		   416 Quit	
+200827 10:29:39	   417 Connect	root@localhost as anonymous on 
+		   417 Statistics	
+		   417 Quit	
+200827 10:29:46	   418 Connect	root@localhost as anonymous on 
+		   418 Statistics	
+		   418 Quit	
+200827 10:29:49	   419 Connect	root@localhost as anonymous on 
+		   419 Statistics	
+		   419 Quit	
+200827 10:29:50	   420 Connect	root@172.25.244.171 as anonymous on mysql
+		   420 Query	SET lock_wait_timeout=2
+		   420 Query	SELECT @@version
+		   420 Query	SELECT @@query_response_time_stats
+		   420 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   420 Query	SHOW ALL SLAVES STATUS
+		   420 Query	SHOW GLOBAL STATUS
+		   420 Query	SHOW GLOBAL VARIABLES
+		   420 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   420 Quit	
+200827 10:29:56	   421 Connect	root@localhost as anonymous on 
+		   421 Statistics	
+		   421 Quit	
+200827 10:29:59	   422 Connect	root@localhost as anonymous on 
+		   422 Statistics	
+		   422 Quit	
+200827 10:30:05	   423 Connect	root@172.25.244.171 as anonymous on mysql
+		   423 Query	SET lock_wait_timeout=2
+		   423 Query	SELECT @@version
+		   423 Query	SHOW GLOBAL STATUS
+		   423 Query	SHOW GLOBAL VARIABLES
+		   423 Query	SELECT @@query_response_time_stats
+		   423 Query	SHOW ALL SLAVES STATUS
+		   423 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   423 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   423 Quit	
+200827 10:30:06	   424 Connect	root@localhost as anonymous on 
+		   424 Statistics	
+		   424 Quit	
+200827 10:30:09	   425 Connect	root@localhost as anonymous on 
+		   425 Statistics	
+		   425 Quit	
+200827 10:30:16	   426 Connect	root@localhost as anonymous on 
+		   426 Statistics	
+		   426 Quit	
+200827 10:30:19	   427 Connect	root@localhost as anonymous on 
+		   427 Statistics	
+		   427 Quit	
+200827 10:30:20	   428 Connect	root@172.25.244.171 as anonymous on mysql
+		   428 Query	SET lock_wait_timeout=2
+		   428 Query	SELECT @@version
+		   428 Query	SELECT @@query_response_time_stats
+		   428 Query	SHOW ALL SLAVES STATUS
+		   428 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   428 Query	SHOW GLOBAL STATUS
+		   428 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   428 Query	SHOW GLOBAL VARIABLES
+		   428 Quit	
+200827 10:30:26	   429 Connect	root@localhost as anonymous on 
+		   429 Statistics	
+		   429 Quit	
+200827 10:30:29	   430 Connect	root@localhost as anonymous on 
+		   430 Statistics	
+		   430 Quit	
+200827 10:30:35	   431 Connect	root@172.25.244.171 as anonymous on mysql
+		   431 Query	SET lock_wait_timeout=2
+		   431 Query	SELECT @@version
+		   431 Query	SELECT @@query_response_time_stats
+		   431 Query	SHOW GLOBAL STATUS
+		   431 Query	SHOW GLOBAL VARIABLES
+		   431 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   431 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   431 Query	SHOW ALL SLAVES STATUS
+		   431 Quit	
+200827 10:30:36	   432 Connect	root@localhost as anonymous on 
+		   432 Statistics	
+		   432 Quit	
+200827 10:30:39	   433 Connect	root@localhost as anonymous on 
+		   433 Statistics	
+		   433 Quit	
+200827 10:30:46	   434 Connect	root@localhost as anonymous on 
+		   434 Statistics	
+		   434 Quit	
+200827 10:30:49	   435 Connect	root@localhost as anonymous on 
+		   435 Statistics	
+		   435 Quit	
+200827 10:30:50	   436 Connect	root@172.25.244.171 as anonymous on mysql
+		   436 Query	SET lock_wait_timeout=2
+		   436 Query	SELECT @@version
+		   436 Query	SELECT @@query_response_time_stats
+		   436 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   436 Query	SHOW GLOBAL VARIABLES
+		   436 Query	SHOW ALL SLAVES STATUS
+		   436 Query	SHOW GLOBAL STATUS
+		   436 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   436 Quit	
+200827 10:30:56	   437 Connect	root@localhost as anonymous on 
+		   437 Statistics	
+		   437 Quit	
+200827 10:30:59	   438 Connect	root@localhost as anonymous on 
+		   438 Statistics	
+		   438 Quit	
+200827 10:31:00	   439 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   439 Query	SET NAMES utf8
+		   439 Query	use `develop_project`
+		   439 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   439 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   439 Close stmt	
+		   439 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   439 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   439 Close stmt	
+		   439 Prepare	select `tag` from `telescope_monitoring`
+		   439 Close stmt	
+		   439 Quit	
+200827 10:31:05	   440 Connect	root@172.25.244.171 as anonymous on mysql
+		   440 Query	SET lock_wait_timeout=2
+		   440 Query	SELECT @@version
+		   440 Query	SELECT @@query_response_time_stats
+		   440 Query	SHOW ALL SLAVES STATUS
+		   440 Query	SHOW GLOBAL VARIABLES
+		   440 Query	SHOW GLOBAL STATUS
+		   440 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+200827 10:31:06	   440 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   440 Quit	
+		   441 Connect	root@localhost as anonymous on 
+		   441 Statistics	
+		   441 Quit	
+200827 10:31:09	   442 Connect	root@localhost as anonymous on 
+		   442 Statistics	
+		   442 Quit	
+200827 10:31:16	   443 Connect	root@localhost as anonymous on 
+		   443 Statistics	
+		   443 Quit	
+200827 10:31:19	   444 Connect	root@localhost as anonymous on 
+		   444 Statistics	
+		   444 Quit	
+200827 10:31:20	   445 Connect	root@172.25.244.171 as anonymous on mysql
+		   445 Query	SET lock_wait_timeout=2
+		   445 Query	SELECT @@version
+		   445 Query	SELECT @@query_response_time_stats
+		   445 Query	SHOW ALL SLAVES STATUS
+		   445 Query	SHOW GLOBAL VARIABLES
+		   445 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   445 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   445 Query	SHOW GLOBAL STATUS
+		   445 Quit	
+200827 10:31:26	   446 Connect	root@localhost as anonymous on 
+		   446 Statistics	
+		   446 Quit	
+200827 10:31:29	   447 Connect	root@localhost as anonymous on 
+		   447 Statistics	
+		   447 Quit	
+200827 10:31:35	   448 Connect	root@172.25.244.171 as anonymous on mysql
+		   448 Query	SET lock_wait_timeout=2
+		   448 Query	SELECT @@version
+		   448 Query	SELECT @@query_response_time_stats
+		   448 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   448 Query	SHOW ALL SLAVES STATUS
+		   448 Query	SHOW GLOBAL VARIABLES
+		   448 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   448 Query	SHOW GLOBAL STATUS
+		   448 Quit	
+200827 10:31:36	   449 Connect	root@localhost as anonymous on 
+		   449 Statistics	
+		   449 Quit	
+200827 10:31:39	   450 Connect	root@localhost as anonymous on 
+		   450 Statistics	
+		   450 Quit	
+200827 10:31:46	   451 Connect	root@localhost as anonymous on 
+		   451 Statistics	
+		   451 Quit	
+200827 10:31:49	   452 Connect	root@localhost as anonymous on 
+		   452 Statistics	
+		   452 Quit	
+200827 10:31:50	   453 Connect	root@172.25.244.171 as anonymous on mysql
+		   453 Query	SET lock_wait_timeout=2
+		   453 Query	SELECT @@version
+		   453 Query	SELECT @@query_response_time_stats
+		   453 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   453 Query	SHOW ALL SLAVES STATUS
+		   453 Query	SHOW GLOBAL STATUS
+		   453 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   453 Query	SHOW GLOBAL VARIABLES
+		   453 Quit	
+200827 10:31:56	   454 Connect	root@localhost as anonymous on 
+		   454 Statistics	
+		   454 Quit	
+200827 10:31:59	   455 Connect	root@localhost as anonymous on 
+		   455 Statistics	
+		   455 Quit	
+200827 10:32:00	   456 Connect	project@172.25.113.178 as anonymous on project
+		   456 Query	SET NAMES utf8
+		   456 Query	use `project`
+		   456 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   456 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   456 Close stmt	
+		   456 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   456 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   456 Close stmt	
+		   456 Prepare	select `tag` from `telescope_monitoring`
+		   456 Close stmt	
+		   456 Quit	
+		   457 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   457 Query	SET NAMES utf8
+		   457 Query	use `review_project`
+		   457 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   457 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   457 Close stmt	
+		   457 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   457 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   457 Close stmt	
+		   457 Prepare	select `tag` from `telescope_monitoring`
+		   457 Close stmt	
+		   457 Quit	
+200827 10:32:05	   458 Connect	root@172.25.244.171 as anonymous on mysql
+		   458 Query	SET lock_wait_timeout=2
+		   458 Query	SELECT @@version
+		   458 Query	SELECT @@query_response_time_stats
+		   458 Query	SHOW GLOBAL STATUS
+		   458 Query	SHOW GLOBAL VARIABLES
+		   458 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   458 Query	SHOW ALL SLAVES STATUS
+		   458 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   458 Quit	
+200827 10:32:06	   459 Connect	root@localhost as anonymous on 
+		   459 Statistics	
+		   459 Quit	
+200827 10:32:09	   460 Connect	root@localhost as anonymous on 
+		   460 Statistics	
+		   460 Quit	
+200827 10:32:16	   461 Connect	root@localhost as anonymous on 
+		   461 Statistics	
+		   461 Quit	
+200827 10:32:19	   462 Connect	root@localhost as anonymous on 
+		   462 Statistics	
+		   462 Quit	
+200827 10:32:20	   463 Connect	root@172.25.244.171 as anonymous on mysql
+		   463 Query	SET lock_wait_timeout=2
+		   463 Query	SELECT @@version
+		   463 Query	SELECT @@query_response_time_stats
+		   463 Query	SHOW ALL SLAVES STATUS
+		   463 Query	SHOW GLOBAL STATUS
+		   463 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   463 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   463 Query	SHOW GLOBAL VARIABLES
+		   463 Quit	
+200827 10:32:26	   464 Connect	root@localhost as anonymous on 
+		   464 Statistics	
+		   464 Quit	
+200827 10:32:29	   465 Connect	root@localhost as anonymous on 
+		   465 Statistics	
+		   465 Quit	
+200827 10:32:35	   466 Connect	root@172.25.244.171 as anonymous on mysql
+		   466 Query	SET lock_wait_timeout=2
+		   466 Query	SELECT @@version
+		   466 Query	SELECT @@query_response_time_stats
+		   466 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   466 Query	SHOW GLOBAL VARIABLES
+		   466 Query	SHOW GLOBAL STATUS
+		   466 Query	SHOW ALL SLAVES STATUS
+		   466 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   466 Quit	
+200827 10:32:36	   467 Connect	root@localhost as anonymous on 
+		   467 Statistics	
+		   467 Quit	
+200827 10:32:39	   468 Connect	root@localhost as anonymous on 
+		   468 Statistics	
+		   468 Quit	
+200827 10:32:46	   469 Connect	root@localhost as anonymous on 
+		   469 Statistics	
+		   469 Quit	
+200827 10:32:49	   470 Connect	root@localhost as anonymous on 
+		   470 Statistics	
+		   470 Quit	
+200827 10:32:50	   471 Connect	root@172.25.244.171 as anonymous on mysql
+		   471 Query	SET lock_wait_timeout=2
+		   471 Query	SELECT @@version
+		   471 Query	SELECT @@query_response_time_stats
+		   471 Query	SHOW ALL SLAVES STATUS
+		   471 Query	SHOW GLOBAL VARIABLES
+		   471 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   471 Query	SHOW GLOBAL STATUS
+		   471 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   471 Quit	
+200827 10:32:56	   472 Connect	root@localhost as anonymous on 
+		   472 Statistics	
+		   472 Quit	
+200827 10:32:59	   473 Connect	root@localhost as anonymous on 
+		   473 Statistics	
+		   473 Quit	
+200827 10:33:00	   474 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   474 Query	SET NAMES utf8
+		   474 Query	use `review_project`
+		   474 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   474 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   474 Close stmt	
+		   474 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   474 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   474 Close stmt	
+		   474 Prepare	select `tag` from `telescope_monitoring`
+		   474 Close stmt	
+		   474 Quit	
+200827 10:33:05	   475 Connect	root@172.25.244.171 as anonymous on mysql
+		   475 Query	SET lock_wait_timeout=2
+		   475 Query	SELECT @@version
+		   475 Query	SELECT @@query_response_time_stats
+		   475 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   475 Query	SHOW ALL SLAVES STATUS
+		   475 Query	SHOW GLOBAL STATUS
+		   475 Query	SHOW GLOBAL VARIABLES
+		   475 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   475 Quit	
+200827 10:33:06	   476 Connect	root@localhost as anonymous on 
+		   476 Statistics	
+		   476 Quit	
+200827 10:33:09	   477 Connect	root@localhost as anonymous on 
+		   477 Statistics	
+		   477 Quit	
+200827 10:33:16	   478 Connect	root@localhost as anonymous on 
+		   478 Statistics	
+		   478 Quit	
+200827 10:33:19	   479 Connect	root@localhost as anonymous on 
+		   479 Statistics	
+		   479 Quit	
+200827 10:33:20	   480 Connect	root@172.25.244.171 as anonymous on mysql
+		   480 Query	SET lock_wait_timeout=2
+		   480 Query	SELECT @@version
+		   480 Query	SELECT @@query_response_time_stats
+		   480 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   480 Query	SHOW GLOBAL VARIABLES
+		   480 Query	SHOW GLOBAL STATUS
+		   480 Query	SHOW ALL SLAVES STATUS
+		   480 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   480 Quit	
+200827 10:33:26	   481 Connect	root@localhost as anonymous on 
+		   481 Statistics	
+		   481 Quit	
+200827 10:33:29	   482 Connect	root@localhost as anonymous on 
+		   482 Statistics	
+		   482 Quit	
+200827 10:33:35	   483 Connect	root@172.25.244.171 as anonymous on mysql
+		   483 Query	SET lock_wait_timeout=2
+		   483 Query	SELECT @@version
+		   483 Query	SELECT @@query_response_time_stats
+		   483 Query	SHOW GLOBAL VARIABLES
+		   483 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   483 Query	SHOW GLOBAL STATUS
+		   483 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   483 Query	SHOW ALL SLAVES STATUS
+		   483 Quit	
+200827 10:33:36	   484 Connect	root@localhost as anonymous on 
+		   484 Statistics	
+		   484 Quit	
+200827 10:33:39	   485 Connect	root@localhost as anonymous on 
+		   485 Statistics	
+		   485 Quit	
+200827 10:33:46	   486 Connect	root@localhost as anonymous on 
+		   486 Statistics	
+		   486 Quit	
+200827 10:33:49	   487 Connect	root@localhost as anonymous on 
+		   487 Statistics	
+		   487 Quit	
+200827 10:33:50	   488 Connect	root@172.25.244.171 as anonymous on mysql
+		   488 Query	SET lock_wait_timeout=2
+		   488 Query	SELECT @@version
+		   488 Query	SELECT @@query_response_time_stats
+		   488 Query	SHOW GLOBAL VARIABLES
+		   488 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   488 Query	SHOW ALL SLAVES STATUS
+		   488 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   488 Query	SHOW GLOBAL STATUS
+		   488 Quit	
+200827 10:33:56	   489 Connect	root@localhost as anonymous on 
+		   489 Statistics	
+		   489 Quit	
+200827 10:33:59	   490 Connect	root@localhost as anonymous on 
+		   490 Statistics	
+		   490 Quit	
+200827 10:34:05	   491 Connect	root@172.25.244.171 as anonymous on mysql
+		   491 Query	SET lock_wait_timeout=2
+		   491 Query	SELECT @@version
+		   491 Query	SELECT @@query_response_time_stats
+		   491 Query	SHOW GLOBAL STATUS
+		   491 Query	SHOW GLOBAL VARIABLES
+		   491 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   491 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   491 Query	SHOW ALL SLAVES STATUS
+		   491 Quit	
+200827 10:34:06	   492 Connect	root@localhost as anonymous on 
+		   492 Statistics	
+		   492 Quit	
+200827 10:34:09	   493 Connect	root@localhost as anonymous on 
+		   493 Statistics	
+		   493 Quit	
+200827 10:34:16	   494 Connect	root@localhost as anonymous on 
+		   494 Statistics	
+		   494 Quit	
+200827 10:34:19	   495 Connect	root@localhost as anonymous on 
+		   495 Statistics	
+		   495 Quit	
+200827 10:34:20	   496 Connect	root@172.25.244.171 as anonymous on mysql
+		   496 Query	SET lock_wait_timeout=2
+		   496 Query	SELECT @@version
+		   496 Query	SELECT @@query_response_time_stats
+		   496 Query	SHOW ALL SLAVES STATUS
+		   496 Query	SHOW GLOBAL STATUS
+		   496 Query	SHOW GLOBAL VARIABLES
+		   496 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   496 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   496 Quit	
+200827 10:34:26	   497 Connect	root@localhost as anonymous on 
+		   497 Statistics	
+		   497 Quit	
+200827 10:34:29	   498 Connect	root@localhost as anonymous on 
+		   498 Statistics	
+		   498 Quit	
+200827 10:34:35	   499 Connect	root@172.25.244.171 as anonymous on mysql
+		   499 Query	SET lock_wait_timeout=2
+		   499 Query	SELECT @@version
+		   499 Query	SHOW GLOBAL STATUS
+		   499 Query	SHOW GLOBAL VARIABLES
+		   499 Query	SELECT @@query_response_time_stats
+		   499 Query	SHOW ALL SLAVES STATUS
+		   499 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   499 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   499 Quit	
+200827 10:34:36	   500 Connect	root@localhost as anonymous on 
+		   500 Statistics	
+		   500 Quit	
+200827 10:34:39	   501 Connect	root@localhost as anonymous on 
+		   501 Statistics	
+		   501 Quit	
+200827 10:34:46	   502 Connect	root@localhost as anonymous on 
+		   502 Statistics	
+		   502 Quit	
+200827 10:34:49	   503 Connect	root@localhost as anonymous on 
+		   503 Statistics	
+		   503 Quit	
+200827 10:34:50	   504 Connect	root@172.25.244.171 as anonymous on mysql
+		   504 Query	SET lock_wait_timeout=2
+		   504 Query	SELECT @@version
+		   504 Query	SELECT @@query_response_time_stats
+		   504 Query	SHOW ALL SLAVES STATUS
+		   504 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   504 Query	SHOW GLOBAL VARIABLES
+		   504 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   504 Query	SHOW GLOBAL STATUS
+		   504 Quit	
+200827 10:34:56	   505 Connect	root@localhost as anonymous on 
+		   505 Statistics	
+		   505 Quit	
+200827 10:34:59	   506 Connect	root@localhost as anonymous on 
+		   506 Statistics	
+		   506 Quit	
+200827 10:35:00	   507 Connect	project@172.25.113.178 as anonymous on project
+		   507 Query	SET NAMES utf8
+		   507 Query	use `project`
+		   507 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   507 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   507 Close stmt	
+		   507 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   507 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   507 Close stmt	
+		   507 Prepare	select `tag` from `telescope_monitoring`
+		   507 Close stmt	
+		   507 Quit	
+200827 10:35:05	   508 Connect	root@172.25.244.171 as anonymous on mysql
+		   508 Query	SET lock_wait_timeout=2
+		   508 Query	SELECT @@version
+		   508 Query	SELECT @@query_response_time_stats
+		   508 Query	SHOW GLOBAL VARIABLES
+		   508 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   508 Query	SHOW GLOBAL STATUS
+		   508 Query	SHOW ALL SLAVES STATUS
+		   508 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   508 Quit	
+200827 10:35:06	   509 Connect	root@localhost as anonymous on 
+		   509 Statistics	
+		   509 Quit	
+200827 10:35:09	   510 Connect	root@localhost as anonymous on 
+		   510 Statistics	
+		   510 Quit	
+200827 10:35:16	   511 Connect	root@localhost as anonymous on 
+		   511 Statistics	
+		   511 Quit	
+200827 10:35:19	   512 Connect	root@localhost as anonymous on 
+		   512 Statistics	
+		   512 Quit	
+200827 10:35:20	   513 Connect	root@172.25.244.171 as anonymous on mysql
+		   513 Query	SET lock_wait_timeout=2
+		   513 Query	SELECT @@version
+		   513 Query	SELECT @@query_response_time_stats
+		   513 Query	SHOW ALL SLAVES STATUS
+		   513 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   513 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   513 Query	SHOW GLOBAL VARIABLES
+		   513 Query	SHOW GLOBAL STATUS
+		   513 Quit	
+200827 10:35:26	   514 Connect	root@localhost as anonymous on 
+		   514 Statistics	
+		   514 Quit	
+200827 10:35:29	   515 Connect	root@localhost as anonymous on 
+		   515 Statistics	
+		   515 Quit	
+200827 10:35:35	   516 Connect	root@172.25.244.171 as anonymous on mysql
+		   516 Query	SET lock_wait_timeout=2
+		   516 Query	SELECT @@version
+		   516 Query	SELECT @@query_response_time_stats
+		   516 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   516 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   516 Query	SHOW GLOBAL STATUS
+		   516 Query	SHOW ALL SLAVES STATUS
+		   516 Query	SHOW GLOBAL VARIABLES
+		   516 Quit	
+200827 10:35:36	   517 Connect	root@localhost as anonymous on 
+		   517 Statistics	
+		   517 Quit	
+200827 10:35:39	   518 Connect	root@localhost as anonymous on 
+		   518 Statistics	
+		   518 Quit	
+200827 10:35:46	   519 Connect	root@localhost as anonymous on 
+		   519 Statistics	
+		   519 Quit	
+200827 10:35:49	   520 Connect	root@localhost as anonymous on 
+		   520 Statistics	
+		   520 Quit	
+200827 10:35:50	   521 Connect	root@172.25.244.171 as anonymous on mysql
+		   521 Query	SET lock_wait_timeout=2
+		   521 Query	SELECT @@version
+		   521 Query	SELECT @@query_response_time_stats
+		   521 Query	SHOW GLOBAL STATUS
+		   521 Query	SHOW ALL SLAVES STATUS
+		   521 Query	SHOW GLOBAL VARIABLES
+		   521 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   521 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   521 Quit	
+200827 10:35:56	   522 Connect	root@localhost as anonymous on 
+		   522 Statistics	
+		   522 Quit	
+200827 10:35:59	   523 Connect	root@localhost as anonymous on 
+		   523 Statistics	
+		   523 Quit	
+200827 10:36:00	   524 Connect	project@172.25.113.178 as anonymous on project
+		   524 Query	SET NAMES utf8
+		   524 Query	use `project`
+		   524 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   524 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   524 Close stmt	
+		   524 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   524 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   524 Close stmt	
+		   524 Prepare	select `tag` from `telescope_monitoring`
+		   524 Close stmt	
+		   524 Quit	
+200827 10:36:05	   525 Connect	root@172.25.244.171 as anonymous on mysql
+		   525 Query	SET lock_wait_timeout=2
+		   525 Query	SELECT @@version
+		   525 Query	SELECT @@query_response_time_stats
+		   525 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   525 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   525 Query	SHOW GLOBAL VARIABLES
+		   525 Query	SHOW ALL SLAVES STATUS
+		   525 Query	SHOW GLOBAL STATUS
+		   525 Quit	
+200827 10:36:06	   526 Connect	root@localhost as anonymous on 
+		   526 Statistics	
+		   526 Quit	
+200827 10:36:09	   527 Connect	root@localhost as anonymous on 
+		   527 Statistics	
+		   527 Quit	
+200827 10:36:16	   528 Connect	root@localhost as anonymous on 
+		   528 Statistics	
+		   528 Quit	
+200827 10:36:19	   529 Connect	root@localhost as anonymous on 
+		   529 Statistics	
+		   529 Quit	
+200827 10:36:20	   530 Connect	root@172.25.244.171 as anonymous on mysql
+		   530 Query	SET lock_wait_timeout=2
+		   530 Query	SELECT @@version
+		   530 Query	SELECT @@query_response_time_stats
+		   530 Query	SHOW GLOBAL VARIABLES
+		   530 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   530 Query	SHOW ALL SLAVES STATUS
+		   530 Query	SHOW GLOBAL STATUS
+		   530 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   530 Quit	
+200827 10:36:26	   531 Connect	root@localhost as anonymous on 
+		   531 Statistics	
+		   531 Quit	
+200827 10:36:29	   532 Connect	root@localhost as anonymous on 
+		   532 Statistics	
+		   532 Quit	
+200827 10:36:35	   533 Connect	root@172.25.244.171 as anonymous on mysql
+		   533 Query	SET lock_wait_timeout=2
+		   533 Query	SELECT @@version
+		   533 Query	SELECT @@query_response_time_stats
+		   533 Query	SHOW GLOBAL STATUS
+		   533 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   533 Query	SHOW GLOBAL VARIABLES
+		   533 Query	SHOW ALL SLAVES STATUS
+		   533 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   533 Quit	
+200827 10:36:36	   534 Connect	root@localhost as anonymous on 
+		   534 Statistics	
+		   534 Quit	
+200827 10:36:39	   535 Connect	root@localhost as anonymous on 
+		   535 Statistics	
+		   535 Quit	
+200827 10:36:46	   536 Connect	root@localhost as anonymous on 
+		   536 Statistics	
+		   536 Quit	
+200827 10:36:49	   537 Connect	root@localhost as anonymous on 
+		   537 Statistics	
+		   537 Quit	
+200827 10:36:50	   538 Connect	root@172.25.244.171 as anonymous on mysql
+		   538 Query	SET lock_wait_timeout=2
+		   538 Query	SELECT @@version
+		   538 Query	SHOW ALL SLAVES STATUS
+		   538 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   538 Query	SELECT @@query_response_time_stats
+		   538 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   538 Query	SHOW GLOBAL STATUS
+		   538 Query	SHOW GLOBAL VARIABLES
+		   538 Quit	
+200827 10:36:56	   539 Connect	root@localhost as anonymous on 
+		   539 Statistics	
+		   539 Quit	
+200827 10:36:59	   540 Connect	root@localhost as anonymous on 
+		   540 Statistics	
+		   540 Quit	
+200827 10:37:00	   541 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   541 Query	SET NAMES utf8
+		   541 Query	use `develop_project`
+		   541 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   541 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   541 Close stmt	
+		   541 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   541 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   541 Close stmt	
+		   541 Prepare	select `tag` from `telescope_monitoring`
+		   541 Close stmt	
+		   541 Quit	
+200827 10:37:05	   542 Connect	root@172.25.244.171 as anonymous on mysql
+		   542 Query	SET lock_wait_timeout=2
+		   542 Query	SELECT @@version
+		   542 Query	SELECT @@query_response_time_stats
+		   542 Query	SHOW ALL SLAVES STATUS
+		   542 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   542 Query	SHOW GLOBAL VARIABLES
+		   542 Query	SHOW GLOBAL STATUS
+		   542 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   542 Quit	
+200827 10:37:06	   543 Connect	root@localhost as anonymous on 
+		   543 Statistics	
+		   543 Quit	
+200827 10:37:09	   544 Connect	root@localhost as anonymous on 
+		   544 Statistics	
+		   544 Quit	
+200827 10:37:16	   545 Connect	root@localhost as anonymous on 
+		   545 Statistics	
+		   545 Quit	
+200827 10:37:19	   546 Connect	root@localhost as anonymous on 
+		   546 Statistics	
+		   546 Quit	
+200827 10:37:20	   547 Connect	root@172.25.244.171 as anonymous on mysql
+		   547 Query	SET lock_wait_timeout=2
+		   547 Query	SELECT @@version
+		   547 Query	SELECT @@query_response_time_stats
+		   547 Query	SHOW GLOBAL STATUS
+		   547 Query	SHOW GLOBAL VARIABLES
+		   547 Query	SHOW ALL SLAVES STATUS
+		   547 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   547 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   547 Quit	
+200827 10:37:26	   548 Connect	root@localhost as anonymous on 
+		   548 Statistics	
+		   548 Quit	
+200827 10:37:29	   549 Connect	root@localhost as anonymous on 
+		   549 Statistics	
+		   549 Quit	
+200827 10:37:35	   550 Connect	root@172.25.244.171 as anonymous on mysql
+		   550 Query	SET lock_wait_timeout=2
+		   550 Query	SELECT @@version
+		   550 Query	SELECT @@query_response_time_stats
+		   550 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   550 Query	SHOW GLOBAL STATUS
+		   550 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   550 Query	SHOW GLOBAL VARIABLES
+		   550 Query	SHOW ALL SLAVES STATUS
+		   550 Quit	
+200827 10:37:36	   551 Connect	root@localhost as anonymous on 
+		   551 Statistics	
+		   551 Quit	
+200827 10:37:39	   552 Connect	root@localhost as anonymous on 
+		   552 Statistics	
+		   552 Quit	
+200827 10:37:46	   553 Connect	root@localhost as anonymous on 
+		   553 Statistics	
+		   553 Quit	
+200827 10:37:49	   554 Connect	root@localhost as anonymous on 
+		   554 Statistics	
+		   554 Quit	
+200827 10:37:50	   555 Connect	root@172.25.244.171 as anonymous on mysql
+		   555 Query	SET lock_wait_timeout=2
+		   555 Query	SELECT @@version
+		   555 Query	SELECT @@query_response_time_stats
+		   555 Query	SHOW GLOBAL VARIABLES
+		   555 Query	SHOW ALL SLAVES STATUS
+		   555 Query	SHOW GLOBAL STATUS
+		   555 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   555 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   555 Quit	
+200827 10:37:56	   556 Connect	root@localhost as anonymous on 
+		   556 Statistics	
+		   556 Quit	
+200827 10:37:59	   557 Connect	root@localhost as anonymous on 
+		   557 Statistics	
+		   557 Quit	
+200827 10:38:00	   558 Connect	project@172.25.113.178 as anonymous on project
+		   558 Query	SET NAMES utf8
+		   558 Query	use `project`
+		   558 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   558 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   558 Close stmt	
+		   558 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   558 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   558 Close stmt	
+		   558 Prepare	select `tag` from `telescope_monitoring`
+		   558 Close stmt	
+		   558 Quit	
+		   559 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   559 Query	SET NAMES utf8
+		   559 Query	use `develop_project`
+		   559 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   559 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   559 Close stmt	
+		   559 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   559 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   559 Close stmt	
+		   559 Prepare	select `tag` from `telescope_monitoring`
+		   559 Close stmt	
+		   559 Quit	
+200827 10:38:05	   560 Connect	root@172.25.244.171 as anonymous on mysql
+		   560 Query	SET lock_wait_timeout=2
+		   560 Query	SELECT @@version
+		   560 Query	SELECT @@query_response_time_stats
+		   560 Query	SHOW GLOBAL VARIABLES
+		   560 Query	SHOW GLOBAL STATUS
+		   560 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   560 Query	SHOW ALL SLAVES STATUS
+		   560 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   560 Quit	
+200827 10:38:06	   561 Connect	root@localhost as anonymous on 
+		   561 Statistics	
+		   561 Quit	
+200827 10:38:09	   562 Connect	root@localhost as anonymous on 
+		   562 Statistics	
+		   562 Quit	
+200827 10:38:16	   563 Connect	root@localhost as anonymous on 
+		   563 Statistics	
+		   563 Quit	
+200827 10:38:19	   564 Connect	root@localhost as anonymous on 
+		   564 Statistics	
+		   564 Quit	
+200827 10:38:20	   565 Connect	root@172.25.244.171 as anonymous on mysql
+		   565 Query	SET lock_wait_timeout=2
+		   565 Query	SELECT @@version
+		   565 Query	SELECT @@query_response_time_stats
+		   565 Query	SHOW GLOBAL STATUS
+		   565 Query	SHOW GLOBAL VARIABLES
+		   565 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   565 Query	SHOW ALL SLAVES STATUS
+		   565 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   565 Quit	
+200827 10:38:26	   566 Connect	root@localhost as anonymous on 
+		   566 Statistics	
+		   566 Quit	
+200827 10:38:29	   567 Connect	root@localhost as anonymous on 
+		   567 Statistics	
+		   567 Quit	
+200827 10:38:35	   568 Connect	root@172.25.244.171 as anonymous on mysql
+		   568 Query	SET lock_wait_timeout=2
+		   568 Query	SELECT @@version
+		   568 Query	SELECT @@query_response_time_stats
+		   568 Query	SHOW GLOBAL STATUS
+		   568 Query	SHOW ALL SLAVES STATUS
+		   568 Query	SHOW GLOBAL VARIABLES
+		   568 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   568 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   568 Quit	
+200827 10:38:36	   569 Connect	root@localhost as anonymous on 
+		   569 Statistics	
+		   569 Quit	
+200827 10:38:39	   570 Connect	root@localhost as anonymous on 
+		   570 Statistics	
+		   570 Quit	
+200827 10:38:46	   571 Connect	root@localhost as anonymous on 
+		   571 Statistics	
+		   571 Quit	
+200827 10:38:49	   572 Connect	root@localhost as anonymous on 
+		   572 Statistics	
+		   572 Quit	
+200827 10:38:50	   573 Connect	root@172.25.244.171 as anonymous on mysql
+		   573 Query	SET lock_wait_timeout=2
+		   573 Query	SELECT @@version
+		   573 Query	SELECT @@query_response_time_stats
+		   573 Query	SHOW GLOBAL STATUS
+		   573 Query	SHOW GLOBAL VARIABLES
+		   573 Query	SHOW ALL SLAVES STATUS
+		   573 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   573 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   573 Quit	
+200827 10:38:56	   574 Connect	root@localhost as anonymous on 
+		   574 Statistics	
+		   574 Quit	
+200827 10:38:59	   575 Connect	root@localhost as anonymous on 
+		   575 Statistics	
+		   575 Quit	
+200827 10:39:05	   576 Connect	root@172.25.244.171 as anonymous on mysql
+		   576 Query	SET lock_wait_timeout=2
+		   576 Query	SELECT @@version
+		   576 Query	SELECT @@query_response_time_stats
+		   576 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   576 Query	SHOW ALL SLAVES STATUS
+		   576 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   576 Query	SHOW GLOBAL VARIABLES
+		   576 Query	SHOW GLOBAL STATUS
+		   576 Quit	
+200827 10:39:06	   577 Connect	root@localhost as anonymous on 
+		   577 Statistics	
+		   577 Quit	
+200827 10:39:09	   578 Connect	root@localhost as anonymous on 
+		   578 Statistics	
+		   578 Quit	
+200827 10:39:16	   579 Connect	root@localhost as anonymous on 
+		   579 Statistics	
+		   579 Quit	
+200827 10:39:19	   580 Connect	root@localhost as anonymous on 
+		   580 Statistics	
+		   580 Quit	
+200827 10:39:20	   581 Connect	root@172.25.244.171 as anonymous on mysql
+		   581 Query	SET lock_wait_timeout=2
+		   581 Query	SELECT @@version
+		   581 Query	SELECT @@query_response_time_stats
+		   581 Query	SHOW GLOBAL VARIABLES
+		   581 Query	SHOW GLOBAL STATUS
+		   581 Query	SHOW ALL SLAVES STATUS
+		   581 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   581 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   581 Quit	
+200827 10:39:26	   582 Connect	root@localhost as anonymous on 
+		   582 Statistics	
+		   582 Quit	
+200827 10:39:29	   583 Connect	root@localhost as anonymous on 
+		   583 Statistics	
+		   583 Quit	
+200827 10:39:35	   584 Connect	root@172.25.244.171 as anonymous on mysql
+		   584 Query	SET lock_wait_timeout=2
+		   584 Query	SELECT @@version
+		   584 Query	SELECT @@query_response_time_stats
+		   584 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   584 Query	SHOW GLOBAL STATUS
+		   584 Query	SHOW ALL SLAVES STATUS
+		   584 Query	SHOW GLOBAL VARIABLES
+		   584 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   584 Quit	
+200827 10:39:36	   585 Connect	root@localhost as anonymous on 
+		   585 Statistics	
+		   585 Quit	
+200827 10:39:39	   586 Connect	root@localhost as anonymous on 
+		   586 Statistics	
+		   586 Quit	
+200827 10:39:46	   587 Connect	root@localhost as anonymous on 
+		   587 Statistics	
+		   587 Quit	
+200827 10:39:49	   588 Connect	root@localhost as anonymous on 
+		   588 Statistics	
+		   588 Quit	
+200827 10:39:50	   589 Connect	root@172.25.244.171 as anonymous on mysql
+		   589 Query	SET lock_wait_timeout=2
+		   589 Query	SELECT @@version
+		   589 Query	SELECT @@query_response_time_stats
+		   589 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   589 Query	SHOW GLOBAL STATUS
+		   589 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   589 Query	SHOW GLOBAL VARIABLES
+		   589 Query	SHOW ALL SLAVES STATUS
+		   589 Quit	
+200827 10:39:56	   590 Connect	root@localhost as anonymous on 
+		   590 Statistics	
+		   590 Quit	
+200827 10:39:59	   591 Connect	root@localhost as anonymous on 
+		   591 Statistics	
+		   591 Quit	
+200827 10:40:00	   592 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   592 Query	SET NAMES utf8
+		   592 Query	use `review_project`
+		   592 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   592 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   592 Close stmt	
+		   592 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   592 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   592 Close stmt	
+		   592 Prepare	select `tag` from `telescope_monitoring`
+		   592 Close stmt	
+200827 10:40:01	   592 Quit	
+200827 10:40:05	   593 Connect	root@172.25.244.171 as anonymous on mysql
+		   593 Query	SET lock_wait_timeout=2
+		   593 Query	SELECT @@version
+		   593 Query	SELECT @@query_response_time_stats
+		   593 Query	SHOW ALL SLAVES STATUS
+		   593 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   593 Query	SHOW GLOBAL VARIABLES
+		   593 Query	SHOW GLOBAL STATUS
+		   593 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   593 Quit	
+200827 10:40:06	   594 Connect	root@localhost as anonymous on 
+		   594 Statistics	
+		   594 Quit	
+200827 10:40:09	   595 Connect	root@localhost as anonymous on 
+		   595 Statistics	
+		   595 Quit	
+200827 10:40:16	   596 Connect	root@localhost as anonymous on 
+		   596 Statistics	
+		   596 Quit	
+200827 10:40:19	   597 Connect	root@localhost as anonymous on 
+		   597 Statistics	
+		   597 Quit	
+200827 10:40:20	   598 Connect	root@172.25.244.171 as anonymous on mysql
+		   598 Query	SET lock_wait_timeout=2
+		   598 Query	SELECT @@version
+		   598 Query	SELECT @@query_response_time_stats
+		   598 Query	SHOW GLOBAL STATUS
+		   598 Query	SHOW ALL SLAVES STATUS
+		   598 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   598 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   598 Query	SHOW GLOBAL VARIABLES
+		   598 Quit	
+200827 10:40:26	   599 Connect	root@localhost as anonymous on 
+		   599 Statistics	
+		   599 Quit	
+200827 10:40:29	   600 Connect	root@localhost as anonymous on 
+		   600 Statistics	
+		   600 Quit	
+200827 10:40:35	   601 Connect	root@172.25.244.171 as anonymous on mysql
+		   601 Query	SET lock_wait_timeout=2
+		   601 Query	SELECT @@version
+		   601 Query	SELECT @@query_response_time_stats
+		   601 Query	SHOW ALL SLAVES STATUS
+		   601 Query	SHOW GLOBAL STATUS
+		   601 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   601 Query	SHOW GLOBAL VARIABLES
+		   601 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   601 Quit	
+200827 10:40:36	   602 Connect	root@localhost as anonymous on 
+		   602 Statistics	
+		   602 Quit	
+200827 10:40:39	   603 Connect	root@localhost as anonymous on 
+		   603 Statistics	
+		   603 Quit	
+200827 10:40:46	   604 Connect	root@localhost as anonymous on 
+		   604 Statistics	
+		   604 Quit	
+200827 10:40:49	   605 Connect	root@localhost as anonymous on 
+		   605 Statistics	
+		   605 Quit	
+200827 10:40:50	   606 Connect	root@172.25.244.171 as anonymous on mysql
+		   606 Query	SET lock_wait_timeout=2
+		   606 Query	SELECT @@version
+		   606 Query	SELECT @@query_response_time_stats
+		   606 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   606 Query	SHOW ALL SLAVES STATUS
+		   606 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   606 Query	SHOW GLOBAL VARIABLES
+		   606 Query	SHOW GLOBAL STATUS
+		   606 Quit	
+200827 10:40:56	   607 Connect	root@localhost as anonymous on 
+		   607 Statistics	
+		   607 Quit	
+200827 10:40:59	   608 Connect	root@localhost as anonymous on 
+		   608 Statistics	
+		   608 Quit	
+200827 10:41:00	   609 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   609 Query	SET NAMES utf8
+		   609 Query	use `develop_project`
+		   609 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   609 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   609 Close stmt	
+		   609 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   609 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   609 Close stmt	
+		   609 Prepare	select `tag` from `telescope_monitoring`
+		   609 Close stmt	
+		   609 Quit	
+200827 10:41:05	   610 Connect	root@172.25.244.171 as anonymous on mysql
+		   610 Query	SET lock_wait_timeout=2
+		   610 Query	SELECT @@version
+		   610 Query	SELECT @@query_response_time_stats
+		   610 Query	SHOW GLOBAL VARIABLES
+		   610 Query	SHOW GLOBAL STATUS
+		   610 Query	SHOW ALL SLAVES STATUS
+		   610 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   610 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   610 Quit	
+200827 10:41:06	   611 Connect	root@localhost as anonymous on 
+		   611 Statistics	
+		   611 Quit	
+200827 10:41:09	   612 Connect	root@localhost as anonymous on 
+		   612 Statistics	
+		   612 Quit	
+200827 10:41:16	   613 Connect	root@localhost as anonymous on 
+		   613 Statistics	
+		   613 Quit	
+200827 10:41:19	   614 Connect	root@localhost as anonymous on 
+		   614 Statistics	
+		   614 Quit	
+200827 10:41:20	   615 Connect	root@172.25.244.171 as anonymous on mysql
+		   615 Query	SET lock_wait_timeout=2
+		   615 Query	SELECT @@version
+		   615 Query	SHOW GLOBAL VARIABLES
+		   615 Query	SELECT @@query_response_time_stats
+		   615 Query	SHOW GLOBAL STATUS
+		   615 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   615 Query	SHOW ALL SLAVES STATUS
+		   615 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   615 Quit	
+200827 10:41:26	   616 Connect	root@localhost as anonymous on 
+		   616 Statistics	
+		   616 Quit	
+200827 10:41:29	   617 Connect	root@localhost as anonymous on 
+		   617 Statistics	
+		   617 Quit	
+200827 10:41:35	   618 Connect	root@172.25.244.171 as anonymous on mysql
+		   618 Query	SET lock_wait_timeout=2
+		   618 Query	SELECT @@version
+		   618 Query	SELECT @@query_response_time_stats
+		   618 Query	SHOW GLOBAL STATUS
+		   618 Query	SHOW GLOBAL VARIABLES
+		   618 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   618 Query	SHOW ALL SLAVES STATUS
+		   618 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   618 Quit	
+200827 10:41:36	   619 Connect	root@localhost as anonymous on 
+		   619 Statistics	
+		   619 Quit	
+200827 10:41:39	   620 Connect	root@localhost as anonymous on 
+		   620 Statistics	
+		   620 Quit	
+200827 10:41:46	   621 Connect	root@localhost as anonymous on 
+		   621 Statistics	
+		   621 Quit	
+200827 10:41:49	   622 Connect	root@localhost as anonymous on 
+		   622 Statistics	
+		   622 Quit	
+200827 10:41:50	   623 Connect	root@172.25.244.171 as anonymous on mysql
+		   623 Query	SET lock_wait_timeout=2
+		   623 Query	SELECT @@version
+		   623 Query	SELECT @@query_response_time_stats
+		   623 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   623 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   623 Query	SHOW GLOBAL STATUS
+		   623 Query	SHOW GLOBAL VARIABLES
+		   623 Query	SHOW ALL SLAVES STATUS
+		   623 Quit	
+200827 10:41:56	   624 Connect	root@localhost as anonymous on 
+		   624 Statistics	
+		   624 Quit	
+200827 10:41:59	   625 Connect	root@localhost as anonymous on 
+		   625 Statistics	
+		   625 Quit	
+200827 10:42:00	   626 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   626 Query	SET NAMES utf8
+		   626 Query	use `review_project`
+		   626 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   626 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   626 Close stmt	
+		   626 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   626 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   626 Close stmt	
+		   626 Prepare	select `tag` from `telescope_monitoring`
+		   626 Close stmt	
+200827 10:42:01	   626 Quit	
+200827 10:42:05	   627 Connect	root@172.25.244.171 as anonymous on mysql
+		   627 Query	SET lock_wait_timeout=2
+		   627 Query	SELECT @@version
+		   627 Query	SELECT @@query_response_time_stats
+		   627 Query	SHOW GLOBAL VARIABLES
+		   627 Query	SHOW ALL SLAVES STATUS
+		   627 Query	SHOW GLOBAL STATUS
+		   627 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   627 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   627 Quit	
+200827 10:42:06	   628 Connect	root@localhost as anonymous on 
+		   628 Statistics	
+		   628 Quit	
+200827 10:42:09	   629 Connect	root@localhost as anonymous on 
+		   629 Statistics	
+		   629 Quit	
+200827 10:42:16	   630 Connect	root@localhost as anonymous on 
+		   630 Statistics	
+		   630 Quit	
+200827 10:42:19	   631 Connect	root@localhost as anonymous on 
+		   631 Statistics	
+		   631 Quit	
+200827 10:42:20	   632 Connect	root@172.25.244.171 as anonymous on mysql
+		   632 Query	SET lock_wait_timeout=2
+		   632 Query	SELECT @@version
+		   632 Query	SELECT @@query_response_time_stats
+		   632 Query	SHOW ALL SLAVES STATUS
+		   632 Query	SHOW GLOBAL VARIABLES
+		   632 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   632 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   632 Query	SHOW GLOBAL STATUS
+		   632 Quit	
+200827 10:42:26	   633 Connect	root@localhost as anonymous on 
+		   633 Statistics	
+		   633 Quit	
+200827 10:42:29	   634 Connect	root@localhost as anonymous on 
+		   634 Statistics	
+		   634 Quit	
+200827 10:42:35	   635 Connect	root@172.25.244.171 as anonymous on mysql
+		   635 Query	SET lock_wait_timeout=2
+		   635 Query	SELECT @@version
+		   635 Query	SELECT @@query_response_time_stats
+		   635 Query	SHOW ALL SLAVES STATUS
+		   635 Query	SHOW GLOBAL VARIABLES
+		   635 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   635 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   635 Query	SHOW GLOBAL STATUS
+		   635 Quit	
+200827 10:42:36	   636 Connect	root@localhost as anonymous on 
+		   636 Statistics	
+		   636 Quit	
+200827 10:42:39	   637 Connect	root@localhost as anonymous on 
+		   637 Statistics	
+		   637 Quit	
+200827 10:42:46	   638 Connect	root@localhost as anonymous on 
+		   638 Statistics	
+		   638 Quit	
+200827 10:42:49	   639 Connect	root@localhost as anonymous on 
+		   639 Statistics	
+		   639 Quit	
+200827 10:42:50	   640 Connect	root@172.25.244.171 as anonymous on mysql
+		   640 Query	SET lock_wait_timeout=2
+		   640 Query	SELECT @@version
+		   640 Query	SELECT @@query_response_time_stats
+		   640 Query	SHOW GLOBAL VARIABLES
+		   640 Query	SHOW GLOBAL STATUS
+		   640 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   640 Query	SHOW ALL SLAVES STATUS
+		   640 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   640 Quit	
+200827 10:42:56	   641 Connect	root@localhost as anonymous on 
+		   641 Statistics	
+		   641 Quit	
+200827 10:42:59	   642 Connect	root@localhost as anonymous on 
+		   642 Statistics	
+		   642 Quit	
+200827 10:43:00	   643 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   643 Query	SET NAMES utf8
+		   643 Query	use `develop_project`
+		   643 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   643 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   643 Close stmt	
+		   643 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   643 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   643 Close stmt	
+		   643 Prepare	select `tag` from `telescope_monitoring`
+		   643 Close stmt	
+		   643 Quit	
+		   644 Connect	review_project@172.25.113.135 as anonymous on review_project
+		   644 Query	SET NAMES utf8
+		   644 Query	use `review_project`
+		   644 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   644 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   644 Close stmt	
+		   644 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   644 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   644 Close stmt	
+		   644 Prepare	select `tag` from `telescope_monitoring`
+		   644 Close stmt	
+		   644 Quit	
+200827 10:43:05	   645 Connect	root@172.25.244.171 as anonymous on mysql
+		   645 Query	SET lock_wait_timeout=2
+		   645 Query	SELECT @@version
+		   645 Query	SELECT @@query_response_time_stats
+		   645 Query	SHOW GLOBAL STATUS
+		   645 Query	SHOW ALL SLAVES STATUS
+		   645 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   645 Query	SHOW GLOBAL VARIABLES
+		   645 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   645 Quit	
+200827 10:43:06	   646 Connect	root@localhost as anonymous on 
+		   646 Statistics	
+		   646 Quit	
+200827 10:43:09	   647 Connect	root@localhost as anonymous on 
+		   647 Statistics	
+		   647 Quit	
+200827 10:43:16	   648 Connect	root@localhost as anonymous on 
+		   648 Statistics	
+		   648 Quit	
+200827 10:43:19	   649 Connect	root@localhost as anonymous on 
+		   649 Statistics	
+		   649 Quit	
+200827 10:43:20	   650 Connect	root@172.25.244.171 as anonymous on mysql
+		   650 Query	SET lock_wait_timeout=2
+		   650 Query	SELECT @@version
+		   650 Query	SELECT @@query_response_time_stats
+		   650 Query	SHOW ALL SLAVES STATUS
+		   650 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   650 Query	SHOW GLOBAL STATUS
+		   650 Query	SHOW GLOBAL VARIABLES
+		   650 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   650 Quit	
+200827 10:43:26	   651 Connect	root@localhost as anonymous on 
+		   651 Statistics	
+		   651 Quit	
+200827 10:43:29	   652 Connect	root@localhost as anonymous on 
+		   652 Statistics	
+		   652 Quit	
+200827 10:43:35	   653 Connect	root@172.25.244.171 as anonymous on mysql
+		   653 Query	SET lock_wait_timeout=2
+		   653 Query	SELECT @@version
+		   653 Query	SELECT @@query_response_time_stats
+		   653 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   653 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   653 Query	SHOW GLOBAL STATUS
+		   653 Query	SHOW GLOBAL VARIABLES
+		   653 Query	SHOW ALL SLAVES STATUS
+		   653 Quit	
+200827 10:43:36	   654 Connect	root@localhost as anonymous on 
+		   654 Statistics	
+		   654 Quit	
+200827 10:43:39	   655 Connect	root@localhost as anonymous on 
+		   655 Statistics	
+		   655 Quit	
+200827 10:43:46	   656 Connect	root@localhost as anonymous on 
+		   656 Statistics	
+		   656 Quit	
+200827 10:43:49	   657 Connect	root@localhost as anonymous on 
+		   657 Statistics	
+		   657 Quit	
+200827 10:43:50	   658 Connect	root@172.25.244.171 as anonymous on mysql
+		   658 Query	SET lock_wait_timeout=2
+		   658 Query	SELECT @@version
+		   658 Query	SELECT @@query_response_time_stats
+		   658 Query	SHOW GLOBAL VARIABLES
+		   658 Query	SHOW ALL SLAVES STATUS
+		   658 Query	SHOW GLOBAL STATUS
+		   658 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   658 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   658 Quit	
+200827 10:43:56	   659 Connect	root@localhost as anonymous on 
+		   659 Statistics	
+		   659 Quit	
+200827 10:43:59	   660 Connect	root@localhost as anonymous on 
+		   660 Statistics	
+		   660 Quit	
+200827 10:44:00	   661 Connect	project@172.25.113.178 as anonymous on project
+		   661 Query	SET NAMES utf8
+		   661 Query	use `project`
+		   661 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   661 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   661 Close stmt	
+		   661 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   661 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   661 Close stmt	
+		   661 Prepare	select `tag` from `telescope_monitoring`
+		   661 Close stmt	
+		   661 Quit	
+		   662 Connect	develop_project@172.25.113.152 as anonymous on develop_project
+		   662 Query	SET NAMES utf8
+		   662 Query	use `develop_project`
+		   662 Prepare	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   662 Execute	set names 'utf8mb4' collate 'utf8mb4_unicode_ci'
+		   662 Close stmt	
+		   662 Prepare	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   662 Execute	set session sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+		   662 Close stmt	
+		   662 Prepare	select `tag` from `telescope_monitoring`
+		   662 Close stmt	
+		   662 Quit	
+200827 10:44:05	   663 Connect	root@172.25.244.171 as anonymous on mysql
+		   663 Query	SET lock_wait_timeout=2
+		   663 Query	SELECT @@version
+		   663 Query	SELECT @@query_response_time_stats
+		   663 Query	SHOW GLOBAL STATUS
+		   663 Query	SHOW GLOBAL VARIABLES
+		   663 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   663 Query	SHOW ALL SLAVES STATUS
+		   663 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   663 Quit	
+200827 10:44:06	   664 Connect	root@localhost as anonymous on 
+		   664 Statistics	
+		   664 Quit	
+200827 10:44:09	   665 Connect	root@localhost as anonymous on 
+		   665 Statistics	
+		   665 Quit	
+200827 10:44:16	   666 Connect	root@localhost as anonymous on 
+		   666 Statistics	
+		   666 Quit	
+200827 10:44:19	   667 Connect	root@localhost as anonymous on 
+		   667 Statistics	
+		   667 Quit	
+200827 10:44:20	   668 Connect	root@172.25.244.171 as anonymous on mysql
+		   668 Query	SET lock_wait_timeout=2
+		   668 Query	SELECT @@version
+		   668 Query	SELECT @@query_response_time_stats
+		   668 Query	SHOW GLOBAL STATUS
+		   668 Query	SHOW GLOBAL VARIABLES
+		   668 Query	SHOW ALL SLAVES STATUS
+		   668 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   668 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   668 Quit	
+200827 10:44:26	   669 Connect	root@localhost as anonymous on 
+		   669 Statistics	
+		   669 Quit	
+200827 10:44:29	   670 Connect	root@localhost as anonymous on 
+		   670 Statistics	
+		   670 Quit	
+200827 10:44:35	   671 Connect	root@172.25.244.171 as anonymous on mysql
+		   671 Query	SET lock_wait_timeout=2
+		   671 Query	SELECT @@version
+		   671 Query	SELECT @@query_response_time_stats
+		   671 Query	SHOW ALL SLAVES STATUS
+		   671 Query	SHOW GLOBAL VARIABLES
+		   671 Query	SELECT
+		  page_size, compress_ops, compress_ops_ok, compress_time, uncompress_ops, uncompress_time
+		  FROM information_schema.innodb_cmp
+		   671 Query	SELECT
+                  page_size, buffer_pool_instance, pages_used, pages_free, relocation_ops, relocation_time
+                  FROM information_schema.innodb_cmpmem
+		   671 Query	SHOW GLOBAL STATUS
+		   671 Quit	

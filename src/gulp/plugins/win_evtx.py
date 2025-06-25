@@ -183,7 +183,6 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
 
         event_original: str = record["data"]
-        timestamp = record["timestamp"]
 
         # parse record
         js_record = json.loads(event_original)
@@ -192,6 +191,7 @@ class Plugin(GulpPluginBase):
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
+        d["@timestamp"] = record["timestamp"]
 
         if d.get("event.code") == "0":
             MutyLogger.get_instance().debug(json.dumps(d, indent=2))
@@ -199,7 +199,6 @@ class Plugin(GulpPluginBase):
 
         return GulpDocument(
             self,
-            timestamp=timestamp,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,

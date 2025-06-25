@@ -18,9 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -71,7 +72,7 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        
+
         await super().ingest_file(
                 sess=sess,
                 stats=stats,
@@ -88,6 +89,11 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 **kwargs,
             )
+
+        mappings = self.selected_mapping()
+        if not "timestamp" in mappings.fields:
+            mappings.fields["timestamp"] = GulpMappingField(ecs="@timestamp")
+        
         # set as stacked
         try:
             lower = await self.setup_stacked_plugin("regex")

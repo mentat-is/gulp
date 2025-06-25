@@ -110,6 +110,14 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
 
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
+
+        plugin_params.mapping_parameters.mapping_file = "chrome_history.json"
+        plugin_params.custom_parameters["queries"] = {
+            "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
+        }
+
         await super().ingest_file(
                 sess=sess,
                 stats=stats,
@@ -127,21 +135,12 @@ class Plugin(GulpPluginBase):
                 **kwargs,
             )
 
-
         # set as stacked
         try:
             lower = await self.setup_stacked_plugin("sqlite")
         except Exception as ex:
             await self._source_failed(ex)
             return GulpRequestStatus.FAILED
-
-        if not plugin_params:
-            plugin_params = GulpPluginParameters()
-
-        plugin_params.mapping_parameters.mapping_file = "chrome_history.json"
-        plugin_params.custom_parameters["queries"] = {
-            "visits": "SELECT * FROM {table} LEFT JOIN urls ON {table}.url = urls.id"
-        }
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         res = await lower.ingest_file(

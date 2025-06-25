@@ -1,3 +1,8 @@
+"""
+Plugin for processing MySQL general log files and ingesting their contents into the Gulp platform.
+
+This plugin reads MySQL general log files, parses each record, and converts them into GulpDocument objects for further processing or indexing. It supports asynchronous file reading and integrates with the Gulp ingestion pipeline, handling errors and maintaining ingestion statistics.
+"""
 import datetime, dateutil
 import os
 import re
@@ -21,6 +26,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
+# TODO: not working
 class Plugin(GulpPluginBase):
     """
     mysql general logs file processor.
@@ -46,11 +52,12 @@ class Plugin(GulpPluginBase):
         date_format = kwargs.get("date_format")
         event: dict = {}
         fields = record.split(",")
-      
+
         d={}
         # map timestamp manually
+        print(event)
         time_str = " ".join([event["Date"], event["Time"]])
-        d["@timestamp"] = datetime.datetime.strptime(time_str, date_format).isoformat()
+        timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -64,6 +71,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
+            timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -84,9 +92,9 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         flt: GulpIngestionFilter = None,
+        **kwargs: Any,
     ) -> GulpRequestStatus:
 
-        date_format = self._custom_params.get("date_format", "%m/%d/%y %H:%M:%S")
         #log_format = log_format.lower()
         try:
             # if not plugin_params or plugin_params.is_empty():
@@ -113,6 +121,7 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
+        date_format = self._plugin_params.custom_parameters.get("date_format", "%m/%d/%y %H:%M:%S")
         doc_idx = 0
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:

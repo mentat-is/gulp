@@ -156,8 +156,8 @@ class Plugin(GulpPluginBase):
 
         # normalize timestamp
         normalized: float = record.time.normalize(20)
-        ts: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
-        d["@timestamp"] = ts
+        ns: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
+        timestamp: str = muty.time.ensure_iso8601(ns)
 
         # print(f"TEST IS {dir(event_code)}")
         # print(f"NAME: {type(event_code.name)} ")
@@ -169,6 +169,8 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record.build().hex(),
             event_sequence=record_idx,
+            timestamp=timestamp,
+            gulp_timestamp=ns,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )

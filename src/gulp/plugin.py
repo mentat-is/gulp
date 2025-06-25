@@ -1523,6 +1523,10 @@ class GulpPluginBase(ABC):
 
         # set the lower plugin as stacked
         lower._stacked = True
+
+        # set mapping in lower plugin
+        lower._mapping_id = self._mapping_id
+        lower._mappings = self._mappings
         return lower
 
     def _finalize_process_record(self, doc: GulpDocument) -> list[dict]:
@@ -1553,7 +1557,7 @@ class GulpPluginBase(ABC):
 
             # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
             new_doc = GulpDocument(
-                self, **new_doc_data, __ignore_default_event_code__=True
+                self, **new_doc_data, __ignore_default_event_code__=True, __ensure_timestamp__=True
             )
             # MutyLogger.get_instance().debug(
             #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
@@ -1918,7 +1922,6 @@ class GulpPluginBase(ABC):
             mapped = self._try_map_ecs(fields_mapping, d, source_key, source_value)
             for k, _ in mapped.items():
                 extra[k] = None
-
             self._extra_docs.append(extra)
 
             # we also add this key to the main document
@@ -2226,19 +2229,21 @@ class GulpPluginBase(ABC):
         pass mappings to the upper plugin in stacked configuration
         """
         # pylint: disable=W0212
+        MutyLogger.get_instance().debug("----> _handle_stacked_mappings: stacked=%r, upper_instance=%s, mapping_id=%s, mappings=%s"
+              % (self._stacked, self._upper_instance, self._mapping_id, self._mappings))
         if not self._stacked:
             return
 
-        # pass our mappings to the upper plugin
+        # pass our mappings to the upper plugin (i.e. lower regex -> upper regex_teamviewer_stacked)
         if not self._upper_instance._mapping_id:
             self._upper_instance._mapping_id = self._mapping_id
 
         if not self._upper_instance._mappings:
             self._upper_instance._mappings = self._mappings
 
-    async def _initialize_index_mappings(self) -> None:
+    async def _fetch_index_type_mappings(self) -> None:
         """
-        initialize index type mapping from opensearch
+        get the type mappings for the current index on OpenSearch
         """
         if not self._index_type_mapping:
             self._index_type_mapping = (
@@ -2267,9 +2272,10 @@ class GulpPluginBase(ABC):
         self._plugin_params = plugin_params or GulpPluginParameters()
 
         MutyLogger.get_instance().debug(
-            "---> _initialize: plugin=%s, plugin_params=%s"
+            "---> _initialize: plugin=%s, stacked=%r, plugin_params=%s"
             % (
                 self.filename,
+                self._stacked,
                 json.dumps(self._plugin_params.model_dump(), indent=2),
             )
         )
@@ -2285,7 +2291,8 @@ class GulpPluginBase(ABC):
             )
             return
 
-        # setup mappings if needed
+        # setup mappings
+        # in a lower stacked plugin this is already set by the upper with setup_stacked_plugin()
         if not self._mappings:
             self._mappings, self._mapping_id = (
                 await GulpPluginBase.mapping_parameters_to_mapping(
@@ -2294,10 +2301,10 @@ class GulpPluginBase(ABC):
             )
 
         # handle stacked plugin mappings
-        await self._handle_stacked_mappings()
+        # await self._handle_stacked_mappings()
 
         # initialize index type mappings
-        await self._initialize_index_mappings()
+        await self._fetch_index_type_mappings()
 
         # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mapping_id=%s, mappings=%s"% (self.filename, self._mapping_id, self._mappings))
 

@@ -201,7 +201,6 @@ class Plugin(GulpPluginBase):
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
-        # map timestamp and event code manually
         d["@timestamp"] = flent["time"]
         d["event.code"] = flent["rulenum"]
         return GulpDocument(

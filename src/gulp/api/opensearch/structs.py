@@ -21,8 +21,8 @@ These structures form the foundation for document handling in the Gulp OpenSearc
 from typing import Optional, TypeVar, override
 
 import muty.crypto
-from muty.log import MutyLogger
 import muty.time
+from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,7 +62,7 @@ class GulpBasicDocument(BaseModel):
         alias="@timestamp",
     )
     gulp_timestamp: int = Field(
-        description='"@timestamp": document timestamp in nanoseconds from unix epoch',
+        description='"@timestamp": document timestamp in nanoseconds from unix epoch.',
         alias="gulp.timestamp",
     )
     invalid_timestamp: bool = Field(
@@ -154,12 +154,13 @@ class GulpDocument(GulpBasicDocument):
     )
 
     @staticmethod
-    def ensure_timestamp(timestamp: str) -> tuple[str, int, bool]:
+    def ensure_timestamp(timestamp: str, offset_msec: int = 0) -> tuple[str, int, bool]:
         """
         returns a string guaranteed to be in iso8601 time format
 
         Args:
             timestamp (str): The time string to parse (in iso8601 format or a string in a format supported by muty.time.ensure_iso8601).
+            offset_msec (int, optional): An offset in milliseconds to apply to the timestamp. Defaults to 0.
         Returns:
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
@@ -170,19 +171,24 @@ class GulpDocument(GulpBasicDocument):
             return epoch_start, 0, True
 
         try:
-            # get iso8601 timestamp
-            ts = muty.time.ensure_iso8601(timestamp)
-            # we also need nanoseconds from the unix epoch
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
                 ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
             else:
-                ns = muty.time.string_to_nanos_from_unix_epoch(ts)
+                ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
 
-            return ts, ns, False
-        except Exception:  # as e:
+            if offset_msec:
+                # apply offset in milliseconds to the timestamp
+                ns += offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
+                timestamp = ns
+
+            # enforce iso8601 timestamp
+            ts_string = muty.time.ensure_iso8601(timestamp)
+            return ts_string, ns, False
+
+        except Exception as e:
             # invalid timestamp
-            # MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
+            MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
 
     @override
@@ -210,22 +216,28 @@ class GulpDocument(GulpBasicDocument):
             context_id (str): The context id on gulp collab database. if None, it will be attempted to be set from mapping.context_fallback.
             source_id (str): The source id on gulp collab database. if None, it will be attempted to be set from mapping.source_fallback.
             event_sequence (int, optional): The sequence number of the event.
-            timestamp (str, optional): the time string, will be converted to iso8601 time string (ignored if "timestamp" is in kwargs). Defaults to None.
+            timestamp (str, optional): the document timestamp, expected to be in ISO8601 format.
+                - if set, the plugin handled the timestamp conversion. Defaults to None ("@timestamp" expected in **kwargs and conversion handled by core).
+                - if NOT set, "@timestamp" in **kwargs is expected to be a number (seconds/milliseconds/microseconds from the unix epoch), a numeric string (same as number), or a string in a format supported by python datetime.parse.
             event_code (str, optional): The event code. Defaults to "0".
             event_duration (int, optional): The duration of the event. Defaults to 1.
             log_file_path (str, optional): The source log file path. Defaults to None.
-
-            **kwargs: Additional keyword arguments to be added as attributes.
-                - ignore_default_event_code (bool, optional): If True, do not use the default event code from the mapping. Defaults to False.
+            **kwargs: the rest of the document as key/value pairs, to generate the `GulpDocument` with. This may also include the following internal flags:
+                - __ignore_default_event_code__ (bool, optional): If True, do not use the default event code from the mapping (for extra documents). Defaults to False.
+                - __ensure_timestamp__ (bool, optional): ensure timestamp is an iso8601 string even if when passed in arguments (for extra documents). Defaults to False.
+                - gulp_timestamp (int, optional): The timestamp in nanoseconds from unix epoch. If not set, it will be calculated from the timestamp argument or the "@timestamp" in kwargs.
 
             Returns:
             None
         """
-        # ensure we have non-aliased keys in kwargs
+        # ensure we have non-aliased keys in kwargs (we want i.e. "operation_id" instead of "gulp.operation_id"), to pass to the GulpDocument constructor
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
 
-        # internal flag, set by _finalize_process_record() in the mapping engine
+        # internal flag, set by _finalize_process_record() in the mapping engine: this will ignore the default event code from the mapping
+        # and use the one passed in the event_code argument
+        # (this happens when extra documents are generated from a single document, read the corresponding code in plugin.py)
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
+        ensure_extra_doc_timestamp = kwargs.pop("__ensure_timestamp__", False)
 
         # build initial data dict
         mapping: GulpMapping = plugin_instance.selected_mapping()
@@ -265,16 +277,41 @@ class GulpDocument(GulpBasicDocument):
             data["event_sequence"] = event_sequence
 
         data.update(kwargs)
-        if "timestamp" not in data:
-            # use timestamp from argument, if not among the kwargs
+        ts_nanos: int = 0
+        invalid: bool = False
+        gulp_ts: int = 0
+        if timestamp and not ensure_extra_doc_timestamp:
+            # if passed directly, we will use the timestamp from arguments (the plugin handled it)
             data["timestamp"] = timestamp
+            gulp_ts = kwargs.pop("gulp_timestamp", None)
+            if gulp_ts:
+                # we may have a gulp_timestamp set in kwargs, so we use it
+                ts_nanos = gulp_ts
+            else:
+                ts_nanos = muty.time.string_to_nanos_from_unix_epoch(str(timestamp))
+            # if data.get("event_code") == "download_end":
+            #    print("ts_nanos=%d, gulp_ts=%d, timestamp=%s, type_timestamp=%s" % (ts_nanos, gulp_ts, timestamp, type(timestamp)))
+            data["gulp_timestamp"] = ts_nanos
+            if not ts_nanos:
+                # timestamp is 0/invalid
+                invalid = True
 
-        # ensure timestamp is valid
-        ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(str(data["timestamp"]))
-        data["timestamp"] = ts
-        data["gulp_timestamp"] = ts_nanos
+        else:
+            # "timestamp" must be set in kwargs, either by mapping or by the plugin
+            # anyway, we ensure timestamp is valid (iso8601 format) and extract the timestamp in nanoseconds from unix epoch
+            if not ensure_extra_doc_timestamp:
+                # this is the default case, either timestamp has been passed through args when generating extra documents (and ensure_extra_doc_timestamp is true)
+                # import json
+                # print(json.dumps(data, indent=2))
+                timestamp: str = data.get("timestamp", 0)
+            ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(str(timestamp))
+
+            data["timestamp"] = ts
+            data["gulp_timestamp"] = ts_nanos
+
         if invalid or ts_nanos == 0:
-            data["invalid_timestamp"] = invalid
+            # flag invalid timestamp
+            data["invalid_timestamp"] = True
 
         # add gulp_event_code (event code as a number)
         data["gulp_event_code"] = (

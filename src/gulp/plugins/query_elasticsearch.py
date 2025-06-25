@@ -34,6 +34,7 @@ from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import PreviewDone
+from gulp.api.mapping.models import GulpMappingField
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -131,23 +132,18 @@ class Plugin(GulpPluginBase):
         # record is a dict
         doc: dict = record
 
-        offset_msec: int = self._plugin_params.custom_parameters.get("offset_msec", 0)
-        timestamp_field: str = self._plugin_params.custom_parameters.get(
-            "timestamp_field", "@timestamp"
-        )
-
-        # convert timestamp to nanoseconds
-        _, ts_nsec, _ = GulpDocument.ensure_timestamp(doc[timestamp_field])
-
-        # strip timestamp
-        doc.pop(timestamp_field, None)
-
         # map any other field
         d = {}
         for k, v in doc.items():
             # do not
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
+
+        offset_msec: int = self._plugin_params.custom_parameters.get("offset_msec", 0)
+
+        # convert timestamp to nanoseconds
+        timestamp: str = str(d["@timestamp"])
+        timestamp, ns, _ = GulpDocument.ensure_timestamp(timestamp, offset_msec)
 
         # MutyLogger.get_instance().debug(
         #     "operation_id=%s, doc=\n%s"
@@ -160,14 +156,14 @@ class Plugin(GulpPluginBase):
         # create a gulp document
         d = GulpDocument(
             self,
-            timestamp=str(
-                ts_nsec + (offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS)
-            ),
             operation_id=self._operation_id,
             event_original=str(doc),
+            timestamp=timestamp,
+            gulp_timestamp=ns,
             event_sequence=record_idx,
             **d,
         )
+        import json
         # MutyLogger.get_instance().debug(d)
         return d
 
@@ -197,6 +193,14 @@ class Plugin(GulpPluginBase):
             index,
             **kwargs,
         )
+
+        # check @timestamp mapping
+        m = self.selected_mapping()
+        if not "@timestamp" in m.fields:
+            # set default
+            m.fields["@timestamp"] = GulpMappingField(
+                ecs="@timestamp",
+            )
 
         # connect
         is_elasticsearch = self._plugin_params.custom_parameters.get("is_elasticsearch")
