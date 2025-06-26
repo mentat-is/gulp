@@ -79,7 +79,7 @@ this also overrides 'source' passed during ingestion, if any.
         "gulp.context_id",
         description="""
 only used if `is_source` is set, to indicate the context key to build the GulpSource.
-if not specified, it is expected the document has a `gulp.context_id` key set.
+if not specified, it is expected the document has a `gulp.context_id` key already set.
 """,
     )
     multiplier: Optional[float] = Field(
@@ -91,11 +91,14 @@ if not specified, it is expected the document has a `gulp.context_id` key set.
         description="if set, the corresponding value is forced to this type before ingestion.",
     )
 
-    extract: Optional[str] = Field(
+    extract: Optional[dict[str, "GulpMappingField"]] = Field(
         None,
         description="""
-if set, the source is expected to be a dictionary or a list and the given key is extracted.
-i.e. if the source field is `{"key": { "k": [1,2,3] } }`, and `extract` is set to `"key.k[1]"`, the resulting value will be `2`.
+if set, the source is expected to be a dictionary or a list and the given key value is extracted.
+
+each key in this dictionary is a path to extract from the source value, and the value is a GulpMappingField to apply to the extracted value ("extract" is ignored here to avoid recursion).
+
+the path can be specified as a dot-separated string, i.e. if the source field is `{"key": { "k": [1,2,3] } }`, and the key in `extract` is set to `"key.k"`, the extracted value will be `[1,2,3]`.
 """,
     )
 
@@ -145,7 +148,6 @@ class GulpMapping(BaseModel):
         None,
         description="if set, only these fields are processed and included in the generated document/s.",
     )
-
     # TODO: consider if this is needed or we can just deprecate/remove this.... it is used only by the win_evtx plugin and probably it is not needed even there.
     allow_prefixed: Optional[bool] = Field(
         False,

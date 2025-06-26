@@ -5,10 +5,10 @@ import inspect
 import ipaddress
 import json
 import os
+import sys
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from enum import StrEnum
-import sys
 from types import ModuleType
 from typing import Any, Callable, Optional
 
@@ -934,7 +934,7 @@ class GulpPluginBase(ABC):
 
     async def _context_id_from_doc_value(self, k: str, v: str) -> str:
         """
-        get "gulp.context_id" from cache or create new one based on the key and value
+        get "gulp.context_id" from cache or create new GulpContext based on the key and value
 
         Args:
             k (str): name of the field (i.e. "gulp.context_id")
@@ -975,7 +975,7 @@ class GulpPluginBase(ABC):
 
     async def _source_id_from_doc_value(self, context_id: str, k: str, v: str) -> str:
         """
-        get "gulp.source_id" from cache or create new one based on the key and value
+        get "gulp.source_id" from cache or create new GulpSource based on the key and value
 
         Args:
             context_id (str): parent context id
@@ -986,7 +986,7 @@ class GulpPluginBase(ABC):
 
         """
         # check cache first
-        cache_key: str = f"{context_id}-{v}"
+        cache_key: str = f"{context_id}-{k}-{v}"
         if cache_key in self._src_cache:
             # MutyLogger.get_instance().debug(f"found source {v} in cache for context {context_id}, returning id {self._src_cache[cache_key]}")
             # return cached source id
@@ -1557,7 +1557,10 @@ class GulpPluginBase(ABC):
 
             # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
             new_doc = GulpDocument(
-                self, **new_doc_data, __ignore_default_event_code__=True, __ensure_timestamp__=True
+                self,
+                **new_doc_data,
+                __ignore_default_event_code__=True,
+                __ensure_timestamp__=True,
             )
             # MutyLogger.get_instance().debug(
             #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
@@ -1684,7 +1687,7 @@ class GulpPluginBase(ABC):
             fields_mapping (GulpMappingField): The mapping field.
             d (dict): The document to update.
             source_key (str): The source key to map.
-            source_value (any): The source value to map.
+            source_value (any): The value to set in the mapped key
             skip_unmapped (bool): whether to skip unmapped keys, defaults to False.
         Returns:
             dict: a dict with the mapped key and value.
@@ -1813,10 +1816,15 @@ class GulpPluginBase(ABC):
             # ignore this key
             return {}
 
-        fields_mapping = mapping.fields.get(source_key)
+        fields_mapping: GulpMappingField
+        # if fields_mapping is provided, use it (comes from "extract")
+        fields_mapping = kwargs.get("fields_mapping", None)
         if not fields_mapping:
-            # missing mapping at all (no ecs and no timestamp field)
-            return {GulpPluginBase.build_unmapped_key(source_key): source_value}
+            # get from source key
+            fields_mapping = mapping.fields.get(source_key)
+            if not fields_mapping:
+                # missing mapping at all (no ecs and no timestamp field)
+                return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
         # MutyLogger.get_instance().error(json.dumps(doc, indent=2))
@@ -1824,10 +1832,18 @@ class GulpPluginBase(ABC):
             # field value must be extracted from the source_value, which may be a dict or list
             try:
                 if isinstance(source_value, (dict, list)):
-                    # extract the value from the source_value using the extract key
-                    source_value = self._handle_extract_key(
-                        source_value, fields_mapping.extract
-                    )
+                    # extract value from each s_k in fields_mapping.extract, each one specifying a GulpMappingField to apply
+                    for s_k, s_map in fields_mapping.extract.items():
+                        # s_k is the key to extract from source_value
+                        inner_value = self._handle_extract_key(source_value, s_k)
+                        s_map.extract = None  # avoid recursion
+                        kwargs["fields_mapping"] = s_map
+                        dd = await self._process_key(s_k, inner_value, doc, **kwargs)
+                        d.update(dd)
+
+                    # and return the dict we built
+                    return d
+
                 elif isinstance(source_value, str):
                     # if source_value is a string, we can try to parse it as JSON
                     source_value = json.loads(source_value)
