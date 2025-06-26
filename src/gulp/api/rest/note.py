@@ -85,10 +85,10 @@ async def note_create_handler(
             description="timestamp to pin the note to, in nanoseconds from the unix epoch, ignored if `docs` is set."
         ),
     ] = 0,
-    docs: Annotated[
-        list[GulpBasicDocument],
+    doc: Annotated[
+        GulpBasicDocument,
         Body(
-            description="the documents associated with the note, ignored if `time_pin` is set."
+            description="the document associated with the note, ignored if `time_pin` is set."
         ),
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
@@ -99,14 +99,14 @@ async def note_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["docs"] = "%d documents" % (len(docs) if docs else 0)
+    params["doc"] = str(doc) if doc else "None"
     ServerUtils.dump_params(params)
 
     try:
-        if docs and time_pin:
-            raise ValueError("docs and time_pin cannot be both set.")
-        if not docs and not time_pin:
-            raise ValueError("either docs or time_pin must be set.")
+        if doc and time_pin:
+            raise ValueError("doc and time_pin cannot be both set.")
+        if not doc and not time_pin:
+            raise ValueError("either doc or time_pin must be set.")
 
         object_data = GulpNote.build_dict(
             operation_id=operation_id,
@@ -116,7 +116,7 @@ async def note_create_handler(
             tags=tags,
             color=color or "yellow",
             name=name,
-            docs=docs,
+            doc=doc,
             time_pin=time_pin,
             text=text,
         )
@@ -161,9 +161,9 @@ async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    docs: Annotated[
+    doc: Annotated[
         list[GulpBasicDocument],
-        Body(description="documents to be associated with the note."),
+        Body(description="document associated with the note."),
     ] = None,
     time_pin: Annotated[
         int,
@@ -181,21 +181,21 @@ async def note_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["docs"] = "%d documents" % (len(docs) if docs else 0)
+    params["doc"] = doc if doc else "None"
     ServerUtils.dump_params(params)
 
     try:
         # we cannot have both docs and time_pin set
-        if docs and time_pin:
-            raise ValueError("docs and time_pin cannot be both set.")
-        if not any([docs, time_pin, text, name, tags, glyph_id, color]):
+        if doc and time_pin:
+            raise ValueError("doc and time_pin cannot be both set.")
+        if not any([doc, time_pin, text, name, tags, glyph_id, color]):
             raise ValueError(
-                "at least one of docs, time_pin, text, name, tags, glyph_id, color must be set."
+                "at least one of doc, time_pin, text, name, tags, glyph_id, color must be set."
             )
         async with GulpCollab.get_instance().session() as sess:
             n: GulpNote = await GulpNote.get_by_id(sess, obj_id)
             print("---> existing note: %s" % (n))
-            
+
             s = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.EDIT, obj=n
             )
@@ -204,15 +204,10 @@ async def note_update_handler(
 
             # ensure only one in time_pin and docs is set
             if time_pin:
-                d["docs"] = None
+                d["doc"] = None
                 d["time_pin"] = time_pin
-            if docs:
-                d["docs"] = [
-                    doc.model_dump(
-                        by_alias=True, exclude_none=True, exclude_defaults=True
-                    )
-                    for doc in docs
-                ]
+            if doc:
+                d["doc"] = doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
                 d["time_pin"] = 0
 
             # update

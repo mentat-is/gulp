@@ -15,7 +15,7 @@ class GulpAPINote:
         source_id: str,
         text: str,
         time_pin: int = None,
-        docs: list[dict] = None,
+        doc: dict = None,
         name: str = None,
         tags: list[str] = None,
         color: str = None,
@@ -26,9 +26,6 @@ class GulpAPINote:
     ) -> dict:
         """
         creates a note.
-
-        - `docs` is a list of GulpBasicDocuments dictionaries
-
         """
         api_common = GulpAPICommon.get_instance()
 
@@ -45,7 +42,7 @@ class GulpAPINote:
         }
 
         body = {
-            "docs": docs,
+            "doc": doc,
             "text": text,
             "tags": tags,
         }
@@ -66,7 +63,7 @@ class GulpAPINote:
         obj_id: str,
         text: str = None,
         time_pin: int = None,
-        docs: list = None,
+        doc: list = None,
         name: str = None,
         tags: list[str] = None,
         color: str = None,
@@ -86,7 +83,7 @@ class GulpAPINote:
         }
 
         body = {
-            "docs": docs,
+            "doc": doc,
             "tags": tags,
             "text": text,
         }

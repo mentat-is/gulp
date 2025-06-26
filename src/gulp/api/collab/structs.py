@@ -407,7 +407,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     continue
 
         if self.doc_ids and "doc_ids" in obj_type.columns:
-            # return all collab objects that have at least one document with _id in doc_ids
+            # return all collab objects that have at least one of the associated document "_id" (obj.doc_ids) in the given doc_ids list
             q = q.filter(obj_type.doc_ids.op("&&")(self.doc_ids))
 
         if self.time_pin_range and "time_pin" in obj_type.columns:
@@ -424,41 +424,26 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             if self.time_created_range[1]:
                 q = q.where(obj_type.time_created <= self.time_created_range[1])
 
-        if self.doc_ids and "docs" in obj_type.columns:
-            # returns all collab objects that have at least one document with _id in doc_ids
+        if self.doc_ids and "doc" in obj_type.columns:
+            # returns all collab objects that have the associated document (obj.doc) with "_id" in doc_ids
             conditions = []
             for doc_id in self.doc_ids:
-                # check if any document in the array has _id matching doc_id
-                # using -> to navigate JSONB array and ->> to extract text
+                # check if the document has _id matching doc_id
+                # using ->> to extract the _id field from the JSONB doc object
                 conditions.append(
-                    text(
-                        """EXISTS (
-                        SELECT 1 FROM unnest(docs) AS doc
-                        WHERE doc->>'_id'::text = :doc_id
-                    )"""
-                    ).bindparams(doc_id=doc_id.lower())
+                    obj_type.doc['_id'].astext == doc_id.lower()
                 )
             q = q.filter(or_(*conditions))
-        if self.doc_time_range and "docs" in obj_type.columns:
-            # returns all collab objects that have at least one document with gulp.timestamp in doc_time_range
+        if self.doc_time_range and "doc" in obj_type.columns:
+            # returns all collab objects that have the associated document (obj.doc) with "gulp.timestamp" in doc_time_range
             conditions = []
             if self.doc_time_range[0]:
                 conditions.append(
-                    text(
-                        """EXISTS (
-                        SELECT 1 FROM unnest(docs) AS doc
-                        WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) >= :start_time
-                    )"""
-                    ).bindparams(start_time=self.doc_time_range[0])
+                    func.cast(obj_type.doc['gulp.timestamp'].astext, BIGINT) >= self.doc_time_range[0]
                 )
             if self.doc_time_range[1]:
                 conditions.append(
-                    text(
-                        """EXISTS (
-                        SELECT 1 FROM unnest(docs) AS doc
-                        WHERE CAST(doc->>'gulp.timestamp' AS BIGINT) <= :end_time
-                    )"""
-                    ).bindparams(end_time=self.doc_time_range[1])
+                    func.cast(obj_type.doc['gulp.timestamp'].astext, BIGINT) <= self.doc_time_range[1]
                 )
             q = q.filter(and_(*conditions))
 

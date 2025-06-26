@@ -37,6 +37,7 @@ async def test_note():
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
+    # will fail (guest cannot create notes)
     note1 = await GulpAPINote.note_create(
         guest_token,
         operation_id=TEST_OPERATION_ID,
@@ -80,16 +81,14 @@ async def test_note():
         context_id=TEST_CONTEXT_ID,
         source_id=source_id,
         text="pinned note 3",
-        docs=[
-            {
-                "_id": doc_id,
-                "@timestamp": "2021-01-01T00:00:00Z",
-                "gulp.timestamp": 1609459200000000000,
-                "gulp.operation_id": TEST_OPERATION_ID,
-                "gulp.context_id": TEST_CONTEXT_ID,
-                "gulp.source_id": source_id,
-            }
-        ],
+        doc={
+            "_id": doc_id,
+            "@timestamp": "2021-01-01T00:00:00Z",
+            "gulp.timestamp": 1609459200000000000,
+            "gulp.operation_id": TEST_OPERATION_ID,
+            "gulp.context_id": TEST_CONTEXT_ID,
+            "gulp.source_id": source_id,
+        },
         name="test_pinned_note_3",
         tags=["test"],
         color="blue",

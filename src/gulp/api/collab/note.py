@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Insert, String
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.mutable import MutableList
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabObject
@@ -76,9 +76,9 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
         ForeignKey("source.id", ondelete="CASCADE"),
         doc="The log file path (source) associated with the note.",
     )
-    docs: Mapped[Optional[list[GulpBasicDocument]]] = mapped_column(
-        MutableList.as_mutable(ARRAY(JSONB)),
-        doc="One or more GulpBasicDocument associated with the note.",
+    doc: Mapped[Optional[GulpBasicDocument]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        doc="a GulpBasicDocument associated with the note.",
     )
     time_pin: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -107,7 +107,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             {
                 "context_id": "context_id",
                 "source_id": "source_id",
-                "docs": [[autogenerate_model_example_by_class(GulpBasicDocument)]],
+                "doc": autogenerate_model_example_by_class(GulpBasicDocument),
                 "time_pin": 1234567890,
                 "last_editor_id": "last_editor_id",
                 "text": "note text",
@@ -131,7 +131,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
         color: str = None,
         name: str = None,
         description: str = None,
-        docs: list[GulpBasicDocument] = None,
+        doc: GulpBasicDocument = None,
         time_pin: int = None,
         text: str = None,
     ) -> dict:
@@ -147,19 +147,17 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             color (str, optional): the color. Defaults to None.
             name (str, optional): the name. Defaults to None.
             description (str, optional): the description. Defaults to None.
-            docs (list[GulpBasicDocument], optional): the documents. Defaults to None.
+            doc (GulpBasicDocument, optional): the document the note is associated with. Defaults to None.
             time_pin (int, optional): the time pin. Defaults to None.
             text (str, optional): the text. Defaults to None.
 
         Returns:
             the note dictionary
         """
-        if docs:
-            # convert the documents to dictionaries
-            docs = [
-                doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
-                for doc in docs
-            ]
+        dd: dict = None
+        if doc:
+            # if a document is provided, convert it to a dictionary
+            dd = doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
         return super().build_dict(
             operation_id=operation_id,
             context_id=context_id,
@@ -169,7 +167,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             color=color,
             name=name,
             description=description,
-            docs=docs,
+            doc=dd,
             time_pin=time_pin,
             text=text,
             edits=[],
@@ -214,7 +212,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
 
         # creates a list of notes, one for each document
         notes = []
-        MutyLogger.get_instance().info("creating a bulk of %d notes..." % len(docs))
+        MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
         for doc in docs:
             highlights = doc.pop("highlight", None)
 
@@ -249,7 +247,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 color=color,
                 name=name,
                 text=text,
-                docs=[associated_doc],
+                doc=associated_doc,
             )
             obj_id: str = muty.crypto.hash_xxh128(str(object_data))
             note_dict = GulpNote.build_base_object_dict(
