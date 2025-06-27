@@ -944,10 +944,11 @@ class GulpPluginBase(ABC):
 
         """
         # check cache first
-        if v in self._ctx_cache:
+        cache_key: str = f"{k}-{v}"
+        if cache_key in self._ctx_cache:
             # MutyLogger.get_instance().debug(f"found context {v} in cache, returning id {self._ctx_cache[v]}")
             # return cached context id
-            return self._ctx_cache[v]
+            return self._ctx_cache[cache_key]
 
         # cache miss - create new context (or get existing)
         if not self._operation:
@@ -966,7 +967,7 @@ class GulpPluginBase(ABC):
         )
 
         # update cache
-        self._ctx_cache[v] = context.id
+        self._ctx_cache[cache_key] = context.id
         MutyLogger.get_instance().debug(
             "context name=%s, id=%s added to cache, created=%r"
             % (v, context.id, created)
@@ -982,9 +983,15 @@ class GulpPluginBase(ABC):
             k (str): name of the field (i.e. "gulp.source_id")
             v (str): field's value
         Returns:
-            str: gulp.source_id
+            str: gulp.source_id or None if context_id is None
 
         """
+        if not context_id:
+            MutyLogger.get_instance().error(
+                "context_id is None, cannot create source for key %s, value %s" % (k, v)
+            )
+            return None
+
         # check cache first
         cache_key: str = f"{context_id}-{k}-{v}"
         if cache_key in self._src_cache:
@@ -1645,7 +1652,39 @@ class GulpPluginBase(ABC):
         if self._upper_record_to_gulp_document_fun:
             docs = await self._process_with_stacked_plugin(docs, record_idx, **kwargs)
 
-        return docs
+        # walk generated documents and ensure they have context_id and source_id set
+        mapping: GulpMapping = self.selected_mapping()
+        default_src = mapping.default_source
+        default_ctx = mapping.default_context
+        dd: list[dict] = []
+        for d in docs:
+            gulp_context_id: str = d.get("gulp.context_id", None)
+            gulp_source_id: str = d.get("gulp.source_id", None)
+
+            if not gulp_context_id and default_ctx:
+                # create context_id from default context
+                d["gulp.context_id"] = await self._context_id_from_doc_value(
+                    "gulp.context_id", default_ctx
+                )
+            if not gulp_source_id and default_src:
+                # create source_id from default source
+                context_id = d.get("gulp.context_id", None)
+                d["gulp.source_id"] = await self._source_id_from_doc_value(
+                    context_id, "gulp.source_id", default_src
+                )
+
+            # check if we have both context_id and source_id set
+            gulp_context_id: str = d.get("gulp.context_id", None)
+            gulp_source_id: str = d.get("gulp.source_id", None)
+            if gulp_context_id and gulp_source_id:
+                # we have both context_id and source_id, we can proceed
+                dd.append(d)
+            else:
+                # we cannot process this document, skip it
+                MutyLogger.get_instance().warning(
+                    f"document {d} does not have context_id or source_id set, skipping"
+                )
+        return dd
 
     def selected_mapping(self) -> GulpMapping:
         """
@@ -1782,6 +1821,35 @@ class GulpPluginBase(ABC):
                 current = current[token]
         return current
 
+    async def _check_doc_for_ctx_id(
+        self, doc: dict, mapping: GulpMapping, **kwargs
+    ) -> str:
+        """
+        check if the context id has been already set in the document during parsing.
+        if not, it will try to find it by walking the mapping fields and calling _process_key on the key set as context (is_context)
+
+        Args:
+            doc (dict): The document to check.
+            mapping (GulpMapping): The mapping to use to find the context id in the document
+            **kwargs: additional keyword arguments
+        Returns:
+            str: The context id if found, otherwise None.
+        """
+        context_key: str = "gulp.context_id"
+        ctx_id: str = doc.get(context_key, None)
+        if not ctx_id:
+            for k, v in mapping.fields.items():
+                # walk mapping and get the field set as 'is_context', as we need the context_id
+                if v.is_context:
+                    d: dict = await self._process_key(
+                        k, doc.get(k, None), doc, **kwargs
+                    )
+                    ctx_id: str = d.get(context_key)
+                    if not ctx_id:
+                        # not found
+                        return None
+        return ctx_id
+
     async def _process_key(
         self, source_key: str, source_value: Any, doc: dict, **kwargs
     ) -> dict:
@@ -1872,25 +1940,22 @@ class GulpPluginBase(ABC):
             return m
 
         if fields_mapping.is_source:
-            ctx_id: str = doc.get(fields_mapping.context_key, None)
+            ctx_id: str = self._check_doc_for_ctx_id(doc, mapping, **kwargs)
             if not ctx_id:
-                for k, v in mapping.fields.items():
-                    # walk mapping and get the field set as 'is_context', as we need the context_id
-                    if v.is_context:
-                        d: dict = await self._process_key(
-                            k, doc.get(k, None), doc, **kwargs
-                        )
-                        ctx_id: str = d.get("gulp.context_id")
-                        if not ctx_id:
-                            # no context_id, cannot process source
-                            MutyLogger.get_instance().error(
-                                f"cannot set source {source_key} without context"
-                            )
-                            return {}
+                # no context_id, cannot process source
+                MutyLogger.get_instance().error(
+                    f"cannot set source {source_key} without context"
+                )
+                return {}
+
             # get/create the source
             src_id: str = await self._source_id_from_doc_value(
                 ctx_id, source_key, source_value
             )
+            if not src_id:
+                # cannot proceed without source_id
+                return {}
+
             # also map the value if there's ecs set
             m = self._try_map_ecs(
                 fields_mapping, d, source_key, source_value, skip_unmapped=True

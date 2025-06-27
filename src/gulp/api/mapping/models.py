@@ -77,13 +77,6 @@ if set, the corresponding value is the 'name' of a GulpSource, which is created 
 this also overrides 'source' passed during ingestion, if any.
 """,
     )
-    context_key: Optional[str] = Field(
-        "gulp.context_id",
-        description="""
-only used if `is_source` is set, to indicate the context key to build the GulpSource.
-if not specified, it is expected the document has a `gulp.context_id` key already set.
-""",
-    )
     multiplier: Optional[float] = Field(
         None,
         description="if set and > 1, the corresponding value is multiplied by this value.",
@@ -148,6 +141,14 @@ i.e. if the source field is "this_is_a_sourcekey", only "sourcekey" is considere
 
 """,
     )
+    default_context: Optional[str] = Field(
+        None,
+        description="""if set, this is the default context name to use when we are unable to get the context from the document (a default GulpContext will be created if not exists).""",
+    )
+    default_source: Optional[str] = Field(
+        None,
+        description="""if set, this is the default source name to use when we are unable to get the source from the document (a default GulpSource will be created if not exists).""",
+    )
 
 
 class GulpMappingFileMetadata(BaseModel):
@@ -182,9 +183,7 @@ class GulpSigmaMapping(BaseModel):
                 {
                     "service_name": "windefend",
                     "service_field": "winlog.channel",
-                    "service_values": [
-                        "Microsoft-Windows-Windows Defender"
-                    ]
+                    "service_values": ["Microsoft-Windows-Windows Defender"],
                 }
             ]
         },
