@@ -1827,31 +1827,6 @@ class GulpPluginBase(ABC):
                 return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
         d = {}
-        # MutyLogger.get_instance().error(json.dumps(doc, indent=2))
-        if fields_mapping.extract:
-            # field value must be extracted from the source_value, which may be a dict or list
-            try:
-                if isinstance(source_value, (dict, list)):
-                    # extract value from each s_k in fields_mapping.extract, each one specifying a GulpMappingField to apply
-                    for s_k, s_map in fields_mapping.extract.items():
-                        # s_k is the key to extract from source_value
-                        inner_value = self._handle_extract_key(source_value, s_k)
-                        s_map.extract = None  # avoid recursion
-                        kwargs["fields_mapping"] = s_map
-                        dd = await self._process_key(s_k, inner_value, doc, **kwargs)
-                        d.update(dd)
-
-                    # and return the dict we built
-                    return d
-
-                elif isinstance(source_value, str):
-                    # if source_value is a string, we can try to parse it as JSON
-                    source_value = json.loads(source_value)
-            except Exception as ex:
-                # MutyLogger.get_instance().exception(ex)
-                # ignore
-                return {}
-
         if fields_mapping.force_type:
             # force value to the given type
             t = fields_mapping.force_type

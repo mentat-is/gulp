@@ -44,7 +44,9 @@ class GulpMappingField(BaseModel):
     extra_doc_with_event_code: Optional[str] = Field(
         None,
         description="""
-if this is set, `ecs` is ignored and the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
+if this is set, this field `represent a further timestamp` in addition to the main document `@timestamp`.
+
+`ecs` is ignored and the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
 
 in this setting, the mapping file should:
 
@@ -89,17 +91,6 @@ if not specified, it is expected the document has a `gulp.context_id` key alread
     force_type: Optional[Literal["str", "int", "float"]] = Field(
         None,
         description="if set, the corresponding value is forced to this type before ingestion.",
-    )
-
-    extract: Optional[dict[str, "GulpMappingField"]] = Field(
-        None,
-        description="""
-if set, the source is expected to be a dictionary or a list and the given key value is extracted.
-
-each key in this dictionary is a path to extract from the source value, and the value is a GulpMappingField to apply to the extracted value ("extract" is ignored here to avoid recursion).
-
-the path can be specified as a dot-separated string, i.e. if the source field is `{"key": { "k": [1,2,3] } }`, and the key in `extract` is set to `"key.k"`, the extracted value will be `[1,2,3]`.
-""",
     )
 
 

@@ -85,6 +85,7 @@ class Plugin(GulpPluginBase):
 
         # map
         final: dict = {}
+        print("processing record %d:\n%s" % (record_idx, json.dumps(d, indent=2)))
         for k, v in d.items():
             mapped = await self._process_key(k, v, final, **kwargs)
             final.update(mapped)

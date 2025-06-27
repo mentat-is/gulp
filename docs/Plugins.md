@@ -117,7 +117,7 @@ then, different methods may be implemented:
 
 - `ingest_raw`: may be implemented in `ingestion` plugins to allow ingestion of `raw` data, which the plugin turns into proper `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
-  
+
 - `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
@@ -354,19 +354,17 @@ Here's a commented example, further details in the [model definition source](../
       // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
       "allow_prefixed": true,
       // "fields" represents the fields to map
-      // 
+      //
       // each field option is processed in the following order:
       //
-      // 1. if `extract` is set, the source field is expected to be a dictionary or a list, and the value is extracted from it
-      // 2. if `force_type` is set, the value is forced to this type
-      // 3. if `multiplier` is set, the value is multiplied by this value.
-      // 4. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
-      // 5. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
-      // 6. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
-      // 7. finally, the value is mapped to ECS fields as defined in `ecs`.
+      // 1. if `force_type` is set, the value is forced to this type
+      // 2. if `multiplier` is set, the value is multiplied by this value.
+      // 3. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
+      // 4. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
+      // 5. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
+      // 6. finally, the value is mapped to ECS fields as defined in `ecs`.
       //
-      // if 'extra_doc_with_event_code' is set, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of this field.
-      // this allows to i.e. use something as context after extracting it from a json field.      
+      // if 'extra_doc_with_event_code' is set on a field, step 6 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
       //
       // NOTE: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
@@ -380,15 +378,10 @@ Here's a commented example, further details in the [model definition source](../
           // if "force_type" is set, value is converted to "int", "str" or "float" PRIOR to being ingested
           "force_type": "int"
         },
-        "extract_this": {
-          "ecs": "extracted_value",
-          // if extract is set, i.e. to "my_key.nested.my_list[1], "extracted_value" will be set to 2 in the document
-          "extract": { "my_key": { "nested": { "my_list": [1,2,3]}}}
-        },
         "my_context": {
           // if this is set, it can be used to generate a GulpContext on the fly based on the value of "my_context" field, setting the `gulp.context_id` of the GulpDocument being generated.
           // this may also have an `ecs` mapping set: in such case, the field is also  mapped as normally to the given name.
-          // 
+          //
           // note that this overrides any context passed with the `ingest_file` API, if set.
           "is_context": true
         },
@@ -437,7 +430,7 @@ Here's a commented example, further details in the [model definition source](../
       }
     }
   },
-  // this is used only by `sigma_query` API: it allows, during conversion of a sigma query to a raw OpenSearch query, to target documents with a specific sigma `logsource.service`. 
+  // this is used only by `sigma_query` API: it allows, during conversion of a sigma query to a raw OpenSearch query, to target documents with a specific sigma `logsource.service`.
   "sigma_mappings": {
     // this is the `logsource.service" listed in the sigma rule
     "service_name": "windefend",
