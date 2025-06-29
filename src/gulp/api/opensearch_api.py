@@ -468,7 +468,8 @@ class GulpOpenSearch:
                         fields=chunk,
                         last=last,
                     )
-                    GulpWsSharedQueue.get_instance().put(
+                    wsq = GulpWsSharedQueue.get_instance()
+                    await wsq.put(
                         type=WSDATA_SOURCE_FIELDS_CHUNK,
                         ws_id=ws_id,
                         user_id=user_id,
@@ -2071,7 +2072,8 @@ class GulpOpenSearch:
                     search_after=search_after,
                     name=q_options.name,
                 )
-                GulpWsSharedQueue.get_instance().put(
+                wsq = GulpWsSharedQueue.get_instance()
+                await wsq.put(
                     type=WSDATA_DOCUMENTS_CHUNK,
                     ws_id=ws_id,
                     user_id=user_id,

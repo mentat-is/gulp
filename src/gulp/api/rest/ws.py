@@ -533,7 +533,8 @@ class GulpAPIWebsocket:
                                 % (ingest_packet.operation_id),
                                 error_code=GulpWsError.OBJECT_NOT_FOUND.name,
                             )
-                            await GulpWsSharedQueue.get_instance().put(
+                            wsq = GulpWsSharedQueue.get_instance()
+                            await wsq.put(
                                 type=WSDATA_ERROR,
                                 ws_id=ingest_packet.ws_id,
                                 user_id=user_id,

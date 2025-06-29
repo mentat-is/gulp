@@ -775,7 +775,7 @@ class GulpPluginBase(ABC):
         """
         return
 
-    def broadcast_ingest_internal_event(self) -> None:
+    async def broadcast_ingest_internal_event(self) -> None:
         """
         broadcast internal ingest metrics event to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
         """
@@ -807,7 +807,9 @@ class GulpPluginBase(ABC):
                 else self._file_path
             ),
         }
-        GulpWsSharedQueue.get_instance().put_internal_event(
+        
+        wsq = GulpWsSharedQueue.get_instance()
+        wsq.put_internal_event(
             msg=GulpInternalEventsManager.EVENT_INGEST, params=d
         )
 
@@ -907,7 +909,8 @@ class GulpPluginBase(ABC):
                 f"sending chunk of {len(ws_docs)} documents to ws {
                     self._ws_id}"
             )
-            GulpWsSharedQueue.get_instance().put(
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
                 type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -1205,7 +1208,8 @@ class GulpPluginBase(ABC):
                 last=last,
                 enriched=True,
             )
-            GulpWsSharedQueue.get_instance().put(
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
                 type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -1220,7 +1224,8 @@ class GulpPluginBase(ABC):
                 total_enriched=self._tot_enriched,
                 total_hits=kwargs.get("total_hits", 0),
             )
-            GulpWsSharedQueue.get_instance().put(
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
                 type=WSDATA_ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
@@ -2605,7 +2610,8 @@ class GulpPluginBase(ABC):
             else:
                 status = GulpRequestStatus.DONE
 
-            GulpWsSharedQueue.get_instance().put(
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
                 type=WSDATA_INGEST_SOURCE_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,

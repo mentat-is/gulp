@@ -278,7 +278,8 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
                 created=True,
                 bulk_size=len(inserted_ids),
             )
-            GulpWsSharedQueue.get_instance().put(
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
                 WSDATA_COLLAB_UPDATE,
                 ws_id=ws_id,
                 user_id=user_id,

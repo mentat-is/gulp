@@ -263,7 +263,8 @@ async def _rebase_internal(
     except Exception as ex:
         # signal failure on the websocket
         MutyLogger.get_instance().exception(ex)
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=WSDATA_REBASE_DONE,
             ws_id=ws_id,
             user_id=user_id,
@@ -284,7 +285,8 @@ async def _rebase_internal(
         "rebase done, result=%s" % (json.dumps(res, indent=2))
     )
     # signal the websocket
-    GulpWsSharedQueue.get_instance().put(
+    wsq = GulpWsSharedQueue.get_instance()
+    await wsq.put(
         type=WSDATA_REBASE_DONE,
         ws_id=ws_id,
         user_id=user_id,

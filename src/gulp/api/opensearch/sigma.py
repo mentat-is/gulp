@@ -266,7 +266,8 @@ async def sigmas_to_queries(
                     generated_q=generated_q,
                     msg="converting sigma rules..."
                 )
-                GulpWsSharedQueue.get_instance().put(
+                wsq = GulpWsSharedQueue.get_instance()
+                await wsq.put(
                     type=WSDATA_PROGRESS,
                     ws_id=ws_id,
                     user_id=user_id,
@@ -370,7 +371,8 @@ async def sigmas_to_queries(
             done=True,
             msg="sigma rules conversion done!",
         )
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=WSDATA_PROGRESS,
             ws_id=ws_id,
             user_id=user_id,

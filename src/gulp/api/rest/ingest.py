@@ -320,7 +320,7 @@ async def _ingest_file_internal(
             if mod:
                 if not preview_mode:
                     # broadcast ingest internal event
-                    mod.broadcast_ingest_internal_event()
+                    await mod.broadcast_ingest_internal_event()
 
                 await mod.unload()
 

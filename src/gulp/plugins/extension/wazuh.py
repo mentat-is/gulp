@@ -76,7 +76,8 @@ class Plugin(GulpPluginBase):
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             WSDATA_COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,

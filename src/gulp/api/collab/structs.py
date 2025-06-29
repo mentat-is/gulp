@@ -841,7 +841,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             data = instance.to_dict(nested=True, exclude_none=True)
 
         p = GulpCollabCreateUpdatePacket(data=data, created=True)
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             ws_queue_datatype,
             ws_id=ws_id,
             user_id=owner_id,
@@ -1085,7 +1086,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         else:
             p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id)
             data = p.model_dump()
-        GulpWsSharedQueue.get_instance().put(
+
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=ws_queue_datatype,
             ws_id=ws_id,
             user_id=user_id,
@@ -1281,7 +1284,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             data = updated_dict
 
         p = GulpCollabCreateUpdatePacket(data=data)
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=ws_queue_datatype,
             ws_id=ws_id,
             user_id=user_id,

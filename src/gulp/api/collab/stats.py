@@ -611,8 +611,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             name=q_name,
             group=q_group,
         )
-
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=ws_queue_datatype,
             ws_id=ws_id,
             user_id=user_id,

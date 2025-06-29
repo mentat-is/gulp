@@ -91,7 +91,8 @@ async def _tag_documents_internal(
                 status=GulpRequestStatus.DONE,
                 total_hits=kwargs.get("total_hits", 0),
             )
-            GulpWsSharedQueue.get_instance().put(
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
                 type=WSDATA_ENRICH_DONE,
                 ws_id=ws_id,
                 user_id=user_id,

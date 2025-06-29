@@ -183,7 +183,7 @@ async def _query_internal(
                 )
                 if index:
                     # broadcast ingest internal event
-                    mod.broadcast_ingest_internal_event()
+                    await mod.broadcast_ingest_internal_event()
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
@@ -251,7 +251,8 @@ async def _process_batch_results(
             total_hits=hits,
             name=q_name,
         )
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=WSDATA_QUERY_DONE,
             ws_id=ws_id,
             user_id=user_id,
@@ -301,7 +302,8 @@ async def _handle_query_group_match(
 
     # and signal websocket
     p = GulpQueryGroupMatchPacket(name=q_options.group, total_hits=total_doc_matches)
-    GulpWsSharedQueue.get_instance().put(
+    wsq = GulpWsSharedQueue.get_instance()
+    await wsq.put(
         type=WSDATA_QUERY_GROUP_MATCH,
         ws_id=ws_id,
         user_id=user_id,
@@ -472,7 +474,8 @@ async def _worker_coro(kwds: dict) -> None:
                     msg="processing queries...",
                     total_matches=total_doc_matches,
                 )
-                GulpWsSharedQueue.get_instance().put(
+                wsq = GulpWsSharedQueue.get_instance()
+                await wsq.put(
                     type=WSDATA_PROGRESS,
                     ws_id=ws_id,
                     user_id=user_id,
@@ -505,7 +508,8 @@ async def _worker_coro(kwds: dict) -> None:
             done=True,
             total_matches=total_doc_matches,
         )
-        GulpWsSharedQueue.get_instance().put(
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
             type=WSDATA_PROGRESS,
             ws_id=ws_id,
             user_id=user_id,

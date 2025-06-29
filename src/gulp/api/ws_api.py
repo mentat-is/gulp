@@ -1649,7 +1649,7 @@ class GulpWsSharedQueue:
         )
         self._shared_q.put(wsd)
 
-    def put(
+    async def put(
         self,
         type: str,
         ws_id: str,
@@ -1719,7 +1719,7 @@ class GulpWsSharedQueue:
 
                 # wait before retrying
                 # TODO: maybe this should be the reason to turn this async ? hopefully we do not hit this often....
-                time.sleep(backoff_time)
+                await asyncio.sleep(backoff_time)
 
         # all retries failed
         queue_size = self._shared_q.qsize() if self._shared_q else "unknown"
