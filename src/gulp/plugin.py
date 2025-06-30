@@ -13,6 +13,7 @@ from types import ModuleType
 from typing import Any, Callable, Optional
 
 import json5
+import muty.dict
 import muty.dynload
 import muty.file
 import muty.log
@@ -807,11 +808,9 @@ class GulpPluginBase(ABC):
                 else self._file_path
             ),
         }
-        
+
         wsq = GulpWsSharedQueue.get_instance()
-        wsq.put_internal_event(
-            msg=GulpInternalEventsManager.EVENT_INGEST, params=d
-        )
+        wsq.put_internal_event(msg=GulpInternalEventsManager.EVENT_INGEST, params=d)
 
     async def _ingest_chunk_and_or_send_to_ws(
         self,
@@ -1899,7 +1898,29 @@ class GulpPluginBase(ABC):
                 # missing mapping at all (no ecs and no timestamp field)
                 return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
+        # print(
+        #     "processing key:",
+        #     source_key,
+        #     "value:",
+        #     source_value,
+        #     "fields_mapping:",
+        #     fields_mapping,
+        #     "\n",
+        # )
+
         d = {}
+        if fields_mapping.flatten_json:
+            # flatten json, i.e. {"a": {"b": 1}} -> {"a.b": 1}
+            if isinstance(source_value, str):
+                js: dict = json.loads(source_value)
+            else:
+                js: dict = source_value
+            flattened: dict = muty.dict.flatten(js, prefix="%s." % (source_key))
+            for k, v in flattened.items():
+                processed = await self._process_key(k, v, doc, **kwargs)
+                d.update(processed)
+            return d
+
         if fields_mapping.force_type:
             # force value to the given type
             t = fields_mapping.force_type
@@ -2195,10 +2216,11 @@ class GulpPluginBase(ABC):
             not mapping_parameters.mapping_file
             and not mapping_parameters.mappings
             and not mapping_parameters.additional_mapping_files
+            and not mapping_parameters.additional_mappings
             and mapping_parameters.mapping_id
         ):
             raise ValueError(
-                "mapping_id is set but mappings/mapping_file/additional_mapping_files are not!"
+                "mapping_id is set but mappings/mapping_file/additional_mapping_files/additional_mappings are not!"
             )
 
         # check if mappings or mapping_file is set
@@ -2243,45 +2265,67 @@ class GulpPluginBase(ABC):
 
         # check for additional mapping
         # skip if using direct mappings or no additional files
-        if (
-            mapping_parameters.mappings
-            or not mapping_parameters.additional_mapping_files
+        if mapping_parameters.mappings or (
+            not mapping_parameters.additional_mapping_files
+            and not mapping_parameters.additional_mappings
         ):
             return mappings, mapping_id
 
-        MutyLogger.get_instance().debug(
-            f"loading additional mapping files/id: {mapping_parameters.additional_mapping_files} ..."
-        )
-
-        for file_info in mapping_parameters.additional_mapping_files:
-            # load and merge additional mappings from files
-            additional_file_path = GulpConfig.get_instance().build_mapping_file_path(
-                file_info[0]
+        if mapping_parameters.additional_mapping_files:
+            MutyLogger.get_instance().debug(
+                f"loading additional mapping files/id: {mapping_parameters.additional_mapping_files} ..."
             )
-            additional_mapping_id = file_info[1]
 
-            file_content = await muty.file.read_file_async(additional_file_path)
-            mapping_data = json.loads(file_content)
+            for file_info in mapping_parameters.additional_mapping_files:
+                # load and merge additional mappings from files
+                additional_file_path = (
+                    GulpConfig.get_instance().build_mapping_file_path(file_info[0])
+                )
+                additional_mapping_id = file_info[1]
 
-            if not mapping_data:
-                raise ValueError(
-                    f"additional mapping file {additional_file_path} is empty!"
+                file_content = await muty.file.read_file_async(additional_file_path)
+                mapping_data = json.loads(file_content)
+
+                if not mapping_data:
+                    raise ValueError(
+                        f"additional mapping file {additional_file_path} is empty!"
+                    )
+
+                additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
+
+                # merge mappings
+                main_mapping = mappings.get(mapping_id, GulpMapping())
+                add_mapping = additional_mapping_file.mappings[additional_mapping_id]
+
+                MutyLogger.get_instance().debug(
+                    f"adding additional mappings from {additional_file_path}.{additional_mapping_id} to '{mapping_id}' ..."
                 )
 
-            additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
+                for key, value in add_mapping.fields.items():
+                    main_mapping.fields[key] = value
 
-            # merge mappings
-            main_mapping = mappings.get(mapping_id, GulpMapping())
-            add_mapping = additional_mapping_file.mappings[additional_mapping_id]
+                mappings[mapping_id] = main_mapping
 
+        if mapping_parameters.additional_mappings:
             MutyLogger.get_instance().debug(
-                f"adding additional mappings from {additional_file_path}.{additional_mapping_id} to '{mapping_id}' ..."
+                f"loading additional mappings: {mapping_parameters.additional_mappings} ..."
             )
 
-            for key, value in add_mapping.fields.items():
-                main_mapping.fields[key] = value
+            for (
+                additional_mapping_id,
+                additional_mapping,
+            ) in mapping_parameters.additional_mappings.items():
+                # merge additional mappings
+                main_mapping = mappings.get(mapping_id, GulpMapping())
+                add_mapping = GulpMapping.model_validate(additional_mapping)
 
-            mappings[mapping_id] = main_mapping
+                MutyLogger.get_instance().debug(
+                    f"adding additional mappings from {additional_mapping_id} to '{mapping_id}' ..."
+                )
+                for key, value in add_mapping.fields.items():
+                    main_mapping.fields[key] = value
+
+                mappings[mapping_id] = main_mapping
 
         return mappings, mapping_id
 

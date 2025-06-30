@@ -22,7 +22,7 @@ import zipfile
 from typing import Any, override
 
 import muty.crypto
-import muty.json
+import muty.dict
 import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,7 +139,7 @@ class Plugin(GulpPluginBase):
 
         # apply mappings
         final = {}
-        rec: dict = muty.json.flatten_json(d)
+        rec: dict = muty.dict.flatten(d)
         for k, v in rec.items():
             mapped = await self._process_key(k, v, final, **kwargs)
             final.update(mapped)

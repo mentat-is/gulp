@@ -245,10 +245,10 @@ class GulpDocument(GulpBasicDocument):
         # gulp.context_id and gulp.source_id may have been overridden by mapping and put into kwargs
         ctx_id = kwargs.pop("context_id", context_id)
         src_id = kwargs.pop("source_id", source_id)
-        if not ctx_id:
-            raise ValueError("gulp.context_id is not set, skipping document!")
-        if not src_id:
-            raise ValueError("gulp.source_id is not set, skipping document!")
+        # if not ctx_id:
+        #     raise ValueError("gulp.context_id is not set, skipping document!")
+        # if not src_id:
+        #     raise ValueError("gulp.source_id is not set, skipping document!")
 
         data = {
             "operation_id": operation_id,

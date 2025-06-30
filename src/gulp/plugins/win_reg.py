@@ -13,7 +13,6 @@ from typing import Any, override
 
 import muty.crypto
 import muty.dict
-import muty.json
 import muty.os
 import muty.string
 import muty.time
@@ -115,7 +114,7 @@ class Plugin(GulpPluginBase):
         d["event.code"] = str(muty.crypto.hash_xxh64_int(str(regkey["path"])))
 
         # map
-        rec: dict = muty.json.flatten_json(regkey)
+        rec: dict = muty.dict.flatten(regkey)
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)

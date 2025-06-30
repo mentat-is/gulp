@@ -18,7 +18,7 @@ import datetime
 from typing import Any, override
 import os
 import muty.crypto
-import muty.json
+import muty.dict
 import muty.os
 import muty.time
 import pefile
@@ -120,7 +120,7 @@ class Plugin(GulpPluginBase):
 
         # apply mappings
         final = {}
-        rec: dict = muty.json.flatten_json(
+        rec: dict = muty.dict.flatten(
             d, normalize=pretty, expand_lists=False
         )
         for k, v in rec.items():

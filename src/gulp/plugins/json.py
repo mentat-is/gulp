@@ -19,7 +19,7 @@ from typing import Any, override
 
 import aiofiles
 import json_stream.base
-import muty.json
+import muty.dict
 import muty.os
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,7 +81,7 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         line: str = kwargs.get("__line__")
-        d: dict = muty.json.flatten_json(record)
+        d: dict = muty.dict.flatten(record)
 
         # map
         final: dict = {}

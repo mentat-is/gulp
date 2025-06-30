@@ -123,6 +123,16 @@ each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` fro
 - ignored if `mappings` is set.
 """,
     )
+    additional_mappings: Optional[dict[str, GulpMapping]] = Field(
+        None,
+        description="""
+        same as `additional_mapping_files`, but used to pass additional mappings as a dictionary of { mapping_id: GulpMapping }.
+
+        each `mapping_id` GulpMapping defined will be merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`.
+
+        - ignored if `mappings` is set.
+        """,
+    )
     sigma_mappings: Optional[GulpSigmaMapping] = Field(
         None,
         description="if set, rules to map sigma rules `logsource`, in reference to the mapping expressed by mapping_file/mappings/additional_mapping_files.",
@@ -140,6 +150,7 @@ each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` fro
             or self.mapping_file is not None
             or self.sigma_mappings is not None
             or self.additional_mapping_files is not None
+            or self.additional_mappings is not None
         ):
             return False
         MutyLogger.get_instance().warning("mapping parameters are empty")

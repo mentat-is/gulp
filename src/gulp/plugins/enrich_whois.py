@@ -32,7 +32,7 @@ import urllib
 from typing import Any, Optional, override
 
 import muty.file
-import muty.json
+import muty.dict
 import muty.log
 import muty.os
 import muty.string
@@ -148,7 +148,7 @@ class Plugin(GulpPluginBase):
 
             # remove null fields and format datetime
             enriched_entity_data: dict[str, Any] = {}
-            for k, v in muty.json.flatten_json(whois_info).items():
+            for k, v in muty.dict.flatten(whois_info).items():
                 if isinstance(v, datetime.datetime):
                     v = v.isoformat()
                 if v is not None:

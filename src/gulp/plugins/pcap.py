@@ -18,7 +18,6 @@ import muty.crypto
 import muty.dict
 import muty.file
 import muty.jsend
-import muty.json
 import muty.log
 import muty.os
 import muty.string
@@ -147,7 +146,7 @@ class Plugin(GulpPluginBase):
         )
 
         # event_code = str(muty.crypto.hash_xxh64_int(last_layer))
-        flattened = muty.json.flatten_json(evt_json)
+        flattened = muty.dict.flatten(evt_json)
 
         # map
         for k, v in flattened.items():

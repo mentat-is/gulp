@@ -36,26 +36,18 @@ class GulpMappingField(BaseModel):
         },
     )
 
-    ecs: Optional[list[str] | str] = Field(
-        None,
-        description="one or more ECS field names to map the source field to in the resulting document.",
-        min_length=1,
-    )
-    extra_doc_with_event_code: Optional[str] = Field(
-        None,
+    flatten_json: Optional[bool] = Field(
+        False,
         description="""
-if this is set, this field `represent a further timestamp` in addition to the main document `@timestamp`.
-
-`ecs` is ignored and the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
-
-in this setting, the mapping file should:
-
-- map a **single** field directly as `@timestamp` (to indicate the *main* document)
-- set `mapping.event_code` to the *main* event code
-- add additional `extra_doc_with_event_code` fields to create further documents with their own event code.
-
-check `mftecmd_csv.json` for an example of this setting.
-""",
+if set, the corresponding value is a JSON object (or string) and will be flattened into the document (i.e. all nested keys are moved to the top level).""",
+    )
+    force_type: Optional[Literal["str", "int", "float"]] = Field(
+        None,
+        description="if set, the corresponding value is forced to this type before ingestion.",
+    )
+    multiplier: Optional[float] = Field(
+        None,
+        description="if set and > 1, the corresponding value is multiplied by this value.",
     )
     is_timestamp_chrome: Optional[bool] = Field(
         False,
@@ -77,14 +69,28 @@ if set, the corresponding value is the 'name' of a GulpSource, which is created 
 this also overrides 'source' passed during ingestion, if any.
 """,
     )
-    multiplier: Optional[float] = Field(
+    extra_doc_with_event_code: Optional[str] = Field(
         None,
-        description="if set and > 1, the corresponding value is multiplied by this value.",
+        description="""
+if this is set, this field `represent a further timestamp` in addition to the main document `@timestamp`.
+
+`ecs` is ignored and the creation of an extra document is triggered with the given `event.code` and `@timestamp` set to this field value.
+
+in this setting, the mapping file should:
+
+- map a **single** field directly as `@timestamp` (to indicate the *main* document)
+- set `mapping.event_code` to the *main* event code
+- add additional `extra_doc_with_event_code` fields to create further documents with their own event code.
+
+check `mftecmd_csv.json` for an example of this setting.
+""",
     )
-    force_type: Optional[Literal["str", "int", "float"]] = Field(
+    ecs: Optional[list[str] | str] = Field(
         None,
-        description="if set, the corresponding value is forced to this type before ingestion.",
+        description="one or more ECS field names to map the source field to in the resulting document.",
+        min_length=1,
     )
+
 
 
 class GulpMapping(BaseModel):

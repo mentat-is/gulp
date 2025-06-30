@@ -24,7 +24,6 @@ from typing import Any, override
 import aiofiles
 import muty.crypto
 import muty.dict
-import muty.json
 import muty.os
 import muty.string
 import muty.time
@@ -124,7 +123,7 @@ class Plugin(GulpPluginBase):
                 msg = ""
             email_dict["email.parts"].append(self._normalize_value(msg, enc))
 
-        email_dict = muty.json.flatten_json(email_dict)
+        email_dict = muty.dict.flatten(email_dict)
 
         d: dict = {}
 
@@ -132,7 +131,7 @@ class Plugin(GulpPluginBase):
         d["event.code"] = str(muty.crypto.hash_xxh64_int(event["From"]))
 
         # map
-        rec: dict = muty.json.flatten_json(email_dict)
+        rec: dict = muty.dict.flatten(email_dict)
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
