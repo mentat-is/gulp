@@ -1945,7 +1945,7 @@ class GulpPluginBase(ABC):
             return m
 
         if fields_mapping.is_source:
-            ctx_id: str = self._check_doc_for_ctx_id(doc, mapping, **kwargs)
+            ctx_id: str = await self._check_doc_for_ctx_id(doc, mapping, **kwargs)
             if not ctx_id:
                 # no context_id, cannot process source
                 MutyLogger.get_instance().error(
