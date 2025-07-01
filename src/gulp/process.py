@@ -22,6 +22,7 @@ workloads across multiple processes while maintaining consistent state managemen
 """
 
 import asyncio
+import signal
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -141,17 +142,17 @@ class GulpProcess:
         # initialize paths immediately, before any unpickling happens
         plugins_path = GulpConfig.get_instance().path_plugins_default()
         plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
-        
+
         # add plugin paths to sys.path immediately
         def _add_to_syspath(p: str):
             if p and p not in sys.path:
-                #sys.path.insert(0, p)  # insert at beginning for priority
+                # sys.path.insert(0, p)  # insert at beginning for priority
                 sys.path.append(p)
                 extension_path = os.path.join(p, "extension")
                 if os.path.isdir(extension_path):
-                    #sys.path.insert(0, extension_path)
+                    # sys.path.insert(0, extension_path)
                     sys.path.append(extension_path)
-        
+
         _add_to_syspath(plugins_path)
         _add_to_syspath(plugins_path_extra)
         # note that we use prints here since this is called before the logger is initialized
@@ -213,17 +214,12 @@ class GulpProcess:
         closes the worker process pool
         """
         if self.process_pool:
-            MutyLogger.get_instance().debug("closing mp pool...")
+            MutyLogger.get_instance().debug(
+                "closing mp pool %s ..." % (self.process_pool)
+            )
             try:
-                self.process_pool.close()
-                try:
-                    await asyncio.wait_for(self.process_pool.join(), 5)
-                except asyncio.TimeoutError:
-                    MutyLogger.get_instance().warning(
-                        "mp pool join timeout, terminating..."
-                    )
-                    self.process_pool.terminate()
-                    await self.process_pool.join()
+                self.process_pool.terminate()
+                await asyncio.wait_for(self.process_pool.join(), timeout=5)
 
                 MutyLogger.get_instance().debug("mp pool joined!")
             except Exception as ex:
@@ -238,6 +234,8 @@ class GulpProcess:
         and the shared websocket queue, waiting for them to terminate first.
 
         each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
+
+        NOTE: This method is called ONLY by the main process to recreate the process pool
         """
         MutyLogger.get_instance().debug(
             "recreating process pool and shared queue (respawn after %d tasks)..."
@@ -314,9 +312,9 @@ class GulpProcess:
             if self._log_level:
                 log_level = self._log_level
                 logger_file_path = self._logger_file_path
-                MutyLogger.get_instance().warning("reinitializing main process...")
+                MutyLogger.get_instance().warning("reinitializing MAIN process...")
             else:
-                MutyLogger.get_instance().info("initializing main process...")
+                MutyLogger.get_instance().info("initializing MAIN process...")
                 self._log_level = log_level
                 self._logger_file_path = logger_file_path
         else:
@@ -333,13 +331,13 @@ class GulpProcess:
         # read configuration
         GulpConfig.get_instance()
 
-        # initializes executors
+        # initializes coroutine and thread pools for the main or worker process
         await self.close_coro_pool()
         await self.close_thread_pool()
         self.coro_pool = AioCoroPool(GulpConfig.get_instance().concurrency_max_tasks())
         self.thread_pool = ThreadPoolExecutor()
 
-        # initialize collab and opensearch clients
+        # initialize collab and opensearch clients for the main or worker process
         collab = GulpCollab.get_instance()
         await collab.init(main_process=self._main_process)
         GulpOpenSearch.get_instance()
@@ -347,7 +345,9 @@ class GulpProcess:
         if self._main_process:
 
             # creates the process pool and shared queue
-            MutyLogger.get_instance().warning("MAIN process initialized, sys.path=%s" % (sys.path))
+            MutyLogger.get_instance().warning(
+                "MAIN process initialized, sys.path=%s" % (sys.path)
+            )
             await self.recreate_process_pool_and_shared_queue()
 
             # load extension plugins
@@ -358,10 +358,55 @@ class GulpProcess:
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:
             # worker process, set the queue
-            MutyLogger.get_instance().info("worker process initialized!")
+            MutyLogger.get_instance().info("WORKER process initialized!")
             GulpWsSharedQueue.get_instance().set_queue(q)
             # and shared list too
             self.shared_ws_list = shared_ws_list
+
+            # register sigterm handler for the worker process
+            signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
+
+    @staticmethod
+    async def _worker_cleanup():
+        """
+        cleanup the worker process (called as atexit handler)
+        """
+        MutyLogger.get_instance().debug(
+            "WORKER process PID=%d cleanup initiated!" % (os.getpid())
+        )
+        # close shared ws and process pool
+        try:
+            # close clients
+            await GulpCollab.get_instance().shutdown()
+            await GulpOpenSearch.get_instance().shutdown()
+
+            # close coro and thread pool
+            await GulpProcess.get_instance().close_coro_pool()
+            await GulpProcess.get_instance().close_thread_pool()
+
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            MutyLogger.get_instance().info(
+                "WORKER process PID=%d cleanup DONE!" % (os.getpid())
+            )
+
+    def sigterm_handler(signum, frame):
+        MutyLogger.get_instance().debug(
+            "SIGTERM received, cleaning up worker process PID=%d..." % (os.getpid())
+        )
+        try:
+            # get the current event loop
+            loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+            if loop.is_running():
+                # if the loop is running, create a task for cleanup
+                loop.create_task(GulpProcess._worker_cleanup())
+            else:
+                # if the loop is not running, run the cleanup synchronously
+                asyncio.run(GulpProcess._worker_cleanup())
+        except Exception as ex:
+            # log any exception during cleanup
+            MutyLogger.get_instance().exception(ex)
 
     def is_main_process(self) -> bool:
         """

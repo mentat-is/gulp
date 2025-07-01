@@ -312,7 +312,6 @@ class GulpAPIQuery:
         plugin: str,
         q_options: GulpQueryParameters,
         plugin_params: GulpPluginParameters,
-        ingest: bool = False,
         ws_id: str = None,
         req_id: str = None,
         expected_status: int = 200,
@@ -320,7 +319,6 @@ class GulpAPIQuery:
         api_common = GulpAPICommon.get_instance()
         params = {
             "operation_id": operation_id,
-            "ingest": ingest,
             "plugin": plugin,
             "req_id": req_id or api_common.req_id,
             "ws_id": ws_id or api_common.ws_id,

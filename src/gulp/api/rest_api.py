@@ -33,6 +33,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.test_values import TEST_OPERATION_ID
 from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
 from gulp.config import GulpConfig
@@ -405,16 +406,6 @@ class GulpRestServer:
             MutyLogger.get_instance().warning("HTTP!")
             uvicorn.run(self._app, host=address, port=port)
 
-    def _kill_gulp_processes(self) -> None:
-        """
-        kills all child processes of the main process
-        """
-        import multiprocessing
-
-        for process in multiprocessing.active_children():
-            process.terminate()
-        MutyLogger.get_instance().info("killed all child processes!")
-
     async def handle_bg_future(self, future: asyncio.Future) -> None:
         """
         waits for a future running in background to complete, logs any exceptions
@@ -441,17 +432,34 @@ class GulpRestServer:
 
     async def _cleanup(self):
         """
-        called when lifespan handler returns from yield, to cleanup
+        called when lifespan handler returns from yield, to cleanup the MAIN process
         """
-        MutyLogger.get_instance().info("atexit() cleanup")
-        self._kill_gulp_processes()
+        MutyLogger.get_instance().debug("MAIN process cleanup initiated!")
+        # close shared ws and process pool
+        try:
+            await GulpConnectedSockets.get_instance().cancel_all()
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.close()
 
-        if self._restart_signal.is_set():
-            MutyLogger.get_instance().info("restarting server ...")
-            self._restart_signal.clear()
+            # close clients in the main process
+            await GulpCollab.get_instance().shutdown()
+            await GulpOpenSearch.get_instance().shutdown()
 
-            # respawn
-            muty.os.respawn_current_process()
+            # close coro and thread pool in the main process
+            await GulpProcess.get_instance().close_coro_pool()
+            await GulpProcess.get_instance().close_thread_pool()
+
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            #self._kill_gulp_processes()
+            MutyLogger.get_instance().info("MAIN process cleanup DONE, just closing process pool is the only thing remaining ...")
+
+            # close process pool
+            await GulpProcess.get_instance().close_process_pool()
+            MutyLogger.get_instance().info(
+                "everything shut down, we can gracefully exit."
+            )
 
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler
@@ -470,8 +478,6 @@ class GulpRestServer:
         from gulp.api.opensearch_api import GulpOpenSearch
 
         MutyLogger.get_instance().info("gULP main server process is starting!")
-
-        asyncio_atexit.register(self._cleanup)
 
         main_process = GulpProcess.get_instance()
 
@@ -492,19 +498,31 @@ class GulpRestServer:
 
         # check for reset flags
         from gulp.api.rest.db import db_reset
-        try:            
+
+        try:
             if self._reset_collab or self._create_operation:
                 # reset collab database
                 delete_all_operations = self._reset_collab and self._create_operation
                 if self._reset_collab or first_run:
-                    force_create: bool=True
+                    force_create: bool = True
                 else:
-                    force_create: bool=False
+                    force_create: bool = False
                 MutyLogger.get_instance().warning(
                     "reset_collab or create_operation set, first_run=%r, force_create=%r, create_operation=%s, keep_data=%r, delete_all_operations=%r !"
-                    % (first_run, force_create, self._create_operation, self._keep_data, delete_all_operations)
+                    % (
+                        first_run,
+                        force_create,
+                        self._create_operation,
+                        self._keep_data,
+                        delete_all_operations,
+                    )
                 )
-                await db_reset(keep_data=self._keep_data, operation_id=self._create_operation, delete_all_operations=delete_all_operations, force_create=True)
+                await db_reset(
+                    keep_data=self._keep_data,
+                    operation_id=self._create_operation,
+                    delete_all_operations=delete_all_operations,
+                    force_create=True,
+                )
 
         except Exception as ex:
             if first_run:
@@ -540,29 +558,16 @@ class GulpRestServer:
         # unload extension plugins
         await self._unload_extension_plugins()
 
-        # close shared ws and process pool
-        try:
-            await GulpConnectedSockets.get_instance().cancel_all()
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.close()
+        # cleanup main process
+        await self._cleanup()
 
-            # close clients in the main process
-            await GulpCollab.get_instance().shutdown()
-            await GulpOpenSearch.get_instance().shutdown()
+        if self._restart_signal.is_set():
+            # we need to restart the server
+            MutyLogger.get_instance().info("restarting server ...")
+            self._restart_signal.clear()
 
-            # close coro and thread pool in the main process
-            await GulpProcess.get_instance().close_coro_pool()
-            await GulpProcess.get_instance().close_thread_pool()
-
-            # close process pool
-            await GulpProcess.get_instance().close_process_pool()
-            MutyLogger.get_instance().info(
-                "everything shut down, we can gracefully exit."
-            )
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-        finally:
-            await self._cleanup()
+            # respawn
+            muty.os.respawn_current_process()
 
     def _reset_first_run(self) -> None:
         """

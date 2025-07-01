@@ -799,8 +799,6 @@ class GulpPluginBase(ABC):
             "failed": self._tot_failed_in_source,
             "skipped": self._tot_skipped_in_source,
             "processed": self._tot_processed_in_source,
-            "source_id": self._source_id,
-            "context_id": self._context_id,
             "operation_id": self._operation_id,
             "file_path": (
                 self._original_file_path
@@ -948,7 +946,7 @@ class GulpPluginBase(ABC):
         # check cache first
         cache_key: str = f"{k}-{v}"
         if cache_key in self._ctx_cache:
-            # MutyLogger.get_instance().debug(f"found context {v} in cache, returning id {self._ctx_cache[v]}")
+            # MutyLogger.get_instance().error(f"found context {v} in cache, returning id {self._ctx_cache[cache_key]}")
             # return cached context id
             return self._ctx_cache[cache_key]
 
@@ -1036,9 +1034,9 @@ class GulpPluginBase(ABC):
         ws_id: str,
         operation_id: str,
         q: Any,
+        index: str,
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
-        index: str = None,
         **kwargs,
     ) -> tuple[int, int, str] | tuple[int, list[dict]]:
         """
@@ -1055,7 +1053,7 @@ class GulpPluginBase(ABC):
             q(Any): the query to perform, format is plugin specific
             plugin_params (GulpPluginParameters): the plugin parameters, they are mandatory here (custom_parameters should usually be set with specific external source parameters, i.e. how to connect)
             q_options (GulpQueryParameters): additional query options.
-            index (str, optional): the gulp's operation index to ingest into during query, may be None for no ingestion
+            index (str, optional): the gulp's operation index to ingest into during query, ignored (set to None) when preview is enabled
             kwargs: additional keyword arguments
         Notes:
             - implementers must call super().query_external first
@@ -1667,15 +1665,21 @@ class GulpPluginBase(ABC):
 
             if not gulp_context_id and default_ctx:
                 # create context_id from default context
-                d["gulp.context_id"] = await self._context_id_from_doc_value(
-                    "gulp.context_id", default_ctx
-                )
+                if self._preview_mode:
+                    d["gulp.context_id"] = "preview"
+                else:
+                    d["gulp.context_id"] = await self._context_id_from_doc_value(
+                        "gulp.context_id", default_ctx
+                    )
             if not gulp_source_id and default_src:
                 # create source_id from default source
                 context_id = d.get("gulp.context_id", None)
-                d["gulp.source_id"] = await self._source_id_from_doc_value(
-                    context_id, "gulp.source_id", default_src
-                )
+                if self._preview_mode:
+                    d["gulp.source_id"] = "preview"
+                else:
+                    d["gulp.source_id"] = await self._source_id_from_doc_value(
+                        context_id, "gulp.source_id", default_src
+                    )
 
             # check if we have both context_id and source_id set
             gulp_context_id: str = d.get("gulp.context_id", None)
@@ -1954,9 +1958,12 @@ class GulpPluginBase(ABC):
 
         if fields_mapping.is_context:
             # this is a context field, get or create a new context
-            ctx_id: str = await self._context_id_from_doc_value(
-                source_key, source_value
-            )
+            if self._preview_mode:
+                ctx_id = "preview"
+            else:
+                ctx_id: str = await self._context_id_from_doc_value(
+                    source_key, source_value
+                )
 
             # also map the value if there's ecs set
             m = self._try_map_ecs(
@@ -1966,7 +1973,11 @@ class GulpPluginBase(ABC):
             return m
 
         if fields_mapping.is_source:
-            ctx_id: str = await self._check_doc_for_ctx_id(doc, mapping, **kwargs)
+            # this is a context field, get or create a new context
+            if self._preview_mode:
+                ctx_id = "preview"
+            else:
+                ctx_id: str = await self._check_doc_for_ctx_id(doc, mapping, **kwargs)
             if not ctx_id:
                 # no context_id, cannot process source
                 MutyLogger.get_instance().error(
@@ -1974,10 +1985,14 @@ class GulpPluginBase(ABC):
                 )
                 return {}
 
-            # get/create the source
-            src_id: str = await self._source_id_from_doc_value(
-                ctx_id, source_key, source_value
-            )
+            # this is a context field, get or create a new context
+            if self._preview_mode:
+                src_id = "preview"
+            else:
+                # get/create the source
+                src_id: str = await self._source_id_from_doc_value(
+                    ctx_id, source_key, source_value
+                )
             if not src_id:
                 # cannot proceed without source_id
                 return {}

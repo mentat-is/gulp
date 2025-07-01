@@ -89,12 +89,9 @@ def _parse_args():
     parser.add_argument("--ws_id", default=TEST_WS_ID, help="Websocket id")
     parser.add_argument("--req_id", default=TEST_REQ_ID, help="Request id")
     parser.add_argument(
-        "--ingest", action="store_true", help="Ingest data", default=False
-    )
-    parser.add_argument(
         "--preview-mode",
         action="store_true",
-        help="Preview mode (ignores --ingest)",
+        help="Preview mode",
         default=False,
     )
     parser.add_argument("--q", default=SPLUNK_RAW_Q, help="Query to be used")
@@ -162,7 +159,6 @@ async def query_external(args):
                         plugin_params.override_chunk_size = 1000  # force if not set
 
                     if args.preview_mode:
-                        args.ingest = False
                         q_options.preview_mode = True
 
                     # dump structs before running the query
@@ -184,7 +180,6 @@ async def query_external(args):
                         plugin=args.plugin,
                         plugin_params=plugin_params,
                         q_options=q_options,
-                        ingest=args.ingest,
                     )
                 elif data["type"] == "query_done":
                     q_done_packet: GulpQueryDonePacket = (

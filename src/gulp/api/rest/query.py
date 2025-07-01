@@ -177,13 +177,13 @@ async def _query_internal(
                     ws_id=ws_id,
                     operation_id=operation_id,
                     q=q,
+                    index=index,
                     plugin_params=plugin_params,
                     q_options=q_options,
-                    index=index,
                 )
-                if index:
-                    # broadcast ingest internal event
-                    await mod.broadcast_ingest_internal_event()
+
+                # broadcast ingest internal event
+                await mod.broadcast_ingest_internal_event()
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
@@ -470,7 +470,7 @@ async def _worker_coro(kwds: dict) -> None:
                 # send progress packet to the websocket (this may be a lenghty operation)
                 p = GulpProgressPacket(
                     total=num_queries,
-                    current=processed,                    
+                    current=processed,
                     msg="processing queries...",
                     total_matches=total_doc_matches,
                 )
@@ -559,7 +559,6 @@ async def _preview_query(
     q_options: GulpQueryParameters = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
-    sess: AsyncSession = None,
 ) -> tuple[int, list[dict]]:
     """
     runs a single preview query
@@ -573,7 +572,6 @@ async def _preview_query(
         q_options (GulpQueryParameters, optional): query options. Defaults to None.
         plugin (str, optional): plugin to use, in case of external query. Defaults to None.
         plugin_params (GulpPluginParameters, optional): plugin parameters. Defaults to None.
-        sess (AsyncSession, optional): session. Defaults to None.
     Returns:
         tuple(int, list[dict]: total hits, documents
     """
@@ -590,12 +588,13 @@ async def _preview_query(
 
             # external query
             total, docs = await mod.query_external(
-                sess=sess,
+                sess=None,
                 user_id=user_id,
                 req_id=req_id,
                 ws_id=None,
                 operation_id=operation_id,
                 q=q,
+                index=None,
                 plugin_params=plugin_params,
                 q_options=q_options,
             )
@@ -955,13 +954,13 @@ async def query_gulp_handler(
     },
     summary="Query an external source.",
     description="""
-query an external source using the target source query language, and optionally ingest data back into gulp.
+query an external source using the target source query language, ingesting data back into gulp at `operation_id`'s index.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 - `plugin` must implement `query_external` method.
 - `plugin_params.custom_parameters` must include all the parameters needed to connect to the external source.
-- token must have `ingest` permission if `ingest` is set.
-- if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array, `ingest` is ignored and the data is returned directly without using the websocket.
+- token must have `ingest` permission (unless `q_options.preview_mode` is set).
+- if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array and the data is returned directly without using the websocket.
 """,
 )
 async def query_external_handler(
@@ -984,10 +983,6 @@ async def query_external_handler(
     plugin_params: Annotated[
         GulpPluginParameters, Depends(APIDependencies.param_plugin_params)
     ],
-    ingest: Annotated[
-        Optional[bool],
-        Query(description="set to `True` to ingest data into gulp operation's index."),
-    ] = False,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
@@ -999,19 +994,16 @@ async def query_external_handler(
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    if q_options.preview_mode:
-        # ingest is ignored in preview mode
-        ingest = False
-
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token and get caller user id
-            if ingest:
+            if q_options.preview_mode:
+                # preview mode, no ingest needed
+                permission = GulpUserPermission.READ
+
+            else:
                 # external query with ingest, needs ingest permission
                 permission = GulpUserPermission.INGEST
-            else:
-                # standard external query, read is enough
-                permission = GulpUserPermission.READ
 
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
@@ -1028,7 +1020,7 @@ async def query_external_handler(
                     "if `q_options.preview_mode` is set, only one query is allowed."
                 )
 
-            # preview mode, run the query and return the data
+            # preview mode, run the query synchronously and return the data directly
             total, docs = await _preview_query(
                 operation_id=operation_id,
                 user_id=user_id,
@@ -1037,7 +1029,6 @@ async def query_external_handler(
                 q_options=q_options,
                 plugin=plugin,
                 plugin_params=plugin_params,
-                sess=sess,
             )
             return JSONResponse(
                 JSendResponse.success(
@@ -1066,7 +1057,7 @@ async def query_external_handler(
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            index=index if ingest else None,
+            index=index,
             queries=queries,
             q_options=q_options,
             plugin=plugin,

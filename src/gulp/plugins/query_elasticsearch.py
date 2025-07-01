@@ -176,9 +176,9 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         operation_id: str,
         q: Any,
+        index: str,
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
-        index: str = None,
         **kwargs,
     ) -> tuple[int, int, str] | tuple[int, list[dict]]:
         await super().query_external(
@@ -188,9 +188,9 @@ class Plugin(GulpPluginBase):
             ws_id,
             operation_id,
             q,
+            index,
             plugin_params,
             q_options,
-            index,
             **kwargs,
         )
 

@@ -362,14 +362,15 @@ Here's a commented example, further details in the [model definition source](../
       //
       // each field option is processed in the following order:
       //
-      // 1. if `force_type` is set, the value is forced to this type
-      // 2. if `multiplier` is set, the value is multiplied by this value.
-      // 3. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
-      // 4. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
-      // 5. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
-      // 6. finally, the value is mapped to ECS fields as defined in `ecs`.
+      // 1. if `flatten_json` is set, the value is a JSON object and its fields are flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
+      // 2. if `force_type` is set, the value is forced to this type
+      // 3. if `multiplier` is set, the value is multiplied by this value.
+      // 4. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
+      // 5. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
+      // 6. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
+      // 7. finally, the value is mapped to ECS fields as defined in `ecs`.
       //
-      // if 'extra_doc_with_event_code' is set on a field, step 6 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
+      // if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
       //
       // NOTE: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
@@ -382,6 +383,17 @@ Here's a commented example, further details in the [model definition source](../
           "ecs": "gulp.html.form.field.value",
           // if "force_type" is set, value is converted to "int", "str" or "float" PRIOR to being ingested
           "force_type": "int"
+        },
+        "id":{
+            // if set, flattens "id" (which is a json object) in the resulting document (and discard "id" itself)
+            // the resulting flattened fields (as you see in the example below) are immediately available
+            "flatten_json": true
+        },
+        // i.e. with flatten_json then you have id.xxx.yyy.zzz in the document and you can map them as well
+        "id.orig_h": {
+            "ecs": [
+                "source.address"
+            ]
         },
         "my_context": {
           // if this is set, it can be used to generate a GulpContext on the fly based on the value of "my_context" field, setting the `gulp.context_id` of the GulpDocument being generated.

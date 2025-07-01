@@ -238,7 +238,6 @@ class GulpCollab:
                 "shutting down collab database engine and invalidate existing connections ..."
             )
             await self._engine.dispose()
-
         self._setup_done = False
         self._engine = None
         self._collab_sessionmaker = None
