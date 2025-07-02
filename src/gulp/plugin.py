@@ -1585,7 +1585,7 @@ class GulpPluginBase(ABC):
 
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
-    ) -> GulpDocument:
+    ) -> GulpDocument|dict:
         """
         to be implemented in a plugin to convert a record to a GulpDocument.
 
@@ -1597,11 +1597,11 @@ class GulpPluginBase(ABC):
 
         Args:
             record (any): the record to convert.
-                NOTE: in a stacked plugin, this method always receives `record` ad `dict` (GulpDocument.model_dump()) and returns the same `dict` after processing.
+                NOTE: in a stacked plugin, this method always receives `record` as a `dict` (GulpDocument.model_dump()) and MUST return a new or modified `dict` after processing.
             record_idx (int): the index of the record in the source
             kwargs: additional keyword arguments
         Returns:
-            GulpDocument: the GulpDocument, or None to skip processing (i.e. plugin detected malformed record)
+            GulpDocument|dict: the GulpDocument or dict (in case of a stacked plugin), or None to skip processing (i.e. plugin detected malformed record)
 
         """
         raise NotImplementedError("not implemented!")
