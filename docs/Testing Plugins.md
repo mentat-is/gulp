@@ -74,10 +74,10 @@ to quickly test ingestion with a particular plugin manually i.e. during plugin d
 a similar tool is available to manually test `external queries`: [query_external.py](../test_scripts/query_external.py):
 
 ~~~bash
-# example for the splunk paid plugin, --ingest also ingest data, 56590 hits
+# example for the splunk paid plugin, 56590 hits
 ./test_scripts/query_external.py \
     --q 'sourcetype="WinEventLog:Security" Nome_applicazione="\\\\device\\\\harddiskvolume2\\\\program files\\\\intergraph smart licensing\\\\client\\\\islclient.exe"' \
-    --plugin splunk --operation_id test_operation --reset --ingest \
+    --plugin splunk --operation_id test_operation --reset \
     --plugin_params '{
         "custom_parameters":  {
             "uri": "http://localhost:8089",
