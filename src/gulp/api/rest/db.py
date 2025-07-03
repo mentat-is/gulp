@@ -43,67 +43,21 @@ from gulp.process import GulpProcess
 router: APIRouter = APIRouter()
 
 
-async def db_reset(
-    user_id: str = None,
-    keep_data: bool = False,
-    operation_id: str = None,
-    delete_all_operations: bool = False,
-    force_create: bool = False,
+async def _delete_operations(
+    user_id: str, operation_id: str = None, keep_data: bool = False
 ) -> None:
     """
-    resets the collab database
+    Deletes (all) operations in the collaboration database
 
     Args:
-        user_id (str, optional): user id to use to delete the data. If None, "admin" will be used.
-        keep_data (bool, optional): if True, existing operations data on OpenSearch will not be deleted. Defaults to False.
-        operation_id (str, optional): if set, a new operation with this id will be created after reset.
-        delete_all_operations (bool, optional): if True, all operations will be deleted. If False, only the specified operation_id will be deleted. Defaults to False, ignored if force_create is set.
-        force_create (bool, optional): if True, the collab database will be recreated even if it exists. Defaults to False.
+        user_id (str): The user ID for which to clear operations.
+        operation_id (str, optional): If specified, only the operation with this ID will be deleted.
+        keep_data (bool, optional): If True, existing operations data on OpenSearch will not be deleted. Defaults to False.
     """
-    MutyLogger.get_instance().debug(
-        "db_reset called with params: user_id=%s, keep_data=%s, operation_id=%s, delete_all_operations=%s, force_create=%s"
-        % (user_id, keep_data, operation_id, delete_all_operations, force_create)
+    MutyLogger.get_instance().warning(
+        "deleting ALL operations on collab (except operation_id=%s, keep_data=%r)"
+        % (operation_id, keep_data)
     )
-
-    # check if the database exists
-    url = GulpConfig.get_instance().postgres_url()
-    collab = GulpCollab.get_instance()
-    try:
-        await collab.init(main_process=True)
-    except SchemaMismatch as ex:
-        MutyLogger.get_instance().warning(
-            "collab database schema mismatch, resetting it: %s" % (ex)
-        )
-        force_create = True
-    exists = await collab.db_exists(url)
-
-    if user_id is None:
-        # if user_id is not specified, use "admin"
-        user_id = "admin"
-
-    if not exists or force_create:
-        MutyLogger.get_instance().warning(
-            "collab database does not exist/must be recreated, creating it..."
-        )
-
-        # reset
-        await collab.init(main_process=True, force_recreate=True)
-        collab = GulpCollab.get_instance()
-        await collab.create_default_users()
-        await collab.create_default_glyphs()
-
-        # create default operation
-        operation_id = operation_id or TEST_OPERATION_ID
-        MutyLogger.get_instance().debug(
-            "reset done (db did not exist), creating operation=%s" % (operation_id)
-        )
-        await GulpOperation.create_wrapper(
-            operation_id, user_id=user_id, set_default_grants=True
-        )
-        return
-
-    # collab database exists, delete all data for all or just for the specific operation
-    MutyLogger.get_instance().warning("collab database exists !")
     async with GulpCollab.get_instance().session() as sess:
         # enumerate all operations
         ops = await GulpOperation.get_by_filter(
@@ -111,10 +65,12 @@ async def db_reset(
         )
         for op in ops:
             op: GulpOperation
-            MutyLogger.get_instance().debug("found operation: %s, index=%s" % (op.id, op.index))
+            MutyLogger.get_instance().debug(
+                "found operation: %s, index=%s" % (op.id, op.index)
+            )
 
-            # if operation_id is specified, only delete that operation (unless delete_all_operations is True)
-            if (operation_id and op.id != operation_id) and not delete_all_operations:
+            # if operation_id is specified, only delete that operation
+            if operation_id and op.id != operation_id:
                 # skip this operation
                 MutyLogger.get_instance().debug(
                     "skipping deleting operation_id=%s" % (op.id)
@@ -131,12 +87,75 @@ async def db_reset(
             # delete the operation itself
             await op.delete(sess)
 
+
+async def db_reset(
+    user_id: str = None,
+    keep_data: bool = False,
+    operation_id: str = None,
+    force_recreate_db: bool = False,
+) -> None:
+    """
+    resets the collab database
+
+    Args:
+        user_id (str, optional): user id to use to delete the data. If None, "admin" will be used.
+        keep_data (bool, optional): if True, existing operations data on OpenSearch will not be deleted. Defaults to False.
+        operation_id (str, optional): if set, a new operation with this id will be created after reset.
+        force_recreate_db (bool, optional): if True, the collab database will be recreated even if it exists. Defaults to False.
+
+    """
+    MutyLogger.get_instance().debug(
+        "db_reset called with params: user_id=%s, keep_data=%s, operation_id=%s, force_recreate_db=%s"
+        % (user_id, keep_data, operation_id, force_recreate_db)
+    )
+
+    # check if the database exists
+    url = GulpConfig.get_instance().postgres_url()
+    collab = GulpCollab.get_instance()
+    try:
+        await collab.init(main_process=True)
+    except SchemaMismatch as ex:
+        MutyLogger.get_instance().warning(
+            "collab database schema mismatch, resetting it: %s" % (ex)
+        )
+        force_recreate_db = True
+    exists = await collab.db_exists(url)
+
+    if user_id is None:
+        # if user_id is not specified, use "admin"
+        user_id = "admin"
+
+    if not exists or force_recreate_db:
+        MutyLogger.get_instance().warning(
+            "collab database does not exist/must be recreated, creating it (exist=%r, force_recreate_db=%r) ..."
+            % (exists, force_recreate_db)
+        )
+
+        # clear all existing operations
+        try:
+            await _delete_operations(user_id)
+        except:
+            # will fail if the collab database does not exist
+            pass
+
+        # reset
+        await collab.init(main_process=True, force_recreate=True)
+        collab = GulpCollab.get_instance()
+        await collab.create_default_users()
+        await collab.create_default_glyphs()
+
+    # collab database exists, delete all data for all or just for the specific operation
+    MutyLogger.get_instance().warning("collab database exists !")
     if operation_id:
         MutyLogger.get_instance().debug(
-            "reset done, creating operation=%s" % (operation_id)
+            "db_reset done, creating operation=%s" % (operation_id)
         )
         await GulpOperation.create_wrapper(
-            operation_id, user_id=user_id, set_default_grants=True, keep_data=keep_data, fail_if_exists=False
+            operation_id,
+            user_id=user_id,
+            set_default_grants=True,
+            keep_data=keep_data,
+            fail_if_exists=False,
         )
 
 
@@ -202,8 +221,7 @@ async def gulp_reset_handler(
             user_id=s.user_id,
             keep_data=keep_data,
             operation_id=TEST_OPERATION_ID if create_default_operation else None,
-            delete_all_operations=True,
-            force_create=True
+            force_recreate_db=True,
         )
         if restart_processes:
             # restart the process pool

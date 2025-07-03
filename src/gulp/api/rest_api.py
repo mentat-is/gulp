@@ -452,8 +452,10 @@ class GulpRestServer:
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
-            #self._kill_gulp_processes()
-            MutyLogger.get_instance().info("MAIN process cleanup DONE, just closing process pool is the only thing remaining ...")
+            # self._kill_gulp_processes()
+            MutyLogger.get_instance().info(
+                "MAIN process cleanup DONE, just closing process pool is the only thing remaining ..."
+            )
 
             # close process pool
             await GulpProcess.get_instance().close_process_pool()
@@ -502,26 +504,24 @@ class GulpRestServer:
         try:
             if self._reset_collab or self._create_operation:
                 # reset collab database
-                delete_all_operations = self._reset_collab and self._create_operation
                 if self._reset_collab or first_run:
-                    force_create: bool = True
+                    force_recreate_db: bool = True
                 else:
-                    force_create: bool = False
+                    force_recreate_db: bool = False
                 MutyLogger.get_instance().warning(
-                    "reset_collab or create_operation set, first_run=%r, force_create=%r, create_operation=%s, keep_data=%r, delete_all_operations=%r !"
+                    "reset_collab or create_operation set, first_run=%r, reset_collab=%r, force_recreate_db=%r, create_operation=%s, keep_data=%r !"
                     % (
                         first_run,
-                        force_create,
+                        self._reset_collab,
+                        force_recreate_db,
                         self._create_operation,
                         self._keep_data,
-                        delete_all_operations,
                     )
                 )
                 await db_reset(
                     keep_data=self._keep_data,
                     operation_id=self._create_operation,
-                    delete_all_operations=delete_all_operations,
-                    force_create=True,
+                    force_recreate_db=force_recreate_db,
                 )
 
         except Exception as ex:
