@@ -1063,7 +1063,7 @@ class GulpPluginBase(ABC):
             tuple[int, int, str]: total documents found, total processed(ingested, usually=found unless errors), query_name
 
         Returns (q_options.preview_mode=True):
-            q_options.preview_mode=True: tuple[int, list[dict]]: total_hits (if available), a preview(chunk) of the documents
+            q_options.preview_mode=True: tuple[int, list[dict]]: total_hits (len(preview)), a preview chunk of the documents
 
         Raises:
             ObjectNotFound: if no document is found.
@@ -1585,7 +1585,7 @@ class GulpPluginBase(ABC):
 
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
-    ) -> GulpDocument|dict:
+    ) -> GulpDocument | dict:
         """
         to be implemented in a plugin to convert a record to a GulpDocument.
 
@@ -2167,7 +2167,9 @@ class GulpPluginBase(ABC):
                 >= GulpConfig.get_instance().preview_mode_num_docs()
             ):
                 # must stop
-                raise PreviewDone("preview done")
+                raise PreviewDone(
+                    "preview done", processed=self._tot_processed_in_source
+                )
 
             # and do nothing else
             return

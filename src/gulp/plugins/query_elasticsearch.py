@@ -268,8 +268,9 @@ class Plugin(GulpPluginBase):
             return total_count, processed, q_options.name
 
         except PreviewDone:
-            # preview done
-            return total_count, self.preview_chunk()
+            # preview done before finishing current chunk processing
+            pr: list[dict]=self.preview_chunk()
+            return len(pr), pr
 
         except Exception as ex:
             # error during query

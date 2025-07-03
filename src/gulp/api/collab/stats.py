@@ -65,9 +65,18 @@ class SourceCanceledError(Exception):
 
 class PreviewDone(Exception):
     """
-    Raised when a preview is done on ingestion
+    Raised when a preview is done on ingestion    
     """
+    def __init__(self, message: str, processed: int = 0):
+        """
+        Initialize the PreviewDone exception.
 
+        Args:
+            message (str): The message describing the preview completion.
+            processed (int, optional): The number of records processed in the preview. Defaults to 0.
+        """
+        super().__init__(message)
+        self.processed = processed
 
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
