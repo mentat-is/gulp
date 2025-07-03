@@ -265,8 +265,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 ws_queue_datatype=WSDATA_STATS_UPDATE,
                 req_id=req_id,
             )
-        finally:
-            await GulpRequestStats.release_advisory_lock(sess, req_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def cancel(
         self,
@@ -320,15 +321,16 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
 
         # get insance
-        sess = kwargs["sess"]
-        user_id = kwargs["user_id"]
+        sess: AsyncSession = kwargs["sess"]
+        user_id: str = kwargs["user_id"]
         try:
             await GulpRequestStats.acquire_advisory_lock(sess, obj_id)
             s: GulpRequestStats = await cls.get_by_id(sess, obj_id)
             dd = await s.update(sess, d=d, ws_id=ws_id, user_id=user_id)
             return dd
-        finally:
-            await GulpRequestStats.release_advisory_lock(sess, obj_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     @override
     async def update(
@@ -371,7 +373,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         updated_data: dict = (
             {}
         )  # dictionary to hold changes for super().update if needed, though current super().update ignores 'd'
-
+        should_update: bool = True
+        
         try:
             # acquire lock for the duration of the update
             await self.__class__.acquire_advisory_lock(sess, self.id)
@@ -389,7 +392,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self.id,
                     self.status,
                 )
-                return self.to_dict()  # return current state
+                # return current state: we will need to commit the transaction in finally block, to release the lock
+                should_update = False 
+                return self.to_dict()
 
             # apply updates from d
             self.source_processed += d.get("source_processed", 0)
@@ -527,9 +532,13 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
             return updated_dict
 
+        except Exception as e:
+            await sess.rollback()
+            raise e
         finally:
-            # ensure lock is always released
-            await self.__class__.release_advisory_lock(sess, self.id)
+            if not should_update:
+                # if we didn't update, we still need to release the lock
+                await sess.commit()
 
     @staticmethod
     async def finalize_query_stats(
@@ -593,8 +602,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 dd = stats.to_dict(exclude_none=True)
                 await sess.commit()
 
-        finally:
-            await GulpRequestStats.release_advisory_lock(sess, req_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
         if not send_query_done:
             return dd

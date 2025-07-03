@@ -141,5 +141,6 @@ class GulpSourceFields(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELDS):
                 owner_id=user_id,
                 private=False,
             )
-        finally:
-            await GulpSourceFields.release_advisory_lock(sess, obj_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e

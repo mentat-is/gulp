@@ -34,6 +34,8 @@ cd tests
 PATH_PAID_PLUGINS=/home/valerino/repos/gulp-paid-plugins ./test_suite.sh
 ~~~
 
+> use [test_lite.sh](../tests/test_lite.sh) to skip most of the ingestion tests (but still tests collab objects, queries, etc...)
+
 ## running single tests manually
 
 single tests in the [test suite](../tests) may also be run manually

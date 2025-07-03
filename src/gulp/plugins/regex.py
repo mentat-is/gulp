@@ -19,7 +19,6 @@ from datetime import datetime
 import aiofiles
 import re._constants
 import muty.dict
-import muty.json
 import muty.os
 import muty.time
 from muty.log import MutyLogger

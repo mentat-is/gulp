@@ -430,20 +430,20 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             for doc_id in self.doc_ids:
                 # check if the document has _id matching doc_id
                 # using ->> to extract the _id field from the JSONB doc object
-                conditions.append(
-                    obj_type.doc['_id'].astext == doc_id.lower()
-                )
+                conditions.append(obj_type.doc["_id"].astext == doc_id.lower())
             q = q.filter(or_(*conditions))
         if self.doc_time_range and "doc" in obj_type.columns:
             # returns all collab objects that have the associated document (obj.doc) with "gulp.timestamp" in doc_time_range
             conditions = []
             if self.doc_time_range[0]:
                 conditions.append(
-                    func.cast(obj_type.doc['gulp.timestamp'].astext, BIGINT) >= self.doc_time_range[0]
+                    func.cast(obj_type.doc["gulp.timestamp"].astext, BIGINT)
+                    >= self.doc_time_range[0]
                 )
             if self.doc_time_range[1]:
                 conditions.append(
-                    func.cast(obj_type.doc['gulp.timestamp'].astext, BIGINT) <= self.doc_time_range[1]
+                    func.cast(obj_type.doc["gulp.timestamp"].astext, BIGINT)
+                    <= self.doc_time_range[1]
                 )
             q = q.filter(and_(*conditions))
 
@@ -897,6 +897,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             group_id (str): The ID of the user group to add.
             commit (bool): Whether to commit the session after adding the group grant. Defaults to True.
+                NOTE: if commit is False, the session must be committed elsewhere or the lock acquired by this function would remain held!
         Returns:
             None
         """
@@ -915,8 +916,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 self.granted_user_group_ids.append(group_id)
                 if commit:
                     await sess.commit()
-            finally:
-                await self.__class__.release_advisory_lock(sess, self.id)
+            except Exception as e:
+                await sess.rollback()
+                raise e
         else:
             MutyLogger.get_instance().warning(
                 "user group %s already granted on object %s" % (group_id, self.id)
@@ -932,6 +934,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             group_id (str): The ID of the user group to remove.
             commit (bool): Whether to commit the session after removing the group grant. Defaults to True.
+                NOTE: if commit is False, the session must be committed elsewhere or the lock acquired by this function would remain held!
         Returns:
             None
         """
@@ -950,8 +953,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 self.granted_user_group_ids.remove(group_id)
                 if commit:
                     await sess.commit()
-            finally:
-                await self.__class__.release_advisory_lock(sess, self.id)
+            except Exception as e:
+                await sess.rollback()
+                raise e
 
         else:
             MutyLogger.get_instance().warning(
@@ -968,6 +972,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to add.
             commit (bool): Whether to commit the session after adding the user grant. Defaults to True.
+                NOTE: if commit is False, the session must be committed elsewhere or the lock acquired by this function would remain held!
         Returns:
             None
         """
@@ -986,8 +991,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 self.granted_user_ids.append(user_id)
                 if commit:
                     await sess.commit()
-            finally:
-                await self.__class__.release_advisory_lock(sess, self.id)
+            except Exception as e:
+                await sess.rollback()
+                raise e
         else:
             MutyLogger.get_instance().warning(
                 "user %s already granted on object %s" % (user_id, self.id)
@@ -1002,6 +1008,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             sess (AsyncSession): The session to use for the query.
             user_id (str): The ID of the user to remove.
+            commit (bool): Whether to commit the session after removing the user grant. Defaults to True.
+                NOTE: if commit is False, the session must be committed elsewhere or the lock acquired by this function would remain held!
+
         Returns:
             None
         """
@@ -1020,8 +1029,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 self.granted_user_ids.remove(user_id)
                 if commit:
                     await sess.commit()
-            finally:
-                await self.__class__.release_advisory_lock(sess, self.id)
+            except Exception as e:
+                await sess.rollback()
+                raise e
 
             MutyLogger.get_instance().info(
                 "removed granted user %s from object %s" % (user_id, self.id)
@@ -1063,8 +1073,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             )
             await sess.delete(self)
             await sess.commit()
-        finally:
-            await self.__class__.release_advisory_lock(sess, obj_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
         if not ws_id:
             # done
@@ -1167,8 +1178,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MutyLogger.get_instance().info(
                 "object %s is now PRIVATE to user %s" % (self.id, self.owner_user_id)
             )
-        finally:
-            await self.__class__.release_advisory_lock(sess, self.id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def make_public(self, sess: AsyncSession) -> None:
         """
@@ -1187,8 +1199,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             self.granted_user_ids = []
             await sess.commit()
             MutyLogger.get_instance().info("object %s is now PUBLIC" % (self.id))
-        finally:
-            await self.__class__.release_advisory_lock(sess, self.id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     @staticmethod
     def object_type_to_class(collab_type: str) -> T:
@@ -1259,8 +1272,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # commit
             await sess.commit()
             MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
-        finally:
-            await self.__class__.release_advisory_lock(sess, self.id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
         if not ws_id:
             # no websocket ID provided, return

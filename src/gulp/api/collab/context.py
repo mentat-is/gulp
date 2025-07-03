@@ -175,8 +175,6 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 f"source {src.id}, name={name} added to context {self.id}, src={src}"
             )
             return src, True
-
-        finally:
-            # release the lock
-            await GulpSource.release_advisory_lock(sess, src_id)
-
+        except Exception as e:
+            await sess.rollback()
+            raise e

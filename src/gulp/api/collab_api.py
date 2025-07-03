@@ -457,7 +457,7 @@ class GulpCollab:
                 "admin",
                 permission=[GulpUserPermission.ADMIN],
             )
-
+            
             # login admin user
             # admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
@@ -487,6 +487,7 @@ class GulpCollab:
             )
 
             # pylint: disable=protected-access
+            await sess.refresh(admin_user)
             group: GulpUserGroup = await GulpUserGroup._create_internal(
                 sess,
                 obj_id=ADMINISTRATORS_GROUP_ID,

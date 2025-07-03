@@ -309,8 +309,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 f"context {name} added to operation {self.id}: {self}"
             )
             return ctx, True
-        finally:
-            await GulpContext.release_advisory_lock(sess, self.id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     @override
     async def add_user_grant(

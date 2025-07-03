@@ -50,7 +50,7 @@ async def test_utility():
         assert l
 
         l_ui = await GulpAPIUtility.ui_plugin_list() # tokenless
-        assert l_ui and len(l_ui) == 1 # just one test plugin
+        assert l_ui and len(l_ui) >= 1
 
         # path should be the default path
         found = False

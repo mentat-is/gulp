@@ -87,7 +87,7 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
         Adds a user to the group.
 
         Args:
-            sess (AsyncSession): The session to use.
+            sess (AsyncSession): The session to use (it will be committed)
             user_id (str): The user id to add to the group.
             raise_if_already_exists (bool): If True, raises an error if the user is already in the group.
         """
@@ -112,8 +112,9 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
                     raise ObjectAlreadyExists(
                         "user %s already in group %s" % (user_id, self.id)
                     )
-        finally:
-            await self.__class__.release_advisory_lock(sess, self.id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def remove_user(
         self, sess: AsyncSession, user_id: str, raise_if_not_found: bool = True
@@ -134,6 +135,7 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
             if user_id in existing_users:
                 # remove user from the group
                 self.users.remove(user)
+                await sess.commit()
                 MutyLogger.get_instance().info(
                     "removing user %s from group %s" % (user_id, self.id)
                 )
@@ -143,8 +145,9 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
                 )
                 if raise_if_not_found:
                     raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))
-        finally:
-            await self.__class__.release_advisory_lock(sess, self.id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     def is_admin(self) -> bool:
         """
