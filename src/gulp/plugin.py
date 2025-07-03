@@ -2598,11 +2598,14 @@ class GulpPluginBase(ABC):
             e = err
 
         MutyLogger.get_instance().error(
-            "SOURCE FAILED: source=%s, ex=%s, processed in this source=%d, canceled=%r, failed=%r, ingestion=%r"
+            "SOURCE FAILED: source=%s, ex=%s, processed=%d, ingested=%d, canceled=%r, failed=%d, skipped=%d, source_failed=%r, ingestion=%r"
             % (
                 self._file_path,
                 e,
-                self._records_processed_per_chunk,
+                self._tot_processed_in_source,
+                self._tot_ingested_in_source,
+                self._tot_failed_in_source,
+                self._tot_skipped_in_source,
                 self._req_canceled,
                 self._is_source_failed,
                 self._ingestion_enabled,
