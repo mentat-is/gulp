@@ -676,7 +676,11 @@ class GulpConfig:
         """
         n = self._config.get("preview_mode_num_docs", None)
         if not n:
-            n = 100
+            if self.is_integration_test():
+                # integration test mode, use a small number of documents
+                n = 10
+            else:
+                n = 100
             # MutyLogger.get_instance().debug("using default number of documents for preview mode=%d" % (n))
         return n
 
