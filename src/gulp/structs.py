@@ -225,6 +225,7 @@ class GulpPluginCustomParameter(GulpAPIParameter):
     """
 
     model_config = ConfigDict(
+        extra="allow",
         json_schema_extra={
             "examples": [
                 {
