@@ -162,7 +162,7 @@ async def note_update_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc: Annotated[
-        list[GulpBasicDocument],
+        GulpBasicDocument,
         Body(description="document associated with the note."),
     ] = None,
     time_pin: Annotated[

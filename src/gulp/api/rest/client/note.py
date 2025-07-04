@@ -63,7 +63,7 @@ class GulpAPINote:
         obj_id: str,
         text: str = None,
         time_pin: int = None,
-        doc: list = None,
+        doc: dict = None,
         name: str = None,
         tags: list[str] = None,
         color: str = None,
