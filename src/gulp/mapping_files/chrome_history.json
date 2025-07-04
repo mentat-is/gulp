@@ -17,7 +17,7 @@
         },
         "last_visit_time": {
           "ecs": "@timestamp",
-          "is_timestamp_chrome": true
+          "is_timestamp": "chrome"
         }
       }
     },
@@ -36,11 +36,11 @@
             "@timestamp",
             "download.start_time"
           ],
-          "is_timestamp_chrome": true
+          "is_timestamp": "chrome"
         },
         "end_time": {
           "extra_doc_with_event_code": "download_end",
-          "is_timestamp_chrome": true
+          "is_timestamp": "chrome"
         },
         "hash": {
           "ecs": "file.hash"
@@ -77,7 +77,7 @@
       "fields": {
         "visit_time": {
           "ecs": "@timestamp",
-          "is_timestamp_chrome": true
+          "is_timestamp": "chrome"
         },
         "url": {
           "ecs": "url.full"

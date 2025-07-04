@@ -63,7 +63,7 @@ to quickly test ingestion with a particular plugin manually i.e. during plugin d
         "fields": {
           "Created0x10": {
             "ecs": "@timestamp",
-            "is_timestamp_chrome": false
+            "is_timestamp": "chrome"
           }
         }
       }

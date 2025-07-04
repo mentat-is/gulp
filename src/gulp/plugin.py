@@ -1732,7 +1732,7 @@ class GulpPluginBase(ABC):
 
         Args:
             fields_mapping (GulpMappingField): The mapping field.
-            d (dict): The document to update.
+            d (dict): The dict to be updated with the mapped key/value/s
             source_key (str): The source key to map.
             source_value (any): The value to set in the mapped key
             skip_unmapped (bool): whether to skip unmapped keys, defaults to False.
@@ -1902,6 +1902,13 @@ class GulpPluginBase(ABC):
                 # missing mapping at all (no ecs and no timestamp field)
                 return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
+        # make a copy so we can modify it during processing if needed....
+        fields_mapping = deepcopy(fields_mapping)
+        if fields_mapping.extra_doc_with_event_code:
+            if not fields_mapping.is_timestamp:
+                # if extra_doc_with_event_code is set, the field is a timestamp
+                fields_mapping.is_timestamp="generic"
+
         # print(
         #     "processing key:",
         #     source_key,
@@ -1912,6 +1919,7 @@ class GulpPluginBase(ABC):
         #     "\n",
         # )
 
+        # this dict will accumulate result and will be added in the end
         d = {}
         if fields_mapping.flatten_json:
             # flatten json, i.e. {"a": {"b": 1}} -> {"a.b": 1}
@@ -1950,11 +1958,26 @@ class GulpPluginBase(ABC):
             # apply multiplier
             source_value = int(source_value * fields_mapping.multiplier)
 
-        if fields_mapping.is_timestamp_chrome:
-            # timestamp chrome, turn to nanoseconds from epoch
-            source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
-                int(source_value)
-            )
+        if fields_mapping.is_timestamp:
+            # this field represents a timestamp to be handled
+            # NOTE: a field mapped as "@timestamp" is handled automatically by the engine when creating a new document, and it DOES NOT need "is_timestamp" set if it's a generic timestamp
+            if fields_mapping.is_timestamp == "chrome":
+                # timestamp chrome, turn to nanoseconds from epoch
+                source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
+                    int(source_value)
+                )
+                fields_mapping.force_type="int"
+            elif fields_mapping.is_timestamp == "generic":
+                # this is a generic timestamp, turn it into a string and nanoseconds
+                _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
+                source_value = ns
+                fields_mapping.force_type="int"
+            else:
+                # not supported
+                MutyLogger.get_instance().warning(
+                    f"timestamp type {fields_mapping.is_timestamp} not supported for key {source_key}, keeping as is..."
+                )
+                pass
 
         if fields_mapping.is_context:
             # this is a context field, get or create a new context

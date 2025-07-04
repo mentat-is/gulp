@@ -30,7 +30,7 @@ class GulpMappingField(BaseModel):
                 {
                     "ecs": ["test.mapped"],
                     "extra_doc_with_event_code": "1234",
-                    "is_timestamp_chrome": False,
+                    "is_timestamp": "chrome",
                 }
             ]
         },
@@ -49,9 +49,12 @@ if set, the corresponding value is a JSON object (or string) and will be flatten
         None,
         description="if set and > 1, the corresponding value is multiplied by this value.",
     )
-    is_timestamp_chrome: Optional[bool] = Field(
-        False,
-        description="if set, the corresponding value is a `webkit timestamp` (from 1601) and will be converted to nanoseconds from the unix epoch.",
+    is_timestamp: Optional[Literal["chrome", "generic"]] = Field(
+        None,
+        description="""if set, the corresponding value is a timestamp in \"chrome\" (webkit) or generic (time string supported by python dateutil.parser, numeric-from-epoch) format and it will be translated to nanoseconds from the unix epoch.
+
+note that value mapped as "@timestamp" with a mapping are automatically supported for "generic" timestamps, and do not need this field set: they do need it instead (set to "chrome") if the value mapped as "@timestamp" is from chrome.
+""",
     )
     is_context: Optional[bool] = Field(
         False,
@@ -81,6 +84,7 @@ in this setting, the mapping file should:
 - map a **single** field directly as `@timestamp` (to indicate the *main* document)
 - set `mapping.event_code` to the *main* event code
 - add additional `extra_doc_with_event_code` fields to create further documents with their own event code.
+- if this value needs chrome timestamp translation, "is_timestamp": "chrome" should be set also for the field.
 
 check `mftecmd_csv.json` for an example of this setting.
 """,

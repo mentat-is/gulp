@@ -365,7 +365,7 @@ Here's a commented example, further details in the [model definition source](../
       // 1. if `flatten_json` is set, the value is a JSON object and its fields are flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
       // 2. if `force_type` is set, the value is forced to this type
       // 3. if `multiplier` is set, the value is multiplied by this value.
-      // 4. if `is_timestamp_chrome` is set, the value is converted from webkit timestamp (1601) to nanoseconds from the unix epoch.
+      // 4. if `is_timestamp` is set, the value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome")
       // 5. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
       // 6. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
       // 7. finally, the value is mapped to ECS fields as defined in `ecs`.
@@ -420,8 +420,8 @@ Here's a commented example, further details in the [model definition source](../
         },
         "a_chrome_timestamp": {
           "ecs": "chrome_ts",
-          // this is a special flag to indicate the **original** timestamp (prior to gulp's processing) is a `webkit` timestamp from 1601, so gulp will perform the necessary conversions.
-          "is_timestamp_chrome": true
+          // this is a special flag to indicate this field refer to a timestamp (in the original document), and gulp allows to handle it as `chrome` (webkit) timestamp from 1601 or "generic" (in a format compatible with gulp time strings, i.e. any supported by python dateutil parser) timestamp: both will be converted to nanoseconds from the unix epoch.
+          "is_timestamp": "chrome"
         },
         "date_last_used": {
           // if "extra_doc_with_event_code" is set, this field represents a timestamp and a further document will be generated alongside the `main` document.
