@@ -218,15 +218,31 @@ class GulpProcess:
                 "closing mp pool %s ..." % (self.process_pool)
             )
             try:
-                self.process_pool.terminate()
-                await asyncio.wait_for(self.process_pool.join(), timeout=5)
-
+                self.process_pool.close()
+                MutyLogger.get_instance().debug("joining mp pool...")
+                await asyncio.wait_for(self.process_pool.join(), timeout=2)
                 MutyLogger.get_instance().debug("mp pool joined!")
+
+            except asyncio.TimeoutError:
+                # if the graceful join times out, it means workers are stuck.
+                MutyLogger.get_instance().warning(
+                    "mp pool join timed out, terminating forcefully..."
+                )
+                # forcefully terminate the worker processes
+                self.process_pool.terminate()
+                await asyncio.sleep(1)
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
 
-            self.process_pool = None
-            MutyLogger.get_instance().debug("mp pool closed!")
+            finally:
+                if self.mp_manager:
+                    MutyLogger.get_instance().debug("shutting down mp manager...")
+                    self.mp_manager.shutdown()
+                    MutyLogger.get_instance().debug("mp manager shut down!")
+
+                # clear the reference to the pool
+                self.process_pool = None
+                MutyLogger.get_instance().debug("mp pool closed!")
 
     async def recreate_process_pool_and_shared_queue(self):
         """
@@ -248,8 +264,6 @@ class GulpProcess:
             # close the worker process pool gracefully if it is already running
             await GulpWsSharedQueue.get_instance().close()
             await self.close_process_pool()
-            self.mp_manager.shutdown()
-            self.process_pool = None
 
         # initializes the multiprocessing manager and structs
         self.mp_manager = Manager()
@@ -382,7 +396,7 @@ class GulpProcess:
 
             # close coro and thread pool
             await GulpProcess.get_instance().close_coro_pool()
-            await GulpProcess.get_instance().close_thread_pool()
+            await GulpProcess.get_instance().close_thread_pool(wait=False)
 
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
