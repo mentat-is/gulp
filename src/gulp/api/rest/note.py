@@ -181,7 +181,7 @@ async def note_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
-    params["doc"] = doc if doc else "None"
+    params["doc"] = str(doc) if doc else "None"
     ServerUtils.dump_params(params)
 
     try:
