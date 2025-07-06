@@ -1726,6 +1726,7 @@ class GulpPluginBase(ABC):
         source_key: str,
         source_value: Any,
         skip_unmapped: bool = False,
+        **kwargs
     ) -> dict:
         """
         tries to map a source key to an ECS key.
@@ -1735,9 +1736,10 @@ class GulpPluginBase(ABC):
             d (dict): The dict to be updated with the mapped key/value/s
             source_key (str): The source key to map.
             source_value (any): The value to set in the mapped key
-            skip_unmapped (bool): whether to skip unmapped keys, defaults to False.
+            skip_unmapped (bool): whether to skip unmapped keys, defaults to False(=if mapping not found for source_key, set it as unmapped in the resulting dict).
+            **kwargs: additional keyword arguments, currently unused.
         Returns:
-            dict: a dict with the mapped key and value.
+            dict, list[str]: a tuple containing the updated dict and a list of the new keys set in the dict (all derived from source_key).
         """
 
         # print(fields_mapping)
@@ -1746,19 +1748,23 @@ class GulpPluginBase(ABC):
             # single mapping
             mapping = [mapping]
 
-        force_type = fields_mapping.force_type is not None
+        set_keys: list[str] = []
+        force_type = fields_mapping.force_type or kwargs.get("force_type", None)
         if mapping:
             # source key is mapped, add the mapped key to the document
             for k in mapping:
                 kk, vv = self._type_checks(k, source_value, force_type_set=force_type)
                 if vv:
                     d[kk] = vv
+                    set_keys.append(kk)
         else:
             # unmapped key
             if not skip_unmapped:
-                d[GulpPluginBase.build_unmapped_key(source_key)] = source_value
+                kk = GulpPluginBase.build_unmapped_key(source_key)
+                d[kk] = source_value
+                set_keys.append(kk)
 
-        return d
+        return d, set_keys
 
     def _handle_extract_key(d: dict | list, k: str) -> Any:
         """
@@ -1902,12 +1908,13 @@ class GulpPluginBase(ABC):
                 # missing mapping at all (no ecs and no timestamp field)
                 return {GulpPluginBase.build_unmapped_key(source_key): source_value}
 
-        # make a copy so we can modify it during processing if needed....
-        fields_mapping = deepcopy(fields_mapping)
-        if fields_mapping.extra_doc_with_event_code:
-            if not fields_mapping.is_timestamp:
-                # if extra_doc_with_event_code is set, the field is a timestamp
-                fields_mapping.is_timestamp="generic"
+        # determine if this is a timestamp for an extra doc and determine timestamp type, if needed
+        is_extra_doc_timestamp = (
+            fields_mapping.extra_doc_with_event_code and not fields_mapping.is_timestamp
+        )
+        timestamp_type = fields_mapping.is_timestamp
+        if is_extra_doc_timestamp:
+            timestamp_type = "generic"
 
         # print(
         #     "processing key:",
@@ -1933,9 +1940,10 @@ class GulpPluginBase(ABC):
                 d.update(processed)
             return d
 
-        if fields_mapping.force_type:
+        force_type: str = fields_mapping.force_type
+        if force_type:
             # force value to the given type
-            t = fields_mapping.force_type
+            t = force_type
             if t == "int":
                 try:
                     source_value = int(source_value)
@@ -1958,20 +1966,20 @@ class GulpPluginBase(ABC):
             # apply multiplier
             source_value = int(source_value * fields_mapping.multiplier)
 
-        if fields_mapping.is_timestamp:
+        if timestamp_type:
             # this field represents a timestamp to be handled
             # NOTE: a field mapped as "@timestamp" is handled automatically by the engine when creating a new document, and it DOES NOT need "is_timestamp" set if it's a generic timestamp
-            if fields_mapping.is_timestamp == "chrome":
+            if timestamp_type == "chrome":
                 # timestamp chrome, turn to nanoseconds from epoch
                 source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
                     int(source_value)
                 )
-                fields_mapping.force_type="int"
-            elif fields_mapping.is_timestamp == "generic":
+                force_type = "int"
+            elif timestamp_type == "generic":
                 # this is a generic timestamp, turn it into a string and nanoseconds
                 _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
                 source_value = ns
-                fields_mapping.force_type="int"
+                force_type = "int"
             else:
                 # not supported
                 MutyLogger.get_instance().warning(
@@ -1989,8 +1997,8 @@ class GulpPluginBase(ABC):
                 )
 
             # also map the value if there's ecs set
-            m = self._try_map_ecs(
-                fields_mapping, d, source_key, source_value, skip_unmapped=True
+            m, _ = self._try_map_ecs(
+                fields_mapping, d, source_key, source_value, skip_unmapped=True, force_type=force_type
             )
             m["gulp.context_id"] = ctx_id
             return m
@@ -2021,8 +2029,8 @@ class GulpPluginBase(ABC):
                 return {}
 
             # also map the value if there's ecs set
-            m = self._try_map_ecs(
-                fields_mapping, d, source_key, source_value, skip_unmapped=True
+            m, _ = self._try_map_ecs(
+                fields_mapping, d, source_key, source_value, skip_unmapped=True, force_type=force_type
             )
             m["gulp.source_id"] = src_id
             m["gulp.context_id"] = ctx_id
@@ -2039,7 +2047,7 @@ class GulpPluginBase(ABC):
             # this will trigger the removal of field/s corresponding to this key in the generated extra document,
             # to avoid duplication
             # note that "ecs" is ignored if set
-            mapped = self._try_map_ecs(fields_mapping, d, source_key, source_value)
+            mapped, _ = self._try_map_ecs(fields_mapping, d, source_key, source_value)
             for k, _ in mapped.items():
                 extra[k] = None
             self._extra_docs.append(extra)
@@ -2048,7 +2056,7 @@ class GulpPluginBase(ABC):
             return mapped
 
         # map to the "ecs" value
-        m = self._try_map_ecs(fields_mapping, d, source_key, source_value)
+        m, _ = self._try_map_ecs(fields_mapping, d, source_key, source_value, force_type=force_type)
         return m
 
     async def _update_ingestion_stats(self, ingested: int, skipped: int) -> None:
