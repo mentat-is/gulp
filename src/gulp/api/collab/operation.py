@@ -135,7 +135,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         index_template: dict = None,
         ws_id: str = None,
         req_id: str = None,
-        keep_data: bool = False,
     ) -> dict:
         """
         creates a new operation with the given name and index.
@@ -165,30 +164,30 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         """
         operation_id = muty.string.ensure_no_space_no_special(name.lower())
         if not index:
+            # use the operation_id as the index
             index = operation_id
 
-            async with GulpCollab.get_instance().session() as sess:
-                op: GulpOperation = await GulpOperation.get_by_id(
-                    sess, operation_id, throw_if_not_found=False
-                )
-                if op:
-                    if fail_if_exists:
-                        # fail if the operation already exists
-                        raise ObjectAlreadyExists(
-                            f"operation_id={operation_id} already exists."
-                        )
-                    # delete
-                    await op.delete(sess)
+        # delete the operation if it already exists
+        async with GulpCollab.get_instance().session() as sess:
+            op: GulpOperation = await GulpOperation.get_by_id(
+                sess, operation_id, throw_if_not_found=False
+            )
+            if op:
+                if fail_if_exists:
+                    # fail if the operation already exists
+                    raise ObjectAlreadyExists(
+                        f"operation_id={operation_id} already exists."
+                    )
+                # delete
+                await op.delete(sess)
 
-        if not keep_data and create_index:
+        if create_index:
             # re/create the index
             from gulp.api.opensearch_api import GulpOpenSearch
 
             await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
                 index, index_template=index_template
             )
-
-        # either we keep the data by do not deleting the index
 
         # create the operation
         d = {

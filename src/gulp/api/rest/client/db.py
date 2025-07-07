@@ -94,7 +94,6 @@ class GulpAPIDb:
     @staticmethod
     async def gulp_reset(
         token: str,
-        delete_data: bool = True,
         create_default_operation: bool = False,
         restart_processes: bool = True,
         req_id: str = None,
@@ -104,7 +103,6 @@ class GulpAPIDb:
             "POST",
             "gulp_reset",
             params={
-                "delete_data": delete_data,
                 "create_default_operation": create_default_operation,
                 "restart_processes": restart_processes,
                 "req_id": req_id or api_common.req_id,

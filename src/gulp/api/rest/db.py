@@ -44,7 +44,7 @@ router: APIRouter = APIRouter()
 
 
 async def _delete_operations(
-    user_id: str, operation_id: str = None, keep_data: bool = False
+    user_id: str, operation_id: str = None
 ) -> None:
     """
     Deletes (all) operations in the collaboration database
@@ -52,12 +52,10 @@ async def _delete_operations(
     Args:
         user_id (str): The user ID for which to clear operations.
         operation_id (str, optional): If specified, only the operation with this ID will be deleted.
-        keep_data (bool, optional): If True, existing operations data on OpenSearch will not be deleted. Defaults to False.
     """
     MutyLogger.get_instance().warning(
-        "deleting ALL operations on collab (except operation_id=%s, keep_data=%r)"
-        % (operation_id, keep_data)
-    )
+        "deleting ALL operations on collab (except operation_id=%s)" % (operation_id))
+    
     async with GulpCollab.get_instance().session() as sess:
         # enumerate all operations
         ops = await GulpOperation.get_by_filter(
@@ -77,12 +75,11 @@ async def _delete_operations(
                 )
                 continue
 
-            if not keep_data:
-                MutyLogger.get_instance().info(
-                    "deleting data for operation %s" % (op.id)
-                )
-                # delete the whole datastream
-                await GulpOpenSearch.get_instance().datastream_delete(op.index)
+            MutyLogger.get_instance().info(
+                "deleting data for operation %s" % (op.id)
+            )
+            # delete the whole datastream
+            await GulpOpenSearch.get_instance().datastream_delete(op.index)
 
             # delete the operation itself
             await op.delete(sess)
@@ -90,7 +87,6 @@ async def _delete_operations(
 
 async def db_reset(
     user_id: str = None,
-    keep_data: bool = False,
     operation_id: str = None,
     force_recreate_db: bool = False,
 ) -> None:
@@ -99,14 +95,13 @@ async def db_reset(
 
     Args:
         user_id (str, optional): user id to use to delete the data. If None, "admin" will be used.
-        keep_data (bool, optional): if True, existing operations data on OpenSearch will not be deleted. Defaults to False.
         operation_id (str, optional): if set, a new operation with this id will be created after reset.
         force_recreate_db (bool, optional): if True, the collab database will be recreated even if it exists. Defaults to False.
 
     """
     MutyLogger.get_instance().debug(
-        "db_reset called with params: user_id=%s, keep_data=%s, operation_id=%s, force_recreate_db=%s"
-        % (user_id, keep_data, operation_id, force_recreate_db)
+        "db_reset called with params: user_id=%s, operation_id=%s, force_recreate_db=%r"
+        % (user_id, operation_id, force_recreate_db)
     )
 
     # check if the database exists
@@ -154,7 +149,6 @@ async def db_reset(
             operation_id,
             user_id=user_id,
             set_default_grants=True,
-            keep_data=keep_data,
             fail_if_exists=False,
         )
 
@@ -187,13 +181,6 @@ async def db_reset(
 )
 async def gulp_reset_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    delete_data: Annotated[
-        bool,
-        Query(
-            description="if set, all existing operations data on OpenSearch will be deleted.",
-            example=True,
-        ),
-    ] = True,
     create_default_operation: Annotated[
         bool,
         Query(
@@ -216,10 +203,8 @@ async def gulp_reset_handler(
             )
 
         # reset
-        keep_data: bool = not delete_data
         await db_reset(
             user_id=s.user_id,
-            keep_data=keep_data,
             operation_id=TEST_OPERATION_ID if create_default_operation else None,
             force_recreate_db=True,
         )

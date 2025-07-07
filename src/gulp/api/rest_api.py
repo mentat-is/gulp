@@ -55,7 +55,6 @@ class GulpRestServer:
         self._logger_file_path: str = None
         self._log_level: int = None
         self._reset_collab: bool = False
-        self._keep_data: bool = False
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
         self._shutdown: bool = False
@@ -294,7 +293,6 @@ class GulpRestServer:
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
-        keep_data: bool = False,
     ):
         """
         starts the server.
@@ -304,12 +302,10 @@ class GulpRestServer:
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, reset the collab database
             create_operation (str, optional): the operation to be re/created (--create)
-            keep_data (bool, optional): if True, keeps the operation data on OpenSearch when resetting or creating an operation (--keep-data)
         """
         self._logger_file_path = logger_file_path
         self._log_level = level
         self._reset_collab = reset_collab
-        self._keep_data = keep_data
         self._create_operation = create_operation
 
         # read configuration
@@ -509,17 +505,15 @@ class GulpRestServer:
                 else:
                     force_recreate_db: bool = False
                 MutyLogger.get_instance().warning(
-                    "reset_collab or create_operation set, first_run=%r, reset_collab=%r, force_recreate_db=%r, create_operation=%s, keep_data=%r !"
+                    "reset_collab or create_operation set, first_run=%r, reset_collab=%r, force_recreate_db=%r, create_operation=%s !"
                     % (
                         first_run,
                         self._reset_collab,
                         force_recreate_db,
                         self._create_operation,
-                        self._keep_data,
                     )
                 )
                 await db_reset(
-                    keep_data=self._keep_data,
                     operation_id=self._create_operation,
                     force_recreate_db=force_recreate_db,
                 )

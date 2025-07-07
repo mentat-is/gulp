@@ -44,7 +44,7 @@ async def _test_init(
         # reset the collab
         admin_token = await GulpAPIUser.login("admin", "admin")
         assert admin_token
-        await GulpAPIDb.gulp_reset(admin_token, delete_data=True)
+        await GulpAPIDb.gulp_reset(admin_token)
 
     if login_admin_and_reset_operation:
         await GulpAPIUser.login_admin_and_reset_operation(

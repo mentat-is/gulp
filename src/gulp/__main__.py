@@ -76,13 +76,6 @@ def main():
         metavar=("operation_id"),
     )
     parser.add_argument(
-        "--keep-data",
-        help="""to be used with --create or --reset-collab to keep (not delete) operation/s data on OpenSearch.
-""",
-        action="store_true",
-        default=False,
-    )
-    parser.add_argument(
         "--version",
         help="print version string and exits.",
         action="store_const",
@@ -120,7 +113,6 @@ def main():
                 level=lv,
                 reset_collab=args.reset_collab,
                 create_operation=create_operation,
-                keep_data=args.keep_data,
             )
     except Exception as ex:
         # print exception and exit
