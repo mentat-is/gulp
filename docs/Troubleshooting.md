@@ -6,6 +6,7 @@
   - [os](#os)
   - [opensearch / elasticsearch](#opensearch--elasticsearch)
   - [postgreSQL](#postgresql)
+  - [websocket](#websocket)
 
 [TOC]
 
@@ -98,3 +99,22 @@ a possible (temporary) solution is to disable disk thresholds in opensearch's co
   - in gulp configuration, check `multiprocessing_batch_size`: it is advised to keep it 0 to perform operation in batches of *number of cores*, raising this value may speed up ingestion a lot but it is more prone to errors.
   - in postgres configuration, increase `max_connections`
   - **better solution is to scale up (increase cores and/or postgres cluster size)**
+
+## websocket
+
+- if too big messages on websocket causes the client to disconnect with something like the following:
+
+  ~~~text
+  websockets.exceptions.ConnectionClosedError: sent 1009 (message too big); no close frame received
+  ~~~
+
+  diminish the websocket chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
+
+  ~~~json
+  {
+    // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
+    "documents_chunk_size": 1000  
+  }
+  ~~~
+
+  > you may do it per-request by setting `GulpPluginParameters.override_chunk_size` when calling a plugin
