@@ -236,6 +236,8 @@ async def test_sigma_single():
     sigma_path = os.path.join(
         current_dir,
         "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml",
+        ##"sigma/windows/builtin/windefend/win_defender_antimalware_platform_expired.yml"
+        #"sigma/windows/builtin/system/service_control_manager/win_system_hack_smbexec.yml"
     )
     await _test_sigma_single_internal(guest_token, sigma_path, expected_matches=6)
 

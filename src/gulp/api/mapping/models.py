@@ -96,7 +96,6 @@ check `mftecmd_csv.json` for an example of this setting.
     )
 
 
-
 class GulpMapping(BaseModel):
     """
     defines a logsource -> gulp document mapping
@@ -191,22 +190,15 @@ class GulpSigmaMapping(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "service_name": "windefend",
                     "service_field": "winlog.channel",
                     "service_values": ["Microsoft-Windows-Windows Defender"],
                 }
             ]
         },
     )
-
-    service_name: str = Field(
-        ...,
-        description="sigma rule's `logsource.service` value that this mapping applies to (case-insensitive match)",
-        examples=["windefend"],
-    )
     service_field: str = Field(
         ...,
-        description="document field to query for `service_name` value (case-sensitive substring match)",
+        description="document field to be queried for service name (case-sensitive substring match)",
         examples=["winlog.channel"],
     )
     service_values: list[str] = Field(
@@ -240,9 +232,9 @@ class GulpMappingFile(BaseModel):
         description="defined mappings for this mapping file, key is the `mapping_id`",
         min_length=1,
     )
-    sigma_mappings: Optional[GulpSigmaMapping] = Field(
+    sigma_mappings: Optional[dict[str, GulpSigmaMapping]] = Field(
         None,
-        description="if set, rules to map `lgosource` for sigma rules referring to this mapping.",
+        description="if set, rules to map `logsource` for sigma rules referring to this mapping: each key corresponds to `logsource.service` in the sigma rule.",
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
         ...,

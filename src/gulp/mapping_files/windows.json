@@ -5,11 +5,289 @@
         ]
     },
     "sigma_mappings": {
-        "service_name": "windefend",
-        "service_field": "winlog.channel",
-        "service_values": [
-            "Microsoft-Windows-Windows Defender"
-        ]
+        "application": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Application"
+            ]
+        },
+        "application-experience": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Application-Experience/Program-Telemetry",
+                "Microsoft-Windows-Application-Experience/Program-Compatibility-Assistant"
+            ]
+        },
+        "applocker": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-AppLocker/MSI and Script",
+                "Microsoft-Windows-AppLocker/EXE and DLL",
+                "Microsoft-Windows-AppLocker/Packaged app-Deployment",
+                "Microsoft-Windows-AppLocker/Packaged app-Execution"
+            ]
+        },
+        "appmodel-runtime": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-AppModel-Runtime/Admin"
+            ]
+        },
+        "appxdeployment-server": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-AppXDeployment-Server/Operational"
+            ]
+        },
+        "appxpackaging-om": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-AppXPackaging/Operational"
+            ]
+        },
+        "bitlocker": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-BitLocker/Bitlocker Management"
+            ]
+        },
+        "bits-client": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Bits-Client/Operational"
+            ]
+        },
+        "capi2": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-CAPI2/Operational"
+            ]
+        },
+        "certificateserviceclient-lifecycle-system": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-CertificateServicesClient-Lifecycle-System/Operational"
+            ]
+        },
+        "codeintegrity-operational": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-CodeIntegrity/Operational"
+            ]
+        },
+        "dhcp-client": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-DHCP-Server/Operational"
+            ]
+        },
+        "diagnosis-scripted": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Diagnosis-Scripted/Operational"
+            ]
+        },
+        "dns-client": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-DNS Client Events/Operational"
+            ]
+        },
+        "dns-server": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "DNS Server"
+            ]
+        },
+        "dns-server-analytic": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-DNS-Server/Analytical"
+            ]
+        },
+        "dns-server-audit": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-DNS-Server/Audit"
+            ]
+        },
+        "driver-framework": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+            ]
+        },
+        "firewall-as": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Windows Firewall/Firewalll With Advanced Security/Firewall"
+            ]
+        },
+        "hyper-v-worker": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Hyper-V-Worker"
+            ]
+        },
+        "iis-configuration": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-IIS-Configuration/Operational"
+            ]
+        },
+        "kernel-event-tracing": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Kernel-EventTracing"
+            ]
+        },
+        "kernel-shimengine": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Kernel-ShimEngine/Operational",
+                "WinEventLog:Microsoft-Windows-Kernel-ShimEngine/Diagnostic"
+            ]
+        },
+        "ldap": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-LDAP Client/Debug"
+            ]
+        },
+        "lsa-server": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-LSA/Operational"
+            ]
+        },
+        "msexchange-management": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "MSExchange Management"
+            ]
+        },
+        "ntfs": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Ntfs/Operational"
+            ]
+        },
+        "ntlm": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-NTLM/Operational"
+            ]
+        },
+        "openssh": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "OpenSSH/Operational"
+            ]
+        },
+        "powershell": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-PowerShell/Operational"
+            ]
+        },
+        "powershell-classic": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Windows PowerShell"
+            ]
+        },
+        "printservice-admin": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-PrintService/Admin"
+            ]
+        },
+        "printservice-operational": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-PrintService/Operational"
+            ]
+        },
+        "security": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Security"
+            ]
+        },
+        "security-mitigations": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Security-Mitigations/Kernel Mode",
+                "Microsoft-Windows-Security-Mitigations/User Mode"
+            ]
+        },
+        "sense": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-SENSE/Operational"
+            ]
+        },
+        "servicebus-client": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-ServiceBus-Client/Operational",
+                "Microsoft-Windows-ServiceBus-Client/Admin"
+            ]
+        },
+        "shell-core": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Shell-Core/Operational"
+            ]
+        },
+        "smbclient-security": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-SmbClient/Security"
+            ]
+        },
+        "sysmon": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Sysmon/Operational"
+            ]
+        },
+        "system": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "System"
+            ]
+        },
+        "taskcheduler": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-TaskScheduler/Operational"
+            ]
+        },
+        "terminalservices-localsessionmanager": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"
+            ]
+        },
+        "vhdmp": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-VHDMP/Operational"
+            ]
+        },
+        "windefend": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-Windows Defender"
+            ]
+        },
+        "wmi": {
+            "service_field": "winlog.channel",
+            "service_values": [
+                "Microsoft-Windows-WMI-Activity/Operational"
+            ]
+        }
     },
     "mappings": {
         "windows": {

@@ -41,7 +41,9 @@ if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQuery
 
 
-async def _get_sigma_mappings(m: GulpMappingParameters) -> GulpSigmaMapping:
+async def _get_sigma_mappings(
+    m: GulpMappingParameters,
+) -> dict[str, GulpSigmaMapping]:
     """
     get the sigma mappings from the mapping parameters.
 
@@ -49,7 +51,7 @@ async def _get_sigma_mappings(m: GulpMappingParameters) -> GulpSigmaMapping:
         m (GulpMappingParameters): the mapping parameters
 
     Returns:
-        GulpSigmaMapping: the sigma mappings, or None if not found (both in mapping parameters and mapping file, if any)
+        dict[str, GulpSigmaMapping]: the sigma mappings, or None if not found (both in mapping parameters and mapping file, if any)
     """
     if m.sigma_mappings:
         # get it from mapping parameters
@@ -247,16 +249,11 @@ async def sigmas_to_queries(
             tags=tags,
         )
         if not use:
-            # MutyLogger.get_instance().warning(
-            #     "skipping sigma rule %s, not matching filters !" % (rule_content)
-            # )
+            # MutyLogger.get_instance().debug("skipping sigma rule %s, not matching filters !" % (rule_content))
             continue
 
         used += 1
         if count % 100 == 0:
-            print(
-                "processed %d sigma rules, total=%d, used=%d" % (count, total, used)
-            )
             if ws_id and req_id:
                 # send progress packet to the websocket (this may be a lenghty operation)
                 p = GulpProgressPacket(
@@ -264,7 +261,7 @@ async def sigmas_to_queries(
                     current=count,
                     used=used,
                     generated_q=generated_q,
-                    msg="converting sigma rules..."
+                    msg="converting sigma rules...",
                 )
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
@@ -288,7 +285,7 @@ async def sigmas_to_queries(
             )
 
             # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
-            sigma_mappings: GulpSigmaMapping = await _get_sigma_mappings(
+            sigma_mappings: dict[str, GulpSigmaMapping] = await _get_sigma_mappings(
                 mapping_parameters
             )
             mapping_parameters.sigma_mappings = sigma_mappings
@@ -297,16 +294,14 @@ async def sigmas_to_queries(
             # either, the rule will be always used.
             if mapping_parameters.sigma_mappings and sigma_service_names:
                 # check if this sigma rule is for this source
-                if (
-                    mapping_parameters.sigma_mappings.service_name.lower()
-                    not in sigma_service_names
-                ):
+                service_match_found: bool = False
+                for service_name in sigma_service_names:
+                    if service_name in mapping_parameters.sigma_mappings:
+                        service_match_found = True
+                        break
+                if not service_match_found:
                     # this sigma rule is not for this source
-                    # MutyLogger.get_instance().warning(
-                    #     "skipping sigma rule %s, not matching service name %s",
-                    #     sigma,
-                    #     mapping_parameters.sigma_mappings.service_name,
-                    # )
+                    # MutyLogger.get_instance().debug("skipping (service not found) sigma rule %s, not for source %s", rule_content, src_id)
                     continue
 
             use_sigma_mappings = True
@@ -319,6 +314,7 @@ async def sigmas_to_queries(
                     rule_content,
                     mapping_parameters,
                     use_sigma_mappings=use_sigma_mappings,
+                    sigma_service_names=sigma_service_names,
                 )
                 for qq in q:
                     q_dict: dict = qq.q
@@ -341,7 +337,7 @@ async def sigmas_to_queries(
                     qq.q = new_q
 
                 queries.extend(q)
-                generated_q+=len(q)
+                generated_q += len(q)
 
             except Exception as ex:
                 # error converting sigma
@@ -355,10 +351,6 @@ async def sigmas_to_queries(
         total,
         used,
         len(queries),
-    )
-    print(
-        "converted sigma rules (total=%d, used=%d) to %d GulpQuery objects"
-        % (total, used, len(queries))
     )
 
     if ws_id and req_id:
@@ -386,13 +378,14 @@ async def sigmas_to_queries(
             "no queries generated from the provided sigma rules, check log/input!"
         )
 
-    # count: int = 0
-    # for q in queries:
-    #     # dump each query
-    #     MutyLogger.get_instance().debug(
-    #         "query[%d]: %s" %  (count,  json.dumps(q.q, indent=2))
-    #     )
-    #     count += 1
+    # DEBUG PRINTS
+    count: int = 0
+    for q in queries:
+        # dump each query
+        MutyLogger.get_instance().debug(
+            "query[%d]: %s" % (count, json.dumps(q.q, indent=2))
+        )
+        count += 1
 
     return queries
 
@@ -662,6 +655,7 @@ async def sigma_convert_default(
     sigma: str,
     mapping_parameters: GulpMappingParameters = None,
     use_sigma_mappings: bool = True,
+    sigma_service_names: list[str] = None,
     **kwargs,
 ) -> list["GulpQuery"]:
     """
@@ -671,6 +665,7 @@ async def sigma_convert_default(
         sigma (str): the sigma rule YAML
         mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion. if not set, the default (empty) mapping will be used.
         use_sigma_mappings (bool, optional): whether to process (if present) sigma mappings to build the query. Defaults to True.
+        sigma_service_names (list[str], optional): list of service names from the sigma rule. Defaults to None.
         **kwargs: additional parameters to pass to the conversion function
             backend (Backend): the backend to use for conversion. Defaults to OpensearchLuceneBackend.
     Returns:
@@ -714,18 +709,25 @@ async def sigma_convert_default(
     for q in qs:
         if not mapping_parameters.sigma_mappings:
             continue
-        if not mapping_parameters.sigma_mappings.service_values:
+
+        # find the relevant sigma mapping based on service name
+        relevant_mapping: GulpSigmaMapping = None
+        if sigma_service_names:
+            for service_name in sigma_service_names:
+                if service_name in mapping_parameters.sigma_mappings:
+                    relevant_mapping = mapping_parameters.sigma_mappings[service_name]
+                    break
+
+        if not relevant_mapping or not relevant_mapping.service_values:
             continue
 
         # add service values to the query
         new_query_string: str = ""
-        for v in mapping_parameters.sigma_mappings.service_values:
+        for v in relevant_mapping.service_values:
             # escape special characters
             v = v.replace(" ", "\\ ")
             v = v.replace("/", "\\/")
-            new_query_string += (
-                f"{mapping_parameters.sigma_mappings.service_field}: *{v}* OR "
-            )
+            new_query_string += f"{relevant_mapping.service_field}: *{v}* OR "
         new_query_string = new_query_string[:-4]
 
         # build the new query using a further query_string
