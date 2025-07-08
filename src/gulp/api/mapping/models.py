@@ -183,6 +183,11 @@ class GulpSigmaMapping(BaseModel):
 
     1. filter applicable rules by `logsource.service`
     2. restrict queries to documents matching specific field values
+
+    as an example, if "service_field" is "winlog.channel" and "service_values" is
+    ["Microsoft-Windows-Windows Defender"], then when applying sigma rules, only
+    documents with "winlog.channel" containing "Microsoft-Windows-Windows Defender"
+    will be considered.
     """
 
     model_config = ConfigDict(
@@ -234,7 +239,10 @@ class GulpMappingFile(BaseModel):
     )
     sigma_mappings: Optional[dict[str, GulpSigmaMapping]] = Field(
         None,
-        description="if set, rules to map `logsource` for sigma rules referring to this mapping: each key corresponds to `logsource.service` in the sigma rule.",
+        description="""if set, rules to map `logsource` for sigma rules referring to this mapping: each key corresponds to `logsource.service` in the sigma rule.
+        
+        basically, we want to apply the sigma rule only if a "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all).
+        """,
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
         ...,
