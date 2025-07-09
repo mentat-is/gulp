@@ -517,7 +517,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
             # get expiration time
             if GulpConfig.get_instance().debug_no_token_expiration():
-                time_expire = None
+                time_expire = 0
             else:
                 # setup session expiration
                 if u.is_admin():
