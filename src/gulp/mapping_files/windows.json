@@ -291,7 +291,6 @@
     },
     "mappings": {
         "windows": {
-            "allow_prefixed": true,
             "fields": {
                 "AccountDomain": {
                     "ecs": [

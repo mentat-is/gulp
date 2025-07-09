@@ -109,8 +109,7 @@ class GulpMapping(BaseModel):
                     "fields": {"field1": {"ecs": ["test.mapped"]}},
                     "description": "test description.",
                     "agent_type": "win_evtx",
-                    "event_code": "1234",
-                    "allow_prefixed": False,
+                    "event_code": "1234"
                 }
             ]
         },
@@ -140,15 +139,6 @@ class GulpMapping(BaseModel):
     include: Optional[list[str]] = Field(
         None,
         description="if set, only these fields are processed and included in the generated document/s.",
-    )
-    # TODO: consider if this is needed or we can just deprecate/remove this.... it is used only by the win_evtx plugin and probably it is not needed even there.
-    allow_prefixed: Optional[bool] = Field(
-        False,
-        description="""
-if set, the source field can be prefixed and only last part after "_" is used to match the `ecs` mapping.
-i.e. if the source field is "this_is_a_sourcekey", only "sourcekey" is considered.
-
-""",
     )
     default_context: Optional[str] = Field(
         None,

@@ -1726,7 +1726,7 @@ class GulpPluginBase(ABC):
         source_key: str,
         source_value: Any,
         skip_unmapped: bool = False,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         tries to map a source key to an ECS key.
@@ -1887,10 +1887,6 @@ class GulpPluginBase(ABC):
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
-        if mapping.allow_prefixed:
-            # consider only the last part (i.e. "this_is_a_sourcekey" -> "sourcekey")
-            source_key = source_key.split("_")[-1]
-
         if mapping.exclude and source_key in mapping.exclude:
             # ignore this key
             return {}
@@ -1998,7 +1994,12 @@ class GulpPluginBase(ABC):
 
             # also map the value if there's ecs set
             m, _ = self._try_map_ecs(
-                fields_mapping, d, source_key, source_value, skip_unmapped=True, force_type=force_type
+                fields_mapping,
+                d,
+                source_key,
+                source_value,
+                skip_unmapped=True,
+                force_type=force_type,
             )
             m["gulp.context_id"] = ctx_id
             return m
@@ -2030,7 +2031,12 @@ class GulpPluginBase(ABC):
 
             # also map the value if there's ecs set
             m, _ = self._try_map_ecs(
-                fields_mapping, d, source_key, source_value, skip_unmapped=True, force_type=force_type
+                fields_mapping,
+                d,
+                source_key,
+                source_value,
+                skip_unmapped=True,
+                force_type=force_type,
             )
             m["gulp.source_id"] = src_id
             m["gulp.context_id"] = ctx_id
@@ -2056,7 +2062,9 @@ class GulpPluginBase(ABC):
             return mapped
 
         # map to the "ecs" value
-        m, _ = self._try_map_ecs(fields_mapping, d, source_key, source_value, force_type=force_type)
+        m, _ = self._try_map_ecs(
+            fields_mapping, d, source_key, source_value, force_type=force_type
+        )
         return m
 
     async def _update_ingestion_stats(self, ingested: int, skipped: int) -> None:

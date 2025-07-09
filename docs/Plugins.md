@@ -351,8 +351,6 @@ Here's a commented example, further details in the [model definition source](../
       "exclude": ["field1", "field2"],
       // optional: if set, only matching fields in the source document are processed and included in the generated document/s.
       "include": ["field1", "field2"],
-      // if "allow_prefixed" is set, only the last part after "_" of the source key is considered for matching ecs mapping: i.e. if source key is "hello_world", only "world" is considered.
-      "allow_prefixed": true,
       // if the document, in the end of processing, does not have "gulp.context_id" set, a default context is created with this name
       "default_context": "my_default_ctx",
       // if the document, in the end of processing, does not have "gulp.source_id" set, a default source is created with this name

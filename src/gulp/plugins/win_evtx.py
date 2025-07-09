@@ -12,6 +12,7 @@ The plugin supports:
 - Extracting relevant information from complex event structures
 - Integrating with Gulp's ingestion system
 """
+
 import json
 import os
 from typing import Any, override
@@ -108,29 +109,29 @@ class Plugin(GulpPluginBase):
 
         return {}
 
-    async def _process_leaf(self, path: str, value: Any, result: dict, root: dict, **kwargs) -> None:
+    async def _process_leaf(
+        self, path: str, value: Any, result: dict, root: dict, **kwargs
+    ) -> None:
         if not value or path.endswith("xmlns"):
             # skip these
             return
-        if path.endswith("_Name"):
-            # remove _Name from path, key name will be the previous segment (assuming "allow_prefixed" is set)
-            path = path.replace("_Name", "")
-        elif path.endswith("_#text"):
-            # remove #text from path, key name will be the previous segment (assuming "allow_prefixed" is set)
-            path = path.replace("_#text", "")
-        elif "_Execution_" in path:
-            # remove Execution from path, key name will be the previous segment (assuming "allow_prefixed" is set)
-            path = path.replace("_Execution_", "_")
 
-        if path.endswith("#attributes"):
-            # skip
-            return
+        if path.endswith(",,#attributes,,Name"):
+            # this is a special case where the source key becomes the ,, separated value before _#attributes in the string
+            # i.e. this happens for Provider,,#attributes,,Name: we want "Provider" to be the source key, not Name
+            path = path.split(",,#attributes,,Name")[-2].split(",,")[-1]
+        else:
+            # the source key is the last part of the string (default)
+            # i.e. Event,,System,,Execution,,#attributes,,ProcessID
+            path = path.split(",,")[-1]
 
         # map the key
         mapped = await self._process_key(path, value, result, **kwargs)
         result.update(mapped)
 
-    async def _parse_dict(self, data: dict, path_segments: list = None, root: dict = None, **kwargs) -> dict:
+    async def _parse_dict(
+        self, data: dict, path_segments: list = None, root: dict = None, **kwargs
+    ) -> dict:
         """
         recursively parse dictionary and call process_leaf() for each leaf node
 
@@ -154,7 +155,9 @@ class Plugin(GulpPluginBase):
 
             elif isinstance(value, dict):
                 if value:
-                    nested_results = await self._parse_dict(value, path_segments=current_path, root=data, **kwargs)
+                    nested_results = await self._parse_dict(
+                        value, path_segments=current_path, root=data, **kwargs
+                    )
                     result.update(nested_results)
 
             elif isinstance(value, list):
@@ -163,17 +166,26 @@ class Plugin(GulpPluginBase):
                         if isinstance(item, dict):
                             if item:
                                 nested_results = await self._parse_dict(
-                                    item, path_segments=current_path + [str(i)], root=data, **kwargs
+                                    item,
+                                    path_segments=current_path + [str(i)],
+                                    root=data,
+                                    **kwargs,
                                 )
                                 result.update(nested_results)
                         else:
                             if item not in (None, ""):
                                 await self._process_leaf(
-                                    "_".join(current_path + [str(i)]), item, result, data, **kwargs
+                                    ",,".join(current_path + [str(i)]),
+                                    item,
+                                    result,
+                                    data,
+                                    **kwargs,
                                 )
             else:
                 if value != "":
-                    await self._process_leaf("_".join(current_path), value, result, data, **kwargs)
+                    await self._process_leaf(
+                        ",,".join(current_path), value, result, data, **kwargs
+                    )
 
         return result
 
@@ -224,12 +236,14 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
-  ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             if not plugin_params or plugin_params.mapping_parameters.is_empty():
                 plugin_params = GulpPluginParameters(
-                    mapping_parameters=GulpMappingParameters(mapping_file="windows.json"),
+                    mapping_parameters=GulpMappingParameters(
+                        mapping_file="windows.json"
+                    ),
                 )
             await super().ingest_file(
                 sess=sess,
