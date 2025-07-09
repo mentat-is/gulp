@@ -11,7 +11,7 @@ common functionality needed across different endpoints and request handlers.
 """
 
 import inspect
-import json
+import orjson
 import os
 import re
 import ssl
@@ -46,7 +46,7 @@ class ServerUtils:
         caller_frame = inspect.currentframe().f_back
         caller_name = caller_frame.f_code.co_name
         MutyLogger.get_instance().debug(
-            "---> %s() params: %s" % (caller_name, json.dumps(params, indent=2))
+            "---> %s() params: %s" % (caller_name, orjson.dumps(params, option=orjson.OPT_INDENT_2))
         )
 
     @staticmethod
@@ -122,9 +122,9 @@ class ServerUtils:
         try:
             # validate the uploaded content
             payload = content.decode("utf-8")
-            payload_dict = json.loads(payload)
+            payload_dict = orjson.loads(payload)
             MutyLogger.get_instance().debug(
-                "parsed payload: %s" % json.dumps(payload_dict, indent=2)
+                "parsed payload: %s" % orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2)
             )            
             return payload_dict
         except Exception:
@@ -315,7 +315,7 @@ class ServerUtils:
         )
         MutyLogger.get_instance().debug(
             "file_path=%s,\npayload=%s,\nresult=%s"
-            % (cache_file_path, json.dumps(payload_dict, indent=2), result)
+            % (cache_file_path, orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2), result)
         )
 
         return (cache_file_path, payload_dict, result)

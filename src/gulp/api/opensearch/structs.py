@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
+import json
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
 
@@ -301,8 +302,7 @@ class GulpDocument(GulpBasicDocument):
             # anyway, we ensure timestamp is valid (iso8601 format) and extract the timestamp in nanoseconds from unix epoch
             if not ensure_extra_doc_timestamp:
                 # this is the default case, either timestamp has been passed through args when generating extra documents (and ensure_extra_doc_timestamp is true)
-                # import json
-                # print(json.dumps(data, indent=2))
+                # print(orjson.dumps(data, option=orjson.OPT_INDENT_2))
                 timestamp: str = data.get("timestamp", 0)
             ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(str(timestamp))
 

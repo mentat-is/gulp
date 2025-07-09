@@ -13,7 +13,7 @@ The endpoints are organized into several main operations:
 Most operations require admin-level permissions, as they can potentially delete or modify significant amounts of data.
 """
 
-import json
+import orjson
 from typing import Annotated
 
 import muty.log
@@ -285,7 +285,7 @@ async def _rebase_internal(
 
     # done
     MutyLogger.get_instance().debug(
-        "rebase done, result=%s" % (json.dumps(res, indent=2))
+        "rebase done, result=%s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2))
     )
     # signal the websocket
     wsq = GulpWsSharedQueue.get_instance()

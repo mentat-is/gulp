@@ -13,7 +13,7 @@ It can also be used as base for stacked plugins dealing with specific JSON forma
 """
 
 import asyncio
-import json
+import orjson
 import os
 from typing import Any, override
 
@@ -85,12 +85,12 @@ class Plugin(GulpPluginBase):
 
         # map
         final: dict = {}
-        print("processing record %d:\n%s" % (record_idx, json.dumps(d, indent=2)))
+        #print("processing record %d:\n%s" % (record_idx, orjson.dumps(d, option=orjson.OPT_INDENT_2)))
         for k, v in d.items():
             mapped = await self._process_key(k, v, final, **kwargs)
             final.update(mapped)
 
-        # MutyLogger.get_instance().debug("final mapped record:\n%s" % (json.dumps(final, indent=2)))
+        # MutyLogger.get_instance().debug("final mapped record:\n%s" % (orjson.dumps(final, option=orjson.OPT_INDENT_2)))
         return GulpDocument(
             self,
             operation_id=self._operation_id,
@@ -113,7 +113,7 @@ class Plugin(GulpPluginBase):
             async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
                 async for line in file:
                     try:
-                        parsed = json.loads(line)
+                        parsed = orjson.loads(line)
 
                         await self.process_record(
                             parsed,

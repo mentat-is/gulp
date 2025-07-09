@@ -15,7 +15,7 @@ Main functionalities:
 - Associating notes with contexts, sources, and documents
 """
 
-import json
+import orjson
 from typing import List, Optional, override
 
 from muty.log import MutyLogger
@@ -232,7 +232,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             if highlights:
                 # if highlights are present, add highlights to the text
                 text += "### matches\n\n"
-                text += "````json" + "\n" + json.dumps(highlights, indent=2) + "\n````"
+                text += "````json" + "\n" + orjson.dumps(highlights, option=orjson.OPT_INDENT_2).decode() + "\n````"
 
             text += "\n\n### query:\n\n"
             text += f"````text\n{str(source_q)}````"

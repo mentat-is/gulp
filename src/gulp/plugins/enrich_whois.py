@@ -27,17 +27,12 @@ import datetime
 import ipaddress
 import re
 import socket
-import json
+import orjson
 import urllib
 from typing import Any, Optional, override
 
-import muty.file
 import muty.dict
-import muty.log
 import muty.os
-import muty.string
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from ipwhois import IPWhois
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -540,9 +535,9 @@ class Plugin(GulpPluginBase):
                 single_entity_data_key: str = list(data_for_unification.keys())[0]
 
                 # dump only the data for that single entity
-                ud: str = json.dumps(
-                    data_for_unification[single_entity_data_key], indent=2
-                )
+                ud: str = orjson.dumps(
+                    data_for_unification[single_entity_data_key], option=orjson.OPT_INDENT_2
+                ).decode()
                 final_combined_enriched_data["unified_dump"] = ud
 
                 MutyLogger.get_instance().debug(
@@ -552,7 +547,7 @@ class Plugin(GulpPluginBase):
                 # multiple entities found (either via regex or potentially complex single input that resolved to multiple, though less likely for single path)
                 # or if it wasn't a single entity path but unify_dump is on
                 # dump the dictionary of all entities and their data
-                ud: str = json.dumps(data_for_unification, indent=2)
+                ud: str = orjson.dumps(data_for_unification, option=orjson.OPT_INDENT_2).decode()
                 final_combined_enriched_data["unified_dump"] = ud
                 MutyLogger.get_instance().debug(
                     f"unified dump created for {len(data_for_unification)} entities:\n{ud}"

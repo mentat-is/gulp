@@ -22,7 +22,7 @@ while inheriting common persistence and access control capabilities.
 """
 
 # pylint: disable=too-many-lines
-import json
+import orjson
 import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, List, Optional, TypeVar, override
@@ -1670,7 +1670,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "User %s get_by_filter_result: %s"
                 % (
                     s.user.id,
-                    json.dumps(data, indent=2),
+                    orjson.dumps(data, option=orjson.OPT_INDENT_2),
                 )
             )
 

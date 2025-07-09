@@ -16,7 +16,7 @@ async client interfaces.
 
 """
 
-import json
+import orjson
 from typing import Any, Optional
 
 import muty.string
@@ -300,7 +300,7 @@ if set, the query is **synchronous** and returns the preview chunk of documents,
         else:
             n["search_after"] = None
 
-        # MutyLogger.get_instance().debug("query options: %s" % (json.dumps(n, indent=2)))
+        # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2)))
         return n
 
 
@@ -387,7 +387,7 @@ class GulpQueryHelpers:
 
         MutyLogger.get_instance().debug(
             "GulpQueryHelpers.query_raw: index=%s, q=%s"
-            % (index, json.dumps(q, indent=2))
+            % (index, orjson.dumps(q, option=orjson.OPT_INDENT_2))
         )
 
         from gulp.api.opensearch_api import GulpOpenSearch

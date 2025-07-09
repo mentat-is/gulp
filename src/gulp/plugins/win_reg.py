@@ -7,20 +7,17 @@ extracting registry keys, values, and other metadata for analysis.
 The plugin supports parsing both complete registry hives and partial hives,
 with customizable starting paths for traversal.
 """
-import json
 import os
 from typing import Any, override
 
 import muty.crypto
 import muty.dict
 import muty.os
-import muty.string
-import muty.time
 from construct.core import EnumInteger
 from muty.log import MutyLogger
 from regipy.registry import RegistryHive, Subkey
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import orjson
 from gulp.api.collab.stats import (
     GulpRequestStats,
     PreviewDone,
@@ -101,7 +98,7 @@ class Plugin(GulpPluginBase):
                 else:
                     data = val.get("value", None)
 
-                values.append(json.dumps({name: data}))
+                values.append(orjson.dumps({name: data}).decode())
             except Exception as e:
                 MutyLogger.get_instance().error(e)
 

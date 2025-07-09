@@ -9,7 +9,7 @@ The plugin supports customizable parameters and implements the necessary methods
 for the Gulp ingestion pipeline, converting network packet data into searchable documents.
 """
 
-import json
+import orjson
 import os
 import pathlib
 from typing import Any, override
@@ -120,7 +120,7 @@ class Plugin(GulpPluginBase):
             d[layer_name].update(fields)
 
         # if this fails it is most likely a TypeError because of non JSON serializable type
-        json.dumps(d)
+        orjson.dumps(d)
         return d
 
     @override

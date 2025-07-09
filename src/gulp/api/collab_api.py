@@ -13,7 +13,7 @@ the module handles:
 """
 
 import asyncio
-import json
+import orjson
 import os
 import pkgutil
 import re
@@ -510,13 +510,13 @@ class GulpCollab:
             )
             for group in groups:
                 MutyLogger.get_instance().debug(
-                    json.dumps(group.to_dict(nested=True), indent=4)
+                    orjson.dumps(group.to_dict(nested=True), option=orjson.OPT_INDENT_2)
                 )
 
             # dump admin user
             MutyLogger.get_instance().debug("---> admin user:")
             MutyLogger.get_instance().debug(
-                json.dumps(admin_user.to_dict(nested=True), indent=4)
+                orjson.dumps(admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2)
             )
 
     @staticmethod

@@ -28,7 +28,7 @@ Example command line:
 from typing import Any, override
 
 import muty.os
-import muty.time
+import orjson
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -149,7 +149,7 @@ class Plugin(GulpPluginBase):
         #     "operation_id=%s, doc=\n%s"
         #     % (
         #         self._operation_id,
-        #         json.dumps(d, indent=2),
+        #         orjson.dumps(d, option=orjson.OPT_INDENT_2),
         #     )
         # )
 

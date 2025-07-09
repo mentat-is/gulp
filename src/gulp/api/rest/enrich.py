@@ -13,7 +13,7 @@ websocket communication for asynchronous operations.
 """
 
 from typing import Annotated
-
+import orjson
 import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
@@ -312,7 +312,7 @@ async def enrich_documents_handler(
             plugin_params=plugin_params,
         )
 
-        # print(json.dumps(kwds, indent=2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
         async def worker_coro(kwds: dict):
             await GulpProcess.get_instance().process_pool.apply(
                 _enrich_documents_internal, kwds=kwds
@@ -485,7 +485,7 @@ async def tag_documents_handler(
             tags=tags,
         )
 
-        # print(json.dumps(kwds, indent=2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
         async def worker_coro(kwds: dict):
             await GulpProcess.get_instance().process_pool.apply(
                 _tag_documents_internal, kwds=kwds

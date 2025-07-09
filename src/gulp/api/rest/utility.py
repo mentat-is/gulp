@@ -14,13 +14,12 @@ the Gulp platform through plugin and mapping management.
 """
 
 import base64
-import json
+import orjson
 import os
 from typing import Annotated
 
 import muty.file
 import muty.obj
-import muty.uploadfile
 import psutil
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
@@ -1084,7 +1083,7 @@ async def mapping_file_list_handler(
 
             # read file
             content = await muty.file.read_file_async(f)
-            js = json.loads(content)
+            js = orjson.loads(content)
 
             # get metadata
             mtd = js.get("metadata", {})

@@ -16,7 +16,7 @@ Features:
 import os
 import datetime
 import hashlib
-import json
+import orjson
 import mimetypes
 import zipfile
 from typing import Any, override
@@ -135,7 +135,7 @@ class Plugin(GulpPluginBase):
 
         # if keep_file is false, discard original files and only keep raw metadata
         if not keep_files:
-            event_original = json.dumps(d)
+            event_original = orjson.dumps(d).decode()
 
         # apply mappings
         final = {}

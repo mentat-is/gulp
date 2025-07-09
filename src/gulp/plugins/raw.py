@@ -8,7 +8,7 @@ NOTE: should this broadcast ingestion internal event ? at the moment, it doesn't
 it would slow down a lot and generate really tons of data on postgres!
 """
 
-import json
+import orjson
 from typing import override
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,7 +109,7 @@ class Plugin(GulpPluginBase):
             )
 
             # chunk is a list of dicts, each dict being a GulpDocument record
-            js = json.loads(chunk.decode("utf-8"))
+            js = orjson.loads(chunk.decode("utf-8"))
 
         except Exception as ex:
             await self._source_failed(ex)

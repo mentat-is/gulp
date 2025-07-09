@@ -21,7 +21,7 @@ and preview mode for testing without persistence.
 
 """
 
-import json
+import orjson
 import os
 from copy import deepcopy
 from typing import Annotated, Any, Optional
@@ -556,7 +556,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             preview_mode=preview_mode,
             delete_after=True,
         )
-        # print(json.dumps(kwds, indent=2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
         if preview_mode:
             # preview, return sync
             status, preview_chunk = await _ingest_file_internal(**kwds)
@@ -737,7 +737,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             preview_mode=preview_mode,
             delete_after=delete_after,
         )
-        # print(json.dumps(kwds, indent=2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
         if preview_mode:
             # preview, return sync
             status, preview_chunk = await _ingest_file_internal(**kwds)
@@ -921,7 +921,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             plugin=plugin,
             plugin_params=plugin_params,
         )
-        # print(json.dumps(kwds, indent=2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
 
         # spawn a task which runs the ingestion in a worker process's task
         async def worker_coro(kwds: dict):
@@ -956,7 +956,7 @@ async def _process_metadata_json(
     """
     # Read and parse metadata json
     js = await muty.file.read_file_async(os.path.join(unzipped_path, "metadata.json"))
-    metadata = json.loads(js)
+    metadata = orjson.loads(js)
 
     # process files entries
     files = []

@@ -25,7 +25,7 @@ CSV plugin support the following custom parameters in the plugin_params.extra di
 import os
 from typing import override
 from datetime import datetime
-
+import orjson
 import aiofiles
 import muty.dict
 import muty.os
@@ -97,7 +97,7 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         date_format = kwargs.get("date_format")
 
-        # MutyLogger.get_instance().debug("processing record:\n%s" % (json.dumps(record,indent=2)))
+        # MutyLogger.get_instance().debug("processing record:\n%s" % (orjson.dumps(record, option=orjson.OPT_INDENT_2)))
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]

@@ -14,6 +14,7 @@ import asyncio
 import os
 import ssl
 import sys
+import orjson
 from typing import Any, Coroutine
 
 import asyncio_atexit
@@ -461,12 +462,12 @@ class GulpRestServer:
 
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler
-        """import json
-
+        """
         from gulp.api.opensearch_api import GulpOpenSearch
         api = GulpOpenSearch.get_instance()
         p = await api.index_template_get("test_operation")
-        MutyLogger.get_instance().info(json.dumps(p, indent=2))"""
+        MutyLogger.get_instance().info(orjson.dumps(p, option=orjson.OPT_INDENT_2))
+        """
         return
 
     async def _lifespan_handler(self, app: FastAPI):

@@ -17,7 +17,7 @@ fields to include in query results.
 
 from enum import IntEnum
 from typing import Optional, override
-
+import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
@@ -368,7 +368,7 @@ include documents matching the given `gulp.source_id`/s.
             # merge with the provided filter using a bool query
             bool_dict["filter"] = [flt.to_opensearch_dsl()["query"]]
 
-        # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, json.dumps(query_dict, indent=2)))
+        # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, orjson.dumps(query_dict, option=orjson.OPT_INDENT_2)))
         return query_dict
 
     def merge_to_opensearch_dsl(self, dsl: dict) -> dict:

@@ -14,7 +14,7 @@ using the Gulp framework.
 """
 
 import asyncio
-import json
+import orjson
 import os
 from typing import TYPE_CHECKING
 
@@ -63,7 +63,7 @@ async def _get_sigma_mappings(
             m.mapping_file
         )
         file_content = await muty.file.read_file_async(mapping_file_path)
-        mapping_data = json.loads(file_content)
+        mapping_data = orjson.loads(file_content)
         mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
         sigma_mappings = mapping_file_obj.sigma_mappings
         if not sigma_mappings:
@@ -383,7 +383,7 @@ async def sigmas_to_queries(
     for q in queries:
         # dump each query
         MutyLogger.get_instance().debug(
-            "query[%d]: %s" % (count, json.dumps(q.q, indent=2))
+            "query[%d]: %s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
         )
         count += 1
 
@@ -700,7 +700,7 @@ async def sigma_convert_default(
         # count: int =0
         # for q in qs:
         #     MutyLogger.get_instance().debug(
-        #         "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))
+        #         "sigma_convert_default, q[%d]:\n%s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
         #     )
         #     count += 1
         return qs
@@ -754,7 +754,7 @@ async def sigma_convert_default(
     # count: int=0
     # for q in qs:
     #     MutyLogger.get_instance().debug(
-    #         "sigma_convert_default, q[%d]:\n%s" % (count, json.dumps(q.q, indent=2))
+    #         "sigma_convert_default, q[%d]:\n%s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
     #     )
     #     count += 1
     return qs
